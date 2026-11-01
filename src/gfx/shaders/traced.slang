@@ -159,9 +159,8 @@ float4 TracedSample(uint viewId, float4 texCoords[3], float3 weights, float worl
 // map), lit as the voxels are (the lights of its cell of the finest clip holding it, see GiDirectRadiance, each with a
 // shadow ray; every light where the indirect lighting is off) and by the indirect lighting at it (the probes' diffuse,
 // and the environment's specular as much as they see of it, as Shade's), plus its emission. not the emissive surfaces'
-// light where they are lights (see EmitterIrradiance, a screen's worth of traced pixels). a back face of a single sided
-// triangle (seen from inside something, or a plane seen from behind) is shaded as if double sided. coneWidth: the ray's
-// cone's width at the hit
+// light where they are lights (see EmitterIrradiance, a screen's worth of traced pixels). a double sided triangle's back
+// face as its front (see TracedRadiance for a single sided one's). coneWidth: the ray's cone's width at the hit
 float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float coneWidth)
 {
 	uint frameIndex = gPushConstants.frameIndex;
@@ -314,9 +313,13 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 // it up: the sky's sun, and a panorama's dominant lights, only where that is under the first prefiltered level's, see
 // EnvironmentRadiance; a rougher surface's highlight is theirs as lights, and a glossy ray meeting the sun's disk took
 // it twice, a sample thousands of times the sky's). cone: the ray's at origin. t: how far it met something
-// (kTracedMissDistance where nothing)
-float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float roughness, out float t)
+// (kTracedMissDistance where nothing). valid: false where it met a single sided triangle's back, which says it started
+// inside something or looks where the triangle isn't drawn from, so what it would show isn't known here: the callers keep
+// what the shading would have taken without it. shaded, such a hit was black (from inside, every light's shadowed and the
+// probes see nothing): USDShaderBallForGltf's glass shell, its refraction leaving at its thickness inside the core
+float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float roughness, out float t, out bool valid)
 {
+	valid = true;
 	BvhHit hit = BvhTraceScene(origin, direction, kTracedFar, false, true, GiAlphaMask());
 	if (!BvhHitSomething(hit))
 	{
@@ -324,22 +327,21 @@ float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float ro
 		return EnvironmentRadiance(gEnvironment[0], direction, roughness);
 	}
 	t = hit.t;
+	if (!hit.frontFace && (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) == 0u)
+	{
+		valid = false;
+		return 0.0;
+	}
 	return TracedHitRadiance(direction, hit, origin + direction * hit.t, cone.width + cone.spread * hit.t);
-}
-
-float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone)
-{
-	float t;
-	return TracedRadiance(origin, direction, cone, 0.0, t);
 }
 
 // the radiance a surface at position reflects along direction from (its reflection's dominant direction, see Shade, or
 // a direction of its lobe, see TracedGlossyReflection, whose width widens the cone: spread). the ray starts off the
 // surface on the side it goes to (the geometry's, facing the viewer), by a pixel and a half and a ten thousandth of the
 // distance from the eye (the depth's and the structures' rounding), as the traced shadows' rays do; a normal map that
-// turns it below the geometry has it skim the surface instead, which it would otherwise meet at once. roughness, t: as
-// TracedRadiance's
-float3 TracedReflection(float3 position, float3 geometryNormal, float3 direction, float spread, float roughness, out float t)
+// turns it below the geometry has it skim the surface instead, which it would otherwise meet at once. roughness, t,
+// valid: as TracedRadiance's
+float3 TracedReflection(float3 position, float3 geometryNormal, float3 direction, float spread, float roughness, out float t, out bool valid)
 {
 	TracedCone cone = TracedPixelCone(position);
 	cone.spread += spread;
@@ -348,13 +350,13 @@ float3 TracedReflection(float3 position, float3 geometryNormal, float3 direction
 		direction = normalize(direction - geometryNormal * below);
 	float3 eye = gViewData[gPushConstants.frameIndex][gShadingViewId].eyePosition.xyz;
 	float push = max(1.5 * cone.width, 1e-4 * distance(eye, position));
-	return TracedRadiance(position + geometryNormal * push, direction, cone, roughness, t);
+	return TracedRadiance(position + geometryNormal * push, direction, cone, roughness, t, valid);
 }
 
-float3 TracedReflection(float3 position, float3 geometryNormal, float3 direction)
+float3 TracedReflection(float3 position, float3 geometryNormal, float3 direction, out bool valid)
 {
 	float t;
-	return TracedReflection(position, geometryNormal, direction, 0.0, 0.0, t);
+	return TracedReflection(position, geometryNormal, direction, 0.0, 0.0, t, valid);
 }
 
 // a pixel's point of the unit square for the frame: Roberts' R2 sequence over the frames, offset per pixel by interleaved
@@ -389,8 +391,9 @@ float3 TracedVisibleNormal(float3 view, float alpha, float2 u)
 // the visibility buffer's glossy reflection at its pixel (see Shade): a ray along view reflected about a normal of the
 // GGX lobe of the roughness (TracedVisibleNormal; the mirror direction where that falls below the surface), its radiance
 // and how far it met something: one sample, which the Reflection passes filter over the surface and over frames, and the
-// average of which is the lobe's (what the split sum's first term prefilters the environment by)
-float4 TracedGlossyReflection(float3 position, float3 geometryNormal, float3 normal, float3 view, float roughness, uint2 pixel)
+// average of which is the lobe's (what the split sum's first term prefilters the environment by). valid: as
+// TracedRadiance's
+float4 TracedGlossyReflection(float3 position, float3 geometryNormal, float3 normal, float3 view, float roughness, uint2 pixel, out bool valid)
 {
 	float alpha = max(roughness * roughness, 1e-3);
 	float3 tangent = normalize(abs(normal.z) < 0.999 ? cross(float3(0.0, 0.0, 1.0), normal) : cross(float3(1.0, 0.0, 0.0), normal));
@@ -401,7 +404,7 @@ float4 TracedGlossyReflection(float3 position, float3 geometryNormal, float3 nor
 	if (dot(direction, normal) <= 0.0)
 		direction = reflect(-view, normal);
 	float t;
-	float3 radiance = TracedReflection(position, geometryNormal, direction, alpha, roughness, t);
+	float3 radiance = TracedReflection(position, geometryNormal, direction, alpha, roughness, t, valid);
 	// a sample far brighter than white at the view's exposure is taken as a few times that: one that met what is very
 	// bright (a lamp's bulb, the sun's glint off a mirror), which the filter spread into a square, alone among its
 	// neighbors'; tonemapped, they look the same
@@ -413,17 +416,20 @@ float4 TracedGlossyReflection(float3 position, float3 geometryNormal, float3 nor
 	return float4(radiance, min(t, kTracedMissDistance));
 }
 
-// the light through a transmissive surface at position, along the refracted ray from where it leaves the volume (exit,
-// see TransmittedLight: the transmissive surfaces aren't in the acceleration structures, see bvh::Triangles, so it
-// meets neither its own back nor other glass)
-float3 TracedRefraction(float3 position, float3 exit, float3 direction)
+// the light through a transmissive surface at position, along the refracted ray from the surface: the transmissive
+// surfaces aren't in the acceleration structures (see bvh::Triangles), so it passes through its own volume and meets
+// what is behind it (nor other glass). not from where the screen space lookup has it leave the volume (at the material's
+// thickness along the ray, see TransmittedLight): USDShaderBallForGltf's glass shell has a thickness of up to 8.9 in a
+// model a tenth of a unit across, which put the exit inside the core (its back met: black) or past everything (the
+// environment's), a wavy border between the two. what that leaves out is a thick slab's sideways shift. valid: as
+// TracedRadiance's
+float3 TracedRefraction(float3 position, float3 direction, out bool valid)
 {
 	TracedCone cone = TracedPixelCone(position);
-	float travelled = distance(position, exit);
-	cone.width += cone.spread * travelled;
 	float3 eye = gViewData[gPushConstants.frameIndex][gShadingViewId].eyePosition.xyz;
 	float push = max(cone.width, 1e-4 * distance(eye, position));
-	return TracedRadiance(exit + direction * push, direction, cone);
+	float t;
+	return TracedRadiance(position + direction * push, direction, cone, 0.0, t, valid);
 }
 #endif
 

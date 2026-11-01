@@ -43,8 +43,10 @@ float3 TransmittedLight(
 	// surface or out of the view alike, sharp where the texture's mips wouldn't blur it much (see TracedShare)
 #if BVH_RAY_QUERY
 	float traced = TracedRefractionsOn() ? TracedShare(roughness * saturate(ior * 2.0 - 2.0)) : 0.0;
-	if (traced > 0.0)
-		light = lerp(light, TracedRefraction(position, exit, ray), traced);
+	bool valid = false;
+	float3 tracedLight = traced > 0.0 ? TracedRefraction(position, ray, valid) : 0.0;
+	if (valid)
+		light = lerp(light, tracedLight, traced);
 #endif
 
 	if (attenuationDistance > 0.0)

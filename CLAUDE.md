@@ -1292,10 +1292,17 @@ smooth (`sqrt(2 / (Ns + 2))`, 0.14 at 96) and their `Ks` their specular faint: t
 and changed nothing to see. Gated at 0.01 to 0.03, a faint lacquered door and pilasters in Bistro lost the dusk sky their
 reflections traced, and took back the probes' light along them, the lit interior's leaking through (orange). The ray starts
 off the geometry on the viewer's side by a pixel and a half, as the traced shadows' (a normal map turning it below the
-geometry has it skim the surface). `TransmittedLight` traces the refracted ray from where it leaves the volume
-(`TracedRefraction`: the screen space lookup's exit; the transmissive surfaces aren't in the structures, so it meets neither
-its own back nor other glass), sharp where the transmission texture's mips wouldn't blur it much (`roughness * saturate(2
-ior - 2)`), what is behind out of the view as well. A hit is shaded in `TracedHitRadiance`: its material at its texcoords
+geometry has it skim the surface). `TransmittedLight` traces the refracted ray from the surface (`TracedRefraction`: the
+transmissive surfaces aren't in the structures, so it passes through its own volume and meets neither its own back nor
+other glass), sharp where the transmission texture's mips wouldn't blur it much (`roughness * saturate(2 ior - 2)`), what is
+behind out of the view as well. It used to start where the screen space lookup has the ray leave the volume, at the
+material's thickness: USDShaderBallForGltf's glass shell has a thickness of up to 8.9 around a core a tenth of a unit
+across, so its rays started inside the core (its back met, shaded black) or past everything (the sky), a wavy border
+between the two (the user's pose `0.0069,0.0526,0.0899,13.528,-7.460`); from the surface they meet the core through the
+shell, and DragonAttenuation, with nothing inside its volume, is the same to 0.15 of 255 (what that leaves out is a thick
+slab's sideways shift). A ray that meets a single sided triangle's back (`TracedRadiance`'s `valid`: it started inside
+something, or looks where the triangle isn't drawn from) is dropped, and the shading keeps what it would have taken
+without it. A hit is shaded in `TracedHitRadiance`: its material at its texcoords
 (base color, metallic and roughness, emission; not the extensions' layers nor its normal map) at the mip level a ray cone
 picks (Akenine-Moller et al.: the pixel's width and angle where the ray starts, `TracedPixelCone`, against the triangle's
 texels per area; without one a reflected texture shimmers), the vertices' normal placed by its instance

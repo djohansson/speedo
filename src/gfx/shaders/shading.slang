@@ -162,7 +162,11 @@ float3 Shade(Surface surface, float3 view, float3 position)
 			tracedShare = shown ? TracedGlossyShare(roughness, strength) : 0.0;
 			if (tracedShare > 0.0)
 			{
-				float4 sample = TracedGlossyReflection(position, surface.geometryNormal, normal, view, roughness, gFragmentPixel);
+				bool valid;
+				float4 sample = TracedGlossyReflection(position, surface.geometryNormal, normal, view, roughness, gFragmentPixel, valid);
+				// where what the ray met isn't known (see TracedRadiance), the probes' and the environment's, unblurred
+				if (!valid)
+					sample = float4(environmentRadiance, 0.0);
 				float3 weight = debugView == DEBUG_VIEW_TRACED_REFLECTIONS ? float3(tracedShare) : surface.occlusion * environmentSpecular * tracedShare;
 				TracedReflectionStore(gFragmentPixel, sample, float4(weight, roughness));
 				environmentRadiance *= 1.0 - tracedShare;
@@ -171,8 +175,12 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		else
 		{
 			tracedShare = TracedShare(roughness, strength);
-			if (tracedShare > 0.0)
-				environmentRadiance = lerp(environmentRadiance, TracedReflection(position, surface.geometryNormal, reflected), tracedShare);
+			bool valid = false;
+			float3 traced = tracedShare > 0.0 ? TracedReflection(position, surface.geometryNormal, reflected, valid) : 0.0;
+			if (valid)
+				environmentRadiance = lerp(environmentRadiance, traced, tracedShare);
+			else
+				tracedShare = 0.0;
 		}
 	}
 #endif
@@ -214,8 +222,10 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		float coatStrength = surface.occlusion * surface.clearcoat *
 							 EnvironmentBrdfApprox(float3(0.04), 1.0, surface.clearcoatRoughness, coatNDotV).g;
 		float coatTraced = TracedReflectionsOn() ? TracedShare(surface.clearcoatRoughness, coatStrength) : 0.0;
-		if (coatTraced > 0.0)
-			coatRadiance = lerp(coatRadiance, TracedReflection(position, surface.geometryNormal, coatReflected), coatTraced);
+		bool coatValid = false;
+		float3 coatTracedRadiance = coatTraced > 0.0 ? TracedReflection(position, surface.geometryNormal, coatReflected, coatValid) : 0.0;
+		if (coatValid)
+			coatRadiance = lerp(coatRadiance, coatTracedRadiance, coatTraced);
 #endif
 		result = result * (1.0 - coatFresnel) +
 				 surface.occlusion * surface.clearcoat * EnvironmentBrdfApprox(float3(0.04), 1.0, surface.clearcoatRoughness, coatNDotV) *
