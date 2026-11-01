@@ -1926,7 +1926,18 @@ dappled sunlight, where the CWBVH's compressed triangles lose precision; clean u
 (`MTL_DEBUG_LAYER=1`). Settled frame times at the benchmark poses (2560x1440, GI on, interleaved runs), ray queries
 against the BVHs: Bistro 40.6 against 43.6 ms, Sponza 26.3 against 26.0, San Miguel 48.7 against 47.1; warming up 47.9
 against 54.8, 28.0 against 28.8, 53.1 against 55.4. Metal compacts: Bistro's static structure 258 to 145 MB, San Miguel's
-906 to 572. Never run several ray query clients at once there (`assettest.ps1` runs them one at a time when
+906 to 572. On NVIDIA (RTX 4070 Ti SUPER, driver 610.88, Windows; 2026-11-01, the benchmark poses at 2560x1440, GI on,
+balanced, immediate presentation, two interleaved runs of each): settled frame times Bistro 5.9 and 6.1 ms against 10.2
+and 10.4, San Miguel 7.1 against 10.1 and 10.7, Sponza 4.4 and 4.5 against 5.6; by the passes' gpu timings, the GI pass
+(the probes' rays and the resolve's visibility) 5.80 to 1.83 ms at Bistro, 4.48 to 1.40 at San Miguel and 2.62 to 1.34 at
+Sponza, the near field's rays, the emitters' shadow rays and the traced shadows a few tenths each, and GI Light Static (the
+voxels' shadow rays, when the lights or the voxels change) 18.5 to 4.8 at Bistro. BrainStem (all of it moving) 4.9 ms
+against 14.5: the BVHs' draw thread waits on the moving tree's refit and copy on the cpu (the gpu's frame 3.4 against
+4.6). The captures differ from the BVHs' as much as each path's runs from each other (Bistro 0.39 of 255 against 0.37 and
+0.41; Sponza 0.13 to 0.20 against 0.10 to 0.17), San Miguel's a little more (0.57 and 0.61 against 0.47 and 0.50: its
+leaves' dappled light, the CWBVH's precision). NVIDIA compacts Bistro's structure 189.5 to 82.9 MB (its CWBVH is 214.6
+MB), San Miguel's 666.8 to 212.9. Clean under the validation layer (Sponza, BrainStem, DiffuseTransmissionPlant, logged
+to a file, see the presentation test's paragraph), and the quick tier passes, profile. Never run several ray query clients at once on KosmicKrisp (`assettest.ps1` runs them one at a time when
 `MESA_KK_EXPERIMENTAL` has `ray_query`): four, or a small model beside a big one, made the gpu restart ("CDM Kill
 timeout" in `/Library/Logs/DiagnosticReports/gpuEvent-client-*.ips`, the clients losing the device with
 `MTL4CommandQueueErrorTimeout`), clients stuck exiting, and an hour later the machine panicked (IOKit's termination queue
