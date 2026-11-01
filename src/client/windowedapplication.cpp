@@ -60,17 +60,20 @@ bool RecreateWindowDependentObjects(RHI& rhi, platform::Window& window)
 	if (extent.width == 0 || extent.height == 0)
 		return false;
 
-	// from the previous one (oldSwapchain), unless a window change released it first (see Draw)
+	// from the previous one (oldSwapchain), unless a window change released it first (see Draw). none if the window was
+	// minimized since the check above (the device's wait takes a while): its size is the one that counts
 	device.WaitIdle();
-	swapchain.CreateSwapchain();
+	if (!swapchain.CreateSwapchain())
+		return false;
+	extent = swapchain.GetDesc().extent;
 	rhi::CrashEvent(std::format(
-		"swapchain made: {}x{}, {}, {} images", swapchain.GetDesc().extent.width, swapchain.GetDesc().extent.height,
-		PresentationModeName(swapchain.GetPresentationMode()), swapchain.GetImageCount()));
+		"swapchain made: {}x{}, {}, {} images", extent.width, extent.height, PresentationModeName(swapchain.GetPresentationMode()),
+		swapchain.GetImageCount()));
 
 	// the window's size in screen coordinates, as its framebuffer's (the swapchain's) over its content scale
 	auto& state = window.GetState();
-	state.width = static_cast<uint32_t>(static_cast<float>(swapchain.GetDesc().extent.width) / state.xscale);
-	state.height = static_cast<uint32_t>(static_cast<float>(swapchain.GetDesc().extent.height) / state.yscale);
+	state.width = static_cast<uint32_t>(static_cast<float>(extent.width) / state.xscale);
+	state.height = static_cast<uint32_t>(static_cast<float>(extent.height) / state.yscale);
 
 	App().GetViews().OnResizeFramebuffer({extent.width, extent.height});
 	App().GetScene().Resize();
@@ -178,7 +181,7 @@ bool WindowedApplication::Draw()
 	}
 
 	// exclusive fullscreen takes the monitor (see Swapchain::SetExclusiveFullscreen), recreating the swapchain below when
-	// it changes
+	// it changes, and where the system refused it (composited meanwhile), when the window comes to the foreground
 	{
 		const auto& state = window.GetState();
 		swapchain.SetExclusiveFullscreen(

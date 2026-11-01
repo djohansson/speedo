@@ -395,6 +395,16 @@ void* PlatformGetWin32Monitor(WindowHandle window)
 #endif
 }
 
+bool PlatformIsWin32Foreground(WindowHandle window)
+{
+#if defined(_WIN32)
+	return GetForegroundWindow() == glfwGetWin32Window(reinterpret_cast<GLFWwindow*>(window)); //NOLINT(performance-no-int-to-ptr)
+#else
+	(void)window;
+	return true;
+#endif
+}
+
 int32_t PlatformCreateVulkanSurface(WindowHandle window, void* instance, const void* allocator, void* surface)
 {
 	return static_cast<int32_t>(glfwCreateWindowSurface(

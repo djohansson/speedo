@@ -1,4 +1,5 @@
 #include <rhi/capi.h>
+#include <rhi/crashreport.h>
 #include <rhi/device.h>
 #include <rhi/rhi.h>
 #include <rhi/swapchain.h>
@@ -355,10 +356,25 @@ uint32_t Swapchain<kVk>::GetPresentationModes() const
 template <>
 void Swapchain<kVk>::SetExclusiveFullscreen(WindowHandle window) noexcept
 {
-	if (window == myExclusiveWindow)
+	if (window != myExclusiveWindow)
+	{
+		myExclusiveWindow = window;
+		myExclusiveRefused = false;
+		myNeedsRecreate = true;
 		return;
-	myExclusiveWindow = window;
-	myNeedsRecreate = true;
+	}
+	// refused (see CreateSwapchain): again once the window comes to the foreground, not while it stays there (what
+	// refused it then, e.g. an overlay, would refuse it every frame)
+	if (myExclusiveRefused)
+	{
+		bool foreground = PlatformIsWin32Foreground(window);
+		if (foreground && !myExclusiveForeground)
+		{
+			myExclusiveRefused = false;
+			myNeedsRecreate = true;
+		}
+		myExclusiveForeground = foreground;
+	}
 }
 
 template <>
@@ -377,7 +393,7 @@ void Swapchain<kVk>::InternalDestroySwapchain(SwapchainHandle<kVk> swapchain)
 }
 
 template <>
-void Swapchain<kVk>::CreateSwapchain()
+bool Swapchain<kVk>::CreateSwapchain()
 {
 	ZoneScopedN("Swapchain::CreateSwapchain");
 
@@ -388,6 +404,15 @@ void Swapchain<kVk>::CreateSwapchain()
 	// a currentExtent of 0xFFFFFFFF means the surface size is determined by the swapchain: keep the current extent.
 	GetInstance().UpdateSurfaceCapabilities(device.GetPhysicalDevice(), GetSurface());
 	const auto& capabilities = GetInstance().GetSwapchainInfo(device.GetPhysicalDevice(), GetSurface()).capabilities;
+	// none while the window is minimized (VUID-VkSwapchainCreateInfoKHR-imageExtent-01689): the previous one is kept, and
+	// made again later. the caller's check of the extent isn't enough: the window can be minimized after it (windows
+	// minimizes exclusive fullscreen when it loses the focus), and a swapchain of 0x0 was made, whose renderer's images of
+	// no area NVIDIA's driver refused (VK_ERROR_INITIALIZATION_FAILED in vkCreateImage)
+	if (capabilities.currentExtent.width == 0 || capabilities.currentExtent.height == 0)
+	{
+		myNeedsRecreate = true;
+		return false;
+	}
 	if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
 		InternalGetDesc().extent = vk::FromVk(capabilities.currentExtent);
 
@@ -426,15 +451,38 @@ void Swapchain<kVk>::CreateSwapchain()
 	info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 	info.presentMode = GetDesc().presentMode;
 	info.clipped = VK_TRUE;
-	info.oldSwapchain = previous;
+
+	// made from previous, which is then destroyed (its acquire fences waited for: they reference it)
+	auto make = [&]
+	{
+		info.oldSwapchain = previous;
+		VK_CHECK(vkCreateSwapchainKHR(
+			device,
+			&info,
+			&GetInstance().GetHostAllocationCallbacks(),
+			&mySwapchain));
+
+		if (previous != VK_NULL_HANDLE)
+		{
+			for (const auto& acquireFence : myAcquireFences)
+				acquireFence.Wait();
+			myAcquireFences.clear();
+
+			InternalDestroySwapchain(previous);
+		}
+
+		Track(static_cast<VkDevice>(device), VK_OBJECT_TYPE_SWAPCHAIN_KHR, mySwapchain, GetName());
+		previous = mySwapchain;
+	};
 
 #if defined(_WIN32)
-	// exclusive fullscreen, where the window is in it (see SetExclusiveFullscreen): application controlled, so it is
-	// taken (below) only then, and the window's monitor named, as the extension needs for a surface of a window
+	// exclusive fullscreen, where the window is in it (see SetExclusiveFullscreen) and it wasn't refused since:
+	// application controlled, so it is taken (below) only then, and the window's monitor named, as the extension needs
+	// for a surface of a window
 	const auto& fullScreenExclusive = swapchain::GetFullScreenExclusive(device, device.GetPhysicalDevice());
 	VkSurfaceFullScreenExclusiveWin32InfoEXT exclusiveWin32Info{.sType = VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_WIN32_INFO_EXT};
 	VkSurfaceFullScreenExclusiveInfoEXT exclusiveInfo{.sType = VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_INFO_EXT};
-	bool exclusive = myExclusiveWindow != kInvalidWindowHandle && fullScreenExclusive.acquire != nullptr;
+	bool exclusive = myExclusiveWindow != kInvalidWindowHandle && fullScreenExclusive.acquire != nullptr && !myExclusiveRefused;
 	if (exclusive)
 	{
 		exclusiveWin32Info.hmonitor = static_cast<HMONITOR>(PlatformGetWin32Monitor(myExclusiveWindow));
@@ -444,32 +492,35 @@ void Swapchain<kVk>::CreateSwapchain()
 	}
 #endif
 
-	VK_CHECK(vkCreateSwapchainKHR(
-		device,
-		&info,
-		&GetInstance().GetHostAllocationCallbacks(),
-		&mySwapchain));
-
-	if (previous != VK_NULL_HANDLE)
-	{
-		// acquire fences reference the previous swapchain, so they must be waited on before it is destroyed
-		for (const auto& acquireFence : myAcquireFences)
-			acquireFence.Wait();
-		myAcquireFences.clear();
-
-		InternalDestroySwapchain(previous);
-	}
-
-	Track(static_cast<VkDevice>(device), VK_OBJECT_TYPE_SWAPCHAIN_KHR, mySwapchain, GetName());
+	make();
 
 #if defined(_WIN32)
-	// fails where the window hasn't the focus (VK_ERROR_INITIALIZATION_FAILED): it presents composited then, and a lost
-	// exclusive mode (a present's VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) recreates it, which tries again
+	// refused (VK_ERROR_INITIALIZATION_FAILED) where the window isn't in the foreground (a window made behind another, a
+	// click away), or for reasons of the system's (NVIDIA's 610.88 refused it in the foreground too, every try for 3 s
+	// after a switch): an application controlled swapchain without it presents nothing (its presents fail, MODE_LOST), so
+	// it is made again without, composited, until the window comes to the foreground (see SetExclusiveFullscreen) or goes
+	// into exclusive fullscreen again. recreated as out of date at each MODE_LOST, as it
+	// was, the acquire failed again each time, and the swapchain was made every frame, on and on. a lost exclusive mode
+	// (a present's MODE_LOST) recreates it, which tries again
 	if (exclusive)
 	{
 		auto result = fullScreenExclusive.acquire(device, mySwapchain);
 		myExclusiveAcquired = result == VK_SUCCESS;
-		std::println("swapchain: exclusive fullscreen {}", myExclusiveAcquired ? "acquired" : std::format("not acquired ({})", static_cast<int>(result)));
+		if (myExclusiveAcquired)
+			std::println("swapchain: exclusive fullscreen acquired");
+		else
+		{
+			myExclusiveForeground = PlatformIsWin32Foreground(myExclusiveWindow);
+			std::println(
+				"swapchain: exclusive fullscreen refused ({}, {}): composited until the window comes to the foreground",
+				string_VkResult(result), myExclusiveForeground ? "in the foreground" : "in the background");
+			rhi::CrashEvent(std::format(
+				"exclusive fullscreen refused ({}, {}): composited", string_VkResult(result),
+				myExclusiveForeground ? "in the foreground" : "in the background"));
+			myExclusiveRefused = true;
+			info.pNext = nullptr;
+			make();
+		}
 	}
 #endif
 
@@ -513,6 +564,8 @@ void Swapchain<kVk>::CreateSwapchain()
 
 	myFrameIndex = frameCount - 1;
 	myNeedsRecreate = false;
+
+	return true;
 }
 
 template <>
@@ -529,6 +582,8 @@ void Swapchain<kVk>::Swap(Swapchain& rhs) noexcept
 	std::swap(myHasPresented, rhs.myHasPresented);
 	std::swap(myExclusiveWindow, rhs.myExclusiveWindow);
 	std::swap(myExclusiveAcquired, rhs.myExclusiveAcquired);
+	std::swap(myExclusiveRefused, rhs.myExclusiveRefused);
+	std::swap(myExclusiveForeground, rhs.myExclusiveForeground);
 }
 
 template <>

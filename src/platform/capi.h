@@ -58,6 +58,10 @@ PLATFORM_API int32_t PlatformCreateVulkanSurface(WindowHandle window, void* inst
 // the monitor the window is (mostly) on, as Windows' HMONITOR, for rhi's exclusive fullscreen
 // (VK_EXT_full_screen_exclusive); null elsewhere
 PLATFORM_API void* PlatformGetWin32Monitor(WindowHandle window);
+// whether the window is Windows' foreground window, which exclusive fullscreen is only granted to (glfw's focus isn't
+// that: a window made behind another has its thread's focus, and a click bringing it to the foreground changes none);
+// true elsewhere. any thread
+PLATFORM_API bool PlatformIsWin32Foreground(WindowHandle window);
 
 // the window the application draws its user interface in, and parents its dialogues to. only the first window set
 // counts; until then, kInvalidWindowHandle.

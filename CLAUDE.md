@@ -33,14 +33,24 @@ Notes for working in this codebase, distilled from real build failures.
   the monitor, `VK_EXT_full_screen_exclusive`, application controlled, `Swapchain::SetExclusiveFullscreen` with the
   window's `PlatformGetWin32Monitor`: without it NVIDIA's driver composited the window covering the monitor, and the
   display's variable refresh rate never engaged, under fifo or mailbox; a lost exclusive mode recreates the swapchain,
-  as out of date), borderless (an
+  as out of date; refused, `VK_ERROR_INITIALIZATION_FAILED`, it is made composited until the window comes to the
+  foreground, `PlatformIsWin32Foreground`, which `SetExclusiveFullscreen` checks each frame meanwhile (glfw's focus
+  events don't tell: a window made behind another has its thread's focus, and the click that brings it to the foreground
+  sends none): an application controlled swapchain without it presents nothing, its presents failing as lost, and it
+  was made again every frame, refused each time, until the window was minimized between
+  `RecreateWindowDependentObjects`' check of its size and the swapchain's, a swapchain of 0x0 whose renderer's images
+  NVIDIA's driver refused; `CreateSwapchain` makes none of no area now. On 2026-11-01, driver 610.88, RTX 4070 Ti SUPER,
+  it was refused with the window in the foreground too, every try for 3 s after a switch, and the composited window's
+  variable refresh rate engaged anyway under fifo, not under mailbox: switching to fifo, the display froze for a couple
+  of seconds while it did, the draw thread's longest frame 136 ms), borderless (an
   undecorated window covering the monitor, on every platform; on macOS with the menu bar and dock hidden, and composited)
   or, on macOS, native (its own space). Exclusive and native
   let macOS scan the swapchain out directly, which flickered with KosmicKrisp from mesa 26.2 (frames out of order), so
   borderless was the only mode for a while; with mesa main (8fc4981) all three work. The same menu sets the swapchain's
   presentation (`Swapchain::Configure`: `rhi::PresentationMode`, FIFO, FIFO relaxed, mailbox or immediate, of those the
   surface has, and an image count, applied by `Draw`, which recreates the swapchain; KosmicKrisp has FIFO and immediate,
-  and takes exactly 3 images; at startup the swapchain takes mailbox, else FIFO relaxed, else FIFO), as
+  and takes exactly 3 images; at startup the swapchain takes FIFO, with 3 images where the surface allows: mailbox, the
+  default where the surface had it until 2026-11-01, never engaged the display's variable refresh rate), as
   `SPEEDO_PRESENT_MODE` and `SPEEDO_SWAPCHAIN_IMAGE_COUNT` do at startup. The counts asked for stay within the surface's
   limits and the application's (`RHIInitializationData::maxSwapchainImageCount`, the client's
   `SHADER_TYPES_OUTPUT_IMAGE_COUNT`, 8: ComputeMain's storage view of each image is a `gRWTextures` slot), which
@@ -555,7 +565,7 @@ frame's output index (`FrameInputs::outputIndex`, `PushConstants::outputIndex`),
 ComputeMain's and the UI blur's storage view of it (`gRWTextures` slots below `SHADER_TYPES_OUTPUT_IMAGE_COUNT`), the UI
 pass's render target and the capture. The frame index used to be the image: fifo hands the images out in turn, but
 mailbox and immediate needn't (an image a newer frame replaced comes back at once), so a frame still on the gpu read
-buffers the next frame wrote over: once, on Windows with mailbox (the default where the surface has it), Sponza's
+buffers the next frame wrote over: once, on Windows with mailbox (then the default where the surface had it), Sponza's
 indirect lighting kept a probe state no frame would have made and stayed black and blown out at one pose; with fifo it
 never showed, and KosmicKrisp has no mailbox, so the mac never saw it. A wait for the image's last frame fixed that,
 but stalled whenever mailbox handed back the image just drawn. The queue ring's fences (`queues.FetchAdd()`) can't
@@ -2638,7 +2648,7 @@ also loads each model in the client (`SPEEDO_AUTOLOAD_EXIT=<frames>` makes it ex
 autoloads have installed and `SPEEDO_CAMERA` has placed the views: counted in the ui's frames, which run ahead of the
 draw thread's, a big model's install and a capture of it came apart), and
 `SPEEDO_BACKGROUND=1` opens its window behind the others without taking the focus, so the runs don't interrupt whoever
-is working, and `SPEEDO_PRESENT_MODE=fifo`: with mailbox, the client's default where the surface has it, NVIDIA's Windows
+is working, and `SPEEDO_PRESENT_MODE=fifo`: with mailbox, the client's default where the surface had it until 2026-11-01, NVIDIA's Windows
 driver hangs about 1 exit in 100 in `vkDestroySwapchainKHR`, which no change of ours fixed: handling the window's messages
 meanwhile, or keeping the presents' semaphores until their images were acquired again (which validation then reported
 destroyed in use, `VUID-vkDestroySemaphore-semaphore-05149`: without present fences it can't know a present is done);

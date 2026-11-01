@@ -179,9 +179,6 @@ SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 		VK_FORMAT_B8G8R8_UNORM,
 		VK_FORMAT_R8G8B8_UNORM};
 	constexpr ColorSpace<kVk> kRequestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-	constexpr std::array<PresentMode<kVk>, 2> kRequestPresentMode{
-		VK_PRESENT_MODE_MAILBOX_KHR,
-		VK_PRESENT_MODE_FIFO_RELAXED_KHR};
 
 	// Request several formats, the first found will be used
 	// If none of the requested image formats could be found, use the first available
@@ -203,29 +200,14 @@ SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 	}
 	config.surfaceFormat = *formatIt;
 
-	// Request a certain mode and confirm that it is available. If not use
-	// VK_PRESENT_MODE_FIFO_KHR which is mandatory
-	config.images.resize(swapchainInfo.capabilities.minImageCount);
-	for (auto requestIt : kRequestPresentMode)
-	{
-		auto modeIt = std::ranges::find(
-			swapchainInfo.presentModes, requestIt);
-
-		if (modeIt != swapchainInfo.presentModes.end())
-		{
-			config.presentMode = *modeIt;
-			if (config.presentMode == VK_PRESENT_MODE_MAILBOX_KHR)
-			{
-				ENSURE(imageCountLimit == 0 || imageCountLimit >= 3);
-				config.images.resize(3);
-			}
-			else
-			{
-				config.images.resize(2);
-			}
-			break;
-		}
-	}
+	// fifo (config's, which every surface has): the display's variable refresh rate engages under it, not under mailbox,
+	// the default where the surface had it until 2026-11-01 (the user's call; NVIDIA's Windows driver, fullscreen). 3
+	// images, as mailbox had, where the surface allows: with 2, a frame a little longer than a refresh waits for the next
+	// one where the refresh rate is fixed
+	auto imageCount = std::max(3U, minImageCount);
+	if (imageCountLimit != 0)
+		imageCount = std::min(imageCount, imageCountLimit);
+	config.images.resize(imageCount);
 
 	// overrides, for trying out presentation (e.g. macOS's direct scanout in fullscreen): SPEEDO_PRESENT_MODE=fifo,
 	// fifo_relaxed, mailbox or immediate (if the surface has it), SPEEDO_SWAPCHAIN_IMAGE_COUNT=<count> (within the surface's

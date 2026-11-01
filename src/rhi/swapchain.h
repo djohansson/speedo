@@ -127,7 +127,9 @@ public:
 	[[nodiscard]] const auto& GetFrames() const noexcept { return myFrames; }
 	[[nodiscard]] auto GetCurrentFrameIndex() const noexcept { return myFrameIndex; }
 
-	void CreateSwapchain();
+	// false where the surface has no area (the window minimized): none is made (the previous one kept), and it asks to be
+	// made again (NeedsRecreate)
+	[[maybe_unused]] bool CreateSwapchain(); //NOLINT(modernize-use-nodiscard)
 	// destroys the swapchain and its frames, until the next CreateSwapchain (which it asks for, NeedsRecreate): with the
 	// gpu idle, before the window changes how it is shown (fullscreen). NVIDIA's driver on Windows waited forever in
 	// vkCreateSwapchainKHR or vkDestroySwapchainKHR for a swapchain that lived through a display mode change, even with
@@ -149,7 +151,9 @@ public:
 	// the window when it is in exclusive fullscreen (kInvalidWindowHandle when not): the next CreateSwapchain, which it
 	// asks for if it changed, takes the window's monitor exclusively (VK_EXT_full_screen_exclusive, application
 	// controlled, on Windows; nothing elsewhere). without it, NVIDIA's driver composited the fullscreen window, and the
-	// display's variable refresh rate never engaged. on the thread that draws
+	// display's variable refresh rate never engaged. where the system refuses it (the window not in the foreground), the
+	// swapchain is made composited, until the window comes to the foreground, which this checks (it is called each frame).
+	// on the thread that draws
 	void SetExclusiveFullscreen(WindowHandle window) noexcept;
 
 	// set when an acquire or present reports the swapchain out of date or suboptimal (e.g. after a fullscreen switch,
@@ -170,6 +174,8 @@ private:
 	bool myHasPresented{};
 	WindowHandle myExclusiveWindow{}; // see SetExclusiveFullscreen
 	bool myExclusiveAcquired{}; // vkAcquireFullScreenExclusiveModeEXT succeeded on mySwapchain
+	bool myExclusiveRefused{}; // it failed: made composited until the window comes to the foreground (see CreateSwapchain)
+	bool myExclusiveForeground{}; // while refused, whether the window was in the foreground last (see SetExclusiveFullscreen)
 	void InternalDestroySwapchain(SwapchainHandle<G> swapchain);
 };
 
