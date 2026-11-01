@@ -1300,12 +1300,22 @@ behind a surface at distance `d` slides by `dt t / (d + t)`, in pixels over the 
 about the eye slides nothing (a reflection is the eye's place's, not its direction's). Where it slid by less than its
 blur, and nothing but what moves may change what the reflections see (`TRACED_SETTLED`: the lights neither changed nor are
 being followed) and no tap met what moves, the history is unclamped and holds 64 frames (`kReflectionFramesStill`); by
-more, it is clamped as above. The frame's filtered 3x3 is smooth, so its box held the history to the frame's own noise:
+more, the history is taken where the reflection was seen last frame instead (virtual motion, as NVIDIA's ReBLUR:
+`ReflectionVirtualHistory`, at the image of what the ray met through the view's last view projection, as deep behind the
+surface as a curved mirror puts it, `1 / v = 1 / t + 2 k` with `k` the surface's curvature from the pixels beside it,
+`ReflectionCurvature`; each tap only where its surface faced as this one's does and its reflection met something about as
+far), unclamped as well; else it is clamped as above. Close to the watch's case (the user's pose
+`-1.0900,-0.8416,-0.1727,1.857,162.935`) a step aside slid the strap's reflection across it by tens of pixels a frame:
+moving sideways there, a mean second difference of 0.92 clamped, untraced 0.09, now 0.24, and the move's last frame 0.46
+of 255 from a still render of its pose (1.26 clamped). As a flat mirror's image, MetalRoughSpheresNoTextures' glossy
+spheres smeared their reflections as the eye walked (0.83 from a still render, 0.78 clamped and with the curvature: a
+convex mirror's image of what is far is half its radius deep). The frame's filtered 3x3 is smooth, so its box held the
+history to the frame's own noise:
 ChronographWatch's strap (its rays meeting the sky in some weave cells and the case in others) changed between still
 frames by 0.258 of 255, untraced 0.021, now 0.024; under small turns of the view (the user's pose
 `-0.6502,-2.5011,-1.5277,43.502,1.044`, 0.05 degrees a frame) the mean second difference over the frames (what changes but
 the image's steady motion) was 4.49, untraced 0.60, now 0.74, and the turn's last frame is 0.88 from a still render of its
-pose (2.56 clamped); walking sideways 5.88, untraced 1.83, now 2.48. A mirror's reflection still clamps as the eye walks:
+pose (2.56 clamped); walking sideways 5.88, untraced 1.83, 2.48 by the slide alone, 2.37 with the virtual motion. A mirror's reflection still clamps as the eye walks:
 MetalRoughSpheresNoTextures' first column walked a sphere's spacing is as far from a still render of the last pose as
 before (0.78 of 255, 0.77). The whole model's moving would have kept it clamped wherever anything moves (the watch's
 seconds hand). Their history is valid once they ran the frame

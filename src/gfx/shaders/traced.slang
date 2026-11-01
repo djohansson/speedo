@@ -567,6 +567,59 @@ void ComputeReflectionY(uint3 dispatchThreadId : SV_DispatchThreadID)
 	gRWTextures[SHADER_TYPES_REFLECTION_FILTERED_RW_TEXTURE][pixel] = ReflectionFilter(pixel, int2(0, 1), SHADER_TYPES_REFLECTION_ROWS_TEXTURE);
 }
 
+// the glossy reflections' history where what a pixel reflects was seen last frame (virtual motion, as NVIDIA's ReBLUR has
+// it): at the image of what the reflection met, the hit distance behind the surface along the view, through the view's
+// last view projection, which is exact for a flat mirror; bilinear over the 4 pixels there, each only if its surface faced
+// as this one's does and what its reflection met was about as far (else the image was another surface's, or of something
+// else)
+float4 ReflectionVirtualHistory(
+	Texture2D last, Texture2D lastSurfaces, ViewData view, float2 at, float3 normal, float hitDistance, out float weights, out float held)
+{
+	int2 base = int2(floor(at));
+	float2 f = at - float2(base);
+	float4 total = 0.0;
+	weights = 0.0;
+	held = 0.0;
+	for (int corner = 0; corner < 4; corner++)
+	{
+		int2 offset = int2(corner & 1, corner >> 1);
+		int2 tap = base + offset;
+		if (any(float2(tap) < view.viewport.xy) || any(float2(tap) >= view.viewport.xy + view.viewport.zw))
+			continue;
+		float4 value = last.Load(int3(tap, 0));
+		float3 seen = lastSurfaces.Load(int3(tap, 0)).xyz;
+		if (value.a < 0.0 || seen.x < 0.0 || dot(EmitterUnpackNormal(seen.y), normal) < 0.95 || abs(value.a - hitDistance) > 0.2 * hitDistance)
+			continue;
+		float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y);
+		total += w * value;
+		weights += w;
+		held += w * seen.z;
+	}
+	return total;
+}
+
+// a surface's curvature at a pixel, signed (convex positive, 1 over its radius): how its normal turns along the surface
+// toward the pixels beside it on the same surface (not across a step: one off its tangent plane by more than 30 degrees)
+float ReflectionCurvature(int2 pixel, ViewData view, ShadowSurface center)
+{
+	float total = 0.0;
+	float count = 0.0;
+	for (int side = 0; side < 4; side++)
+	{
+		int2 at = pixel + (side < 2 ? int2(side * 2 - 1, 0) : int2(0, side * 2 - 5));
+		ShadowSurface beside;
+		if (any(float2(at) < view.viewport.xy) || any(float2(at) >= view.viewport.xy + view.viewport.zw) || !ShadowSurfaceAt(at, view, beside))
+			continue;
+		float3 along = beside.position - center.position;
+		float lengthSquared = dot(along, along);
+		if (lengthSquared <= 0.0 || abs(dot(along, center.normal)) > 0.5 * sqrt(lengthSquared))
+			continue;
+		total += dot(beside.normal - center.normal, along) / lengthSquared;
+		count += 1.0;
+	}
+	return count > 0.0 ? total / count : 0.0;
+}
+
 // the glossy reflections over frames, and into the main color: the frame's filtered shares (see Shade) blended into the
 // last frame's history where the pixel's point was (PixelHistory, as the near field's: by its surface, through the view's last
 // view projection, none for what moves), clamped to the box of the frame's 3x3 around as far as what the surface reflects
@@ -617,34 +670,62 @@ void ComputeReflectionTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float count = 1.0; // the frames the history holds
 	float4 result = now;
 	bool moves = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
-	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
-	if ((gPushConstants.traced & TRACED_REFLECTION_HISTORY) != 0u && view.previousEyePosition.w > 0.0 && !moves && clip.w > 0.0)
+	if ((gPushConstants.traced & TRACED_REFLECTION_HISTORY) != 0u && view.previousEyePosition.w > 0.0 && !moves)
 	{
-		float2 at = PixelHistoryAt(view, clip);
-		float expected = distance(surface.position, view.previousEyePosition.xyz);
-		float slant = abs(dot(surface.normal, normalize(toEye)));
-		float tolerance = 0.002 * expected + 2.0 * surface.metersPerPixel * sqrt(max(1.0 - slant * slant, 0.0)) / max(slant, 0.05);
-		float weights;
-		float held;
-		float4 total = PixelHistory(
-			gTextures[SHADER_TYPES_REFLECTION_HISTORY_TEXTURE + (current ^ 1u)], gTextures[SHADER_TYPES_REFLECTION_SURFACE_TEXTURE + (current ^ 1u)],
-			view, at, expected, tolerance, surface.normal, weights, held);
+		Texture2D lastHistory = gTextures[SHADER_TYPES_REFLECTION_HISTORY_TEXTURE + (current ^ 1u)];
+		Texture2D lastSurfaces = gTextures[SHADER_TYPES_REFLECTION_SURFACE_TEXTURE + (current ^ 1u)];
+		// how far what the surface reflects slid across it since the last frame, by the blur its lobe makes there: the eye
+		// travelling dt, the image of what the reflection met (hit distance t, behind the surface at distance d) slides
+		// against the surface by dt t / (d + t) (a turn of the view about the eye slides nothing: the reflection is the eye's
+		// place's), in pixels over the pixel's width there. what slid by less than its blur is the history's still; by more,
+		// it is clamped to the frame's box, which a slide trailed without (a mirror's far reflection). clamped wherever the
+		// view moved, ChronographWatch's strap under small turns of the view was as noisy as a frame (a mean second
+		// difference of 4.49 of 255 over the frames, untraced 0.60)
+		float travel = EmitterViewStill(view) ? 0.0 : distance(view.eyePosition.xyz, view.previousEyePosition.xyz);
+		float hitDistance = now.a;
+		float slide = travel * hitDistance / ((length(toEye) + hitDistance) * max(surface.metersPerPixel, 1e-6)) /
+					  max(ReflectionBlurPixels(roughness, hitDistance, surface.metersPerPixel), 1.0);
+		bool settled = (gPushConstants.traced & TRACED_SETTLED) != 0u && !movingSeen;
+		float clamping = settled ? saturate(slide) : 1.0;
+		float4 total = 0.0;
+		float weights = 0.0;
+		float held = 0.0;
+		float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
+		if (clip.w > 0.0)
+		{
+			float expected = distance(surface.position, view.previousEyePosition.xyz);
+			float slant = abs(dot(surface.normal, normalize(toEye)));
+			float tolerance = 0.002 * expected + 2.0 * surface.metersPerPixel * sqrt(max(1.0 - slant * slant, 0.0)) / max(slant, 0.05);
+			total = PixelHistory(lastHistory, lastSurfaces, view, PixelHistoryAt(view, clip), expected, tolerance, surface.normal, weights, held);
+		}
+		// where it slid, the history where it was seen last frame instead (ReflectionVirtualHistory), unclamped: clamped,
+		// a step aside close to the watch's case slid the strap's reflection across it by tens of pixels a frame, and it
+		// was as noisy as a frame again (a mean second difference over the frames of 0.92 of 255, untraced 0.09, now 0.18).
+		// the image is as deep behind the surface as a curved mirror puts it (1 / v = 1 / t + 2 k, k the curvature): as a
+		// flat mirror's, MetalRoughSpheresNoTextures' glossy spheres smeared their reflections as the eye walked, the image
+		// of what a convex mirror reflects being nearer (half its radius deep, of what is far). none where a concave surface
+		// focuses it in front of itself
+		float focus = clamping > 0.0 && settled ? 1.0 + 2.0 * ReflectionCurvature(pixel, view, surface) * hitDistance : 0.0;
+		if (focus > 0.25)
+		{
+			float depth = hitDistance / focus;
+			float4 clipImage = mul(view.previousViewProjection, float4(surface.position - normalize(toEye) * depth, 1.0));
+			float imageWeights;
+			float imageHeld;
+			float4 imageTotal = clipImage.w > 0.0 ? ReflectionVirtualHistory(lastHistory, lastSurfaces, view, PixelHistoryAt(view, clipImage),
+																			 surface.normal, hitDistance, imageWeights, imageHeld)
+												 : 0.0;
+			if (clipImage.w > 0.0 && imageWeights > 1e-3)
+			{
+				total = imageTotal;
+				weights = imageWeights;
+				held = imageHeld;
+				clamping = 0.0;
+			}
+		}
 		if (weights > 1e-3)
 		{
 			float4 kept = total / weights;
-			// how far what the surface reflects slid across it since the last frame, by the blur its lobe makes there: the eye
-			// travelling dt, the image of what the reflection met (hit distance t, behind the surface at distance d) slides
-			// against the surface by dt t / (d + t) (a turn of the view about the eye slides nothing: the reflection is the
-			// eye's place's), in pixels over the pixel's width there. what slid by less than its blur is the history's
-			// still; by more, it is clamped to the frame's box, which a slide trailed without (a mirror's far reflection).
-			// clamped wherever the view moved, ChronographWatch's strap under small turns of the view was as noisy as
-			// a frame (a mean second difference of 4.49 of 255 over the frames, untraced 0.60)
-			float travel = EmitterViewStill(view) ? 0.0 : distance(view.eyePosition.xyz, view.previousEyePosition.xyz);
-			float hitDistance = now.a;
-			float slide = travel * hitDistance / ((length(toEye) + hitDistance) * max(surface.metersPerPixel, 1e-6)) /
-						  max(ReflectionBlurPixels(roughness, hitDistance, surface.metersPerPixel), 1.0);
-			bool settled = (gPushConstants.traced & TRACED_SETTLED) != 0u && !movingSeen;
-			float clamping = settled ? saturate(slide) : 1.0;
 			kept.rgb = lerp(kept.rgb, clamp(kept.rgb, low, high), clamping);
 			float frames = lerp(kReflectionFramesStill, lerp(kReflectionFramesSharp, kReflectionFramesRough, smoothstep(0.05, 0.5, roughness)), clamping);
 			count = min(max(held / weights, 1.0) + 1.0, frames);
