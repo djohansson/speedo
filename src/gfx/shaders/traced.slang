@@ -77,6 +77,24 @@ float ReflectionDistance(float packed)
 {
 	return ReflectionMoving(packed) ? -2.0 - packed : packed;
 }
+
+// a glossy pixel's weight's alpha: its roughness, 2 more where its normal map turns its normal from the geometry's by more
+// than about 6 degrees (its reflection is its own direction's, which the image of a mirror doesn't follow: see
+// ComputeReflectionTemporal, which takes any in the 3x3 around); -1 where none is traced
+float ReflectionPackRoughness(float roughness, bool bumpy)
+{
+	return bumpy ? roughness + 2.0 : roughness;
+}
+
+float ReflectionRoughness(float packed)
+{
+	return packed >= 1.5 ? packed - 2.0 : packed;
+}
+
+bool ReflectionBumpy(float packed)
+{
+	return packed >= 1.5;
+}
 // the brightest a glossy ray's sample is taken as, in multiples of white at the view's exposure (see
 // TracedGlossyReflection)
 static const float kReflectionMostWhite = 8.0;
@@ -502,6 +520,7 @@ float4 ReflectionFilter(int2 pixel, int2 step, uint source)
 	float4 own = input.Load(int3(pixel, 0));
 	if (roughness < 0.0 || ReflectionUnknown(own.a))
 		return kReflectionUnknown;
+	roughness = ReflectionRoughness(roughness);
 	ViewData view;
 	ShadowSurface center;
 	if (!ViewAt(pixel, view) || !ShadowSurfaceAt(pixel, view, center))
@@ -526,6 +545,7 @@ float4 ReflectionFilter(int2 pixel, int2 step, uint source)
 		float tapRoughness = weights.Load(int3(at, 0)).a;
 		if (ReflectionUnknown(value.a) || tapRoughness < 0.0)
 			continue;
+		tapRoughness = ReflectionRoughness(tapRoughness);
 		float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(at, 0)).r;
 		if (depth <= 0.0)
 			continue;
@@ -654,17 +674,20 @@ void ComputeReflectionTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 	// the history holds the distance alone (PixelHistory takes a negative alpha for none)
 	bool movingSeen = ReflectionMoving(now.a);
 	now.a = ReflectionDistance(now.a);
-	float roughness = weight.a;
+	float roughness = ReflectionRoughness(weight.a);
+	bool bumpy = ReflectionBumpy(weight.a);
 	float3 low = now.rgb;
 	float3 high = now.rgb;
 	for (int y = -1; y <= 1; y++)
 		for (int x = -1; x <= 1; x++)
 		{
-			float4 value = filtered.Load(int3(clamp(pixel + int2(x, y), int2(0), int2(extent) - 1), 0));
+			int2 at = clamp(pixel + int2(x, y), int2(0), int2(extent) - 1);
+			float4 value = filtered.Load(int3(at, 0));
 			if (ReflectionUnknown(value.a))
 				continue;
 			low = min(low, value.rgb);
 			high = max(high, value.rgb);
+			bumpy = bumpy || ReflectionBumpy(gTextures[SHADER_TYPES_REFLECTION_WEIGHT_TEXTURE].Load(int3(at, 0)).a);
 		}
 	float3 toEye = view.eyePosition.xyz - surface.position;
 	float count = 1.0; // the frames the history holds
@@ -704,8 +727,10 @@ void ComputeReflectionTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		// the image is as deep behind the surface as a curved mirror puts it (1 / v = 1 / t + 2 k, k the curvature): as a
 		// flat mirror's, MetalRoughSpheresNoTextures' glossy spheres smeared their reflections as the eye walked, the image
 		// of what a convex mirror reflects being nearer (half its radius deep, of what is far). none where a concave surface
-		// focuses it in front of itself
-		float focus = clamping > 0.0 && settled ? 1.0 + 2.0 * ReflectionCurvature(pixel, view, surface) * hitDistance : 0.0;
+		// focuses it in front of itself, nor where a normal map turns the normal (ReflectionPackRoughness): each cell of
+		// ChronographWatch's woven strap reflects along its own direction, the image of a mirror was another cell's, and it
+		// trailed along the move (its last frame 3.68 of 255 from a still render of its pose, 2.09 clamped)
+		float focus = clamping > 0.0 && settled && !bumpy ? 1.0 + 2.0 * ReflectionCurvature(pixel, view, surface) * hitDistance : 0.0;
 		if (focus > 0.25)
 		{
 			float depth = hitDistance / focus;

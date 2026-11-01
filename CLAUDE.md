@@ -1304,7 +1304,11 @@ more, the history is taken where the reflection was seen last frame instead (vir
 `ReflectionVirtualHistory`, at the image of what the ray met through the view's last view projection, as deep behind the
 surface as a curved mirror puts it, `1 / v = 1 / t + 2 k` with `k` the surface's curvature from the pixels beside it,
 `ReflectionCurvature`; each tap only where its surface faced as this one's does and its reflection met something about as
-far), unclamped as well; else it is clamped as above. Close to the watch's case (the user's pose
+far), unclamped as well; else it is clamped as above. Not where a normal map turns the normal from the geometry's by more
+than about 6 degrees in the 3x3 around (`ReflectionPackRoughness`: the weight's alpha, 2 more): each cell of the watch's
+woven strap reflects along its own direction, the image of a mirror was another cell's, and moving sideways at the
+user's pose `-0.5305,-2.4926,-1.6792,46.951,3.879` it trailed in streaks along the move (its last frame 3.68 of 255 from
+a still render of its pose, 8.5% of the pixels off by more than 16; clamped 2.09 and 0.9%; now 2.16 and 1.2%). Close to the watch's case (the user's pose
 `-1.0900,-0.8416,-0.1727,1.857,162.935`) a step aside slid the strap's reflection across it by tens of pixels a frame:
 moving sideways there, a mean second difference of 0.92 clamped, untraced 0.09, now 0.24, and the move's last frame 0.46
 of 255 from a still render of its pose (1.26 clamped). As a flat mirror's image, MetalRoughSpheresNoTextures' glossy

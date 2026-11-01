@@ -186,7 +186,7 @@ float3 Shade(Surface surface, float3 view, float3 position)
 				sample.rgb /= expected + least;
 				float3 weight = (debugView == DEBUG_VIEW_TRACED_REFLECTIONS ? float3(tracedShare) : surface.occlusion * environmentSpecular * tracedShare) *
 								(environmentRadiance + least);
-				TracedReflectionStore(gFragmentPixel, sample, float4(weight, roughness));
+				TracedReflectionStore(gFragmentPixel, sample, float4(weight, ReflectionPackRoughness(roughness, dot(normal, surface.geometryNormal) < 0.995)));
 				environmentRadiance *= 1.0 - tracedShare;
 			}
 		}
