@@ -1294,12 +1294,21 @@ any tap met what moves), and Reflection Temporal blends it into the last frame's
 (`PixelHistory`, as the near field's), clamped to the box of the frame's filtered 3x3 (a reflection moves across the
 surface as the eye does, which reprojecting the surface doesn't follow: kept, it trails), by 1 over the frames it holds,
 from 2 at a mirror to 24 at the roughest traced, then adds the weight times it to the main color, before Main's blended
-surfaces and the transmission texture read it. While the view is still (`EmitterViewStill`) and nothing but what moves may
-change what the reflections see (`TRACED_SETTLED`: the lights neither changed nor are being followed), the history holds 64
-frames unclamped (`kReflectionFramesStill`) where no tap met what moves: the frame's filtered 3x3 is smooth, so its box
-held the history to the frame's own noise, and the watch's strap (its rays meeting the sky in some weave cells and the
-case in others) changed between still frames by 0.258 of 255, untraced 0.021, now 0.024. The whole model's moving would
-have kept it clamped wherever anything moves (the watch's seconds hand). Their history is valid once they ran the frame
+surfaces and the transmission texture read it. The clamp goes by how far what the surface reflects slid across it since the
+last frame, over the blur its lobe makes there: the eye travelling `dt`, the image of what a ray met at hit distance `t`
+behind a surface at distance `d` slides by `dt t / (d + t)`, in pixels over the pixel's width there; a turn of the view
+about the eye slides nothing (a reflection is the eye's place's, not its direction's). Where it slid by less than its
+blur, and nothing but what moves may change what the reflections see (`TRACED_SETTLED`: the lights neither changed nor are
+being followed) and no tap met what moves, the history is unclamped and holds 64 frames (`kReflectionFramesStill`); by
+more, it is clamped as above. The frame's filtered 3x3 is smooth, so its box held the history to the frame's own noise:
+ChronographWatch's strap (its rays meeting the sky in some weave cells and the case in others) changed between still
+frames by 0.258 of 255, untraced 0.021, now 0.024; under small turns of the view (the user's pose
+`-0.6502,-2.5011,-1.5277,43.502,1.044`, 0.05 degrees a frame) the mean second difference over the frames (what changes but
+the image's steady motion) was 4.49, untraced 0.60, now 0.74, and the turn's last frame is 0.88 from a still render of its
+pose (2.56 clamped); walking sideways 5.88, untraced 1.83, now 2.48. A mirror's reflection still clamps as the eye walks:
+MetalRoughSpheresNoTextures' first column walked a sphere's spacing is as far from a still render of the last pose as
+before (0.78 of 255, 0.77). The whole model's moving would have kept it clamped wherever anything moves (the watch's
+seconds hand). Their history is valid once they ran the frame
 before at this size (`TRACED_REFLECTION_HISTORY`); the frames they ran are above `TRACED_FRAME_SHIFT` (the rays' sampling,
 the history's parity).
 A ray that meets nothing takes the environment prefiltered for the roughness of the surface it leaves, as `Shade` looks it

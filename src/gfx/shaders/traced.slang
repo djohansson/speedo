@@ -48,10 +48,10 @@ static const float kTracedMissDistance = 60000.0;
 // rays' noise needs them)
 static const float kReflectionFramesSharp = 2.0;
 static const float kReflectionFramesRough = 24.0;
-// and while the view is still and nothing else may change what the reflections see (TRACED_SETTLED, and no ray around
-// met what moves), unclamped: the frame's filtered 3x3 is smooth, so its box held the history to the frame's own noise,
-// and ChronographWatch's strap, its rays meeting the sky in some weave cells and the case in others, changed by ten
-// times as much as untraced every frame
+// and where what the surface reflects didn't slide across it (a still view, or one turned about the eye) and nothing
+// else may change what the reflections see (TRACED_SETTLED, and no ray around met what moves), unclamped: the frame's
+// filtered 3x3 is smooth, so its box held the history to the frame's own noise, and ChronographWatch's strap, its rays
+// meeting the sky in some weave cells and the case in others, changed by ten times as much as untraced every frame
 static const float kReflectionFramesStill = 64.0;
 static const float4 kReflectionUnknown = float4(0.0, 0.0, 0.0, -1.0);
 
@@ -569,9 +569,10 @@ void ComputeReflectionY(uint3 dispatchThreadId : SV_DispatchThreadID)
 
 // the glossy reflections over frames, and into the main color: the frame's filtered shares (see Shade) blended into the
 // last frame's history where the pixel's point was (PixelHistory, as the near field's: by its surface, through the view's last
-// view projection, none for what moves), clamped to the box of the frame's 3x3 around (what a reflection shows moves
-// across the surface as the eye does, which reprojecting the surface doesn't follow: kept, it trailed), by 1 over the
-// frames it holds, from kReflectionFramesSharp at a mirror to kReflectionFramesRough; then the specular's weight of it
+// view projection, none for what moves), clamped to the box of the frame's 3x3 around as far as what the surface reflects
+// slid across it (as the eye travels, which reprojecting the surface doesn't follow: kept, it trailed), by 1 over the
+// frames it holds, from kReflectionFramesSharp at a mirror to kReflectionFramesRough (kReflectionFramesStill where nothing
+// slid); then the specular's weight of it
 // added to the main color (see Shade, which left that share out), before the passes that draw over it or read it
 // (Main's blended surfaces, the transmission texture)
 [shader("compute")]
@@ -631,10 +632,21 @@ void ComputeReflectionTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		if (weights > 1e-3)
 		{
 			float4 kept = total / weights;
-			bool still = (gPushConstants.traced & TRACED_SETTLED) != 0u && EmitterViewStill(view) && !movingSeen;
-			if (!still)
-				kept.rgb = clamp(kept.rgb, low, high);
-			float frames = still ? kReflectionFramesStill : lerp(kReflectionFramesSharp, kReflectionFramesRough, smoothstep(0.05, 0.5, roughness));
+			// how far what the surface reflects slid across it since the last frame, by the blur its lobe makes there: the eye
+			// travelling dt, the image of what the reflection met (hit distance t, behind the surface at distance d) slides
+			// against the surface by dt t / (d + t) (a turn of the view about the eye slides nothing: the reflection is the
+			// eye's place's), in pixels over the pixel's width there. what slid by less than its blur is the history's
+			// still; by more, it is clamped to the frame's box, which a slide trailed without (a mirror's far reflection).
+			// clamped wherever the view moved, ChronographWatch's strap under small turns of the view was as noisy as
+			// a frame (a mean second difference of 4.49 of 255 over the frames, untraced 0.60)
+			float travel = EmitterViewStill(view) ? 0.0 : distance(view.eyePosition.xyz, view.previousEyePosition.xyz);
+			float hitDistance = now.a;
+			float slide = travel * hitDistance / ((length(toEye) + hitDistance) * max(surface.metersPerPixel, 1e-6)) /
+						  max(ReflectionBlurPixels(roughness, hitDistance, surface.metersPerPixel), 1.0);
+			bool settled = (gPushConstants.traced & TRACED_SETTLED) != 0u && !movingSeen;
+			float clamping = settled ? saturate(slide) : 1.0;
+			kept.rgb = lerp(kept.rgb, clamp(kept.rgb, low, high), clamping);
+			float frames = lerp(kReflectionFramesStill, lerp(kReflectionFramesSharp, kReflectionFramesRough, smoothstep(0.05, 0.5, roughness)), clamping);
 			count = min(max(held / weights, 1.0) + 1.0, frames);
 			result = lerp(kept, now, 1.0 / count);
 		}
