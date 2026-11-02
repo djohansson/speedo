@@ -1468,7 +1468,14 @@ transmissive surfaces let through to the hit and the caustics' light too, the sh
 views hold it (`ShadowTransmittance`, as the main pass takes it: the shadow rays meet no glass, and the ground seen
 through CausticSpheres' clear sphere was lit as if the sphere weren't there, neither its shadow nor its caustic), and by
 the indirect lighting there
-(the probes' diffuse, and the environment's specular as much as they see of it), plus its emission; where the ray meets
+(the probes' diffuse, and the environment's specular as much as they see of it; where its lookup barely sees its probes,
+`GiLookupTrust`, the light of near field rays of its own, `TracedNearLight`, one in the glossy reflections and four in
+the sharp, `GiNearTrace` as the near field's, rather than the lookup's second try, as the near field does for the
+pixels: by that try the gold strip at the foot of Sponza's curtains reflected the floor in front of them lit from the
+courtyard, in orange flames; they cost Main Visibility 0.09 ms at the user's pose there, 0.10 in Sponza's corridor and
+0.31 in Bistro's street, 2560x1440, RTX 4070 Ti SUPER, half of it their code, traced where the lookup sees no probe
+alone; fading such hits' light out instead cost nothing, but left golden patches along the corridor's hems), plus its
+emission; where the ray meets
 nothing, the environment along it (the sky with its sun). Debug view Traced Reflections (`traced-reflections`): what the
 reflections see where they are traced (the glossy ones filtered and over frames), magenta elsewhere. Through the glass
 (framed, against the refraction that didn't leave its volume and hits lit past the glass): the 16 glass sample models
@@ -2032,7 +2039,8 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   (in the finest clip's for every clip, a coarse clip's lookup at a thin wall landed within the filter's reach of the
   wall's outer shell voxel, resolved from a point outside, where a probe outside the building passes: the end wall of
   Sponza's corridor lit white by the sky beyond it, the leak that followed the camera as the coarse clip took over;
-  with one clip it was dark, which is what found it), twice as far where that finds no probes, filtered, their
+  with one clip it was dark, which is what found it), twice as far where that finds no probes (but where the near
+  field's light stands in, see the near field), filtered, their
   premultiplied faces over their weights (`GiEvaluate`). The specular takes the same
   lookup: the environment by the indirect light's share of the environment's irradiance (luminance, at most 1; all of
   it in the open), and, by roughness (a smoothstep from 0.2 to 0.9), the faces along the reflection. Kept as arrays
@@ -2426,8 +2434,23 @@ by more than 32 of 255 to 447, and by more than 64 from 200 to 41, and its leave
 opaque fragments (`PushConstants::prepassImages`' `PREPASS_IMAGE_GI_NEAR`) take what the rays gathered at their pixel
 (the frames' pass runs whether or not over frames, blending by 1 without), by how many met another surface nearer than a
 contact (`FrameInputs::giNearContact`: View > Indirect Lighting Near Field Contact, `SPEEDO_GI_NEAR_CONTACT`, 2.5 voxels), the
-volume's lookup by the square of the share that met none (`SPEEDO_GI_NEAR_POWER`), and the rays' light alone where the
-lookup saw no probe (`GiNearIrradiance`). Blended by anything met within the rays' reach, the rays' light took every
+volume's lookup by the square of the share that met none (`SPEEDO_GI_NEAR_POWER`) and by how far it is trusted
+(`GiLookupTrust`: its weight, how much its voxels see of their probes, over a fifth, `kGiNearTrustedWeight`; none where
+it sees no probe), so the rays' light alone where the lookup saw no probe (`GiNearIrradiance`), whose second try, twice
+as far off the surface, isn't taken where the rays' light is (`GiSampleSurface`'s `retry`). Each traced pixel's share is
+of its rays that met no contact times its own lookup's trust, which the filter and the frames spread as they spread the
+light, so the shading hands over smoothly across where the lookups fail and only around it. The floor in front of
+Sponza's curtains, which hang a few centimetres over it (the user's pose `-3.0027,0.2878,2.2588,9.549,338.778`), isn't at
+a contact (a tenth of its rays met the curtain), and kept the lookup, whose voxels beside the hem see no probe or barely
+the courtyard's beyond it (normalized by its weight, a lookup that barely sees a probe takes all of its light), and the
+second try found the courtyard's: jagged white patches along every hem, which the gold strip at the curtains' foot
+reflected in orange flames. By the pixel's own trust, the lookups' failing region kept its outline, a staircase of
+voxels (a lookup's weight jumps from 0 to a tenth at it); ramped up to a weight of 1 it was smooth, but most pixels took
+some of the rays' light (92 to 97% weigh 0.5 to 0.99) and Sponza's columns between the curtains came out flat and light;
+a power of 8 changed every scene (Bistro 0.64 of 255, CornellBox 0.50, salle_de_bain 0.43); 4 times the rays (a stride
+of 2) changed nothing (the blocks were the volume's, not the rays' noise). Against before: the hem pose 2.0 of 255,
+Sponza's corridor 0.52 (along its hems; the columns as they were), salle_de_bain 0.20, Bistro's street and CornellBox
+0.13 and 0.10; GI Near 0.001 ms more. Blended by anything met within the rays' reach, the rays' light took every
 junction over: Sponza's columns between the curtains lit from the courtyard through gaps the voxels close, and a broad
 darkening along every wall. At a contact of 1.5 voxels the rectangles' edges stayed faintly; at 2.5 (the user's choice)
 faint straight edges a few voxels out are what is left, and Sponza's columns are a little lighter than at 1.5. Against

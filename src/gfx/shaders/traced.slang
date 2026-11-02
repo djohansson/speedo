@@ -351,7 +351,7 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 
 	float3 indirect;
 	float3 specularRadiance;
-	TracedIndirect(position, normal, direction, surface.roughness, indirect, specularRadiance);
+	TracedIndirect(position, normal, direction, surface.roughness, hit.normal, push, indirect, specularRadiance);
 	radiance += surface.diffuseColor * indirect +
 				EnvironmentBrdfApprox(surface.f0, surface.f90, surface.roughness, nDotV) * specularRadiance;
 	return radiance;
@@ -360,22 +360,65 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 // the indirect lighting at a hit at position (normal, met along direction, of a roughness), as Shade takes it: the probes'
 // diffuse where they cover it (none where a clip holds it but no probe sees it), else the environment's (indirect); and
 // the environment's specular as much as the probes see of it, their light along the reflection as it gets rough
-// (specularRadiance)
-void TracedIndirect(float3 position, float3 normal, float3 direction, float roughness, out float3 indirect, out float3 specularRadiance)
+// (specularRadiance). where the lookup barely sees its probes (GiLookupTrust), the light of near field rays of the hit's
+// own (TracedNearLight: from its surface, nearNormal toward the ray, off it by nearBias; 0 for none) stands in for its
+// second try, as the near field's does for the main pass's fragments (see GiNearIrradiance): the floor in front of
+// Sponza's curtains, lit by that try from the courtyard beyond them, was the light the gold strip at their foot reflected
+// in orange flames and blocks
+void TracedIndirect(
+	float3 position, float3 normal, float3 direction, float roughness, float3 nearNormal, float nearBias, out float3 indirect,
+	out float3 specularRadiance)
 {
 	EnvironmentData environment = gEnvironment[0];
 	float3 reflected = DominantDirection(normal, reflect(direction, normal), roughness);
 	specularRadiance = EnvironmentRadiance(environment, reflected, roughness);
-	GiSample sample = GiSampleSurface(position, normal, -direction);
+	GiData gi = GiClip(0);
+	float voxel = nearBias > 0.0 && gi.enabled != 0u && gi.nearReach > 0.0 && GiTracesBvh(gi) ? GiNearVoxelSize(position) : 0.0;
+	GiSample sample = GiSampleSurface(position, normal, -direction, voxel <= 0.0);
+	float trust = voxel > 0.0 ? GiLookupTrust(sample) : 1.0;
 	indirect = sample.valid ? GiEvaluate(sample, normal) : (sample.inside ? 0.0 : -1.0);
 	if (indirect.x >= 0.0)
 	{
+		if (trust < 1.0)
+			indirect = lerp(TracedNearLight(gi, position, nearNormal, nearBias, voxel, indirect), indirect, trust);
 		float3 luminance = float3(0.2126, 0.7152, 0.0722);
 		float seen = saturate(dot(indirect, luminance) / max(dot(EnvironmentIrradiance(environment, normal), luminance), 1e-4));
-		specularRadiance = lerp(specularRadiance * seen, GiEvaluate(sample, reflected), smoothstep(0.2, 0.9, roughness));
+		specularRadiance = lerp(specularRadiance * seen, lerp(indirect, GiEvaluate(sample, reflected), trust), smoothstep(0.2, 0.9, roughness));
 	}
 	else
 		indirect = EnvironmentIrradiance(environment, normal);
+}
+
+// the near field rays a traced hit's light takes where its lookup is weak (see TracedIndirect): one in the visibility
+// buffer's glossy reflections, which the Reflection passes filter over the surface and over frames, four in a fragment's
+// sharp ones
+static const uint kTracedNearRayCountGlossy = 1u;
+static const uint kTracedNearRayCountSharp = 4u;
+
+// the light near field rays from a traced hit gather (at position, normal toward the side the ray came from, off it by
+// bias, in voxels voxel big; GiNearTrace), cosine distributed about the normal by the pixel and the frame (TracedRandom,
+// offset from the glossy lobe's); fallback where none knows
+float3 TracedNearLight(GiData gi, float3 position, float3 normal, float bias, float voxel, float3 fallback)
+{
+	uint count = TracedGlossyHere() ? kTracedNearRayCountGlossy : kTracedNearRayCountSharp;
+	float2 first = TracedRandom(gFragmentPixel + uint2(17u, 59u));
+	float3 t;
+	float3 b;
+	ShadowBasis(normal, t, b);
+	float3 light = 0.0;
+	float known = 0.0;
+	for (uint rayIt = 0; rayIt < count; rayIt++)
+	{
+		float2 u = frac(first + float(rayIt) * float2(0.7548776662, 0.5698402910));
+		float2 disk = sqrt(u.x) * float2(cos(6.28318530718 * u.y), sin(6.28318530718 * u.y));
+		float3 direction = normalize(disk.x * t + disk.y * b + sqrt(max(1.0 - dot(disk, disk), 0.0)) * normal);
+		float4 ray = GiNearTrace(gi, position, normal, direction, bias, voxel);
+		if (ray.a < 0.0)
+			continue;
+		light += ray.rgb;
+		known += 1.0;
+	}
+	return known > 0.0 ? light / known : fallback;
 }
 
 // the radiance along a ray from origin: what it meets of the acceleration structures (what moves too, alpha masks cut
@@ -423,7 +466,7 @@ float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float ro
 		}
 		float3 indirect;
 		float3 specularRadiance;
-		TracedIndirect(surface.position, surface.normal, direction, glassRoughness, indirect, specularRadiance);
+		TracedIndirect(surface.position, surface.normal, direction, glassRoughness, surface.normal, 0.0, indirect, specularRadiance);
 		float nDotV = max(dot(surface.normal, -direction), 1e-4);
 		reflection = EnvironmentBrdfApprox(float3(surface.f0), 1.0, glassRoughness, nDotV) * specularRadiance;
 	}

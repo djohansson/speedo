@@ -47,8 +47,10 @@ float3 GiNearDirection(int2 pixel, float3 normal, uint turn, uint stride)
 }
 
 // a pixel's ray (see ComputeGiNear): rgb its radiance, a 0 where it met something nearer than a contact
-// (GiData::nearContact), else 1, -1 where there is nothing to know (no surface, outside the clips, or the volume's lookup
-// at its end saw no probe)
+// (GiData::nearContact), else how far the volume's lookup at the pixel is to be taken (GiLookupTrust), -1 where there is
+// nothing to know (no surface, outside the clips, or the volume's lookup at its end saw no probe). the filter and the
+// frames spread a as they do the light, over the pixels around on the same surface, so the shading hands over to the
+// near field's light smoothly where the lookups fail (see GiNearIrradiance)
 static const float4 kGiNearUnknown = float4(0.0, 0.0, 0.0, -1.0);
 
 float4 GiNearRay(int2 pixel)
@@ -63,12 +65,23 @@ float4 GiNearRay(int2 pixel)
 	float voxel = GiNearVoxelSize(surface.position);
 	if (voxel <= 0.0)
 		return kGiNearUnknown;
-	float reach = gi.nearReach * voxel;
 	float3 direction = GiNearDirection(pixel, surface.normal, gi.nearTemporal != 0u ? gi.nearFrame : 0u, max(gi.nearStride, 1u));
 	// off the surface by a pixel and a half (more far from the eye), as the traced shadows' rays, against the depth's
 	// and the BVH's rounding
 	float bias = max(1.5 * surface.metersPerPixel, 1e-4 * distance(surface.position, view.eyePosition.xyz));
-	float3 origin = surface.position + surface.normal * bias;
+	float4 ray = GiNearTrace(gi, surface.position, surface.normal, direction, bias, voxel);
+	if (ray.a > 0.0)
+		ray.a *= GiLookupTrust(GiSampleSurface(surface.position, surface.normal, normalize(view.eyePosition.xyz - surface.position), false));
+	return ray;
+}
+
+// a near field ray from a surface at position (its normal toward the side the ray goes) along direction, off it by bias,
+// in the clips whose voxels are voxel big there: as GiNearRay's (the traced reflections' and refractions' hits trace
+// them too, see TracedNearIrradiance)
+float4 GiNearTrace(GiData gi, float3 position, float3 normal, float3 direction, float bias, float voxel)
+{
+	float reach = gi.nearReach * voxel;
+	float3 origin = position + normal * bias;
 	BvhHit hit = GiTraceTriangles(gi, origin, direction, reach, false, true, false);
 	if (BvhHitSomething(hit))
 	{
@@ -90,15 +103,15 @@ float4 GiNearRay(int2 pixel)
 		// sphere's contact; and reading the floor's own voxel there instead, the sun's patch beside a sphere lit its
 		// contact
 		float3 point = origin + direction * hit.t;
-		float needed = max(1.5 * voxel - dot(point - surface.position, surface.normal), 0.0);
+		float needed = max(1.5 * voxel - dot(point - position, normal), 0.0);
 		if (needed > 0.0)
 		{
-			float3 along = surface.normal - hit.normal * dot(surface.normal, hit.normal);
+			float3 along = normal - hit.normal * dot(normal, hit.normal);
 			float alongLength = length(along);
 			float move = alongLength > 1e-3 ? needed / alongLength : 3.0 * voxel + 1.0;
 			if (move > 3.0 * voxel)
 			{
-				if (dot(hit.normal, surface.normal) < 0.0)
+				if (dot(hit.normal, normal) < 0.0)
 					return float4(0.0, 0.0, 0.0, clear);
 				move = 3.0 * voxel;
 			}
@@ -352,14 +365,43 @@ void ComputeGiNearTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 	surfaces[pixel] = float4(length(toEye), EmitterPackNormal(surface.normal), count, 0.0);
 }
 
-// the main pass's opaque fragments' diffuse indirect light (see Shade): the volume's lookup (indirect, -1 outside the
-// clips; valid: whether it saw a probe) where no other surface is nearer than a contact (GiData::nearContact), what the
-// near field's rays gathered where all of them are (over frames, its history at the fragment's pixel, whose surface the
-// fragment is: see ComputeGiNearTemporal), between them by the power of the share of the rays that met no contact
-// (GiData::nearPower)
-float3 GiNearIrradiance(float3 indirect, bool valid)
+// what the near field's rays gathered at the main pass's opaque fragment's pixel (over frames, its history there, whose
+// surface the fragment is: see ComputeGiNearTemporal), kGiNearUnknown where it has none (other fragments, or no ray)
+float4 GiNearAtFragment()
 {
-	float4 near = gTextures[SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE + (GiClip(0).nearFrame & 1u)].Load(int3(gFragmentPixel, 0));
+	if (!gFragmentGiNear)
+		return kGiNearUnknown;
+	return gTextures[SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE + (GiClip(0).nearFrame & 1u)].Load(int3(gFragmentPixel, 0));
+}
+
+// the weight of a volume's lookup (GiSample::last.w, how much its voxels see of the probes around them) from which it is
+// taken whole where the near field's light stands in for it (GiLookupTrust): where the lookups see their probes it is a
+// half or more (92 to 97% of the pixels at Sponza's, Bistro's and salle_de_bain's poses), and where they barely do under a
+// tenth; between, almost none
+static const float kGiNearTrustedWeight = 0.2;
+
+// how far a volume's lookup is to be taken where the near field's light can stand in for it: by its weight, none where it
+// sees no probe. normalized by its weight, a lookup that barely sees one probe takes all of that probe's light: on the
+// floor in front of Sponza's curtains, which hang a few centimetres over it (the user's pose
+// -3.0027,0.2878,2.2588,9.549,338.778), the voxels beside the hem barely see the probes beyond it, in the sunlit
+// courtyard, and lit the floor along it in jagged white patches, which the gold strip at the curtains' foot reflected
+float GiLookupTrust(GiSample sample)
+{
+	return sample.valid ? saturate(sample.last.w / kGiNearTrustedWeight) : 0.0;
+}
+
+// the main pass's opaque fragments' diffuse indirect light (see Shade): the volume's lookup (indirect, -1 outside the
+// clips; trust: how far it is to be taken, GiLookupTrust) where no other surface is nearer than a contact
+// (GiData::nearContact), what the near field's rays gathered (near, GiNearAtFragment) where all of them are, between them
+// by the power of the share of the rays that met no contact (GiData::nearPower), which is times the trust of the traced
+// pixels' lookups around (see GiNearRay). the floor in front of a curtain over a gap of a few centimetres isn't at a
+// contact, a tenth of its rays meeting the curtain, and kept the lookup's light; the lookup's second try
+// (GiSampleSurface's retry, twice as far off the surface), where the first saw no probe, found the voxels lit from the
+// courtyard there: where the near field's light is, it stands in for that instead (see Shade). by the fragment's own
+// trust alone, the region where the lookups fail kept its outline, a staircase of voxels, where a lookup's weight jumps
+// from 0 to a tenth
+float3 GiNearIrradiance(float4 near, float3 indirect, float trust)
+{
 	if (near.a < 0.0 || indirect.x < 0.0)
 		return indirect;
 	uint show = gGi[gPushConstants.frameIndex][0].nearShow;
@@ -367,7 +409,5 @@ float3 GiNearIrradiance(float3 indirect, bool valid)
 		return near.rgb;
 	if (show == 2u)
 		return float3(pow(saturate(near.a), 2.2));
-	if (!valid)
-		return near.rgb;
-	return lerp(near.rgb, indirect, pow(saturate(near.a), gGi[gPushConstants.frameIndex][0].nearPower));
+	return lerp(near.rgb, indirect, pow(saturate(near.a), gGi[gPushConstants.frameIndex][0].nearPower) * trust);
 }

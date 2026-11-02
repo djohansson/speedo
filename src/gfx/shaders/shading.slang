@@ -119,13 +119,15 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		float3 debug = GiIrradiance(position, normal, GiDebug(), view);
 		return debug.x >= 0.0 ? debug : float3(1.0, 0.0, 1.0);
 	}
-	GiSample gi = GiSampleSurface(position, normal, view);
+	// what the near field's rays gathered at the pixel (the main pass's opaque fragments, see GiNearIrradiance), which
+	// stands in for the lookup's second try where the first sees no probe
+	float4 near = GiNearAtFragment();
+	GiSample gi = GiSampleSurface(position, normal, view, near.a < 0.0);
+	float giTrust = near.a >= 0.0 ? GiLookupTrust(gi) : 1.0;
 	// where a clip holds the point but no probe is seen around it, none of its light: the environment's there (the sky
 	// unoccluded) shone into dark interiors along their edges
 	float3 indirect = gi.valid ? GiEvaluate(gi, normal) : (gi.inside ? 0.0 : -1.0);
-	// near other surfaces, what the near field's rays gathered (the main pass's opaque fragments, see GiNearIrradiance)
-	if (gFragmentGiNear)
-		indirect = GiNearIrradiance(indirect, gi.valid);
+	indirect = GiNearIrradiance(near, indirect, giTrust);
 	// the emissive surfaces' light (the main pass's opaque fragments, see EmitterIrradiance): what a white surface reflects
 	// of it, -1 where it isn't gathered
 	float3 emitted = EmitterIrradiance();
@@ -146,7 +148,8 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		float3 luminance = float3(0.2126, 0.7152, 0.0722);
 		seen = saturate(dot(indirect, luminance) / max(dot(EnvironmentIrradiance(environment, normal), luminance), 1e-4));
 		rough = smoothstep(0.2, 0.9, roughness);
-		environmentRadiance = lerp(environmentRadiance * seen, GiEvaluate(gi, reflected), rough);
+		// the lookup's faces as far as it is trusted, the near field's diffuse light beyond
+		environmentRadiance = lerp(environmentRadiance * seen, lerp(indirect, GiEvaluate(gi, reflected), giTrust), rough);
 	}
 	// where the device has ray queries (View > Ray Traced Reflections): what the reflection meets, traced, where the
 	// specular takes enough of it to show. the visibility buffer's (compute): glossy, a ray of the lobe whose sample the
@@ -178,7 +181,7 @@ float3 Shade(Surface surface, float3 view, float3 position)
 					TracedGlossyReflection(position, surface.geometryNormal, normal, view, roughness, gFragmentPixel, direction, valid);
 				float3 expected = EnvironmentRadiance(environment, direction, roughness);
 				if (indirect.x >= 0.0)
-					expected = lerp(expected * seen, GiEvaluate(gi, direction), rough);
+					expected = lerp(expected * seen, lerp(indirect, GiEvaluate(gi, direction), giTrust), rough);
 				// where what the ray met isn't known (see TracedRadiance), what they predict, unblurred
 				if (!valid)
 					sample = float4(expected, 0.0);

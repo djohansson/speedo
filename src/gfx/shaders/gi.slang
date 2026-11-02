@@ -3795,12 +3795,13 @@ GiSample GiSampleAt(float3 position, float3 normal, float3 bias)
 
 // a surface's lookup (the shading's): off it 0.75 voxels along its normal and 1.5 toward the eye (along the line of
 // sight, which is clear: at a concave edge the normal alone leads into the other surface's voxels, whose probes are the
-// other surface's), and twice as far where that finds no probes
-GiSample GiSampleSurface(float3 position, float3 normal, float3 view)
+// other surface's), and twice as far where that finds no probes (retry; not where the near field's light stands in, see
+// GiNearIrradiance)
+GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry = true)
 {
 	float3 bias = normal * 0.75 + view * 1.5;
 	GiSample sample = GiSampleAt(position, normal, bias);
-	if (!sample.valid && sample.inside)
+	if (retry && !sample.valid && sample.inside)
 		sample = GiSampleAt(position, normal, bias * 2.0);
 	return sample;
 }
