@@ -632,7 +632,7 @@ Consequences:
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
 stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility Clear, Main Visibility Classify and Main Visibility (the visibility buffer), Reflection X and Y and Reflection Temporal (the traced glossy reflections), Main,
-Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain (or, with temporal upscaling, Composite,
+Transmission and Transmission Mips, Main Transmissive, Exposure Clear, ComputeMain (or, with temporal upscaling, Composite,
 the Upscale passes and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
 Where a scene's frames go is a `gfx::RenderOutput` (`gfx/renderoutput.h`), which the scene and its renderer are given
@@ -2825,10 +2825,18 @@ numerically and clamped to 1; lit by the environment's sheen levels along the re
 map (`NormalFromMap`, else the geometry's normal) over everything, emission included, which keeps `1 - strength *
 F(n_c . v)`. KHR_materials_transmission replaces that much of the dielectric's diffuse with the light from behind
 (`TransmittedLight`, as the Khronos sample viewer): the main pass draws in two phases when the model has transmissive
-(not blended) materials (`MainPassPhase`): the other opaque submeshes, then, after the Transmission pass blits the color to the
-transmission texture (`SHADER_TYPES_TRANSMISSION_TEXTURE`, a full mip chain: `Image::BlitFrom` and
-`Image::GenerateMips`, which blits each level from the one above with per level barriers), the transmissive and
-blended ones, loading the attachments. The refracted ray (by the ior) leaves the volume after the thickness
+(not blended) materials (`MainPassPhase`): the other opaque submeshes, then, after the Transmission pass copies the color
+to the transmission texture (`SHADER_TYPES_TRANSMISSION_TEXTURE`, a full mip chain: `ComputeTransmissionCopy` into level
+0, a storage view of it, and the Transmission Mips pass's `Image::GenerateMips`, which blits each level from the one above
+with per level barriers), the transmissive and blended ones, loading the attachments. The copy is compressed by each
+texel's brightest channel at the view's exposure, `c / (1 + max(c) e)`, and the lookup takes it back, `c / (1 - max(c) e)`
+(`TransmissionCompress`, `TransmissionDecompress`: Karis' reversible tonemap, as bloom's downsampling has it), so the mips
+average texels far brighter than white as about white: CommercialRefrigerator's frosted door lit a blob over the top shelf's
+bottles, its shape the frost's rough parts, every 18 frames at balanced (8 at native), where the sun's glint along the
+shelf's front wire, thinner than a pixel, was hit by 2 of the jitter's 18 points (5 to 20 times white) and the rough
+frost's blur spread it (the user's pose `-0.3220,1.1347,1.1294,-6.897,0.448`: the region 91.6 of 255 at that jitter point
+against 36.5 at another, now 34.7 and 34.9; its flashing pixels with the door closed 18524 over 60 frames, now 597). The
+glass sample models render the same to 0.13 of 255 (StainedGlassLamp's beads beside its bulb a little less lit). The refracted ray (by the ior) leaves the volume after the thickness
 (KHR_materials_volume: factor times the texture's green, times the instance's scale; 0 is thin walled. the thickness is in the mesh's units, so a scaled node with a volume material is drawn as an instance of it, not flattened, for its instance to carry the scale: DragonAttenuation's dragon, under a node scaled by a quarter, came out deep red, four times as thick), is projected into
 the view (fading to the environment along the ray over the view's last 5% and beyond it, where nothing was drawn:
 clamping streaked the edge's texels, stretching as glass neared a corner; offsets shortened to stay inside, or mirrored

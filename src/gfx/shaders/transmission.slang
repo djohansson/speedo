@@ -6,6 +6,38 @@ float3 VolumeAttenuation(float3 attenuationColor, float attenuationDistance, flo
 	return attenuationDistance > 0.0 ? pow(attenuationColor, thickness / attenuationDistance) : float3(1.0);
 }
 
+// the transmission texture holds the opaque scene compressed by each texel's brightest channel at the view's exposure,
+// c / (1 + max(c) e), and its mips average that (Karis' reversible tonemap, as bloom's downsampling and resolves have it):
+// a few texels far brighter than white weigh about as much as white, so a glint smaller than a pixel, which the jitter
+// hits in some frames and not others, can't light up the blur of rough glass in front of it (the sun along the top
+// shelf's front wire in CommercialRefrigerator, 5 to 20 times white at 2 of balanced's 18 jitter points, lit a blob over
+// the bottles above it through the frosted door in those frames). TransmissionDecompress takes a lookup back,
+// c / (1 - max(c) e), which an average of compressed texels keeps finite
+float3 TransmissionCompress(float3 color, float exposure)
+{
+	return color / (1.0 + max(max(color.r, color.g), color.b) * exposure);
+}
+
+float3 TransmissionDecompress(float3 color, float exposure)
+{
+	return color / max(1.0 - max(max(color.r, color.g), color.b) * exposure, 1e-3);
+}
+
+// the Transmission pass: the opaque scene into the transmission texture's level 0, compressed (see TransmissionCompress)
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void ComputeTransmissionCopy(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+	int2 pixel = int2(dispatchThreadId.xy);
+	if (pixel.x >= int(gPushConstants.framebufferWidth) || pixel.y >= int(gPushConstants.framebufferHeight))
+		return;
+	float4 color = gTextures[SHADER_TYPES_RENDER_TARGET_TEXTURE].Load(int3(pixel, 0));
+	uint viewId;
+	ViewIndexAt(pixel, viewId);
+	float exposure = gViewData[gPushConstants.frameIndex][viewId].exposure;
+	gRWTextures[SHADER_TYPES_TRANSMISSION_RW_TEXTURE][pixel] = float4(TransmissionCompress(color.rgb, exposure), color.a);
+}
+
 // KHR_materials_transmission (and volume, dispersion): the light from behind a surface, along the ray refracted by ior:
 // the opaque scene (SHADER_TYPES_TRANSMISSION_TEXTURE) where the ray leaves the volume (thickness along it; at the
 // surface for thin walls), projected into the view, at a mip for the roughness (as the Khronos sample viewer: by the
@@ -38,7 +70,7 @@ float3 TransmittedLight(
 	float4 behind = scene.SampleLevel(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], uv, lod);
 	// premultiplied: the clear color is transparent black
 	float3 environment = EnvironmentRadiance(gEnvironment[0], ray, roughness);
-	float3 seen = behind.rgb + (1.0 - behind.a) * environment;
+	float3 seen = TransmissionDecompress(behind.rgb, viewData.exposure) + (1.0 - behind.a) * environment;
 	float3 light = lerp(environment, seen, inside);
 	// where the device has ray queries (View > Ray Traced Refractions): what the refracted ray meets, traced, behind the
 	// surface or out of the view alike, sharp where the texture's mips wouldn't blur it much (see TracedShare), and where

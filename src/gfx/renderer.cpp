@@ -98,6 +98,8 @@ constexpr uint8_t kMainVisibilityClassifyEntryPoint = 43;
 constexpr uint8_t kReflectionXEntryPoint = 44;
 constexpr uint8_t kReflectionYEntryPoint = 45;
 constexpr uint8_t kReflectionTemporalEntryPoint = 46;
+// the opaque scene into the transmission texture's level 0, compressed (see ComputeTransmissionCopy)
+constexpr uint8_t kTransmissionCopyEntryPoint = 47;
 // the share of a frame's tiles with something drawn without a material with an extended layer from which sorting the
 // tiles pays (see ComputeMainVisibilityClassify): it costs 0.21 to 0.25 ms, and the specialized kernel saves 1.9 ms on a
 // frame of them (2.4 at Sponza). below it the generic kernel shades every tile, and sorts them every
@@ -105,7 +107,7 @@ constexpr uint8_t kReflectionTemporalEntryPoint = 46;
 constexpr float kVisibilityTieredShare = 0.125F;
 constexpr uint64_t kVisibilityRecountFrameCount = 16;
 // diagnostic: the ray query replay's (see gfx/rayquerywatch.h), after the others, where the shaders have the watch
-constexpr uint8_t kRayQueryReplayEntryPoint = 47;
+constexpr uint8_t kRayQueryReplayEntryPoint = 48;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -1484,20 +1486,25 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myMainPass = mainPass(MainPassPhase::kOpaque);
 	myMainLatePass = mainPass(MainPassPhase::kOpaque, true);
 
-	// transmissive materials see the opaque scene behind them: copied, with mips for their roughness
+	// transmissive materials see the opaque scene behind them: copied, compressed by its brightness (see
+	// TransmissionCompress), with mips for their roughness
 	myTransmissionPass = myGraph.AddPass(
 		"Transmission",
 		[this](FrameGraph::PassBuilder& builder)
 		{
-			builder.Use(myColor, ResourceUse::TransferSource());
-			builder.Use(myTransmission, ResourceUse::TransferDestination());
+			builder.Use(myColor, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myTransmission, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
-		[this](FrameGraph::PassContext& context)
+		[this, kernel](FrameGraph::PassContext& context)
 		{
-			auto& transmission = context.graph.GetImage(myTransmission);
-			transmission.BlitFrom(context.cmd, context.graph.GetImage(myColor));
-			transmission.GenerateMips(context.cmd, ImageLayout::kShaderReadOnly);
+			auto extent = myGraph.GetExtent();
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kTransmissionCopyEntryPoint}, extent.width, extent.height);
 		});
+	myTransmissionMipsPass = myGraph.AddPass(
+		"Transmission Mips",
+		[this](FrameGraph::PassBuilder& builder) { builder.Use(myTransmission, ResourceUse::TransferDestination()); },
+		[this](FrameGraph::PassContext& context)
+		{ context.graph.GetImage(myTransmission).GenerateMips(context.cmd, ImageLayout::kShaderReadOnly); });
 	myTransmissivePhase = mainPass(MainPassPhase::kTransmissive);
 
 	// the frame's depth of what doesn't move, for the next to reproject (see ComputeDepthSave)
@@ -2168,6 +2175,19 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myTransmission), .layout = ImageLayout::kShaderReadOnly},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 		SHADER_TYPES_TRANSMISSION_TEXTURE);
+	myTransmissionLevelView = std::make_unique<ImageView>(ImageViewCreateDesc{
+		device.CreateDeviceObjectCreateDesc("Transmission Level 0"),
+		myGraph.GetImage(myTransmission),
+		Format::kR16G16B16A16Sfloat,
+		ImageAspect::kColor,
+		1,
+		{},
+		0});
+	pipeline.SetDescriptorData(
+		"gRWTextures",
+		ImageBinding{.sampler = {}, .imageView = *myTransmissionLevelView, .layout = ImageLayout::kGeneral},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+		SHADER_TYPES_TRANSMISSION_RW_TEXTURE);
 	pipeline.SetDescriptorData(
 		"gTextures",
 		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myShadowAtlas), .layout = ImageLayout::kShaderReadOnly},
@@ -3017,6 +3037,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	}
 
 	myGraph.SetEnabled(myTransmissionPass, myTwoPhases);
+	myGraph.SetEnabled(myTransmissionMipsPass, myTwoPhases);
 	myGraph.SetEnabled(myTransmissivePhase, myTwoPhases);
 
 	myGraph.Bind(myOutput, myRenderOutput.GetTarget(frame.outputIndex), 0);

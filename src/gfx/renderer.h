@@ -298,6 +298,7 @@ private:
 	FrameGraph::ImageId myGiNearRows;
 	FrameGraph::ImageId myGiNear;
 	FrameGraph::ImageId myTransmission;
+	std::unique_ptr<ImageView> myTransmissionLevelView; // a storage view of its level 0, which the Transmission pass writes
 	FrameGraph::ImageId myScatter;
 	FrameGraph::ImageId myScatterDepth;
 	FrameGraph::ImageId myScatterAlbedo;
@@ -337,6 +338,7 @@ private:
 	FrameGraph::BufferId myOitCounter;
 	FrameGraph::BufferId myExposureHistogram;
 	FrameGraph::PassId myTransmissionPass;
+	FrameGraph::PassId myTransmissionMipsPass;
 	FrameGraph::PassId myTransmissivePhase;
 	FrameGraph::PassId myShadowPass;
 	FrameGraph::PassId myScatterBackPass;

@@ -98,8 +98,11 @@ extern "C"
 #define SHADER_TYPES_SHADOW_ATLAS_TEXTURE 11u
 // the gTextures slot of the environment's prefiltered panorama (see EnvironmentData)
 #define SHADER_TYPES_ENVIRONMENT_TEXTURE 12u
-// the gTextures slot of the opaque scene, with mips, which transmissive materials refract (see the main pass's phases)
+// the gTextures slot of the opaque scene, with mips, which transmissive materials refract (see the main pass's phases),
+// compressed by each texel's brightness (see TransmissionCompress), and the gRWTextures slot of its level 0, which the
+// Transmission pass writes (ComputeTransmissionCopy) before the mips are made
 #define SHADER_TYPES_TRANSMISSION_TEXTURE 13u
+#define SHADER_TYPES_TRANSMISSION_RW_TEXTURE 60u
 // the gTextures slot of the environment's panorama prefiltered for sheen (see EnvironmentData)
 #define SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE 14u
 // the ui's frosted panels (the menu bar, menus and popups, as macOS's: see UiBlurRect and the UI Blur passes): the

@@ -2167,6 +2167,7 @@ struct Scene::Impl
 				{"ComputeReflectionX", SLANG_STAGE_COMPUTE}, // see the Reflection passes (the traced glossy reflections)
 				{"ComputeReflectionY", SLANG_STAGE_COMPUTE},
 				{"ComputeReflectionTemporal", SLANG_STAGE_COMPUTE},
+				{"ComputeTransmissionCopy", SLANG_STAGE_COMPUTE}, // see the Transmission pass
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
