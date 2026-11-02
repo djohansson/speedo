@@ -1042,9 +1042,9 @@ the accumulation, `Upscale Accumulation` RGBA16F, where the point was; started o
 or where something moving covers the pixel and moves, the main depth's stencil and the pre-pass's motion over a tenth of
 a pixel, `kUpscaleSweptLeastMotion`: a thin moving thing passing over a pixel takes its luma away and back, a swing, and
 the history kept there held what passed, CommercialRefrigerator's door frame leaving dark pixels over the sky as it swung,
-its frames near the top edge 9.1 of 255 from the same frames unupscaled, now 4.8; by the stencil alone, which marks what
-may move, the door standing closed lost its frost's swings, and its glass flickered three times as much, 0.64 of 255
-between frames against 0.24),
+its frames near the top edge 8.9 of 255 from the same frames unupscaled, now 5.5; by the stencil alone, which marks what
+may move, the door standing closed lost its frost's swings, and its glass flickered three times as much, 0.57 of 255
+between frames against 0.21 at the user's near pose),
 and the shading change counts only as far as the frame's luma strays past 3 of its deviations
 (`UpscaleGateShadingChange`), and the history is kept where the luma swings (FSR's luma instability, as much as the
 deviation passes a quarter of a stop, all of it at three quarters: `kUpscaleLumaSwing*`). A feature thinner than a render
@@ -1066,6 +1066,21 @@ every one at the user's pose over Bistro's square at 13:21 at 600 times real tim
 against the same frames with upscaling off (`SPEEDO_TIME_FRAME_SECONDS` alike), a mean of 7.80 of 255 off before the
 gate, 8.27 with it, 7.60 with the drift too; the filament's 471 jumping pixels 555. Still and turning renders are
 otherwise the same (Sponza 0.05 of 255, DamagedHelmet 0.14, Bistro's street 0.15; turning at the same angles 0.10).
+A stray is a change only where the last frame's luma, where the point was, strayed the same way too, and a drift only
+where both are on its side: a feature the jitter's samples seldom hit strays once in many frames, and each time the
+history was dropped for that frame's samples, a blob of light for a frame. CommercialRefrigerator's frost and the
+bottles' highlights seen through it (the user's pose `-0.0138,1.0920,1.3258,0.000,0.000`, balanced) flashed in 10391
+pixels over 43 frames of the door held a little open, now 994 (native 446, unupscaled none), held closed 6656, now 863,
+and in the animation's closed hold 13012 over 48 frames, now 1456 (between frames 0.46 of 255, now 0.28); a single
+stray had also pulled the drift its way for frames after, which then passed it. A change of the light is still one, a
+frame later; the filament (5 flashing pixels over 38 still frames against 6) and Bistro's moving shadows (3.94 of 255
+from unupscaled against 3.94) are as they were, and the door frame's trailing over the sky 5.0 against 5.5 (its pixels
+off by more than 48, though, 678000 against 602000 over 40 frames).
+
+Glass has no motion of its own here: through thin clear glass what is seen moves with what is behind it, and only its
+frost with the glass, which one motion vector a pixel can't follow both of. Giving the transmissive phase its own motion
+(a second color attachment over the pre-pass's motion) made the refrigerator's door suppress the highlights seen through
+it as it swung, and measured no better walking or strafing at it: its pixels keep the motion of what is behind them.
 
 FSR 2.2 came first (its depth clip, locks and lock luma, luma instability at the output's size, a box of 1 deviation at
 the output's size and up to 20 at a quarter of its pixels, whose clamp cut the accumulation to a tenth): steadier than

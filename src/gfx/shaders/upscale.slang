@@ -746,15 +746,16 @@ float UpscaleDrifting(float drift, float variance)
 // UpscaleGateShadingChange)
 static const float kUpscaleSweptLeastMotion = 0.1;
 
-float UpscaleGateShadingChange(int2 pixel, float shadingChange, float disocclusion, float4 last, bool valid, out float3 statistics)
+float UpscaleGateShadingChange(
+	int2 pixel, int2 lastPixel, float shadingChange, float disocclusion, float4 last, bool valid, out float3 statistics)
 {
 	float luma = log2(max(gTextures[SHADER_TYPES_UPSCALE_LUMA_TEXTURE + UpscaleParity()].Load(int3(pixel, 0)).r, 1e-6));
 	// started over where something moving covers the pixel (the main depth's stencil) and moves (the pre-pass's motion,
 	// in render pixels): a thin moving thing passing over a pixel takes its luma away and back, which looks like a swing,
 	// and the history kept there held what passed (CommercialRefrigerator's door frame left dark pixels over the sky as it
-	// swung: near its top edge the frames were 9.1 of 255 from the same frames unupscaled, now 5.5). by the stencil alone,
+	// swung: near its top edge the frames were 8.9 of 255 from the same frames unupscaled, now 5.5). by the stencil alone,
 	// which marks what may move, the door standing closed lost its frost's swings, and its glass flickered three times as
-	// much from frame to frame (a mean change of 0.64 of 255 against 0.24)
+	// much from frame to frame (at the user's near pose, a mean change of 0.57 of 255 against 0.21)
 	bool moving = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u &&
 				  length(gTextures[SHADER_TYPES_PREPASS_MOTION_TEXTURE].Load(int3(pixel, 0)).xy) > kUpscaleSweptLeastMotion;
 	if (!valid || disocclusion > 0.5 || moving)
@@ -767,6 +768,15 @@ float UpscaleGateShadingChange(int2 pixel, float shadingChange, float disocclusi
 	float difference = luma - mean;
 	float allowed = kUpscaleLumaSurpriseDeviations * max(sqrt(variance), kUpscaleLumaLeastDeviation);
 	float gate = saturate((abs(difference) - allowed) / allowed);
+	// a change only once the last frame's luma where the point was strayed the same way too (and a drift, below, only
+	// where both are on its side): a feature the jitter's samples seldom hit (CommercialRefrigerator's frost and the
+	// bottles' highlights seen through it) strays once in many frames, and each time the history was dropped for the
+	// frame's samples, a blob of light for a frame (the user's pose -0.0138,1.0920,1.3258,0.000,0.000 at balanced: over 43
+	// frames of the door held a little open, 10391 pixels flashing, now 994; held closed 6656, now 863; at native 446,
+	// unupscaled none). a change of the light still is one, a frame later
+	float lastDifference = log2(max(gTextures[SHADER_TYPES_UPSCALE_LUMA_TEXTURE + (UpscaleParity() ^ 1u)].Load(int3(lastPixel, 0)).r, 1e-6)) - mean;
+	bool confirmed = lastDifference * difference > 0.0;
+	gate = confirmed ? min(gate, saturate((abs(lastDifference) - allowed) / allowed)) : 0.0;
 	// a change past what the pixel allows moves its mean there at once, and its variance by at most what it allows
 	// (about half again a frame): a swing that keeps coming back grows the variance in about ten frames, but a change of
 	// the light, a step, barely does. taking the whole step into the variance, as it first did, a model appearing over
@@ -776,8 +786,10 @@ float UpscaleGateShadingChange(int2 pixel, float shadingChange, float disocclusi
 	statistics = float3(gate > 0.0 ? luma : mean + kUpscaleLumaStatisticsBlend * difference,
 		(1.0 - kUpscaleLumaStatisticsBlend) * (variance + kUpscaleLumaStatisticsBlend * clamped * clamped),
 		lerp(last.a, difference, kUpscaleLumaDriftBlend));
-	// and none where the luma drifts (UpscaleDrifting): FSR's shading change, as it was
-	return shadingChange * max(gate, UpscaleDrifting(statistics.z, statistics.y));
+	// and none where the luma drifts (UpscaleDrifting): FSR's shading change, as it was. a stray the jitter seldom hits
+	// pulled the drift its way for frames after, which then passed it
+	float drifting = confirmed && difference * statistics.z > 0.0 ? UpscaleDrifting(statistics.z, statistics.y) : 0.0;
+	return shadingChange * max(gate, drifting);
 }
 
 // the reactivity prepared (PrepareReactivity), per render pixel: the dilated reactive masks (the reactiveness, the
@@ -810,6 +822,7 @@ void ComputeUpscalePrepareReactivity(uint3 dispatchThreadId : SV_DispatchThreadI
 		UpscaleDilatedReactiveMask(pixel),
 		UpscaleGateShadingChange(
 			pixel,
+			clamp(int2(floor((uv + motion) * float2(renderSize))), int2(0), renderSize - 1),
 			saturate(gTextures[SHADER_TYPES_UPSCALE_SHADING_CHANGE_TEXTURE].SampleLevel(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], shadingChangeUv, 0.0).r),
 			disocclusion,
 			last,
