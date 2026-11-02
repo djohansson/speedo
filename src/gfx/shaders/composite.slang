@@ -108,8 +108,9 @@ void ComputeMain(
 		}
 
 		// how much of the pixel the blended layers cover, temporal upscaling's reactive mask (see UpscaleReactiveMask): they
-		// draw no motion of their own, so their history would follow what is behind them
-		float coverage = 0.0;
+		// draw no motion of their own, so their history would follow what is behind them; so does a transmissive surface,
+		// which says how reactive its pixel is where it moves in its alpha past 1 (see TransmissiveMotionReactivity)
+		float coverage = saturate(color.a - 1.0);
 		// the blended fragments over the rest: the pixel's list, its nearest layers sorted near to far (by insertion),
 		// then blended far to near
 		uint node = gOitHeads[y * gPushConstants.framebufferWidth + x];

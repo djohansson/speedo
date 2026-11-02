@@ -783,6 +783,16 @@ Glass has no motion of its own here: through thin clear glass what is seen moves
 frost with the glass, which one motion vector a pixel can't follow both of. Giving the transmissive phase its own motion
 (a second color attachment over the pre-pass's motion) made the refrigerator's door suppress the highlights seen through
 it as it swung, and measured no better walking or strafing at it: its pixels keep the motion of what is behind them.
+Where the glass itself moves over what doesn't, that motion took its edges and what it reflects as still, and the
+history dragged them: IridescentDishWithOlives' cover lifting left trails over its dome and along its rim (the user's
+pose `0.7811,0.4122,0.1465,22.123,-77.115`, at 19:41). So a transmissive fragment says how far its surface moved since
+the last frame (`TransmissiveMotionReactivity`: its last and its current place through this frame's view projection, so
+the glass's own move, not the eye's; all of it from a render pixel, `kTransmissiveReactiveMotionPixels`) in its main
+color's alpha past 1, which the composite takes into the reactive mask, FSR's for what has no motion of its own (the
+frame's samples taken rather than the history): the lift's frames against the same frames unupscaled, 2.5 to 3.7 of 255
+before, 1.2 to 1.3 now (as while the cover rests, upscaling's own difference); CommercialRefrigerator's door swinging at
+most 2.16 before, 1.55 now (1.35 held open); glass that doesn't move as before (DragonAttenuation 0.04 of 255), and its
+cost within the runs' noise (the dish's frame 8.69 ms against 8.63).
 
 FSR 2.2 came first (its depth clip, locks and lock luma, luma instability at the output's size, a box of 1 deviation at
 the output's size and up to 20 at a quarter of its pixels, whose clamp cut the accumulation to a tenth): steadier than

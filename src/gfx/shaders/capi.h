@@ -213,7 +213,8 @@ extern "C"
 // pixels from it, unjittered (see FragmentPrepass), which temporal upscaling reprojects what moves by
 #define SHADER_TYPES_PREPASS_MOTION_TEXTURE 38u
 // temporal upscaling (FSR 3.1's, see upscale.slang, PushConstants::upscale): the frame's composite at the render size
-// (linear, before exposure: ComputeMain's output there; a: the reactive mask, the blended layers' coverage), and the
+// (linear, before exposure: ComputeMain's output there; a: the reactive mask, the blended layers' coverage and where
+// transmissive surfaces move, see TransmissiveMotionReactivity), and the
 // accumulated color at the output's size (two, the frame's by its parity: rgb the light, before exposure; a: the lock)
 #define SHADER_TYPES_COMPOSITE_TEXTURE 1u
 #define SHADER_TYPES_COMPOSITE_RW_TEXTURE 32u

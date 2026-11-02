@@ -446,11 +446,36 @@ float4 MainColor(VertexOutput input, bool isFrontFace, uint2 pixel, uint viewId)
 	return float4(min(color.rgb, 65000.0), 1.0);
 }
 
+// how far a transmissive surface moves since the last frame, in render pixels, past which temporal upscaling takes its
+// pixels as reactive (see TransmissiveMotionReactivity)
+static const float kTransmissiveReactiveMotionPixels = 1.0;
+
+// how far temporal upscaling is to take a transmissive fragment's pixel as reactive, by how far its surface moved since
+// the last frame (its own move, by this frame's view projection: not the eye's). the transmissive phase isn't in the
+// pre-pass, so its pixels have the motion of what is behind them (see UpscaleMotion), and where the glass moves over
+// what doesn't, its edges and what it reflects were taken as still: IridescentDishWithOlives' cover lifting left trails
+// over its dome and along its rim (the user's pose 0.7811,0.4122,0.1465,22.123,-77.115), which the reactive mask, FSR's
+// for what has no motion of its own, takes out (the frame's samples taken rather than the history)
+float TransmissiveMotionReactivity(VertexOutput input)
+{
+	ViewData view = gViewData[gPushConstants.frameIndex][gPushConstants.viewId];
+	float4 current = mul(view.viewProjection, float4(input.vertex.position, 1.0));
+	float4 previous = mul(view.viewProjection, float4(input.previousPosition, 1.0));
+	if (current.w <= 0.0 || previous.w <= 0.0)
+		return 0.0;
+	float2 moved = (previous.xy / previous.w - current.xy / current.w) * 0.5 * view.viewport.zw;
+	return saturate(length(moved) / kTransmissiveReactiveMotionPixels);
+}
+
 [shader("fragment")]
 FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
 {
 	FragmentOutput output;
 	output.color = MainColor(input, isFrontFace, uint2(input.hPos.xy), gPushConstants.viewId);
+	// a transmissive surface's: alpha past 1 by how reactive its pixel is (ComputeMain's composite takes it into the
+	// reactive mask; the rest only tells alpha 0, nothing drawn, from the rest)
+	if (gShadingTransmissive)
+		output.color.a += TransmissiveMotionReactivity(input);
 	return output;
 }
 

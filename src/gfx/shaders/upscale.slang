@@ -31,7 +31,8 @@
 // (FFX_FSR3UPSCALER_OPTION_INVERTED_DEPTH); motion at the
 // render size (LOW_RESOLUTION_MOTION_VECTORS); FSR's defaults for its settings (velocity factor 1, reactiveness and
 // shading change scale 1, a third of accumulation a frame, a third less on disocclusion); the scene's units its meters;
-// the reactive mask the blended layers' coverage (the composite's alpha, see ComputeMain), and no transparency and
+// the reactive mask the blended layers' coverage and where transmissive surfaces move (the composite's alpha, see
+// ComputeMain and TransmissiveMotionReactivity), and no transparency and
 // composition mask. FSR's luma pyramid serves its auto exposure, which ours replaces, and the farthest depth's level its
 // accumulation reads, made here with the shading change's pyramid, whose three levels one pass reduces in shared memory
 // (FSR's single pass downsampler makes six). the reconstructed previous depth is a buffer of float bits (an atomic
