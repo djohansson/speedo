@@ -491,6 +491,24 @@ std::vector<RayQueryGeometry> RayQueryGeometries(const ModelDesc& desc)
 	return geometries;
 }
 
+std::vector<RayQueryGeometry> RayQueryGlassGeometries(const ModelDesc& desc)
+{
+	std::vector<RayQueryGeometry> geometries;
+	for (const auto& submesh : desc.submeshes)
+	{
+		if (submesh.moves || submesh.topology != rhi::PrimitiveTopology::kTriangleList || submesh.indexCount < 3 || submesh.material < 0)
+			continue;
+		const ModelMaterial& material = desc.materials[static_cast<size_t>(submesh.material)];
+		if (material.blend || material.transmission <= 0.0F)
+			continue;
+		uint32_t flags = detail::TriangleFlags(submesh, &material) & ~BVH_TRIANGLE_FLAG_ALPHA_MASKED;
+		for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
+			geometries.push_back(RayQueryGeometry{
+				.flags = flags, .firstIndex = submesh.firstIndex, .triangleCount = submesh.indexCount / 3, .instance = submesh.firstInstance + instanceIt});
+	}
+	return geometries;
+}
+
 std::string Version()
 {
 	// bump the tag when Build changes what it makes

@@ -631,7 +631,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Shadow Transmittance (with transmissive materials), Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility Clear, Main Visibility Classify and Main Visibility (the visibility buffer), Reflection X and Y and Reflection Temporal (the traced glossy reflections), Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Shadow Transmittance (with transmissive materials; Caustics Clear and Caustics where it redraws views and the device has ray queries), Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility Clear, Main Visibility Classify and Main Visibility (the visibility buffer), Reflection X and Y and Reflection Temporal (the traced glossy reflections), Main,
 Transmission and Transmission Mips, Main Transmissive, Exposure Clear, ComputeMain (or, with temporal upscaling, Composite,
 the Upscale passes and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -1208,7 +1208,42 @@ blocks (the user's pose `0.0000,0.0000,19.9960,0.000,0.000`, 2 m in front of the
 blue band as deep as its thickness and attenuation make its view, overlapping bands deeper; TransmissionTest's spheres
 cast their colors on the floor, the metallic row's darker; the other glass sample models change by 0.4 of 255 at most
 (the shadows behind TransmissionRoughnessTest's panels, DragonAttenuation's at its base). Not yet: the indirect
-lighting's voxels and the traced hits (sunlight through a window into a room), caustics, and its cost measured.
+lighting's voxels and the traced hits (sunlight through a window into a room).
+
+**Caustics** (View > Caustics, under Ray Traced Refractions; on where the device has ray queries, `SPEEDO_CAUSTICS=0`
+without, which Copy Pose writes; `caustics.slang`): where the transmittance is drawn, the light the transmissive surfaces
+refract lands where it goes rather than straight behind them. The Caustics pass traces photons from the shadow views the
+frame redraws whose frustum holds a transmissive draw (`Renderer::myCausticViews`; the atlas's cache keeps the others',
+and the passes are disabled where none is redrawn), `SHADER_TYPES_CAUSTIC_PHOTONS_PER_AXIS` squared (16) a texel of the
+transmittance where a transmissive surface is (its alpha), each at a point of its part of the texel jittered by its place
+(`CausticJitter`: on a regular grid a sphere drew rings of moire), from the view's near plane along the light
+(`ShadowData::inverseViewProjection`) through a structure of the transmissive surfaces that don't move (`BvhTraceGlass`:
+the top level structure's third instance, `BVH_RAY_QUERY_MASK_GLASS`, built once of `bvh::RayQueryGlassGeometries`; the
+other rays never query it). At each surface (at most `SHADER_TYPES_CAUSTIC_SURFACE_COUNT`, 8) a photon keeps what it
+lets through (the transmission of the dielectric, the base color at the point, less Schlick's Fresnel by its ior), is
+refracted about the normal as interpolated (the facets drew polygons), and in a volume attenuated over its thickness as
+the view through it takes it (`VolumeAttenuation` at the entry, the factor by the texture and the instance's scale: along
+the path inside, DragonAttenuation's dragon passed almost nothing), reflected back in where it can't leave; a thin wall
+lets it through as it was going. It lands on the first opaque surface (`BvhTraceScene`, alpha masks cut out) if what it
+crossed was transmissive and it isn't inside a volume, added in fixed point to the 2x2 texels of the surface's place in
+the view (`CausticSplat`, `gCausticPhotons`, a uint per channel and texel of the transmittance, emptied by Caustics
+Clear) where the atlas has that surface nearest, within its receiver gradient's slack; a photon meeting an opaque surface
+before its texel's transmissive one is the light straight to it, which the lookup gives, and is dropped, and one meeting
+none (its point past the surface's edge) lands where the light straight on goes, which the lookup takes away. The resolve
+(`ComputeCausticsResolve`) writes the light into the transmittance's rgb (alpha kept), in units of what the light gives an
+unshadowed surface; with `SHADER_TYPES_SHADOWS_CAUSTICS` the lookup gives a texel 1 in front of its nearest layer and 0
+behind, plus its rgb for what receives light (not the transmissive surfaces themselves, `gShadingTransmissive`, set by
+`ShadeFragment`: a depth test of the point against the layer failed on surfaces at a slant, the normal offset putting
+them texels in front of it). CausticSpheres' clear sphere focuses the sun into a spot and a wedge at the edge of its dark
+shadow, its amber one into an orange one; AttenuationTest's blocks throw their light aside of their shadows, as thick
+glass does; DragonAttenuation's body spreads what it lets through over the floor and the cloth behind it, its shadow
+dark (the floor's light around it the same as with the tint alone, red 78.7 of 255 against 79.5). The other glass
+sample models change by 0.4 of 255 at most. Where a transmissive draw moves (CommercialRefrigerator's door), the frame
+takes the tint instead (the structure is of what doesn't move). Cost with the shadow cache off (every view redrawn
+every frame; RTX 4070 Ti SUPER, 2560x1440): Caustics 0.28 to 0.66 ms, Caustics Clear 0.06, the frame 0.35 to 0.55 ms
+more (CausticSpheres, AttenuationTest, DragonAttenuation); with it, nothing while the views are kept. Not yet: what
+moves, dispersion, rough glass's spread, the photons' light in the indirect lighting's voxels and the traced hits, and
+the caustics' noise where few photons land (a texel's 16).
 
 ## Ray traced shadows
 
@@ -2063,18 +2098,21 @@ MoltenVK and an upstream KosmicKrisp do, having neither): the main layout is com
 preprocessor definitions, which are part of the shader cache's key: they weren't at first, and a profile that had compiled
 one way handed those shaders to the other, ray queries with no structure bound, which traced no shadow at all), and every ray the BVHs answered (`GiTraceTriangles` and `ShadowOccluder`:
 the indirect lighting's, the traced shadows', the emitters' and the near field's) is a ray query (`BvhTraceScene` in
-`bvh.slang`) of `gBvhScene[frame]`: a top level structure per frame index of two instances (`gfx::AccelerationStructures`,
+`bvh.slang`) of `gBvhScene[frame]`: a top level structure per frame index of three instances (`gfx::AccelerationStructures`,
 `gfx/accelerationstructures.h`, the model's), what doesn't move, built once when the model is installed of the model's own
 indices and vertices (no copy of its triangles: a geometry per triangle list and instance of those `bvh::Triangles` takes,
 `bvh::RayQueryGeometries`, each placed by its instance's transform, `ModelBuffers::bvhTransforms`), and what moves, refit
 each frame from where `Model::Animate` placed it (`bvh::Moving` without its tree, `WriteRayQueryCorners`, a float4 a corner
 into the frame index's host visible buffer; `AccelerationStructures::RecordUpdate` at
-the start of `Scene::Record`, then the frame index's top level structure built again). The instances' masks tell them apart
+the start of `Scene::Record`, then the frame index's top level structure built again), and the transmissive surfaces that
+don't move, which only the caustics' photons query (see "Shadows"). The instances' masks tell them apart
 (`BVH_RAY_QUERY_MASK_*`: the static voxels' kept light queries what doesn't move alone). The alpha masked geometries
 aren't opaque: their hits are the query's candidates, which `GiAlphaMask` accepts or not (`CommitNonOpaqueTriangleHit`). A
 hit's flags and first index come from its geometry's entry in `gBvhTriangles` (a uint4 a geometry: the flags, the first
-index, and the instance or, of what moves, the first corner; what moves' first geometry is its instance's custom index), and
-its normal and side from its corners: the model's vertices placed by `gModelInstances`, or the frame's corners of what moves.
+index, and the instance or, of what moves, the first corner; what doesn't move's, then what moves', then the glass's,
+each instance's first geometry its custom index: what moves' entries were missing, so a ray meeting what moves read past
+the table), and its normal and side from its corners: the model's vertices placed by `gModelInstances`, or the frame's
+corners of what moves.
 No CWBVH is uploaded nor a set's built, nor the moving tree built or refit on the cpu (BrainStem's 1 ms a frame), and no
 copy of the triangles is kept: they were 3 float4 a triangle at first (Bistro's 2.8 M, 134 MB), a uint4 and a transform a
 geometry now, renders and the traced rays identical (lavapipe). A model
@@ -3008,7 +3046,9 @@ each, of every filter and wrap mode, more than the model sampler slots once were
 multiscatter texture, see above; `ManyLights.gltf`: 24 point and 8 spot lights between pillars, more shadowed lights than
 the atlas holds at full size, best seen with `SPEEDO_ENVIRONMENT_INTENSITY=0.05`; `ThousandsOfLights.gltf`: 3800 small
 point lights and 200 spot lights, all ranged, between 625 pillars on a 200 m ground, for clustering and culling at scale,
-generated by a seeded script, best seen the same way; `VisibilityTiers.gltf`: a plain quad with a small clearcoat quad
+generated by a seeded script, best seen the same way; `CausticSpheres.gltf`: a clear and an amber glass sphere (ior
+1.5, volumes) over a light gray ground, whose caustics land at the edges of their shadows under the default sun;
+`VisibilityTiers.gltf`: a plain quad with a small clearcoat quad
 in front of it, a quarter and a hundredth of the view framed, whose tiles the visibility buffer sorts, see "The visibility
 buffer"), and is always part
 of the printed paths, as is `resources/test-models/obj` (`BumpDomes`: a quad with a bump map of four domes, as is and with

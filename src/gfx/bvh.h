@@ -70,6 +70,9 @@ struct RayQueryGeometry
 	uint32_t instance = 0; // what doesn't move: its instance; what moves: its first corner in a frame's corners
 };
 [[nodiscard]] std::vector<RayQueryGeometry> RayQueryGeometries(const ModelDesc& desc);
+// and of its transmissive surfaces that don't move (not blended), which the caustics' photons refract through (see
+// ComputeCaustics): a structure of their own, which the other rays don't query (BVH_RAY_QUERY_MASK_GLASS)
+[[nodiscard]] std::vector<RayQueryGeometry> RayQueryGlassGeometries(const ModelDesc& desc);
 
 // the same in the moving BVH's layout (tinybvh's BVH_GPU, see Moving; BVH2_NODE_FLOAT4_COUNT and
 // BVH2_TRIANGLE_FLOAT4_COUNT), for assettest's check of its traversal (BvhTraverse2)

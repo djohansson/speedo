@@ -100,6 +100,10 @@ constexpr uint8_t kReflectionYEntryPoint = 45;
 constexpr uint8_t kReflectionTemporalEntryPoint = 46;
 // the opaque scene into the transmission texture's level 0, compressed (see ComputeTransmissionCopy)
 constexpr uint8_t kTransmissionCopyEntryPoint = 47;
+// the caustics' photons through the transmissive surfaces, and their light into the shadow transmittance (see
+// ComputeCaustics, ComputeCausticsResolve)
+constexpr uint8_t kCausticsEntryPoint = 48;
+constexpr uint8_t kCausticsResolveEntryPoint = 49;
 // the share of a frame's tiles with something drawn without a material with an extended layer from which sorting the
 // tiles pays (see ComputeMainVisibilityClassify): it costs 0.21 to 0.25 ms, and the specialized kernel saves 1.9 ms on a
 // frame of them (2.4 at Sponza). below it the generic kernel shades every tile, and sorts them every
@@ -107,7 +111,7 @@ constexpr uint8_t kTransmissionCopyEntryPoint = 47;
 constexpr float kVisibilityTieredShare = 0.125F;
 constexpr uint64_t kVisibilityRecountFrameCount = 16;
 // diagnostic: the ray query replay's (see gfx/rayquerywatch.h), after the others, where the shaders have the watch
-constexpr uint8_t kRayQueryReplayEntryPoint = 48;
+constexpr uint8_t kRayQueryReplayEntryPoint = 50;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -279,6 +283,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		 .format = Format::kR16G16B16A16Sfloat,
 		 .extent = {.width = shadows::kAtlasSize / 2, .height = shadows::kAtlasSize / 2},
 		 .persistent = true});
+	myCausticPhotons = myGraph.CreateBuffer(
+		{.name = "Caustic Photons", .size = uint64_t{shadows::kAtlasSize / 2} * (shadows::kAtlasSize / 2) * 3 * sizeof(uint32_t)});
 	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 	{
 		myShadowViewBuffers.emplace_back(BufferCreateDesc{
@@ -767,11 +773,48 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					.minDepth = 0.0F,
 					.maxDepth = 1.0F});
 				encoder.SetScissor(rect);
-				context.target->ClearRect(cmd, ClearValue{.color = {1.0F, 1.0F, 1.0F, 0.0F}}, 0, rect);
+				// with caustics, its rgb is theirs (see ComputeCausticsResolve): nothing let through where they bring none
+				float through = myCausticsThisFrame ? 0.0F : 1.0F;
+				context.target->ClearRect(cmd, ClearValue{.color = {through, through, through, 0.0F}}, 0, rect);
 				pushConstants.shadowView = viewIt;
 				auto frustum = Frustum::FromViewProjection(glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
 				RecordDrawList(cmd, pipeline, myShadowTransmittanceList, pushConstants, 0, *myDrawStream, inputs.culling ? &frustum : nullptr);
 			}
+		});
+
+	// the caustics (see ComputeCaustics): the photons' light emptied, the photons of each shadow view drawn again whose
+	// frustum a transmissive draw is in traced, then their light into its tile of the transmittance
+	myCausticsClearPass = myGraph.AddPass(
+		"Caustics Clear",
+		[this](FrameGraph::PassBuilder& builder) { builder.Use(myCausticPhotons, ResourceUse::TransferDestination()); },
+		[this](FrameGraph::PassContext& context)
+		{ CommandEncoder(context.cmd).FillBuffer(context.graph.GetBuffer(myCausticPhotons), 0, 0, 0); });
+	myCausticsPass = myGraph.AddPass(
+		"Caustics",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myCausticPhotons, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myShadowTransmittance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
+		},
+		[this, bindKernel](FrameGraph::PassContext& context)
+		{
+			auto dispatch = [&](uint8_t entryPoint, uint32_t viewIt, uint32_t threadsPerTexel)
+			{
+				ComputePipelineVariant variant{.entryPoint = entryPoint};
+				auto& pipeline = bindKernel(context.cmd, variant);
+				auto pushConstants = myFrame.inputs->pushConstants;
+				pushConstants.shadowView = viewIt;
+				pipeline.PushConstants(context.cmd, std::as_bytes(std::span(&pushConstants, 1)));
+				uint32_t texels = myShadowPlan.tiles[viewIt].size / 2;
+				CommandEncoder(context.cmd)
+					.DispatchThreads(pipeline.GetComputeLaunchParameters(variant), texels * threadsPerTexel, texels * threadsPerTexel);
+			};
+			for (auto viewIt : myCausticViews)
+				dispatch(kCausticsEntryPoint, viewIt, SHADER_TYPES_CAUSTIC_PHOTONS_PER_AXIS);
+			CommandEncoder(context.cmd).Barrier(PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead);
+			for (auto viewIt : myCausticViews)
+				dispatch(kCausticsResolveEntryPoint, viewIt, 1);
 		});
 
 	// the scattering materials' back faces, depth only: how thick they are where the Scatter pass sees them
@@ -2256,6 +2299,13 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myShadowTransmittance), .layout = ImageLayout::kShaderReadOnly},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 		SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE);
+	// and as the caustics write it (see ComputeCausticsResolve), from their photons
+	pipeline.SetDescriptorData(
+		"gShadowTransmittanceImage",
+		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myShadowTransmittance), .layout = ImageLayout::kGeneral},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
+	pipeline.SetDescriptorData(
+		"gCausticPhotons", BufferBinding{.buffer = myGraph.GetBuffer(myCausticPhotons), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	for (auto [image, slot] : std::array{
 			 std::pair{myScatter, SHADER_TYPES_SCATTER_TEXTURE},
 			 std::pair{myScatterDepth, SHADER_TYPES_SCATTER_DEPTH_TEXTURE},
@@ -2979,6 +3029,13 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		: DrawList{};
 	if (!myShadowTransmittanceList.Empty())
 		frame.pushConstants.shadows |= SHADER_TYPES_SHADOWS_TRANSMITTANCE;
+	// and refract it into caustics, where the device's ray queries trace the model's structures (its transmissive surfaces
+	// that don't move among them: a model with one that moves keeps the tint, its photons would pass it untinted)
+	myCausticsThisFrame = !myShadowTransmittanceList.Empty() && frame.caustics && frame.model != nullptr &&
+						  frame.model->GetAccelerationStructures() != nullptr &&
+						  std::ranges::none_of(myShadowTransmittanceList.items, [](const DrawItem& item) { return item.moves; });
+	if (myCausticsThisFrame)
+		frame.pushConstants.shadows |= SHADER_TYPES_SHADOWS_CAUSTICS;
 	frame.pushConstants.shadowView = SHADER_TYPES_NO_SHADOW;
 	// the traced reflections and refractions, where the model has its structures (a model without, the file browser's
 	// preview, has the default ones of nothing bound: its reflections would all be the environment's)
@@ -3007,6 +3064,19 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myShadowPass, shadowsDrawn && std::ranges::contains(myShadowViewKept, uint8_t{0}));
 	myGraph.SetEnabled(
 		myShadowTransmittancePass, !myShadowTransmittanceList.Empty() && std::ranges::contains(myShadowViewKept, uint8_t{0}));
+	// the caustics' photons in the views drawn again whose frustum a transmissive draw is in
+	myCausticViews.clear();
+	if (myCausticsThisFrame)
+		for (uint32_t viewIt = 0; viewIt < myShadowPlan.views.size(); viewIt++)
+		{
+			if (myShadowViewKept[viewIt] != 0)
+				continue;
+			auto frustum = Frustum::FromViewProjection(glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
+			if (std::ranges::any_of(myShadowTransmittanceList.items, [&frustum](const DrawItem& item) { return !frustum.Excludes(item.bounds); }))
+				myCausticViews.push_back(viewIt);
+		}
+	myGraph.SetEnabled(myCausticsClearPass, !myCausticViews.empty());
+	myGraph.SetEnabled(myCausticsPass, !myCausticViews.empty());
 
 	// the scattering materials' light, if any are drawn
 	myScatterDrawList = frame.model != nullptr
@@ -3337,7 +3407,7 @@ void Renderer::InternalPlanShadowCache(const FrameInputs& frame)
 	bool transmittance = !myShadowTransmittanceList.Empty();
 	if (myShadowCacheOn && myGraph.IsPersistentValid(myShadowAtlas) && frame.model == myShadowCachedModel &&
 		myShadowDrawList.items.size() == myShadowCachedDrawCount &&
-		myShadowTransmittanceList.items.size() == myShadowCachedTransmittanceCount &&
+		myShadowTransmittanceList.items.size() == myShadowCachedTransmittanceCount && myCausticsThisFrame == myShadowCachedCaustics &&
 		(!transmittance || myGraph.IsPersistentValid(myShadowTransmittance)))
 	{
 		for (size_t viewIt = 0; viewIt < std::min(viewCount, myShadowCachedViews.size()); viewIt++)
@@ -3356,6 +3426,7 @@ void Renderer::InternalPlanShadowCache(const FrameInputs& frame)
 	myShadowCachedModel = frame.model;
 	myShadowCachedDrawCount = myShadowDrawList.items.size();
 	myShadowCachedTransmittanceCount = myShadowTransmittanceList.items.size();
+	myShadowCachedCaustics = myCausticsThisFrame;
 }
 
 void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)

@@ -62,7 +62,8 @@ Model::Model(
 				.transforms = &myBuffers.bvhTransforms,
 				.staticGeometries = std::move(rayQueries->staticGeometries),
 				.movingCorners = myBuffers.bvhMovingTriangles,
-				.movingGeometries = std::move(rayQueries->movingGeometries)});
+				.movingGeometries = std::move(rayQueries->movingGeometries),
+				.glassGeometries = std::move(rayQueries->glassGeometries)});
 }
 
 // writes the moving BVH as placed to a frame's buffers (see bvh::Moving)
@@ -931,6 +932,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 	// the device's ray queries trace the triangles themselves where it has them (see AccelerationStructures), else gfx's BVHs
 	bool rayQueries = bvh == ModelBvh::kBuild && device.GetLimits().rayQuery;
 	std::optional<ModelRayQueries> rayQueryGeometries;
+	std::vector<bvh::RayQueryGeometry> movingRayQueryGeometries; // their entries in the shaders' table, after what doesn't move's
 	if (rayQueries)
 		rayQueryGeometries.emplace();
 
@@ -997,7 +999,8 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 				movingBvh->Place(joints, desc.morphWeights, restInstances);
 				if (rayQueries)
 				{
-					for (const auto& geometry : movingBvh->RayQueryGeometries())
+					movingRayQueryGeometries = movingBvh->RayQueryGeometries();
+					for (const auto& geometry : movingRayQueryGeometries)
 						rayQueryGeometries->movingGeometries.push_back(AccelerationStructures::Geometry{
 							.first = geometry.instance,
 							.triangleCount = geometry.triangleCount,
@@ -1071,12 +1074,24 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 	if (rayQueries)
 	{
 		// what the device's ray queries' structures are built of instead (see AccelerationStructures): the model's indices
-		// and vertices, and per geometry its transform and its entry in the shaders' table (BVH_RAY_QUERY_GEOMETRY_*)
+		// and vertices, and per geometry its transform and its entry in the shaders' table (BVH_RAY_QUERY_GEOMETRY_*): what
+		// doesn't move's, what moves' (their entries were missing, so a ray meeting what moves read past the table: its
+		// material none, and past its first geometry the wrong corners), then the glass's
 		auto geometries = bvh::RayQueryGeometries(desc);
-		if (!geometries.empty())
+		auto glassGeometries = bvh::RayQueryGlassGeometries(desc);
+		if (!geometries.empty() || !movingRayQueryGeometries.empty() || !glassGeometries.empty())
 		{
 			std::vector<glm::uvec4> table;
 			std::vector<std::array<float, 12>> transforms;
+			auto place = [&](const bvh::RayQueryGeometry& geometry)
+			{
+				// the instance's rows (glm's columns' elements)
+				const glm::mat4& transform = desc.instances[geometry.instance];
+				auto& rows = transforms.emplace_back();
+				for (int rowIt = 0; rowIt < 3; rowIt++)
+					for (int columnIt = 0; columnIt < 4; columnIt++)
+						rows[static_cast<size_t>((rowIt * 4) + columnIt)] = transform[columnIt][rowIt];
+			};
 			for (const auto& geometry : geometries)
 			{
 				rayQueryGeometries->staticGeometries.push_back(AccelerationStructures::Geometry{
@@ -1084,12 +1099,16 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 					.triangleCount = geometry.triangleCount,
 					.opaque = (geometry.flags & BVH_TRIANGLE_FLAG_ALPHA_MASKED) == 0U});
 				table.emplace_back(geometry.flags, geometry.firstIndex, geometry.instance, 0U);
-				// the instance's rows (glm's columns' elements)
-				const glm::mat4& transform = desc.instances[geometry.instance];
-				auto& rows = transforms.emplace_back();
-				for (int rowIt = 0; rowIt < 3; rowIt++)
-					for (int columnIt = 0; columnIt < 4; columnIt++)
-						rows[static_cast<size_t>((rowIt * 4) + columnIt)] = transform[columnIt][rowIt];
+				place(geometry);
+			}
+			for (const auto& geometry : movingRayQueryGeometries)
+				table.emplace_back(geometry.flags, geometry.firstIndex, geometry.instance, 0U);
+			for (const auto& geometry : glassGeometries)
+			{
+				rayQueryGeometries->glassGeometries.push_back(
+					AccelerationStructures::Geometry{.first = geometry.firstIndex, .triangleCount = geometry.triangleCount});
+				table.emplace_back(geometry.flags, geometry.firstIndex, geometry.instance, 0U);
+				place(geometry);
 			}
 			auto stage = [&](std::string_view what, std::span<const std::byte> bytes)
 			{
@@ -1100,7 +1119,8 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 				return staging;
 			};
 			bvhTriangleStaging = stage("ray query geometries", std::as_bytes(std::span(table)));
-			bvhTransformStaging = stage("ray query transforms", std::as_bytes(std::span(transforms)));
+			if (!transforms.empty())
+				bvhTransformStaging = stage("ray query transforms", std::as_bytes(std::span(transforms)));
 		}
 	}
 	else if (bvhData)
@@ -1223,10 +1243,13 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 		{
 			auto tableSize = bvhTriangleStaging.GetDesc().size;
 			buffers.bvhTriangles = upload("ray query geometries", tableSize, BufferUsage::kStorage, std::move(bvhTriangleStaging));
-			auto transformSize = bvhTransformStaging.GetDesc().size;
-			buffers.bvhTransforms = upload(
-				"ray query transforms", transformSize, BufferUsage::kAccelerationStructureInput | BufferUsage::kDeviceAddress,
-				std::move(bvhTransformStaging));
+			if (bvhTransformStaging.IsValid())
+			{
+				auto transformSize = bvhTransformStaging.GetDesc().size;
+				buffers.bvhTransforms = upload(
+					"ray query transforms", transformSize, BufferUsage::kAccelerationStructureInput | BufferUsage::kDeviceAddress,
+					std::move(bvhTransformStaging));
+			}
 		}
 		if (emitterStaging.IsValid())
 		{

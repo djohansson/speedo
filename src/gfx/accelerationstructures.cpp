@@ -39,6 +39,9 @@ namespace accelerationstructures
 	return AlignUp(scratch.GetDeviceAddress() + offset, device.GetLimits().accelerationStructureScratchAlignment);
 }
 
+// the top level structures' instances: what doesn't move, what does and the glass
+constexpr uint32_t kInstanceCount = 3;
+
 // what doesn't move: traced most, built once, then compacted (see RecordCompaction)
 constexpr AccelerationStructureBuildFlags kStaticFlags =
 	AccelerationStructureBuildFlags::kPreferFastTrace | AccelerationStructureBuildFlags::kAllowCompaction;
@@ -55,16 +58,18 @@ static void BuildBarrier(const CommandEncoder& encoder)
 
 } // namespace accelerationstructures
 
-std::vector<AccelerationStructureGeometry> AccelerationStructures::StaticGeometries() const
+std::vector<AccelerationStructureGeometry> AccelerationStructures::StaticGeometries(bool glass) const
 {
 	constexpr uint64_t kTransformSize = 12 * sizeof(float);
 	std::vector<AccelerationStructureGeometry> geometries;
 	uint64_t vertices = myInputs.vertices->GetDeviceAddress();
 	uint64_t indices = myInputs.indices->GetDeviceAddress();
-	uint64_t transforms = myInputs.transforms->GetDeviceAddress();
-	for (size_t geometryIt = 0; geometryIt < myInputs.staticGeometries.size(); geometryIt++)
+	// the glass's transforms after what doesn't move's
+	const auto& inputs = glass ? myInputs.glassGeometries : myInputs.staticGeometries;
+	uint64_t transforms = myInputs.transforms->GetDeviceAddress() + (glass ? myInputs.staticGeometries.size() * kTransformSize : 0);
+	for (size_t geometryIt = 0; geometryIt < inputs.size(); geometryIt++)
 	{
-		const auto& geometry = myInputs.staticGeometries[geometryIt];
+		const auto& geometry = inputs[geometryIt];
 		geometries.emplace_back(AccelerationStructureTriangles{
 			.vertexAddress = vertices,
 			.vertexStride = myInputs.vertexStride,
@@ -120,6 +125,15 @@ AccelerationStructures::AccelerationStructures(Device& device, std::string_view 
 			device.CreateDeviceObjectCreateDesc(std::format("{} (static structure)", name)), AccelerationStructureType::kBottomLevel,
 			myStaticSizes.structureSize});
 	}
+	if (!myInputs.glassGeometries.empty())
+	{
+		auto geometries = StaticGeometries(true);
+		myGlassSizes = AccelerationStructure::GetSizes(
+			device, AccelerationStructureType::kBottomLevel, geometries, AccelerationStructureBuildFlags::kPreferFastTrace);
+		myGlass.emplace(AccelerationStructureCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("{} (glass structure)", name)), AccelerationStructureType::kBottomLevel,
+			myGlassSizes.structureSize});
+	}
 	bool moves = !myInputs.movingCorners.empty() && !myInputs.movingGeometries.empty();
 	if (moves)
 	{
@@ -128,7 +142,7 @@ AccelerationStructures::AccelerationStructures(Device& device, std::string_view 
 			device, AccelerationStructureType::kBottomLevel, geometries,
 			AccelerationStructureBuildFlags::kPreferFastBuild | AccelerationStructureBuildFlags::kAllowUpdate);
 	}
-	std::array<AccelerationStructureGeometry, 1> instanceGeometry{AccelerationStructureInstances{.address = 0, .count = 2}};
+	std::array<AccelerationStructureGeometry, 1> instanceGeometry{AccelerationStructureInstances{.address = 0, .count = kInstanceCount}};
 	myTopLevelSizes = AccelerationStructure::GetSizes(device, AccelerationStructureType::kTopLevel, instanceGeometry, AccelerationStructureBuildFlags::kPreferFastTrace);
 	myTopLevelScratchOffset = AlignUp(std::max(myMovingSizes.buildScratchSize, myMovingSizes.updateScratchSize), device.GetLimits().accelerationStructureScratchAlignment);
 
@@ -137,6 +151,10 @@ AccelerationStructures::AccelerationStructures(Device& device, std::string_view 
 			"{}: ray query structures of {} triangles that don't move ({} geometries, {:.1f} MB) and {} that do ({} geometries, {:.1f} MB a frame)",
 			name, triangleCount(myInputs.staticGeometries), staticGeometryCount, static_cast<double>(myStaticSizes.structureSize) / (1 << 20),
 			triangleCount(myInputs.movingGeometries), myInputs.movingGeometries.size(), static_cast<double>(myMovingSizes.structureSize) / (1 << 20));
+	if (myGlass)
+		std::println(
+			"{}: a ray query structure of {} transmissive triangles ({} geometries, {:.1f} MB)", name, triangleCount(myInputs.glassGeometries),
+			myInputs.glassGeometries.size(), static_cast<double>(myGlassSizes.structureSize) / (1 << 20));
 
 	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 	{
@@ -150,13 +168,17 @@ AccelerationStructures::AccelerationStructures(Device& device, std::string_view 
 		myScratch.push_back(CreateScratch(
 			device, std::format("{} (structures' scratch {})", name, frameIt), myTopLevelScratchOffset + myTopLevelSizes.buildScratchSize));
 
-		// what doesn't move, and what moves as the frame index's structure has it (the shaders tell them apart by their index)
-		std::array<AccelerationStructureInstance, 2> instances{};
+		// what doesn't move, what moves as the frame index's structure has it, and the glass (the shaders tell them apart by
+		// their index)
+		std::array<AccelerationStructureInstance, kInstanceCount> instances{};
 		instances[0].customIndexAndMask = BVH_RAY_QUERY_MASK_STATIC << 24U;
 		instances[0].structureAddress = myStatic ? myStatic->GetDeviceAddress() : 0;
-		static_assert(BVH_RAY_QUERY_INSTANCE_MOVING == 1);
+		static_assert(BVH_RAY_QUERY_INSTANCE_MOVING == 1 && BVH_RAY_QUERY_INSTANCE_GLASS == 2);
 		instances[1].customIndexAndMask = staticGeometryCount | (BVH_RAY_QUERY_MASK_MOVING << 24U);
 		instances[1].structureAddress = moves ? myMoving.back().GetDeviceAddress() : 0;
+		instances[2].customIndexAndMask =
+			(staticGeometryCount + static_cast<uint32_t>(myInputs.movingGeometries.size())) | (BVH_RAY_QUERY_MASK_GLASS << 24U);
+		instances[2].structureAddress = myGlass ? myGlass->GetDeviceAddress() : 0;
 		auto& instanceBuffer = myInstances.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("{} (instances {})", name, frameIt)),
 			sizeof(instances),
@@ -179,9 +201,16 @@ std::shared_ptr<Buffer> AccelerationStructures::RecordBuild(CommandBufferHandle 
 
 	CommandEncoder encoder(cmd);
 	std::shared_ptr<Buffer> scratch;
+	// the glass's after what doesn't move's, in the one scratch buffer
+	uint64_t glassScratchOffset = AlignUp(myStaticSizes.buildScratchSize, myDevice.GetLimits().accelerationStructureScratchAlignment);
+	if (myStatic || myGlass)
+		scratch = std::make_shared<Buffer>(
+			CreateScratch(myDevice, std::format("{} scratch", myStatic ? myStatic->GetName() : myGlass->GetName()), glassScratchOffset + myGlassSizes.buildScratchSize));
+	if (myGlass)
+		encoder.BuildAccelerationStructure(
+			*myGlass, StaticGeometries(true), AccelerationStructureBuildFlags::kPreferFastTrace, ScratchAddress(myDevice, *scratch, glassScratchOffset));
 	if (myStatic)
 	{
-		scratch = std::make_shared<Buffer>(CreateScratch(myDevice, std::format("{} scratch", myStatic->GetName()), myStaticSizes.buildScratchSize));
 		myCompactedSizeQuery.emplace(QueryPoolCreateDesc{
 			myDevice.CreateDeviceObjectCreateDesc(std::format("{} compacted size", myStatic->GetName())), 1, rhi::QueryType::kAccelerationStructureCompactedSize});
 		myCompactedSizeQuery->Reset(cmd, 0, 1);
@@ -230,7 +259,7 @@ void AccelerationStructures::RecordUpdate(CommandBufferHandle cmd, uint32_t fram
 void AccelerationStructures::RecordTopLevelBuild(const CommandEncoder& encoder, uint32_t frameIndex)
 {
 	std::array<AccelerationStructureGeometry, 1> instances{
-		AccelerationStructureInstances{.address = myInstances[frameIndex].GetDeviceAddress(), .count = 2}};
+		AccelerationStructureInstances{.address = myInstances[frameIndex].GetDeviceAddress(), .count = accelerationstructures::kInstanceCount}};
 	encoder.BuildAccelerationStructure(
 		myTopLevels[frameIndex], instances, AccelerationStructureBuildFlags::kPreferFastTrace,
 		accelerationstructures::ScratchAddress(myDevice, myScratch[frameIndex], myTopLevelScratchOffset));

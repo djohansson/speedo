@@ -165,9 +165,11 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 	// KHR_materials_transmission: that much of the dielectric's diffuse is the light through it instead
 	surface.transmitted = 0.0;
 	float transmission = 0.0;
+	gShadingTransmissive = false;
 	if (Layer(material, MATERIAL_FLAG_TRANSMISSION))
 	{
 		transmission = material.transmission.x;
+		gShadingTransmissive = transmission > 0.0;
 		if ((material.flags & MATERIAL_FLAG_TRANSMISSION_TEXTURE) != 0u)
 			transmission *= SampleView(material.transmissionView, v.texCoord01).r;
 		float thickness = material.transmission.y;

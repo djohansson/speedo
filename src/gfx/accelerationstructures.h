@@ -19,10 +19,12 @@ namespace gfx
 // BVHs (see gfx/bvh.h): a bottom level structure of what doesn't move, built once of the model's own indices and
 // vertices, a geometry per triangle list and instance placed by the instance's transform (bvh::RayQueryGeometries); one
 // of what moves per frame index, refit each frame to where it was placed (bvh::Moving::WriteRayQueryCorners); and a top
-// level structure per frame index of their two instances (what doesn't move, BVH_RAY_QUERY_MASK_STATIC, then what does,
-// BVH_RAY_QUERY_MASK_MOVING; an instance of nothing is inactive), which the shaders bind as gBvhScene[frame]. the alpha
-// masked geometries aren't opaque: their hits are candidates the shaders test. what moves' first geometry among all is
-// its instance's custom index (what doesn't move's is 0), which the shaders' table of geometries is indexed by
+// level structure per frame index of their instances (what doesn't move, BVH_RAY_QUERY_MASK_STATIC, then what does,
+// BVH_RAY_QUERY_MASK_MOVING, then the transmissive surfaces that don't move, BVH_RAY_QUERY_MASK_GLASS, built once as what
+// doesn't move is, which only the caustics' photons query; an instance of nothing is inactive), which the shaders bind as
+// gBvhScene[frame]. the alpha masked geometries aren't opaque: their hits are candidates the shaders test. an instance's
+// first geometry among all is its custom index (what doesn't move's is 0), which the shaders' table of geometries is
+// indexed by
 class AccelerationStructures
 {
 public:
@@ -37,8 +39,8 @@ public:
 
 	// what they are built of, in buffers with BufferUsage::kAccelerationStructureInput and kDeviceAddress: what doesn't
 	// move, the model's vertices (a position at the start of each, vertexStride apart), its indices and a transform per
-	// geometry (3x4 floats, row major); what moves, a frame index's corners (a float4 each, three a triangle). none of
-	// either: no structure of it
+	// geometry (3x4 floats, row major); what moves, a frame index's corners (a float4 each, three a triangle); the glass as
+	// what doesn't move, its transforms after what doesn't move's. none of one: no structure of it
 	struct Inputs
 	{
 		const Buffer* vertices = nullptr;
@@ -49,6 +51,7 @@ public:
 		std::vector<Geometry> staticGeometries;
 		std::span<const Buffer> movingCorners;
 		std::vector<Geometry> movingGeometries;
+		std::vector<Geometry> glassGeometries;
 	};
 
 	AccelerationStructures(Device& device, std::string_view name, Inputs&& inputs);
@@ -77,18 +80,20 @@ public:
 private:
 	// records building the frame index's top level structure, of its instances
 	void RecordTopLevelBuild(const CommandEncoder& encoder, uint32_t frameIndex);
-	// the geometries of what doesn't move, and of what moves as a frame index has it
-	[[nodiscard]] std::vector<rhi::AccelerationStructureGeometry> StaticGeometries() const;
+	// the geometries of what doesn't move (or of the glass), and of what moves as a frame index has it
+	[[nodiscard]] std::vector<rhi::AccelerationStructureGeometry> StaticGeometries(bool glass = false) const;
 	[[nodiscard]] std::vector<rhi::AccelerationStructureGeometry> MovingGeometries(uint32_t frameIndex) const;
 
 	Device& myDevice;
 	Inputs myInputs;
 	std::optional<AccelerationStructure> myStatic;
+	std::optional<AccelerationStructure> myGlass;
+	rhi::AccelerationStructureSizes myGlassSizes{};
 	std::optional<QueryPool> myCompactedSizeQuery; // what doesn't move's, until it is compacted
 	uint64_t myCompactedSize = 0;
 	std::vector<AccelerationStructure> myMoving; // per frame index
 	std::vector<AccelerationStructure> myTopLevels; // per frame index
-	std::vector<Buffer> myInstances; // per frame index, host visible: two rhi::AccelerationStructureInstance
+	std::vector<Buffer> myInstances; // per frame index, host visible: three rhi::AccelerationStructureInstance
 	std::vector<Buffer> myScratch; // per frame index: the moving structure's update, then the top level build
 	rhi::AccelerationStructureSizes myStaticSizes{};
 	rhi::AccelerationStructureSizes myMovingSizes{};

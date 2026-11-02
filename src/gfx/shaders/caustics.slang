@@ -1,0 +1,231 @@
+// caustics: the light the transmissive surfaces refract, as photons from the lights' shadow views (ComputeCaustics) into
+// their tiles of the shadow transmittance (ComputeCausticsResolve), which the points behind the surfaces take in place of
+// what goes straight through them (see ShadowTransmittance). a part of shaders.slang, which includes it after capi.h and
+// sky.h
+
+// a point in the unit square for a photon (pcg2d, Jarzynski and Olano)
+float2 CausticJitter(uint2 photon)
+{
+	uint2 v = photon * 1664525u + 1013904223u;
+	v.x += v.y * 1664525u;
+	v.y += v.x * 1664525u;
+	v ^= v >> 16u;
+	v.x += v.y * 1664525u;
+	v.y += v.x * 1664525u;
+	v ^= v >> 16u;
+	return float2(v >> 8u) / 16777216.0;
+}
+
+// where a photon lands on an opaque surface: its light added to the shadow view's transmittance texels around the
+// surface's place in the view (bilinear, in fixed point), if the surface is what the view sees nearest there (what the
+// lookup lights: a surface behind another, from the light, can't be told apart from it in the view)
+void CausticSplat(ShadowData view, float3 position, float3 normal, float3 power, float2 size)
+{
+	float4 clip = mul(view.viewProjection, float4(position, 1.0));
+	if (clip.w <= 0.0)
+		return;
+	float3 ndc = clip.xyz / clip.w;
+	float2 local = ndc.xy * 0.5 + 0.5;
+	if (any(local < 0.0) || any(local > 1.0) || ndc.z < 0.0 || ndc.z > 1.0)
+		return;
+	ShadowMapPlace place;
+	place.view = view;
+	place.uv = view.atlasRect.xy + local * view.atlasRect.zw;
+	place.depth = ndc.z;
+	Texture2D atlas = gTextures[SHADER_TYPES_SHADOW_ATLAS_TEXTURE];
+	float2 atlasSize;
+	atlas.GetDimensions(atlasSize.x, atlasSize.y);
+	float texelSize = view.params.x * (view.params.y > 0.0 ? ShadowViewDistance(view, ndc.z) : 1.0);
+	float2 gradient = ShadowReceiverGradient(place, position, normal, texelSize);
+	float slack = abs(dot(abs(gradient), 1.0 / atlasSize)) * 3.0 + 1e-5;
+	float stored = atlas.Load(int3(int2(place.uv * atlasSize), 0)).r;
+	if (stored > place.depth + slack) // depth reversed: something nearer the light is there
+		return;
+
+	float2 low = view.atlasRect.xy * size;
+	float2 high = (view.atlasRect.xy + view.atlasRect.zw) * size - 1.0;
+	float2 st = place.uv * size - 0.5;
+	float2 base = floor(st);
+	float2 f = st - base;
+	float weights[4] = {(1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y};
+	for (uint cornerIt = 0; cornerIt < 4; cornerIt++)
+	{
+		float2 corner = base + float2(cornerIt & 1u, cornerIt >> 1u);
+		if (any(corner < low) || any(corner > high))
+			continue;
+		uint3 amount = uint3(power * weights[cornerIt] * SHADER_TYPES_CAUSTIC_FIXED_POINT_SCALE + 0.5);
+		uint index = (uint(corner.y) * uint(size.x) + uint(corner.x)) * 3u;
+		for (uint channel = 0; channel < 3; channel++)
+			if (amount[channel] > 0u)
+				InterlockedAdd(gCausticPhotons[index + channel], amount[channel]);
+	}
+}
+
+// the caustics' photons of the shadow view PushConstants::shadowView, of its tile of the shadow transmittance: from each of
+// SHADER_TYPES_CAUSTIC_PHOTONS_PER_AXIS squared points of each texel where a transmissive surface is (its alpha the nearest
+// one's depth), along the light, through the transmissive surfaces that don't move (BvhTraceGlass, the ray queries'
+// structure of them): at each, what it lets through (its transmission of the dielectric, the base color at the point, less
+// its Fresnel reflection, by its ior), refracted about the surface's normal as interpolated (the triangles' facets drew
+// their caustics as polygons), into a volume (a thickness factor; a thin wall lets it through as it was going), attenuated
+// over its thickness (KHR_materials_volume's attenuation, as the view through it has it), out again (reflected back in
+// where it can't leave), until it meets an opaque surface (CausticSplat), at most SHADER_TYPES_CAUSTIC_SURFACE_COUNT surfaces. a photon meeting an
+// opaque surface before the transmissive one its texel has is the light straight to it, which the lookup gives it, and is
+// dropped; one meeting none (a point of the texel past the surface's edge) lands where the light straight on goes, which
+// the lookup takes away there (the texel is behind the surface). a photon's light is its share of its texel's, in units of
+// what the light gives a surface unshadowed
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void ComputeCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+#if BVH_RAY_QUERY
+	uint frameIndex = gPushConstants.frameIndex;
+	ShadowData view = gShadowViews[frameIndex][gPushConstants.shadowView];
+	uint2 imageSize;
+	gShadowTransmittanceImage.GetDimensions(imageSize.x, imageSize.y);
+	float2 size = float2(imageSize);
+	float2 tileOrigin = view.atlasRect.xy * size;
+	float2 tileExtent = view.atlasRect.zw * size;
+	uint photons = SHADER_TYPES_CAUSTIC_PHOTONS_PER_AXIS;
+	uint2 texel = dispatchThreadId.xy / photons;
+	if (any(float2(texel) >= tileExtent))
+		return;
+	if (gShadowTransmittanceImage[int2(tileOrigin) + int2(texel)].a <= 0.0)
+		return;
+
+	// each photon at a point of its part of the texel, by its place in the transmittance (the same every frame): at their
+	// parts' centers, a regular grid, a sphere's refraction drew it as rings of moire
+	float2 local = (float2(texel) + (float2(dispatchThreadId.xy % photons) + CausticJitter(uint2(tileOrigin) * photons + dispatchThreadId.xy)) / float(photons)) / tileExtent;
+	float2 ndc = local * 2.0 - 1.0;
+	float4 nearPoint = mul(view.inverseViewProjection, float4(ndc, 1.0, 1.0)); // depth reversed: 1 at the near plane
+	float4 farPoint = mul(view.inverseViewProjection, float4(ndc, 0.0, 1.0));
+	float3 origin = nearPoint.xyz / nearPoint.w;
+	float3 direction = normalize(farPoint.xyz / farPoint.w - origin);
+	float tmax = 1e30;
+	float3 power = 1.0 / float(photons * photons);
+	bool inside = false;
+	bool passed = false; // through a transmissive surface
+	for (uint surfaceIt = 0; surfaceIt < SHADER_TYPES_CAUSTIC_SURFACE_COUNT; surfaceIt++)
+	{
+		BvhHit glass = BvhTraceGlass(origin, direction, tmax);
+		BvhHit opaque = BvhTraceScene(origin, direction, glass.t, false, true, GiAlphaMask());
+		if (BvhHitSomething(opaque))
+		{
+			// lands, unless inside a volume (what is inside the glass, which the view doesn't see), or the light straight
+			// to a surface in front of the transmissive one
+			if (!inside && (passed || !BvhHitSomething(glass)))
+				CausticSplat(view, origin + direction * opaque.t, opaque.normal, power, size);
+			return;
+		}
+		if (!BvhHitSomething(glass))
+			return; // left the scene (or out of an open volume)
+
+		float3 position = origin + direction * glass.t;
+		MaterialData material = gMaterialData[glass.flags >> BVH_TRIANGLE_MATERIAL_SHIFT];
+		float3 barycentrics = float3(1.0 - glass.barycentrics.x - glass.barycentrics.y, glass.barycentrics);
+		float4 texCoord01 = 0.0;
+		float3 vertexNormal = 0.0;
+		float3 vertexColor = 0.0;
+		for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
+		{
+			VertexP3fN3fTa4fT014fC4f corner = gVertexBuffer[gIndexBuffer[glass.firstIndex + cornerIt]];
+			texCoord01 += corner.texCoord01 * barycentrics[cornerIt];
+			vertexNormal += corner.normal * barycentrics[cornerIt];
+			vertexColor += corner.color.rgb * barycentrics[cornerIt];
+		}
+		// the interpolated normal, on the side the photon comes from (the geometry's where they disagree)
+		float3 normal = normalize(mul(gModelInstances[frameIndex][glass.modelInstance].inverseTransposeModelTransform, float4(vertexNormal, 0.0)).xyz);
+		normal = dot(normal, glass.normal) > 0.0 ? normal : (dot(normal, glass.normal) < 0.0 ? -normal : glass.normal);
+		if (!all(isfinite(normal)))
+			normal = glass.normal;
+		float ior = max(material.specularColor.a, 1.0);
+		float f0 = (ior - 1.0) / (ior + 1.0);
+		f0 *= f0;
+		float eps = max(1e-4, 1e-5 * max(abs(position.x), max(abs(position.y), abs(position.z))));
+
+		if (inside)
+		{
+			// out of the volume: refracted out about the normal facing back inside, else reflected back in
+			float3 refracted = refract(direction, normal, ior);
+			if (dot(refracted, refracted) == 0.0)
+			{
+				direction = reflect(direction, normal);
+				origin = position + normal * eps;
+				continue;
+			}
+			refracted = normalize(refracted);
+			power *= 1.0 - FresnelSchlick(float3(f0), 1.0, saturate(dot(refracted, -normal))).r;
+			direction = refracted;
+			origin = position - normal * eps;
+			inside = false;
+			continue;
+		}
+
+		// into a surface: what it lets through, at the point
+		float3 color = material.color.rgb * vertexColor;
+		if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
+		{
+			TextureView textureView = gTextureViews[material.baseColorView];
+			color *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).rgb;
+		}
+		float metallic = material.metallic;
+		if ((material.flags & MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE) != 0u)
+		{
+			TextureView textureView = gTextureViews[material.metallicRoughnessView];
+			metallic *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).g;
+		}
+		float transmission = (material.flags & MATERIAL_FLAG_TRANSMISSION) != 0u ? material.transmission.x : 0.0;
+		if ((material.flags & MATERIAL_FLAG_TRANSMISSION_TEXTURE) != 0u)
+		{
+			TextureView textureView = gTextureViews[material.transmissionView];
+			transmission *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).r;
+		}
+		float fresnel = FresnelSchlick(float3(f0), 1.0, saturate(dot(-direction, normal))).r;
+		power *= transmission * (1.0 - metallic) * color * (1.0 - fresnel);
+		passed = true;
+		if (all(power <= 0.0))
+			return;
+		// a thin wall: through both its faces as it was going
+		if (material.transmission.y <= 0.0)
+		{
+			power *= 1.0 - fresnel;
+			origin = position + direction * eps;
+			continue;
+		}
+		// a volume: attenuated over its thickness where it enters (its factor, its texture's, the instance's scale), as
+		// the view through it takes it (TransmittedLight) and the transmittance's tint did: along the path inside,
+		// DragonAttenuation's dragon (an attenuation distance of 0.155 m in a body some 0.6 m across, where its thickness
+		// is up to 0.57) passed almost none, an orange dragon casting a black shadow
+		float thickness = material.transmission.y;
+		if ((material.flags & MATERIAL_FLAG_THICKNESS_TEXTURE) != 0u)
+		{
+			TextureView textureView = gTextureViews[material.thicknessView];
+			thickness *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).r;
+		}
+		float4x4 transform = gModelInstances[frameIndex][glass.modelInstance].modelTransform;
+		thickness *= pow(abs(determinant(float3x3(transform[0].xyz, transform[1].xyz, transform[2].xyz))), 1.0 / 3.0);
+		power *= VolumeAttenuation(material.attenuationColor.rgb, material.transmission.z, thickness);
+		direction = normalize(refract(direction, normal, 1.0 / ior));
+		origin = position - normal * eps;
+		inside = true;
+	}
+#endif
+}
+
+// a shadow view's caustics, from its photons (gCausticPhotons) into its tile of the shadow transmittance's rgb (its alpha,
+// the nearest transmissive surface's depth, kept)
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void ComputeCausticsResolve(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+	ShadowData view = gShadowViews[gPushConstants.frameIndex][gPushConstants.shadowView];
+	uint2 imageSize;
+	gShadowTransmittanceImage.GetDimensions(imageSize.x, imageSize.y);
+	float2 tileOrigin = view.atlasRect.xy * float2(imageSize);
+	float2 tileExtent = view.atlasRect.zw * float2(imageSize);
+	if (any(float2(dispatchThreadId.xy) >= tileExtent))
+		return;
+	int2 at = int2(tileOrigin) + int2(dispatchThreadId.xy);
+	uint index = (uint(at.y) * imageSize.x + uint(at.x)) * 3u;
+	float3 light = float3(gCausticPhotons[index], gCausticPhotons[index + 1u], gCausticPhotons[index + 2u]) / SHADER_TYPES_CAUSTIC_FIXED_POINT_SCALE;
+	gShadowTransmittanceImage[at] = float4(light, gShadowTransmittanceImage[at].a);
+}

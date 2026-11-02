@@ -11,6 +11,8 @@ static uint gShadingViewId;
 static bool gFragmentShadowMask;
 static bool gFragmentGiNear;
 static bool gFragmentEmitters;
+// whether the surface being shaded is transmissive (set by ShadeFragment), which the caustics' photons don't land on
+static bool gShadingTransmissive = false;
 
 // which of the frame's traced shadows' slots a light is (see ShadowTraceData), or -1
 int TracedShadowSlot(uint lightIndex)
@@ -233,11 +235,20 @@ float ShadowMapSoft(ShadowMapPlace place, LightData light, float3 position, floa
 // nearest layer it saw (the normal offset of PlaceInShadowMap keeps a layer's own lit surface in front of it), else all
 // let through. its texels are the atlas's halved, so its coordinates are the atlas's. bilinear over the 2x2 texels, its
 // shadows' edges were steps a texel wide, as long again where they fall across a surface at a slant
+//
+// with caustics (SHADER_TYPES_SHADOWS_CAUSTICS) its rgb is the light the photons brought to a texel's nearest opaque
+// surface instead: a point behind a transmissive surface takes none straight through it, and the point a texel's nearest
+// opaque surface (not one well in front of it, a transmissive surface itself) takes the photons'
 float3 ShadowTransmittance(ShadowMapPlace place)
 {
 	Texture2D transmittance = gTextures[SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE];
 	float2 size;
 	transmittance.GetDimensions(size.x, size.y);
+	bool caustics = (gPushConstants.shadows & SHADER_TYPES_SHADOWS_CAUSTICS) != 0u;
+	// the photons land on opaque surfaces: a transmissive one's own light is what goes straight through what is in front
+	// of it (by its depth against the atlas's, the normal offset put a point at a slant to the light 8 texels in front of
+	// the surface the atlas has, which then took none)
+	bool receives = !gShadingTransmissive;
 	float2 low = place.view.atlasRect.xy * size;
 	float2 high = (place.view.atlasRect.xy + place.view.atlasRect.zw) * size - 1.0;
 	float2 st = place.uv * size - 0.5;
@@ -253,7 +264,9 @@ float3 ShadowTransmittance(ShadowMapPlace place)
 		for (int x = 0; x < 4; x++)
 		{
 			float4 texel = transmittance.Load(int3(int2(clamp(base + float2(x - 1, y - 1), low, high)), 0));
-			through += weights[x].x * weights[y].y * (place.depth < texel.a ? texel.rgb : float3(1.0)); // depth reversed: behind is smaller
+			bool behind = place.depth < texel.a; // depth reversed: behind is smaller
+			float3 value = caustics ? (behind ? 0.0 : 1.0) + (receives ? texel.rgb : 0.0) : (behind ? texel.rgb : float3(1.0));
+			through += weights[x].x * weights[y].y * value;
 		}
 	return through;
 }

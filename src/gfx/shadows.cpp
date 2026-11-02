@@ -53,6 +53,8 @@ constexpr float kSplitLambda = 0.75F;
 void Store(ShadowData& data, const glm::mat4& viewProjection)
 {
 	std::copy_n(&viewProjection[0][0], 16, &data.viewProjection[0][0]); //NOLINT(readability-magic-numbers)
+	auto inverse = glm::inverse(viewProjection);
+	std::copy_n(&inverse[0][0], 16, &data.inverseViewProjection[0][0]); //NOLINT(readability-magic-numbers)
 }
 
 // the atlas's cells, taken by square tiles

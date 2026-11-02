@@ -94,6 +94,9 @@ struct FrameInputs
 	// traced.slang), where the shaders have the device's ray queries and the model its acceleration structures
 	bool tracedReflections = true;
 	bool tracedRefractions = true;
+	// whether the transmissive surfaces refract the lights' light into caustics (see ComputeCaustics), where the shaders have
+	// the device's ray queries and the model its structures, else they tint it as it goes straight through
+	bool caustics = true;
 	// whether the model's emissive surfaces light the scene (see EmitterData), where it has BVHs for their shadow rays
 	bool emissiveLights = true;
 	// each view's camera, as the frame draws it: what the shadows are fitted to (see shadows::Plan), and the indirect
@@ -334,6 +337,7 @@ private:
 	FrameGraph::ImageId myOutput;
 	FrameGraph::ImageId myShadowAtlas;
 	FrameGraph::ImageId myShadowTransmittance; // see SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE
+	FrameGraph::BufferId myCausticPhotons; // see gCausticPhotons
 	FrameGraph::BufferId myOitHeads;
 	FrameGraph::BufferId myOitNodes;
 	FrameGraph::BufferId myOitCounter;
@@ -343,6 +347,8 @@ private:
 	FrameGraph::PassId myTransmissivePhase;
 	FrameGraph::PassId myShadowPass;
 	FrameGraph::PassId myShadowTransmittancePass;
+	FrameGraph::PassId myCausticsClearPass;
+	FrameGraph::PassId myCausticsPass;
 	FrameGraph::PassId myScatterBackPass;
 	FrameGraph::PassId myScatterPass;
 	FrameGraph::PassId myScatterBlurPass;
@@ -377,6 +383,7 @@ private:
 	const Model* myShadowCachedModel = nullptr;
 	size_t myShadowCachedDrawCount = 0;
 	size_t myShadowCachedTransmittanceCount = 0; // the transmissive draws the transmittance's tiles were drawn from
+	bool myShadowCachedCaustics = false; // and whether their rgb is the caustics' (see SHADER_TYPES_SHADOWS_CAUSTICS)
 	std::vector<uint8_t> myShadowViewKept;
 	bool myShadowCacheOn = true;
 	void InternalPlanShadowCache(const FrameInputs& frame);
@@ -802,6 +809,10 @@ private:
 	DrawList myShadowDrawList;
 	// the transmissive phase's transmissive draws, for the Shadow Transmittance pass (FragmentShadowTransmittance)
 	DrawList myShadowTransmittanceList;
+	// whether the frame traces the caustics (SHADER_TYPES_SHADOWS_CAUSTICS), and the shadow views it traces them in: those
+	// drawn again whose frustum a transmissive draw is in
+	bool myCausticsThisFrame = false;
+	std::vector<uint32_t> myCausticViews;
 
 	// what Record's passes (and the output's) read of the frame they record
 	RecordingFrame myFrame;

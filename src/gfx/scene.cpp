@@ -114,7 +114,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 		 .count = kGlobalResourceBaseCount * (SHADER_TYPES_GLOBAL_TEXTURE_COUNT + 1 + SHADER_TYPES_GI_VOLUME_COUNT + 1)},
 		{.type = rhi::DescriptorType::kStorageImage,
 		 .count = kGlobalResourceBaseCount * (SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT + SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT +
-											  SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT + SHADER_TYPES_GI_VOLUME_COUNT + 1)},
+											  SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT + SHADER_TYPES_GI_VOLUME_COUNT + 2)},
 		{.type = rhi::DescriptorType::kUniformTexelBuffer, .count = kBufferBaseCount},
 		{.type = rhi::DescriptorType::kStorageTexelBuffer, .count = kBufferBaseCount},
 		{.type = rhi::DescriptorType::kUniformBuffer, .count = kBufferBaseCount},
@@ -2172,6 +2172,8 @@ struct Scene::Impl
 				{"ComputeReflectionY", SLANG_STAGE_COMPUTE},
 				{"ComputeReflectionTemporal", SLANG_STAGE_COMPUTE},
 				{"ComputeTransmissionCopy", SLANG_STAGE_COMPUTE}, // see the Transmission pass
+				{"ComputeCaustics", SLANG_STAGE_COMPUTE}, // see the Caustics pass
+				{"ComputeCausticsResolve", SLANG_STAGE_COMPUTE},
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -2438,6 +2440,7 @@ struct Scene::Impl
 				.tracedShadowsEverywhere = mySettings.tracedShadowsEverywhere.load(std::memory_order_relaxed),
 				.tracedReflections = mySettings.tracedReflections.load(std::memory_order_relaxed),
 				.tracedRefractions = mySettings.tracedRefractions.load(std::memory_order_relaxed),
+				.caustics = mySettings.caustics.load(std::memory_order_relaxed),
 				.emissiveLights = mySettings.emissiveLights.load(std::memory_order_relaxed),
 				.cameras = std::move(shadowCameras),
 				.sceneBounds = myModel ? myModel->GetDesc().bounds : Bounds3f{},

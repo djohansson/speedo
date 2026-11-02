@@ -59,6 +59,9 @@ public:
 		// Refractions, SPEEDO_TRACED_REFLECTIONS=0 and SPEEDO_TRACED_REFRACTIONS=0 to start without)
 		std::atomic<bool> tracedReflections = true;
 		std::atomic<bool> tracedRefractions = true;
+		// whether the transmissive surfaces refract the lights' light into caustics, where the device has ray queries
+		// (FrameInputs::caustics; View > Caustics, SPEEDO_CAUSTICS=0 to start without: they tint it as it goes straight through)
+		std::atomic<bool> caustics = true;
 		// whether emissive surfaces light the scene as lights do (FrameInputs::emissiveLights; View > Emissive Lights,
 		// SPEEDO_EMISSIVE_LIGHTS=0 to start without: the indirect lighting's rays then take their emission as they meet them)
 		std::atomic<bool> emissiveLights = true;

@@ -248,6 +248,8 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 	// SPEEDO_TRACED_REFRACTIONS=0 without)
 	apply(settings.tracedReflections, kDefaults.tracedReflections, "SPEEDO_TRACED_REFLECTIONS", unless("0"));
 	apply(settings.tracedRefractions, kDefaults.tracedRefractions, "SPEEDO_TRACED_REFRACTIONS", unless("0"));
+	// the caustics, where the device has ray queries (SPEEDO_CAUSTICS=0 without)
+	apply(settings.caustics, kDefaults.caustics, "SPEEDO_CAUSTICS", unless("0"));
 	// SPEEDO_EMISSIVE_LIGHTS=0: emissive surfaces don't light the scene as lights (the indirect lighting's rays take their
 	// emission as they meet them)
 	apply(settings.emissiveLights, kDefaults.emissiveLights, "SPEEDO_EMISSIVE_LIGHTS", unless("0"));
@@ -408,6 +410,8 @@ void WindowedApplication::InternalCopyPose()
 		text += " SPEEDO_TRACED_REFLECTIONS=0";
 	if (!settings.tracedRefractions.load(std::memory_order_relaxed))
 		text += " SPEEDO_TRACED_REFRACTIONS=0";
+	if (!settings.caustics.load(std::memory_order_relaxed))
+		text += " SPEEDO_CAUSTICS=0";
 	text += settings.indirectLighting.load(std::memory_order_relaxed) ? " SPEEDO_GI=1" : " SPEEDO_GI=0";
 	if (!settings.traceTriangles.load(std::memory_order_relaxed))
 		text += " SPEEDO_GI_TRACE=voxels";
@@ -2066,6 +2070,13 @@ void WindowedApplication::PrepareDraw()
 				SetItemTooltip(
 					"%s",
 					rayQueries ? "What transmissive surfaces show behind them, traced along the refracted ray (behind them or out of the view alike), rather than looked up in the frame drawn so far."
+							   : "Needs a device with ray queries (VK_KHR_ray_query).");
+				bool caustics = App().GetScene().GetSettings().caustics.load(std::memory_order_relaxed);
+				if (Checkbox("Caustics", &caustics))
+					App().GetScene().GetSettings().caustics.store(caustics, std::memory_order_relaxed);
+				SetItemTooltip(
+					"%s",
+					rayQueries ? "The lights' light refracted through transmissive surfaces that don't move, traced as photons from the lights' shadow views. Off, it goes straight through them, tinted."
 							   : "Needs a device with ray queries (VK_KHR_ray_query).");
 				EndDisabled();
 				bool emissiveLights = App().GetScene().GetSettings().emissiveLights.load(std::memory_order_relaxed);

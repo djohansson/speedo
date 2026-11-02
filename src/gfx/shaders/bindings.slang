@@ -91,6 +91,10 @@ RWTexture3D<float4> gGiVolumeImages[SHADER_TYPES_GI_VOLUME_COUNT];
 // the main color, which the visibility buffer's shading writes (see ComputeMainVisibility)
 [[vk::binding(4, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("rgba16f")]]
 RWTexture2D<float4> gMainColor;
+// the shadow transmittance (SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE), which the caustics' photons start from and their
+// light goes in (see ComputeCaustics)
+[[vk::binding(5, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("rgba16f")]]
+RWTexture2D<float4> gShadowTransmittanceImage;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS)]]
 SamplerState gSamplers[SHADER_TYPES_GLOBAL_SAMPLER_COUNT];
@@ -269,3 +273,8 @@ RWStructuredBuffer<uint> gUpscaleDepth;
 // the next frames sort them (see Renderer::myVisibilityPlainShare)
 [[vk::binding(46, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gVisibilityStatistics[SHADER_TYPES_FRAME_COUNT];
+
+// the caustics' photons' light as they land, per texel of the shadow transmittance and channel, in fixed point (see
+// SHADER_TYPES_SHADOWS_CAUSTICS), emptied each frame they are traced in
+[[vk::binding(50, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gCausticPhotons;

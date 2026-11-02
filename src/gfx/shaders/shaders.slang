@@ -20,6 +20,7 @@ __include types;
 #include "shadows.slang"
 #include "lights.slang"
 #include "transmission.slang"
+#include "caustics.slang"
 #include "scatter.slang"
 #include "fragment.slang"
 #include "tonemap.slang"

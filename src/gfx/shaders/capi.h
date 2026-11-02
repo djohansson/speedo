@@ -414,6 +414,17 @@ struct ViewData
 // (see ShadowTransmittance), where PushConstants::shadows has SHADER_TYPES_SHADOWS_TRANSMITTANCE
 #define SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE 66u
 #define SHADER_TYPES_SHADOWS_TRANSMITTANCE 2u
+// caustics (where the device's ray queries trace, see ComputeCaustics): the transmittance's rgb is instead the light the
+// photons refracted through the transmissive surfaces brought to each texel's nearest opaque surface, relative to what the
+// light gives a surface unshadowed (alpha the nearest layer's depth as before), which the points behind a layer take in
+// place of what goes straight through it (see ShadowTransmittance), where PushConstants::shadows has
+// SHADER_TYPES_SHADOWS_CAUSTICS. a photon per SHADER_TYPES_CAUSTIC_PHOTONS_PER_AXIS squared of a texel of the
+// transmittance, through at most SHADER_TYPES_CAUSTIC_SURFACE_COUNT surfaces, added up in gCausticPhotons (a uint per
+// channel and texel of the transmittance, in 1 / SHADER_TYPES_CAUSTIC_FIXED_POINT_SCALE)
+#define SHADER_TYPES_SHADOWS_CAUSTICS 4u
+#define SHADER_TYPES_CAUSTIC_PHOTONS_PER_AXIS 4u
+#define SHADER_TYPES_CAUSTIC_SURFACE_COUNT 8u
+#define SHADER_TYPES_CAUSTIC_FIXED_POINT_SCALE 4096.0
 // the lights whose shadows are traced through the model's BVHs rather than looked up in the atlas, at most this many a
 // frame (the directional lights first, then the point and spot lights brightest at the camera): each a channel of the
 // traced shadows' images (see SHADER_TYPES_SHADOW_RAW_TEXTURE)
@@ -575,6 +586,7 @@ struct EmitterData
 struct ShadowData
 {
 	alignas(16) FLOAT4X4(viewProjection);
+	alignas(16) FLOAT4X4(inverseViewProjection); // where the caustics' photons start (see ComputeCaustics)
 	alignas(16) FLOAT4(atlasRect); // xy: the tile's corner in the atlas, zw: its size (texture coordinates)
 	// x: a texel's size in world units (orthographic), or per unit of distance from the light (perspective). y: 1 for a
 	// perspective view, else 0. zw: its near and far planes (what its depths 1 and 0 are, along its view)
@@ -983,11 +995,14 @@ struct CullView
 // where the device's ray queries trace instead (BVH_RAY_QUERY, see gfx/accelerationstructures.h), gBvhTriangles holds a
 // geometry a float4 (as uint4 bits): its flags, its first index, and its instance (what doesn't move: its vertices placed
 // by gModelInstances') or its first corner in gBvhMovingTriangles[frame] (what moves: its corners as placed, a float4 a
-// corner), what doesn't move's geometries first. the top level structure's instances: what doesn't move, then what does
-// (whose custom index is its first geometry in the table)
+// corner), what doesn't move's geometries first, then what moves', then the glass's. the top level structure's instances:
+// what doesn't move, then what does, then the transmissive surfaces that don't move, which only the caustics' photons
+// query (see ComputeCaustics; whose custom index is its first geometry in the table)
 #define BVH_RAY_QUERY_MASK_STATIC 1u
 #define BVH_RAY_QUERY_MASK_MOVING 2u
+#define BVH_RAY_QUERY_MASK_GLASS 4u
 #define BVH_RAY_QUERY_INSTANCE_MOVING 1u
+#define BVH_RAY_QUERY_INSTANCE_GLASS 2u
 // whether the shaders' rays query the device's structures (gfx::Scene compiles them with it where DeviceLimits::rayQuery)
 #ifndef BVH_RAY_QUERY
 #define BVH_RAY_QUERY 0

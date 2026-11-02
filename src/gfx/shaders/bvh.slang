@@ -456,6 +456,21 @@ void RayQueryWatchEnd(uint slot, uint candidates)
 // doesn't move, and with moving what moves too. what it says is as theirs (never capped)
 BvhHit BvhTraceScene<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, bool moving, Filter filter)
 {
+	return BvhTraceInstances(
+		origin, direction, tmax, anyHit, moving ? (BVH_RAY_QUERY_MASK_STATIC | BVH_RAY_QUERY_MASK_MOVING) : BVH_RAY_QUERY_MASK_STATIC, filter);
+}
+
+// the nearest transmissive triangle (that doesn't move) a ray meets before tmax, which only the caustics' photons query
+// (see ComputeCaustics; BVH_RAY_QUERY_MASK_GLASS)
+BvhHit BvhTraceGlass(float3 origin, float3 direction, float tmax)
+{
+	return BvhTraceInstances(origin, direction, tmax, false, BVH_RAY_QUERY_MASK_GLASS, BvhOpaque());
+}
+
+// BvhTraceScene's, of the instances of mask
+BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, uint mask, Filter filter)
+{
+	bool moving = (mask & BVH_RAY_QUERY_MASK_MOVING) != 0u;
 #if BVH_RAY_QUERY_WATCH
 	uint watch = RayQueryWatchBegin(origin, direction, tmax, anyHit, moving);
 	uint candidates = 0u;
@@ -466,11 +481,7 @@ BvhHit BvhTraceScene<Filter : IBvhFilter>(float3 origin, float3 direction, float
 	ray.Direction = direction;
 	ray.TMax = tmax;
 	RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
-	query.TraceRayInline(
-		gBvhScene[gPushConstants.frameIndex],
-		anyHit ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE,
-		moving ? (BVH_RAY_QUERY_MASK_STATIC | BVH_RAY_QUERY_MASK_MOVING) : BVH_RAY_QUERY_MASK_STATIC,
-		ray);
+	query.TraceRayInline(gBvhScene[gPushConstants.frameIndex], anyHit ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE, mask, ray);
 #if BVH_RAY_QUERY_WATCH
 	RayQueryWatchStage(watch, RAY_QUERY_WATCH_STAGE_TRACED, 0u);
 #endif

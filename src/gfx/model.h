@@ -181,6 +181,7 @@ struct ModelRayQueries
 {
 	std::vector<AccelerationStructures::Geometry> staticGeometries;
 	std::vector<AccelerationStructures::Geometry> movingGeometries;
+	std::vector<AccelerationStructures::Geometry> glassGeometries; // placed by bvhTransforms after what doesn't move's
 };
 
 // how several model files loaded as one (Model::Load of several) are placed: side by side in a grid in the xy plane,
