@@ -50,6 +50,9 @@ struct FrameInputs
 	PushConstants pushConstants{}; // the frame's (Record fills in what the render target decides)
 	// the scene: the model (or none), and which of its materials are transmissive (drawn in the main pass's second phase)
 	const Model* model = nullptr;
+	// whether what of it may move is where the last frame had it (its pose the same: its animation paused or frozen), so
+	// that the shadow views it is in can be kept (see InternalPlanShadowCache)
+	bool modelStill = false;
 	core::std_extra::function_ref<bool(size_t material)> transmissive = NoMaterial;
 	// which scatter light under their surface (KHR_materials_volume_scatter: drawn first into the scatter pass's target too)
 	core::std_extra::function_ref<bool(size_t material)> scatters = NoMaterial;

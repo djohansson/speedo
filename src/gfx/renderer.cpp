@@ -3420,9 +3420,11 @@ void Renderer::InternalPlanShadowCache(const FrameInputs& frame)
 
 	// a view keeps its tile where the last frame had the same view (bytewise: view projection, tile, texel size) in it,
 	// drawn from the same model and shadow draws, while the atlas holds what that frame left (see
-	// FrameGraph::IsPersistentValid), unless something that moves is in its frustum. the plan lays its views out the same
-	// while nothing changes, so views are compared by their place in it: one moved elsewhere is drawn again. the
-	// transmittance's tiles go with them (its transmissive draws the same, and moving ones count)
+	// FrameGraph::IsPersistentValid), unless something that moves is in its frustum (and moved: not where the model is
+	// still, FrameInputs::modelStill: by the draws' may move alone, a paused animation's views were drawn every frame, and
+	// their caustics traced, IridescentDishWithOlives' 1.27 ms a frame). the plan lays its views out the same while nothing
+	// changes, so views are compared by their place in it: one moved elsewhere is drawn again. the transmittance's tiles
+	// go with them (its transmissive draws the same, and moving ones count)
 	auto viewCount = myShadowPlan.views.size();
 	myShadowViewKept.assign(viewCount, 0);
 	bool transmittance = !myShadowTransmittanceList.Empty();
@@ -3437,7 +3439,8 @@ void Renderer::InternalPlanShadowCache(const FrameInputs& frame)
 			if (std::memcmp(&view, &myShadowCachedViews[viewIt], sizeof(ShadowData)) != 0)
 				continue;
 			auto frustum = Frustum::FromViewProjection(glm::make_mat4(&view.viewProjection[0][0]));
-			auto inFrustum = [&frustum](const DrawItem& item) { return item.moves && !frustum.Excludes(item.bounds); };
+			auto inFrustum = [&frustum, still = frame.modelStill](const DrawItem& item)
+			{ return item.moves && !still && !frustum.Excludes(item.bounds); };
 			bool moving = std::ranges::any_of(myShadowDrawList.items, inFrustum) ||
 						  std::ranges::any_of(myShadowTransmittanceList.items, inFrustum);
 			myShadowViewKept[viewIt] = moving ? 0 : 1;

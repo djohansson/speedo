@@ -1185,7 +1185,8 @@ projection) and markers, and the ui projects them with each view's camera, a dir
 sky (the direction at w = 0), at the view's edge when it is out of it, dimmed when behind the camera.
 The atlas keeps its tiles from frame to frame (a persistent transient, loaded rather than cleared): a view that the last
 frame also had in the same tile (its view projection, tile and texel size bytewise, the same model and shadow draws)
-isn't drawn again, unless something that moves is in its frustum (`Renderer::InternalPlanShadowCache`); the others'
+isn't drawn again, unless something that moves is in its frustum and moved (not where the model's pose is the last
+frame's, `FrameInputs::modelStill`: an animation paused or frozen) (`Renderer::InternalPlanShadowCache`); the others'
 tiles are cleared (`IRenderTarget::ClearRect`) and drawn, and the pass is skipped when every view is kept.
 `SPEEDO_SHADOW_CACHE=0` draws them all every frame. Point and spot lights keep theirs while the camera moves (their
 tiles change size by octaves), the sun's cascades while it is still (they follow the view, snapped to texels: the far
@@ -1260,11 +1261,13 @@ sample models change by 0.4 of 255 at most. The glass that moves is in a structu
 IridescentDishWithOlives' dish had none under its lifting cover. Cost with the shadow cache off (every view redrawn
 every frame; RTX 4070 Ti SUPER, 2560x1440): Caustics 0.19 to 0.55 ms, Caustics Clear 0.06, the frame 0.26 to 0.53 ms
 more (CausticSpheres, AttenuationTest, DragonAttenuation; each view tracing the glass in its tile, the cascades over
-again, 0.28 to 0.66 and 0.35 to 0.55); with it, nothing while the views are kept. But a view a draw that may move is in
-is drawn every frame (its `moves` is the draw's, whether its animation plays or not), and its light's photons traced
-with it: IridescentDishWithOlives framed 1.27 ms of Caustics a frame (its cover a dome over most of the tiles),
-CommercialRefrigerator 0.56. Not yet: dispersion, rough glass's spread, the photons' light in the indirect lighting's
-voxels, the caustics' noise where few photons land (a texel's 16), and the views of what may move kept while it doesn't.
+again, 0.28 to 0.66 and 0.35 to 0.55); with it, nothing while the views are kept. A view something moving is in is
+drawn every frame, and its light's photons traced with it, while the animation plays: IridescentDishWithOlives framed
+1.27 ms of Caustics a frame (its cover a dome over most of the tiles), CommercialRefrigerator 0.56. Paused or frozen
+(`FrameInputs::modelStill`, the model's pose the last frame's) its views are kept: by the draws' may move alone they were
+drawn every frame, the dish's frame 5.67 ms against 4.48 now, its render the same to 0.001 of 255. Not yet: dispersion,
+rough glass's spread, the photons' light in the indirect lighting's voxels, and the caustics' noise where few photons
+land (a texel's 16).
 
 ## Ray traced shadows
 

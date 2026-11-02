@@ -401,6 +401,20 @@ struct Scene::Impl
 	// diagnostic, bound as gRayQueryWatch (SPEEDO_RAY_QUERY_WATCH=1, see gfx/rayquerywatch.h): null without it
 	std::unique_ptr<RayQueryWatch> myRayQueryWatch;
 	bool myMovingPlaced = false; // whether this frame's Update placed what moves, for the rays (see Model::Animate)
+	// what the last Update posed the model with (the model, its pose, the one crossfaded from and the weight), and whether
+	// this frame's is the same: what may move is then where the last frame had it (see FrameInputs::modelStill)
+	struct PosedAs
+	{
+		const Model* model = nullptr;
+		std::optional<size_t> animation;
+		float time = 0.0F;
+		std::optional<size_t> previous;
+		float previousTime = 0.0F;
+		float weight = 1.0F;
+		bool operator==(const PosedAs&) const = default;
+	};
+	std::optional<PosedAs> myPosedAs;
+	bool myModelStill = false;
 	core::ConcurrentAccess<AnimationState> myAnimation;
 	core::ConcurrentAccess<SceneState> myScenes;
 	// gLights (SHADER_TYPES_LIGHT_COUNT of them): the installed model's, or the default light. draw thread.
@@ -2356,7 +2370,20 @@ struct Scene::Impl
 				  (mySettings.shadows.load(std::memory_order_relaxed) && mySettings.caustics.load(std::memory_order_relaxed))));
 			myModel->Animate(frameIndex, pose, from, weight, myMovingPlaced);
 			ApplyPointerValues(myRHI, graphics, *myModel);
+			// the pose decides all that moves (the nodes, skins and morph weights, and the animated materials, lights and
+			// visibility): the same as the last frame's (paused, SPEEDO_ANIMATION_TIME), nothing moved
+			PosedAs posed{
+				.model = myModel.get(),
+				.animation = pose.animation,
+				.time = pose.time,
+				.previous = from.animation,
+				.previousTime = from.time,
+				.weight = weight};
+			myModelStill = myPosedAs == posed;
+			myPosedAs = posed;
 		}
+		else
+			myModelStill = true;
 		
 		UpdateSky(myRHI, graphics);
 		SyncLights(myRHI, graphics);
@@ -2421,6 +2448,7 @@ struct Scene::Impl
 				.outputIndex = target.outputIndex,
 				.pushConstants = FramePushConstants(target.frameIndex, target.outputIndex),
 				.model = myModel.get(),
+				.modelStill = myModelStill,
 				.transmissive = [&transmissive](size_t material) { return material < transmissive.size() && transmissive[material]; },
 				.scatters = [&scatters](size_t material) { return material < scatters.size() && scatters[material]; },
 				.specialization = kTiers ? std::optional<core::std_extra::function_ref<uint16_t(size_t)>>(specializationOf) : std::nullopt,
