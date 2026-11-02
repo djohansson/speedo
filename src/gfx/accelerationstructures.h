@@ -76,6 +76,8 @@ public:
 	[[nodiscard]] std::shared_ptr<void> RecordCompaction(CommandBufferHandle cmd);
 
 	[[nodiscard]] const AccelerationStructure& GetTopLevel(uint32_t frameIndex) const noexcept { return myTopLevels[frameIndex]; }
+	// whether there is a structure of the transmissive surfaces that don't move (BVH_RAY_QUERY_MASK_GLASS)
+	[[nodiscard]] bool HasGlass() const noexcept { return myGlass.has_value(); }
 
 private:
 	// records building the frame index's top level structure, of its instances

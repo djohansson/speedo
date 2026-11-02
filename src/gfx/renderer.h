@@ -285,8 +285,10 @@ private:
 	std::vector<Buffer> myVisibilityStatisticsBuffers;
 	FrameGraph::BufferId myVisibilityStatisticsId;
 	float myVisibilityPlainShare = 1.0F;
-	// the layer groups the visibility buffer's kernel skips this frame (ComputePipelineVariant::specialization)
+	// the layer groups the visibility buffer's kernel skips this frame (ComputePipelineVariant::specialization), of them
+	// SHADER_TYPES_LAYERS_GLASS where the model has no glass that doesn't move
 	uint16_t myVisibilitySpecialization = 0;
+	uint16_t myVisibilityNoGlass = 0;
 	// the traced shadows' (see SHADER_TYPES_SHADOW_RAW_TEXTURE): the rays' visibility and blockers' distances, the
 	// visibility filtered along rows, and along columns (what the main pass takes); each a channel per traced light
 	FrameGraph::ImageId myShadowRaw;

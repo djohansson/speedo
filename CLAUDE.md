@@ -939,7 +939,9 @@ Shader tiers: `GraphicsPipelineVariant::specialization` is the shaders' speciali
 (clearcoat, sheen, transmission, anisotropy, iridescence, diffuse transmission, gated by `Layer()`) is skipped for the
 draws of materials without any of them (`LayersOf`, counting animated layers), so a plain PBR material doesn't pay the
 uber-shader's register allocation for them: Sponza's main pass took 13 to 23% less (its time over the shadow pass's,
-across runs; single runs are noisy, one pair showed almost no difference). `SPEEDO_SHADER_TIERS=0` draws with the
+across runs; single runs are noisy, one pair showed almost no difference). `SHADER_TYPES_LAYERS_GLASS` (what the traced
+reflections do at glass) is the visibility buffer kernel's alone, skipped where the model has no glass that doesn't move,
+whatever `SPEEDO_SHADER_TIERS` says. `SPEEDO_SHADER_TIERS=0` draws with the
 generic pipelines. Pipelines take 15 to 50 ms each to create cold on KosmicKrisp, so a specialized one is never waited
 for: `RecordDrawList` asks `Pipeline::RequestGraphicsPipeline`, which returns it if it exists, or the first time a job
 creating it from a copy of the current graphics state (`GraphicsSnapshot`, its pointers aimed at its own storage), which
@@ -1470,11 +1472,24 @@ under 0.75. Main Transmissive (framed, 2560x1440, RTX 4070 Ti SUPER): DragonAtte
 USDShaderBallForGltf 0.71 to 1.54, GlassVaseFlowers 0.40 to 0.58, ABeautifulGame 0.13 to 0.21, CausticSpheres 0.10 to
 0.18, the hits' lookups 0.10 to 0.17 of it and the rest the path (a query for glass and one for the scene at every
 surface crossed, as at first, took the dragon's 1.31); Main Visibility, the glossy reflections' hits' lookups, 0.004 to
-0.03 more. Not yet (TODO.md):
+0.03 more. A reflection's ray meets the glass that doesn't move too (`TracedRadiance`, with `BvhTraceSceneOrGlass`): its
+reflection of what is around it, as a hit's specular is taken (`TracedIndirect`: the environment as much as the probes
+see of it; not its own traced reflections), and the light through it (`TracedGlassPath`, as the refractions take it),
+from inside its volume out of it (a reflection of what is in the glass, a mosquito in amber); the rays passed through
+it, and glass was missing from every reflection (CausticSpheres' amber sphere from its clear sphere's, a glass object
+from a mirror floor's). A reflection follows `kTracedReflectionGlassSurfaceCount` (2) surfaces through the glass, past
+which the shading keeps what it would have taken untraced: all 8, DragonAttenuation reflecting itself and its glossy
+cloth reflecting it took its Main Visibility from 0.41 ms to 0.95 and its Main Transmissive from 1.14 to 2.16, 0.65
+and 1.68 with 2 (its render within 0.09 of 255 of all 8's). Where the model has no glass that doesn't move, the visibility
+buffer's kernel is specialized without it (`SHADER_TYPES_LAYERS_GLASS`, `Renderer::myVisibilityNoGlass`): its code alone,
+never run, took MetalRoughSpheresNoTextures' Main Visibility from 0.382 ms to 0.416; specialized, it and DamagedHelmet's
+are as before. With glass (framed, 2560x1440, RTX 4070 Ti SUPER), Main Visibility and Main Transmissive: CausticSpheres
+over a mirror floor 0.60 to 0.65 and 0.36 to 0.39 ms, ABeautifulGame 0.36 to 0.44 and 0.21 to 0.24, DragonAttenuation as
+above; the 16 glass sample models change by 0.02 to 0.13 of 255 (glass reflecting glass: TransmissionTest's spheres
+their neighbors, DispersionTest's blocks each other). Not yet (TODO.md):
 glossy refractions (the transmissive surfaces are drawn forward, after the visibility buffer: they keep the sharp trace,
 and the transmission texture's mips where rough), the emissive surfaces' light at a hit where they are lights, a hit's own
-reflections, the glass a reflection's ray meets (it passes through), and the glossy rays at a lower resolution (their
-cost, below).
+reflections, and the glossy rays at a lower resolution (their cost, below).
 
 Measured on NVIDIA (RTX 4070 Ti SUPER; the benchmark poses at 2560x1440, balanced, interleaved runs), on against off. Sharp
 alone (the first version): Bistro 6.2 and 6.4 ms against 5.9 and 6.0, San Miguel 7.4 and 7.6 against 6.8 and 7.1, Sponza the
@@ -1522,7 +1537,8 @@ has, so rhi declares that instead there (`shader::DeviceCode`).
 
 **Tiers.** The kernel is specialized without the extended layers where none of the frame's triangles needs them
 (`ComputePipelineVariant::specialization`, a compute pipeline's specialization constant 0, as a graphics pipeline's):
-generic, it cost Sponza 2.4 ms more. Where some do, the tiles (`SHADER_TYPES_VISIBILITY_TILE_SIZE`, 8 pixels a side, a
+generic, it cost Sponza 2.4 ms more. (And without what its reflections do at glass where the model has none,
+`SHADER_TYPES_LAYERS_GLASS`, in either tier: see "Traced reflections and refractions".) Where some do, the tiles (`SHADER_TYPES_VISIBILITY_TILE_SIZE`, 8 pixels a side, a
 thread group's) can be sorted (Main Visibility Classify, `ComputeMainVisibilityClassify`, entry point 43: the pre-pass
 marks a record whose material has one, `VISIBILITY_EXTENDED`, its top bit; a tile with a pixel so marked goes to one
 list of `gVisibilityTiles`, the others to the other, each counted in its list's indirect dispatch,

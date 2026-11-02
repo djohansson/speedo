@@ -16,6 +16,9 @@ static const float kTracedRoughnessFull = 0.15;
 static const float kTracedRoughnessEnd = 0.4;
 // how far the rays go, in the scene's units (any scene's: what they meet is nearer)
 static const float kTracedFar = 1.0e30;
+// how many transmissive surfaces a reflection's ray goes through (see TracedRadiance), the one it met first among them:
+// past them the caller keeps what it would have taken untraced
+static const uint kTracedReflectionGlassSurfaceCount = 2u;
 // the share of a reflection's light the specular takes (the split sum's terms by the occlusion, as luminance) below which
 // none of it is traced, and from which all of it: below, what a trace changes wouldn't show. a dielectric's is about 0.04
 // at normal incidence (glass, water: traced), and grows toward grazing angles; an obj material of a faint Ks (its Ns
@@ -346,25 +349,33 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 		radiance += BaseLobe(surface, view, toLight, nDotL) * nDotL * light.intensity.rgb * falloff * through;
 	}
 
-	// the indirect lighting's, as Shade takes it: the probes' diffuse where they cover the hit (none where a clip holds it
-	// but no probe sees it), else the environment's; and the environment's specular as much as the probes see of it,
-	// their light along the reflection as it gets rough
+	float3 indirect;
+	float3 specularRadiance;
+	TracedIndirect(position, normal, direction, surface.roughness, indirect, specularRadiance);
+	radiance += surface.diffuseColor * indirect +
+				EnvironmentBrdfApprox(surface.f0, surface.f90, surface.roughness, nDotV) * specularRadiance;
+	return radiance;
+}
+
+// the indirect lighting at a hit at position (normal, met along direction, of a roughness), as Shade takes it: the probes'
+// diffuse where they cover it (none where a clip holds it but no probe sees it), else the environment's (indirect); and
+// the environment's specular as much as the probes see of it, their light along the reflection as it gets rough
+// (specularRadiance)
+void TracedIndirect(float3 position, float3 normal, float3 direction, float roughness, out float3 indirect, out float3 specularRadiance)
+{
 	EnvironmentData environment = gEnvironment[0];
-	float3 reflected = DominantDirection(normal, reflect(direction, normal), surface.roughness);
-	float3 specularRadiance = EnvironmentRadiance(environment, reflected, surface.roughness);
-	GiSample sample = GiSampleSurface(position, normal, view);
-	float3 indirect = sample.valid ? GiEvaluate(sample, normal) : (sample.inside ? 0.0 : -1.0);
+	float3 reflected = DominantDirection(normal, reflect(direction, normal), roughness);
+	specularRadiance = EnvironmentRadiance(environment, reflected, roughness);
+	GiSample sample = GiSampleSurface(position, normal, -direction);
+	indirect = sample.valid ? GiEvaluate(sample, normal) : (sample.inside ? 0.0 : -1.0);
 	if (indirect.x >= 0.0)
 	{
 		float3 luminance = float3(0.2126, 0.7152, 0.0722);
 		float seen = saturate(dot(indirect, luminance) / max(dot(EnvironmentIrradiance(environment, normal), luminance), 1e-4));
-		specularRadiance = lerp(specularRadiance * seen, GiEvaluate(sample, reflected), smoothstep(0.2, 0.9, surface.roughness));
+		specularRadiance = lerp(specularRadiance * seen, GiEvaluate(sample, reflected), smoothstep(0.2, 0.9, roughness));
 	}
 	else
 		indirect = EnvironmentIrradiance(environment, normal);
-	radiance += surface.diffuseColor * indirect +
-				EnvironmentBrdfApprox(surface.f0, surface.f90, surface.roughness, nDotV) * specularRadiance;
-	return radiance;
 }
 
 // the radiance along a ray from origin: what it meets of the acceleration structures (what moves too, alpha masks cut
@@ -376,11 +387,82 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 // inside something or looks where the triangle isn't drawn from, so what it would show isn't known here: the callers keep
 // what the shading would have taken without it. shaded, such a hit was black (from inside, every light's shadowed and the
 // probes see nothing): USDShaderBallForGltf's glass shell, its refraction leaving at its thickness inside the core.
-// moving: whether what it met moves (what moves' structure: no model instance)
+// moving: whether what it met moves (what moves' structure: no model instance).
+//
+// a transmissive surface that doesn't move gives its reflection of what is around it, as a hit's specular is taken
+// (TracedIndirect: the environment as much as the probes see of it; not its own traced reflections), and the light
+// through it (TracedGlassPath, as the traced refractions take it), from inside its volume out of it (what is in the glass,
+// a mosquito in amber, reflecting); valid as the path's. the opaque scene's structures hold no glass, and the rays passed
+// through it: glass was missing from every reflection, CausticSpheres' amber sphere from its clear sphere's
 float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float roughness, out float t, out bool valid, out bool moving)
 {
-	BvhHit hit = BvhTraceScene(origin, direction, kTracedFar, false, true, GiAlphaMask());
-	return TracedShade(hit, origin, direction, cone, roughness, t, valid, moving);
+	bool glass = false;
+	BvhHit hit;
+	if ((kSkippedLayers & SHADER_TYPES_LAYERS_GLASS) != 0u)
+		hit = BvhTraceScene(origin, direction, kTracedFar, false, true, GiAlphaMask());
+	else
+		hit = BvhTraceSceneOrGlass(origin, direction, kTracedFar, GiAlphaMask(), glass);
+	if (!glass)
+		return TracedShade(hit, origin, direction, cone, roughness, t, valid, moving);
+	t = hit.t;
+	uint frameIndex = gPushConstants.frameIndex;
+	GlassSurface surface = GlassSurfaceAt(origin, direction, hit, frameIndex);
+	GlassPath path;
+	path.origin = origin;
+	path.direction = direction;
+	path.throughput = 1.0;
+	path.inside = surface.material.transmission.y > 0.0 && !hit.frontFace;
+	float3 reflection = 0.0;
+	if (!path.inside)
+	{
+		float glassRoughness = surface.material.roughness;
+		if ((surface.material.flags & MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE) != 0u)
+		{
+			TextureView textureView = gTextureViews[surface.material.metallicRoughnessView];
+			glassRoughness *= SampleViewLevel(textureView, ViewTexCoord(textureView, surface.texCoord01), 0.0).r;
+		}
+		float3 indirect;
+		float3 specularRadiance;
+		TracedIndirect(surface.position, surface.normal, direction, glassRoughness, indirect, specularRadiance);
+		float nDotV = max(dot(surface.normal, -direction), 1e-4);
+		reflection = EnvironmentBrdfApprox(float3(surface.f0), 1.0, glassRoughness, nDotV) * specularRadiance;
+	}
+	moving = false;
+	valid = true;
+	if (!GlassPathStep(path, hit, frameIndex))
+		return reflection;
+	float3 through = TracedGlassPath(path, cone, hit.t, roughness, kTracedReflectionGlassSurfaceCount, frameIndex, valid, moving);
+	return reflection + through;
+}
+
+// the light along a path through the glass (see GlassPath) from where it is, through the transmissive surfaces that don't
+// move, to what it meets of the opaque scene (TracedShade) or the environment (prefiltered for roughness), less what the
+// surfaces keep. cone: the ray's where it started, traveled along the path to its origin. valid: as TracedRadiance's, and
+// false where its last of surfaceCount queries met glass still. moving: as TracedRadiance's
+float3 TracedGlassPath(
+	GlassPath path, TracedCone cone, float traveled, float roughness, uint surfaceCount, uint frameIndex, out bool valid, out bool moving)
+{
+	valid = false;
+	moving = false;
+	for (uint surfaceIt = 0; surfaceIt < surfaceCount; surfaceIt++)
+	{
+		bool glass;
+		BvhHit hit = BvhTraceSceneOrGlass(path.origin, path.direction, kTracedFar, GiAlphaMask(), glass);
+		if (!glass)
+		{
+			TracedCone at = cone;
+			at.width += cone.spread * traveled;
+			float t;
+			return path.throughput * TracedShade(hit, path.origin, path.direction, at, roughness, t, valid, moving);
+		}
+		traveled += hit.t;
+		if (!GlassPathStep(path, hit, frameIndex))
+		{
+			valid = true;
+			return 0.0;
+		}
+	}
+	return 0.0;
 }
 
 // what TracedRadiance gives of a ray's hit (or of nothing met)
@@ -498,49 +580,27 @@ float4 TracedGlossyReflection(
 
 // the light through a transmissive surface at position, from the surface along direction (into its volume, refracted:
 // volume; through a thin wall, as the view goes), through the transmissive surfaces that don't move as the caustics'
-// photons go (GlassPathStep: out of the volume where it meets its back, refracted, or reflected back in where it can't
-// leave; into or through the glass beyond), to what it meets of the opaque scene (TracedShade), less what the surfaces
+// photons go (TracedGlassPath, GlassPathStep: out of the volume where it meets its back, refracted, or reflected back in
+// where it can't leave; into or through the glass beyond), to what it meets of the opaque scene, less what the surfaces
 // past this one keep (this one's own attenuation and Fresnel are the caller's). the opaque scene's structures hold no
 // glass, and the ray used to pass through its own volume without leaving it: a ball showed what is behind it shifted
 // rather than turned upside down, CausticSpheres' clear sphere the ground beyond its shadow, lit. a transmissive surface
 // that moves (no structure holds it) is passed so still. from the surface, not from where the screen space lookup has
 // the ray leave the volume (at the material's thickness along the ray, see TransmittedLight): USDShaderBallForGltf's
 // glass shell has a thickness of up to 8.9 in a model a tenth of a unit across, which put the exit inside the core (its
-// back met: black) or past everything (the environment's), a wavy border between the two. valid: as TracedRadiance's,
-// and false where the ray met more surfaces than are followed (SHADER_TYPES_CAUSTIC_SURFACE_COUNT)
+// back met: black) or past everything (the environment's), a wavy border between the two. valid: as TracedGlassPath's
 float3 TracedRefraction(float3 position, float3 direction, bool volume, out bool valid)
 {
 	TracedCone cone = TracedPixelCone(position);
 	float3 eye = gViewData[gPushConstants.frameIndex][gShadingViewId].eyePosition.xyz;
 	float push = max(cone.width, 1e-4 * distance(eye, position));
-	uint frameIndex = gPushConstants.frameIndex;
 	GlassPath path;
 	path.origin = position + direction * push;
 	path.direction = direction;
 	path.throughput = 1.0;
 	path.inside = volume;
-	float traveled = push;
-	valid = false;
-	for (uint surfaceIt = 0; surfaceIt < SHADER_TYPES_CAUSTIC_SURFACE_COUNT; surfaceIt++)
-	{
-		bool glass;
-		BvhHit hit = BvhTraceSceneOrGlass(path.origin, path.direction, kTracedFar, GiAlphaMask(), glass);
-		if (!glass)
-		{
-			TracedCone at = cone;
-			at.width += cone.spread * traveled;
-			float t;
-			bool moving;
-			return path.throughput * TracedShade(hit, path.origin, path.direction, at, 0.0, t, valid, moving);
-		}
-		traveled += hit.t;
-		if (!GlassPathStep(path, hit, frameIndex))
-		{
-			valid = true;
-			return 0.0;
-		}
-	}
-	return 0.0;
+	bool moving;
+	return TracedGlassPath(path, cone, push, 0.0, SHADER_TYPES_CAUSTIC_SURFACE_COUNT, gPushConstants.frameIndex, valid, moving);
 }
 #endif
 

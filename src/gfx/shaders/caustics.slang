@@ -86,8 +86,8 @@ void CausticSplat(uint frameIndex, ShadowData source, float3 position, float3 no
 
 #if BVH_RAY_QUERY
 // a ray's way through the transmissive surfaces that don't move (BvhTraceGlass, the ray queries' structure of them): the
-// caustics' photons' (ComputeCaustics) and the traced refractions' (TracedRefraction). where it is and goes, what it
-// carries of its light, and whether it is inside a volume
+// caustics' photons' (ComputeCaustics) and the traced refractions' and reflections' (TracedGlassPath). where it is and
+// goes, what it carries of its light, and whether it is inside a volume
 struct GlassPath
 {
 	float3 origin;
@@ -96,36 +96,65 @@ struct GlassPath
 	bool inside;
 };
 
-// a path's step at the transmissive surface it met (glass): into a surface, what it lets through (its transmission of the
-// dielectric, the base color at the point, less its Fresnel reflection, by its ior), refracted about the surface's normal
-// as interpolated (the triangles' facets drew the caustics as polygons), into a volume (a thickness factor; a thin wall
-// lets it through as it was going), attenuated over its thickness (KHR_materials_volume's attenuation, as the view through
-// it has it); out of a volume, less its Fresnel reflection, or reflected back in where it can't leave. false where it
-// carries nothing on
-bool GlassPathStep(inout GlassPath path, BvhHit glass, uint frameIndex)
+// a transmissive surface a ray met (glass, from origin along direction): where, its normal as interpolated (the
+// triangles' facets drew the caustics as polygons) on the side the ray comes from (the geometry's where they disagree),
+// its material and what it has at the point, its ior and its dielectric's reflectance at normal incidence, and how far
+// off it a ray goes on (its rounding)
+struct GlassSurface
 {
-	float3 position = path.origin + path.direction * glass.t;
-	MaterialData material = gMaterialData[glass.flags >> BVH_TRIANGLE_MATERIAL_SHIFT];
+	float3 position;
+	float3 normal;
+	MaterialData material;
+	float4 texCoord01;
+	float3 vertexColor;
+	float ior;
+	float f0;
+	float eps;
+};
+
+GlassSurface GlassSurfaceAt(float3 origin, float3 direction, BvhHit glass, uint frameIndex)
+{
+	GlassSurface surface;
+	surface.position = origin + direction * glass.t;
+	surface.material = gMaterialData[glass.flags >> BVH_TRIANGLE_MATERIAL_SHIFT];
 	float3 barycentrics = float3(1.0 - glass.barycentrics.x - glass.barycentrics.y, glass.barycentrics);
-	float4 texCoord01 = 0.0;
+	surface.texCoord01 = 0.0;
 	float3 vertexNormal = 0.0;
-	float3 vertexColor = 0.0;
+	surface.vertexColor = 0.0;
 	for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
 	{
 		VertexP3fN3fTa4fT014fC4f corner = gVertexBuffer[gIndexBuffer[glass.firstIndex + cornerIt]];
-		texCoord01 += corner.texCoord01 * barycentrics[cornerIt];
+		surface.texCoord01 += corner.texCoord01 * barycentrics[cornerIt];
 		vertexNormal += corner.normal * barycentrics[cornerIt];
-		vertexColor += corner.color.rgb * barycentrics[cornerIt];
+		surface.vertexColor += corner.color.rgb * barycentrics[cornerIt];
 	}
-	// the interpolated normal, on the side the path comes from (the geometry's where they disagree)
 	float3 normal = normalize(mul(gModelInstances[frameIndex][glass.modelInstance].inverseTransposeModelTransform, float4(vertexNormal, 0.0)).xyz);
 	normal = dot(normal, glass.normal) > 0.0 ? normal : (dot(normal, glass.normal) < 0.0 ? -normal : glass.normal);
-	if (!all(isfinite(normal)))
-		normal = glass.normal;
-	float ior = max(material.specularColor.a, 1.0);
-	float f0 = (ior - 1.0) / (ior + 1.0);
-	f0 *= f0;
-	float eps = max(1e-4, 1e-5 * max(abs(position.x), max(abs(position.y), abs(position.z))));
+	surface.normal = all(isfinite(normal)) ? normal : glass.normal;
+	surface.ior = max(surface.material.specularColor.a, 1.0);
+	surface.f0 = (surface.ior - 1.0) / (surface.ior + 1.0);
+	surface.f0 *= surface.f0;
+	float3 position = surface.position;
+	surface.eps = max(1e-4, 1e-5 * max(abs(position.x), max(abs(position.y), abs(position.z))));
+	return surface;
+}
+
+// a path's step at the transmissive surface it met (glass): into a surface, what it lets through (its transmission of the
+// dielectric, the base color at the point, less its Fresnel reflection, by its ior), refracted about the surface's normal,
+// into a volume (a thickness factor; a thin wall lets it through as it was going), attenuated over its thickness
+// (KHR_materials_volume's attenuation, as the view through it has it); out of a volume, less its Fresnel reflection, or
+// reflected back in where it can't leave. false where it carries nothing on
+bool GlassPathStep(inout GlassPath path, BvhHit glass, uint frameIndex)
+{
+	GlassSurface surface = GlassSurfaceAt(path.origin, path.direction, glass, frameIndex);
+	float3 position = surface.position;
+	float3 normal = surface.normal;
+	MaterialData material = surface.material;
+	float4 texCoord01 = surface.texCoord01;
+	float3 vertexColor = surface.vertexColor;
+	float ior = surface.ior;
+	float f0 = surface.f0;
+	float eps = surface.eps;
 
 	if (path.inside)
 	{

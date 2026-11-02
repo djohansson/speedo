@@ -654,8 +654,11 @@ struct TextureView
 // which of a material's textures it has, each sampled through its view (an index into gTextureViews)
 // layer groups a graphics pipeline can be specialized without (the shaders' specialization constant 0, kSkippedLayers):
 // their code compiles away. the extended layers: clearcoat, sheen, transmission (and volume and dispersion), anisotropy,
-// iridescence and diffuse transmission
+// iridescence and diffuse transmission. the glass: what the traced reflections do where they meet a transmissive surface
+// (see TracedRadiance), which the visibility buffer's kernel is specialized without where the model has none that doesn't
+// move (its code alone, never run there, took MetalRoughSpheresNoTextures' Main Visibility from 0.382 ms to 0.416)
 #define SHADER_TYPES_LAYERS_EXTENDED 1u
+#define SHADER_TYPES_LAYERS_GLASS 2u
 
 #define MATERIAL_FLAG_TEXTURE 1u // baseColorView: an srgb color (and alpha), multiplied in, and alpha tested against alphaCutoff
 #define MATERIAL_FLAG_ALPHA_TEXTURE 2u // alphaView: a mask in r, tested against alphaCutoff

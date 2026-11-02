@@ -1528,8 +1528,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				// passes of their own, the graph put one there, both writing the color)
 				if (myVisibilityTiered)
 				{
-					shadeList(context, VISIBILITY_TILES_SPECIALIZED, SHADER_TYPES_LAYERS_EXTENDED);
-					shadeList(context, VISIBILITY_TILES_GENERIC, 0);
+					shadeList(context, VISIBILITY_TILES_SPECIALIZED, SHADER_TYPES_LAYERS_EXTENDED | myVisibilityNoGlass);
+					shadeList(context, VISIBILITY_TILES_GENERIC, myVisibilityNoGlass);
 					return;
 				}
 				auto extent = myGraph.GetExtent();
@@ -3258,7 +3258,14 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 			}
 		myVisibilityTiered = specialized && generic &&
 							 (myVisibilityPlainShare >= renderer::kVisibilityTieredShare || myFrameCount % renderer::kVisibilityRecountFrameCount == 0);
-		myVisibilitySpecialization = specialized && (myVisibilityTiered || !generic) ? SHADER_TYPES_LAYERS_EXTENDED : 0;
+		// and without what the traced reflections do at glass, where the model has none that doesn't move (see
+		// SHADER_TYPES_LAYERS_GLASS)
+		myVisibilityNoGlass = frame.model == nullptr || frame.model->GetAccelerationStructures() == nullptr ||
+									  !frame.model->GetAccelerationStructures()->HasGlass()
+			? SHADER_TYPES_LAYERS_GLASS
+			: 0;
+		myVisibilitySpecialization =
+			(specialized && (myVisibilityTiered || !generic) ? SHADER_TYPES_LAYERS_EXTENDED : 0) | myVisibilityNoGlass;
 		for (auto pass : {myVisibilityClearPass, myVisibilityClassifyPass})
 			myGraph.SetEnabled(pass, myVisibilityTiered);
 	}
