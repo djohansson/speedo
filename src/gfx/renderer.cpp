@@ -3064,16 +3064,29 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myShadowPass, shadowsDrawn && std::ranges::contains(myShadowViewKept, uint8_t{0}));
 	myGraph.SetEnabled(
 		myShadowTransmittancePass, !myShadowTransmittanceList.Empty() && std::ranges::contains(myShadowViewKept, uint8_t{0}));
-	// the caustics' photons in the views drawn again whose frustum a transmissive draw is in
+	// the caustics' photons in every view of a light one of which is drawn again, where a transmissive draw is in the frustum
+	// of any: a lens throws its light sideways, into the views beside its own (see ComputeCaustics). by the views drawn
+	// again alone, a cascade had the photons of the glass in its tile, and the clear sphere of CausticSpheres, across the
+	// finest cascade's edge, focused its light past it, the ground inside lit by the half outside, which only the next
+	// cascade traced: a straight cut through its caustic, dark on the finer side
 	myCausticViews.clear();
 	if (myCausticsThisFrame)
-		for (uint32_t viewIt = 0; viewIt < myShadowPlan.views.size(); viewIt++)
+		for (uint32_t first = 0; first < myShadowPlan.views.size(); first += myShadowPlan.views[first].lightViews[1])
 		{
-			if (myShadowViewKept[viewIt] != 0)
-				continue;
-			auto frustum = Frustum::FromViewProjection(glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
-			if (std::ranges::any_of(myShadowTransmittanceList.items, [&frustum](const DrawItem& item) { return !frustum.Excludes(item.bounds); }))
-				myCausticViews.push_back(viewIt);
+			uint32_t count = myShadowPlan.views[first].lightViews[1];
+			ENSUREF(myShadowPlan.views[first].lightViews[0] == first && count > 0, "shadow view {} names no views of its light", first);
+			bool drawn = false;
+			bool glass = false;
+			for (auto viewIt = first; viewIt < first + count; viewIt++)
+			{
+				drawn = drawn || myShadowViewKept[viewIt] == 0;
+				auto frustum = Frustum::FromViewProjection(glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
+				glass = glass ||
+						std::ranges::any_of(myShadowTransmittanceList.items, [&frustum](const DrawItem& item) { return !frustum.Excludes(item.bounds); });
+			}
+			if (drawn && glass)
+				for (auto viewIt = first; viewIt < first + count; viewIt++)
+					myCausticViews.push_back(viewIt);
 		}
 	myGraph.SetEnabled(myCausticsClearPass, !myCausticViews.empty());
 	myGraph.SetEnabled(myCausticsPass, !myCausticViews.empty());

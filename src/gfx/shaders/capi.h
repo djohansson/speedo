@@ -591,6 +591,9 @@ struct ShadowData
 	// x: a texel's size in world units (orthographic), or per unit of distance from the light (perspective). y: 1 for a
 	// perspective view, else 0. zw: its near and far planes (what its depths 1 and 0 are, along its view)
 	alignas(16) FLOAT4(params);
+	// x: the first of its light's views (a directional light's cascades, a point light's faces), y: their count, zw: 0. the
+	// caustics' photons pass from one of them to another (see ComputeCaustics)
+	alignas(16) UINT4(lightViews);
 };
 
 // clustered lighting: each view's frustum is a grid of clusters, SHADER_TYPES_CLUSTER_TILES_X by _Y tiles of the screen

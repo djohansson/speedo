@@ -16,10 +16,21 @@ float2 CausticJitter(uint2 photon)
 	return float2(v >> 8u) / 16777216.0;
 }
 
-// where a photon lands on an opaque surface: its light added to the shadow view's transmittance texels around the
+// whether a point is in a shadow view's tile (and between its near and far planes), as its texels hold it
+bool CausticViewHolds(ShadowData view, float3 position)
+{
+	float4 clip = mul(view.viewProjection, float4(position, 1.0));
+	if (clip.w <= 0.0)
+		return false;
+	float3 ndc = clip.xyz / clip.w;
+	float2 local = ndc.xy * 0.5 + 0.5;
+	return all(local >= 0.0) && all(local < 1.0) && ndc.z >= 0.0 && ndc.z <= 1.0;
+}
+
+// where a photon lands on an opaque surface: its light added to one of its light's views' transmittance texels around the
 // surface's place in the view (bilinear, in fixed point), if the surface is what the view sees nearest there (what the
 // lookup lights: a surface behind another, from the light, can't be told apart from it in the view)
-void CausticSplat(ShadowData view, float3 position, float3 normal, float3 power, float2 size)
+void CausticSplatView(ShadowData view, float3 position, float3 normal, float3 power, float2 size)
 {
 	float4 clip = mul(view.viewProjection, float4(position, 1.0));
 	if (clip.w <= 0.0)
@@ -61,6 +72,18 @@ void CausticSplat(ShadowData view, float3 position, float3 normal, float3 power,
 	}
 }
 
+// where a photon of a shadow view lands: in each of its light's views whose tile holds the place (a lens throws its light
+// sideways, into the cascades or cube faces beside the one the glass is in), its share of the view's texel by their sizes
+void CausticSplat(uint frameIndex, ShadowData source, float3 position, float3 normal, float3 power, float2 size)
+{
+	for (uint viewIt = source.lightViews.x; viewIt < source.lightViews.x + source.lightViews.y; viewIt++)
+	{
+		ShadowData view = gShadowViews[frameIndex][viewIt];
+		float scale = source.params.x / view.params.x;
+		CausticSplatView(view, position, normal, power * (scale * scale), size);
+	}
+}
+
 // the caustics' photons of the shadow view PushConstants::shadowView, of its tile of the shadow transmittance: from each of
 // SHADER_TYPES_CAUSTIC_PHOTONS_PER_AXIS squared points of each texel where a transmissive surface is (its alpha the nearest
 // one's depth), along the light, through the transmissive surfaces that don't move (BvhTraceGlass, the ray queries'
@@ -72,7 +95,9 @@ void CausticSplat(ShadowData view, float3 position, float3 normal, float3 power,
 // opaque surface before the transmissive one its texel has is the light straight to it, which the lookup gives it, and is
 // dropped; one meeting none (a point of the texel past the surface's edge) lands where the light straight on goes, which
 // the lookup takes away there (the texel is behind the surface). a photon's light is its share of its texel's, in units of
-// what the light gives a surface unshadowed
+// what the light gives a surface unshadowed. each point of the glass is traced once of its light's views, by the finest
+// whose tile holds it (they are finest first, see shadows::Plan), and lands in all of them (CausticSplat): the renderer
+// traces every view of a light one of which is drawn again
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void ComputeCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -89,13 +114,19 @@ void ComputeCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 	uint2 texel = dispatchThreadId.xy / photons;
 	if (any(float2(texel) >= tileExtent))
 		return;
-	if (gShadowTransmittanceImage[int2(tileOrigin) + int2(texel)].a <= 0.0)
+	float nearest = gShadowTransmittanceImage[int2(tileOrigin) + int2(texel)].a;
+	if (nearest <= 0.0)
 		return;
 
 	// each photon at a point of its part of the texel, by its place in the transmittance (the same every frame): at their
 	// parts' centers, a regular grid, a sphere's refraction drew it as rings of moire
 	float2 local = (float2(texel) + (float2(dispatchThreadId.xy % photons) + CausticJitter(uint2(tileOrigin) * photons + dispatchThreadId.xy)) / float(photons)) / tileExtent;
 	float2 ndc = local * 2.0 - 1.0;
+	// a finer view of the light holding the glass there traces it (at the texel's nearest layer)
+	float4 glassPoint = mul(view.inverseViewProjection, float4(ndc, nearest, 1.0));
+	for (uint finerIt = view.lightViews.x; finerIt < gPushConstants.shadowView; finerIt++)
+		if (CausticViewHolds(gShadowViews[frameIndex][finerIt], glassPoint.xyz / glassPoint.w))
+			return;
 	float4 nearPoint = mul(view.inverseViewProjection, float4(ndc, 1.0, 1.0)); // depth reversed: 1 at the near plane
 	float4 farPoint = mul(view.inverseViewProjection, float4(ndc, 0.0, 1.0));
 	float3 origin = nearPoint.xyz / nearPoint.w;
@@ -113,7 +144,7 @@ void ComputeCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 			// lands, unless inside a volume (what is inside the glass, which the view doesn't see), or the light straight
 			// to a surface in front of the transmissive one
 			if (!inside && (passed || !BvhHitSomething(glass)))
-				CausticSplat(view, origin + direction * opaque.t, opaque.normal, power, size);
+				CausticSplat(frameIndex, view, origin + direction * opaque.t, opaque.normal, power, size);
 			return;
 		}
 		if (!BvhHitSomething(glass))

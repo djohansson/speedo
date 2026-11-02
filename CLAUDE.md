@@ -1212,11 +1212,14 @@ lighting's voxels and the traced hits (sunlight through a window into a room).
 
 **Caustics** (View > Caustics, under Ray Traced Refractions; on where the device has ray queries, `SPEEDO_CAUSTICS=0`
 without, which Copy Pose writes; `caustics.slang`): where the transmittance is drawn, the light the transmissive surfaces
-refract lands where it goes rather than straight behind them. The Caustics pass traces photons from the shadow views the
-frame redraws whose frustum holds a transmissive draw (`Renderer::myCausticViews`; the atlas's cache keeps the others',
-and the passes are disabled where none is redrawn), `SHADER_TYPES_CAUSTIC_PHOTONS_PER_AXIS` squared (16) a texel of the
-transmittance where a transmissive surface is (its alpha), each at a point of its part of the texel jittered by its place
-(`CausticJitter`: on a regular grid a sphere drew rings of moire), from the view's near plane along the light
+refract lands where it goes rather than straight behind them. The Caustics pass traces photons from every shadow view of
+a light (`ShadowData::lightViews`: a directional light's cascades, a point light's faces) of which the frame redraws one
+and one's frustum holds a transmissive draw (`Renderer::myCausticViews`; the atlas's cache keeps the others', and the
+passes are disabled where none is redrawn), `SHADER_TYPES_CAUSTIC_PHOTONS_PER_AXIS` squared (16) a texel of the
+transmittance where a transmissive surface is (its alpha) and no finer view of the light holds the glass
+(`CausticViewHolds`, at the texel's nearest layer: each point of it is traced once, by the finest), each at a point of
+its part of the texel jittered by its place (`CausticJitter`: on a regular grid a sphere drew rings of moire), from the
+view's near plane along the light
 (`ShadowData::inverseViewProjection`) through a structure of the transmissive surfaces that don't move (`BvhTraceGlass`:
 the top level structure's third instance, `BVH_RAY_QUERY_MASK_GLASS`, built once of `bvh::RayQueryGlassGeometries`; the
 other rays never query it). At each surface (at most `SHADER_TYPES_CAUSTIC_SURFACE_COUNT`, 8) a photon keeps what it
@@ -1226,22 +1229,30 @@ the view through it takes it (`VolumeAttenuation` at the entry, the factor by th
 the path inside, DragonAttenuation's dragon passed almost nothing), reflected back in where it can't leave; a thin wall
 lets it through as it was going. It lands on the first opaque surface (`BvhTraceScene`, alpha masks cut out) if what it
 crossed was transmissive and it isn't inside a volume, added in fixed point to the 2x2 texels of the surface's place in
-the view (`CausticSplat`, `gCausticPhotons`, a uint per channel and texel of the transmittance, emptied by Caustics
-Clear) where the atlas has that surface nearest, within its receiver gradient's slack; a photon meeting an opaque surface
+each of its light's views whose tile holds it (`CausticSplat`, by the views' texel sizes squared; `gCausticPhotons`, a
+uint per channel and texel of the transmittance, emptied by Caustics Clear) where the atlas has that surface nearest,
+within its receiver gradient's slack. A lens throws its light sideways: by the views redrawn alone, each tracing the
+glass in its tile and landing in its tile, CausticSpheres' clear sphere, across the finest cascade's edge and focusing
+past the ground (the image inverted), lit the ground inside the cascade with the half of it outside, which only the
+next cascade traced: a straight cut through its caustic, dark on the finer side. The side lit through the coarser
+cascade's photons (a quarter as many a texel there) is grainier. A photon meeting an opaque surface
 before its texel's transmissive one is the light straight to it, which the lookup gives, and is dropped, and one meeting
 none (its point past the surface's edge) lands where the light straight on goes, which the lookup takes away. The resolve
 (`ComputeCausticsResolve`) writes the light into the transmittance's rgb (alpha kept), in units of what the light gives an
 unshadowed surface; with `SHADER_TYPES_SHADOWS_CAUSTICS` the lookup gives a texel 1 in front of its nearest layer and 0
 behind, plus its rgb for what receives light (not the transmissive surfaces themselves, `gShadingTransmissive`, set by
 `ShadeFragment`: a depth test of the point against the layer failed on surfaces at a slant, the normal offset putting
-them texels in front of it). CausticSpheres' clear sphere focuses the sun into a spot and a wedge at the edge of its dark
-shadow, its amber one into an orange one; AttenuationTest's blocks throw their light aside of their shadows, as thick
+them texels in front of it). CausticSpheres' spheres focus the sun into a spot in their dark shadows by their bases,
+the clear one's white and the amber one's orange: seen from a camera between them the clear one hides most of its own
+(the traced refractions' hits seen through it take no caustics), and the amber one leaves its own in view;
+AttenuationTest's blocks throw their light aside of their shadows, as thick
 glass does; DragonAttenuation's body spreads what it lets through over the floor and the cloth behind it, its shadow
 dark (the floor's light around it the same as with the tint alone, red 78.7 of 255 against 79.5). The other glass
 sample models change by 0.4 of 255 at most. Where a transmissive draw moves (CommercialRefrigerator's door), the frame
 takes the tint instead (the structure is of what doesn't move). Cost with the shadow cache off (every view redrawn
-every frame; RTX 4070 Ti SUPER, 2560x1440): Caustics 0.28 to 0.66 ms, Caustics Clear 0.06, the frame 0.35 to 0.55 ms
-more (CausticSpheres, AttenuationTest, DragonAttenuation); with it, nothing while the views are kept. Not yet: what
+every frame; RTX 4070 Ti SUPER, 2560x1440): Caustics 0.19 to 0.55 ms, Caustics Clear 0.06, the frame 0.26 to 0.53 ms
+more (CausticSpheres, AttenuationTest, DragonAttenuation; each view tracing the glass in its tile, the cascades over
+again, 0.28 to 0.66 and 0.35 to 0.55); with it, nothing while the views are kept. Not yet: what
 moves, dispersion, rough glass's spread, the photons' light in the indirect lighting's voxels and the traced hits, and
 the caustics' noise where few photons land (a texel's 16).
 

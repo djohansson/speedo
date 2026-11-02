@@ -449,6 +449,12 @@ ShadowPlan Plan(std::span<const LightData> lights, std::span<const ShadowCamera>
 		}
 		if (light.type != LIGHT_TYPE_DIRECTIONAL)
 			plan.tiles.insert(plan.tiles.end(), lightTiles.begin(), lightTiles.end());
+		auto count = static_cast<uint32_t>(plan.views.size()) - first;
+		for (auto viewIt = first; viewIt < first + count; viewIt++)
+		{
+			plan.views[viewIt].lightViews[0] = first;
+			plan.views[viewIt].lightViews[1] = count;
+		}
 		plan.lightShadows[index] = first;
 	}
 
