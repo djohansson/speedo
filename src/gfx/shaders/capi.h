@@ -408,6 +408,12 @@ struct ViewData
 #define SHADER_TYPES_SHADOW_VIEW_COUNT 256u
 #define SHADER_TYPES_SHADOW_CASCADE_COUNT 4u
 #define SHADER_TYPES_NO_SHADOW 0xffffffffu
+// what the transmissive surfaces let through of the lights, in the atlas's tiles at half its size (the gTextures slot of
+// an RGBA16F texture): rgb the product of what each layer a texel of a shadow view sees lets through, and alpha the
+// nearest layer's depth (the Shadow Transmittance pass, FragmentShadowTransmittance), which the points behind it take
+// (see ShadowTransmittance), where PushConstants::shadows has SHADER_TYPES_SHADOWS_TRANSMITTANCE
+#define SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE 66u
+#define SHADER_TYPES_SHADOWS_TRANSMITTANCE 2u
 // the lights whose shadows are traced through the model's BVHs rather than looked up in the atlas, at most this many a
 // frame (the directional lights first, then the point and spot lights brightest at the camera): each a channel of the
 // traced shadows' images (see SHADER_TYPES_SHADOW_RAW_TEXTURE)
@@ -1265,7 +1271,8 @@ struct PushConstants
 	// per frame, for ComputeMain: which tonemapper (TONEMAPPER_*)
 	alignas(4) UINT1(tonemapper);
 	// per draw: the shadow view (gShadowViews[frame]) a draw of the shadow pass is seen from, else SHADER_TYPES_NO_SHADOW
-	// (the view of viewId). per frame: whether lights cast their shadows
+	// (the view of viewId). per frame: whether lights cast their shadows (bit 0), and whether transmissive surfaces tint
+	// them (SHADER_TYPES_SHADOWS_TRANSMITTANCE)
 	alignas(4) UINT1(shadowView);
 	alignas(4) UINT1(shadows);
 	// per frame: whether the scatter pass drew (SHADER_TYPES_SCATTER_TEXTURE holds this frame's scattering light)

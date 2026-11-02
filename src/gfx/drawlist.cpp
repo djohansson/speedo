@@ -139,6 +139,26 @@ DrawList BuildShadowDrawList(const Model& model, core::std_extra::function_ref<b
 	return list;
 }
 
+DrawList BuildShadowTransmittanceDrawList(const Model& model, const DrawList& transmissivePhase)
+{
+	ZoneScopedN("gfx::BuildShadowTransmittanceDrawList");
+
+	const auto& materials = model.GetDesc().materials;
+	DrawList list{.indexBuffer = transmissivePhase.indexBuffer};
+	for (const auto& source : transmissivePhase.items)
+	{
+		if (source.variant.topology != PrimitiveTopology::kTriangleList || source.variant.fragmentShader != 0)
+			continue;
+		auto material = static_cast<int32_t>(source.materialSlot) - 1;
+		bool volume = material >= 0 && std::cmp_less(material, materials.size()) &&
+					  (materials[material].thickness > 0.0F || !materials[material].thicknessTexture.path.empty());
+		auto& item = list.items.emplace_back(source);
+		item.variant = {.topology = source.variant.topology, .blend = kShadowTransmittanceBlend, .fragmentShader = kShadowTransmittanceFragmentShader};
+		item.cullMode = volume ? CullMode::kBack : CullMode::kNone;
+	}
+	return list;
+}
+
 DrawList BuildScatterDrawList(
 	const Model& model, core::std_extra::function_ref<bool(size_t material)> scatters, std::optional<core::std_extra::function_ref<uint16_t(size_t material)>> specialization)
 {

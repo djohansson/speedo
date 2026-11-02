@@ -26,7 +26,7 @@ bool ClusterLights(float3 position, out uint first, out uint count)
 	return true;
 }
 
-float LightAttenuation(uint lightIndex, LightData light, float3 position, float3 geometryNormal, out float3 toLight)
+float3 LightAttenuation(uint lightIndex, LightData light, float3 position, float3 geometryNormal, out float3 toLight)
 {
 	float attenuation = LightFalloff(light, position, toLight);
 	if (attenuation <= 0.0)

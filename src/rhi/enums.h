@@ -226,6 +226,7 @@ enum class BlendMode : uint8_t
 	kNone, // leaves it as it is (writes nothing to it)
 	kAdd, // color + target, alpha too (e.g. the accumulation of weighted blended transparency)
 	kMultiplyInverse, // target * (1 - color) (e.g. the revealage of weighted blended transparency)
+	kMultiplyMax, // target * color, and the greater alpha (e.g. what layers of glass let through, and the nearest's depth)
 };
 
 // the color attachments a graphics pipeline's blend modes cover (see GraphicsPipelineVariant)

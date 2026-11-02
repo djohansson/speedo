@@ -41,8 +41,8 @@ float3 ScatterLight(Surface surface, float3 view, float3 position, float3 albedo
 		uint lightIt = clustered ? gClusterLights[gPushConstants.frameIndex][clusterFirst + clusterIt] : clusterIt;
 		LightData light = gLights[lightIt];
 		float3 toLight;
-		float attenuation = LightAttenuation(lightIt, light, position, surface.geometryNormal, toLight);
-		if (attenuation <= 0.0)
+		float3 attenuation = LightAttenuation(lightIt, light, position, surface.geometryNormal, toLight);
+		if (all(attenuation <= 0.0))
 			continue;
 
 		// from behind: the specular it isn't reflected by is the light's mirrored about the surface

@@ -228,20 +228,53 @@ float ShadowMapSoft(ShadowMapPlace place, LightData light, float3 position, floa
 	return lit / float(kShadowSoftTapCount);
 }
 
+// what the transmissive surfaces between a light and a point let through (SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE, at
+// the point's place in its shadow view): the 4x4 texels around by a cubic B-spline, each where the point is behind the
+// nearest layer it saw (the normal offset of PlaceInShadowMap keeps a layer's own lit surface in front of it), else all
+// let through. its texels are the atlas's halved, so its coordinates are the atlas's. bilinear over the 2x2 texels, its
+// shadows' edges were steps a texel wide, as long again where they fall across a surface at a slant
+float3 ShadowTransmittance(ShadowMapPlace place)
+{
+	Texture2D transmittance = gTextures[SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE];
+	float2 size;
+	transmittance.GetDimensions(size.x, size.y);
+	float2 low = place.view.atlasRect.xy * size;
+	float2 high = (place.view.atlasRect.xy + place.view.atlasRect.zw) * size - 1.0;
+	float2 st = place.uv * size - 0.5;
+	float2 base = floor(st);
+	float2 f = st - base;
+	// the cubic B-spline's weights of the texels at -1, 0, 1 and 2 from base
+	float2 inverse = 1.0 - f;
+	float2 weights[4] = {
+		inverse * inverse * inverse / 6.0, (4.0 - 6.0 * f * f + 3.0 * f * f * f) / 6.0,
+		(1.0 + 3.0 * f + 3.0 * f * f - 3.0 * f * f * f) / 6.0, f * f * f / 6.0};
+	float3 through = 0.0;
+	for (int y = 0; y < 4; y++)
+		for (int x = 0; x < 4; x++)
+		{
+			float4 texel = transmittance.Load(int3(int2(clamp(base + float2(x - 1, y - 1), low, high)), 0));
+			through += weights[x].x * weights[y].y * (place.depth < texel.a ? texel.rgb : float3(1.0)); // depth reversed: behind is smaller
+		}
+	return through;
+}
+
 // how much of a light reaches a point: the traced shadows' where the fragment takes them (filtered over the penumbra's
-// width, see ComputeShadowDenoiseY), else its shadow views' (see PlaceInShadowMap, ShadowMapSoft): 1 without any
-float ShadowFactor(uint lightIndex, LightData light, float3 position, float3 geometryNormal, float3 toLight)
+// width, see ComputeShadowDenoiseY), else its shadow views' (see PlaceInShadowMap, ShadowMapSoft): 1 without any. and
+// tinted by what transmissive surfaces let through (ShadowTransmittance), where any are drawn in the views
+float3 ShadowFactor(uint lightIndex, LightData light, float3 position, float3 geometryNormal, float3 toLight)
 {
 	if (gPushConstants.shadows == 0u)
 		return 1.0;
-	if (gFragmentShadowMask)
-	{
-		int slot = TracedShadowSlot(lightIndex);
-		if (slot >= 0)
-			return gTextures[SHADER_TYPES_SHADOW_MASK_TEXTURE].Load(int3(int2(gFragmentPixel), 0))[slot];
-	}
+	bool transmittance = (gPushConstants.shadows & SHADER_TYPES_SHADOWS_TRANSMITTANCE) != 0u;
+	int slot = gFragmentShadowMask ? TracedShadowSlot(lightIndex) : -1;
+	if (slot >= 0 && !transmittance)
+		return gTextures[SHADER_TYPES_SHADOW_MASK_TEXTURE].Load(int3(int2(gFragmentPixel), 0))[slot];
 	ShadowMapPlace place;
-	if (PlaceInShadowMap(lightIndex, light, position, geometryNormal, toLight, place) != kShadowMapPlaced)
+	bool placed = PlaceInShadowMap(lightIndex, light, position, geometryNormal, toLight, place) == kShadowMapPlaced;
+	float3 tint = placed && transmittance ? ShadowTransmittance(place) : float3(1.0);
+	if (slot >= 0)
+		return gTextures[SHADER_TYPES_SHADOW_MASK_TEXTURE].Load(int3(int2(gFragmentPixel), 0))[slot] * tint;
+	if (!placed)
 		return 1.0;
-	return ShadowMapSoft(place, light, position, geometryNormal);
+	return ShadowMapSoft(place, light, position, geometryNormal) * tint;
 }

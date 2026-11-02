@@ -44,6 +44,11 @@ constexpr std::array kScatterBlend{rhi::BlendMode::kOpaque, rhi::BlendMode::kOpa
 // the main pass then shades only what it wrote, kEqual, or the visibility buffer's shading does)
 constexpr uint8_t kPrepassFragmentShader = 4;
 constexpr std::array kPrepassBlend{rhi::BlendMode::kOpaque, rhi::BlendMode::kOpaque, rhi::BlendMode::kOpaque, rhi::BlendMode::kNone};
+// the shadow transmittance's fragments (FragmentShadowTransmittance, the sixth): what a transmissive surface lets through
+// of a light, multiplied over the layers a texel of the light's view sees, and the nearest one's depth (see
+// SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE)
+constexpr uint8_t kShadowTransmittanceFragmentShader = 5;
+constexpr std::array kShadowTransmittanceBlend{rhi::BlendMode::kMultiplyMax, rhi::BlendMode::kNone, rhi::BlendMode::kNone, rhi::BlendMode::kNone};
 static_assert(kOpaqueBlend.size() == rhi::kMaxColorAttachments);
 
 // the gMaterialData slot drawn for a submesh's material (-1: none)
@@ -118,6 +123,11 @@ struct DrawList
 // a model's draws for the shadow pass: the triangles of the submeshes that cast shadows (opaque or alpha masked, not
 // blended or transmissive)
 [[nodiscard]] DrawList BuildShadowDrawList(const Model& model, core::std_extra::function_ref<bool(size_t material)> transmissive);
+
+// a model's draws for the Shadow Transmittance pass, from its transmissive phase's (keeping their records): the triangles
+// of the transmissive submeshes (not blended), as FragmentShadowTransmittance's, a volume's (a thickness) faces toward
+// the light alone (the back faces culled in the light's view), a thin wall's both
+[[nodiscard]] DrawList BuildShadowTransmittanceDrawList(const Model& model, const DrawList& transmissivePhase);
 
 // a model's draws for the scatter pass: the triangles of the submeshes whose material scatters (KHR_materials_volume_scatter),
 // unless blended

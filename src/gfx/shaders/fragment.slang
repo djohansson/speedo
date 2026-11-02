@@ -618,6 +618,39 @@ void FragmentShadow(VertexOutput input)
 	CutOut(input, gMaterialData[input.materialId]);
 }
 
+// a fragment of the Shadow Transmittance pass (see SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE): what a transmissive
+// surface lets through of the light, as TransmittedLight takes what is behind it: its transmission of the dielectric
+// (the rest is a diffuse, which it blocks), tinted by its base color, attenuated through its volume's thickness, and less
+// what its two faces reflect at normal incidence; and its depth. a volume's faces toward the light alone are drawn, each
+// for the whole thickness, as the view through it takes it at its front face
+[shader("fragment")]
+float4 FragmentShadowTransmittance(VertexOutput input) : SV_Target
+{
+	gShadingViewId = gPushConstants.viewId;
+	MaterialData material = gMaterialData[input.materialId];
+	CutOut(input, material);
+	VertexP3fN3fTa4fT014fC4f v = input.vertex;
+	float3 color = v.color.rgb * material.color.rgb;
+	if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
+		color *= SampleView(material.baseColorView, v.texCoord01).rgb;
+	float metallic = material.metallic;
+	if ((material.flags & MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE) != 0u)
+		metallic *= SampleView(material.metallicRoughnessView, v.texCoord01).g;
+	float transmission = (material.flags & MATERIAL_FLAG_TRANSMISSION) != 0u ? material.transmission.x : 0.0;
+	if ((material.flags & MATERIAL_FLAG_TRANSMISSION_TEXTURE) != 0u)
+		transmission *= SampleView(material.transmissionView, v.texCoord01).r;
+	float thickness = material.transmission.y;
+	if ((material.flags & MATERIAL_FLAG_THICKNESS_TEXTURE) != 0u)
+		thickness *= SampleView(material.thicknessView, v.texCoord01).r;
+	thickness *= input.modelScale;
+	float ior = material.specularColor.a;
+	float f0 = (ior - 1.0) / (ior + 1.0);
+	float faces = 1.0 - f0 * f0;
+	float3 through = transmission * (1.0 - metallic) * color *
+					 VolumeAttenuation(material.attenuationColor.rgb, material.transmission.z, thickness) * faces * faces;
+	return float4(through, input.hPos.z);
+}
+
 // the pre-pass's color attachments: the geometry normal, as the shading takes it (the vertex normal toward the side
 // seen), 0.5 + 0.5 n in rgb, and 1 in alpha where the material takes light from behind (diffuse transmission, volume
 // scatter): what the traced shadows' rays start from (see ComputeShadowTrace; SHADER_TYPES_PREPASS_NORMAL_TEXTURE); and

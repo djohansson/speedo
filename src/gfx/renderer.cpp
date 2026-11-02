@@ -272,6 +272,13 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		 .aspect = ImageAspect::kDepth,
 		 .extent = {.width = shadows::kAtlasSize, .height = shadows::kAtlasSize},
 		 .persistent = true});
+	// what the transmissive surfaces let through of the lights, in the atlas's tiles at half its size, kept with them
+	// (see SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE)
+	myShadowTransmittance = myGraph.CreateImage(
+		{.name = "Shadow Transmittance",
+		 .format = Format::kR16G16B16A16Sfloat,
+		 .extent = {.width = shadows::kAtlasSize / 2, .height = shadows::kAtlasSize / 2},
+		 .persistent = true});
 	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 	{
 		myShadowViewBuffers.emplace_back(BufferCreateDesc{
@@ -719,6 +726,54 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[shadowDraws](FrameGraph::PassContext& context) { shadowDraws(context, true); });
 
+	// what the transmissive surfaces let through of the lights: each shadow view drawn again in its tile of the
+	// transmittance, at half the atlas's size, its transmissive draws alone (FragmentShadowTransmittance), cleared to all
+	// let through and nothing in front, as the atlas's tiles are where it draws them
+	myShadowTransmittancePass = myGraph.AddPass(
+		"Shadow Transmittance",
+		[this](FrameGraph::PassBuilder& builder)
+		{ builder.ColorAttachment(myShadowTransmittance, LoadOp::kLoad, StoreOp::kStore); },
+		[this](FrameGraph::PassContext& context)
+		{
+			const auto& inputs = *myFrame.inputs;
+			auto& pipeline = *myFrame.pipeline;
+			auto cmd = context.cmd;
+			CommandEncoder encoder(cmd);
+
+			pipeline.SetRenderTarget(*context.target);
+			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+			encoder.BindIndexBuffer(*myShadowTransmittanceList.indexBuffer, 0, IndexType::kUint32);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+			pipeline.BindPipelineAuto(cmd, {.blend = kShadowTransmittanceBlend, .fragmentShader = kShadowTransmittanceFragmentShader});
+
+			auto pushConstants = inputs.pushConstants;
+			for (uint32_t viewIt = 0; viewIt < myShadowPlan.views.size(); viewIt++)
+			{
+				if (myShadowViewKept[viewIt] != 0)
+					continue;
+				const auto& tile = myShadowPlan.tiles[viewIt];
+				rhi::Rect rect{
+					.x = static_cast<int32_t>(tile.x / 2), .y = static_cast<int32_t>(tile.y / 2), .width = tile.size / 2, .height = tile.size / 2};
+				encoder.SetViewport(Viewport{
+					.x = static_cast<float>(rect.x),
+					.y = static_cast<float>(rect.y),
+					.width = static_cast<float>(rect.width),
+					.height = static_cast<float>(rect.height),
+					.minDepth = 0.0F,
+					.maxDepth = 1.0F});
+				encoder.SetScissor(rect);
+				context.target->ClearRect(cmd, ClearValue{.color = {1.0F, 1.0F, 1.0F, 0.0F}}, 0, rect);
+				pushConstants.shadowView = viewIt;
+				auto frustum = Frustum::FromViewProjection(glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
+				RecordDrawList(cmd, pipeline, myShadowTransmittanceList, pushConstants, 0, *myDrawStream, inputs.culling ? &frustum : nullptr);
+			}
+		});
+
 	// the scattering materials' back faces, depth only: how thick they are where the Scatter pass sees them
 	myScatterBackPass = myGraph.AddPass(
 		"Scatter Back",
@@ -742,6 +797,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.DepthAttachment(myScatterDepth, LoadOp::kClear);
 			builder.Use(myScatterBackDepth, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kFragmentShader));
+			builder.Use(myShadowTransmittance, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 			builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 		},
 		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, ListId::kScatter); });
@@ -821,6 +877,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.DepthAttachment(myDepth, LoadOp::kLoad);
 				useOitLists(builder, PipelineStage::kFragmentShader, kOitAccess);
 				builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kFragmentShader));
+				builder.Use(myShadowTransmittance, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				if (phase == MainPassPhase::kTransmissive)
 					builder.Use(myTransmission, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kFragmentShader));
@@ -1364,6 +1421,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			for (auto volume : myGiVolumes)
 				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowTransmittance, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myShadowMask, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			for (auto image : myGiNearHistory)
@@ -2193,6 +2251,11 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myShadowAtlas), .layout = ImageLayout::kShaderReadOnly},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 		SHADER_TYPES_SHADOW_ATLAS_TEXTURE);
+	pipeline.SetDescriptorData(
+		"gTextures",
+		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myShadowTransmittance), .layout = ImageLayout::kShaderReadOnly},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+		SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE);
 	for (auto [image, slot] : std::array{
 			 std::pair{myScatter, SHADER_TYPES_SCATTER_TEXTURE},
 			 std::pair{myScatterDepth, SHADER_TYPES_SCATTER_DEPTH_TEXTURE},
@@ -2581,6 +2644,7 @@ void Renderer::Prepare(CommandBufferHandle cmd)
 	// shadow atlas, in frames with shadows, and the scatter targets, in frames with scattering materials)
 	myGraph.GetImage(myTransmission).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
 	myGraph.GetImage(myShadowAtlas).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth);
+	myGraph.GetImage(myShadowTransmittance).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
 	myGraph.GetImage(myScatter).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
 	myGraph.GetImage(myScatterDepth).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth);
 	myGraph.GetImage(myScatterBackDepth).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth);
@@ -2909,6 +2973,12 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		: DrawList{};
 	bool shadowsDrawn = !myShadowDrawList.Empty();
 	frame.pushConstants.shadows = shadowsDrawn || myShadowsTraced ? 1U : 0U;
+	// what transmissive surfaces let through of the lights, where any are drawn (their records written below)
+	myShadowTransmittanceList = shadowsDrawn && myTwoPhases
+		? BuildShadowTransmittanceDrawList(*frame.model, myDrawLists[std::to_underlying(MainPassPhase::kTransmissive)])
+		: DrawList{};
+	if (!myShadowTransmittanceList.Empty())
+		frame.pushConstants.shadows |= SHADER_TYPES_SHADOWS_TRANSMITTANCE;
 	frame.pushConstants.shadowView = SHADER_TYPES_NO_SHADOW;
 	// the traced reflections and refractions, where the model has its structures (a model without, the file browser's
 	// preview, has the default ones of nothing bound: its reflections would all be the environment's)
@@ -2935,6 +3005,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	}
 	InternalPlanShadowCache(frame);
 	myGraph.SetEnabled(myShadowPass, shadowsDrawn && std::ranges::contains(myShadowViewKept, uint8_t{0}));
+	myGraph.SetEnabled(
+		myShadowTransmittancePass, !myShadowTransmittanceList.Empty() && std::ranges::contains(myShadowViewKept, uint8_t{0}));
 
 	// the scattering materials' light, if any are drawn
 	myScatterDrawList = frame.model != nullptr
@@ -2972,6 +3044,10 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		for (auto& item : myPrepassList.items)
 			if (item.variant.fragmentShader == 0)
 				item.variant = {.topology = item.variant.topology, .blend = kPrepassBlend, .fragmentShader = kPrepassFragmentShader};
+		// the shadow transmittance's: the transmissive phase's draws, with their records now
+		if (!myShadowTransmittanceList.Empty())
+			myShadowTransmittanceList =
+				BuildShadowTransmittanceDrawList(*frame.model, myDrawLists[std::to_underlying(MainPassPhase::kTransmissive)]);
 		if (!records.empty())
 		{
 			auto bytes = std::as_bytes(std::span(records));
@@ -3254,11 +3330,15 @@ void Renderer::InternalPlanShadowCache(const FrameInputs& frame)
 	// a view keeps its tile where the last frame had the same view (bytewise: view projection, tile, texel size) in it,
 	// drawn from the same model and shadow draws, while the atlas holds what that frame left (see
 	// FrameGraph::IsPersistentValid), unless something that moves is in its frustum. the plan lays its views out the same
-	// while nothing changes, so views are compared by their place in it: one moved elsewhere is drawn again
+	// while nothing changes, so views are compared by their place in it: one moved elsewhere is drawn again. the
+	// transmittance's tiles go with them (its transmissive draws the same, and moving ones count)
 	auto viewCount = myShadowPlan.views.size();
 	myShadowViewKept.assign(viewCount, 0);
+	bool transmittance = !myShadowTransmittanceList.Empty();
 	if (myShadowCacheOn && myGraph.IsPersistentValid(myShadowAtlas) && frame.model == myShadowCachedModel &&
-		myShadowDrawList.items.size() == myShadowCachedDrawCount)
+		myShadowDrawList.items.size() == myShadowCachedDrawCount &&
+		myShadowTransmittanceList.items.size() == myShadowCachedTransmittanceCount &&
+		(!transmittance || myGraph.IsPersistentValid(myShadowTransmittance)))
 	{
 		for (size_t viewIt = 0; viewIt < std::min(viewCount, myShadowCachedViews.size()); viewIt++)
 		{
@@ -3266,14 +3346,16 @@ void Renderer::InternalPlanShadowCache(const FrameInputs& frame)
 			if (std::memcmp(&view, &myShadowCachedViews[viewIt], sizeof(ShadowData)) != 0)
 				continue;
 			auto frustum = Frustum::FromViewProjection(glm::make_mat4(&view.viewProjection[0][0]));
-			bool moving = std::ranges::any_of(
-				myShadowDrawList.items, [&frustum](const DrawItem& item) { return item.moves && !frustum.Excludes(item.bounds); });
+			auto inFrustum = [&frustum](const DrawItem& item) { return item.moves && !frustum.Excludes(item.bounds); };
+			bool moving = std::ranges::any_of(myShadowDrawList.items, inFrustum) ||
+						  std::ranges::any_of(myShadowTransmittanceList.items, inFrustum);
 			myShadowViewKept[viewIt] = moving ? 0 : 1;
 		}
 	}
 	myShadowCachedViews.assign(myShadowPlan.views.begin(), myShadowPlan.views.end());
 	myShadowCachedModel = frame.model;
 	myShadowCachedDrawCount = myShadowDrawList.items.size();
+	myShadowCachedTransmittanceCount = myShadowTransmittanceList.items.size();
 }
 
 void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)

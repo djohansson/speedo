@@ -333,6 +333,7 @@ private:
 	RenderOutput& myRenderOutput;
 	FrameGraph::ImageId myOutput;
 	FrameGraph::ImageId myShadowAtlas;
+	FrameGraph::ImageId myShadowTransmittance; // see SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE
 	FrameGraph::BufferId myOitHeads;
 	FrameGraph::BufferId myOitNodes;
 	FrameGraph::BufferId myOitCounter;
@@ -341,6 +342,7 @@ private:
 	FrameGraph::PassId myTransmissionMipsPass;
 	FrameGraph::PassId myTransmissivePhase;
 	FrameGraph::PassId myShadowPass;
+	FrameGraph::PassId myShadowTransmittancePass;
 	FrameGraph::PassId myScatterBackPass;
 	FrameGraph::PassId myScatterPass;
 	FrameGraph::PassId myScatterBlurPass;
@@ -374,6 +376,7 @@ private:
 	std::vector<ShadowData> myShadowCachedViews;
 	const Model* myShadowCachedModel = nullptr;
 	size_t myShadowCachedDrawCount = 0;
+	size_t myShadowCachedTransmittanceCount = 0; // the transmissive draws the transmittance's tiles were drawn from
 	std::vector<uint8_t> myShadowViewKept;
 	bool myShadowCacheOn = true;
 	void InternalPlanShadowCache(const FrameInputs& frame);
@@ -797,6 +800,8 @@ private:
 	uint32_t myUiBlurThreadsX = 0;
 	uint32_t myUiBlurThreadsY = 0;
 	DrawList myShadowDrawList;
+	// the transmissive phase's transmissive draws, for the Shadow Transmittance pass (FragmentShadowTransmittance)
+	DrawList myShadowTransmittanceList;
 
 	// what Record's passes (and the output's) read of the frame they record
 	RecordingFrame myFrame;

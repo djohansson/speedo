@@ -312,6 +312,10 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(
 		case BlendMode::kMultiplyInverse:
 			factors(VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR, VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
 			break;
+		case BlendMode::kMultiplyMax:
+			factors(VK_BLEND_FACTOR_DST_COLOR, VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE);
+			attachment.alphaBlendOp = VK_BLEND_OP_MAX;
+			break;
 		}
 	}
 	// depth only (e.g. shadows): the first blend mode says whether it writes depth

@@ -631,7 +631,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility Clear, Main Visibility Classify and Main Visibility (the visibility buffer), Reflection X and Y and Reflection Temporal (the traced glossy reflections), Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Shadow Transmittance (with transmissive materials), Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility Clear, Main Visibility Classify and Main Visibility (the visibility buffer), Reflection X and Y and Reflection Temporal (the traced glossy reflections), Main,
 Transmission and Transmission Mips, Main Transmissive, Exposure Clear, ComputeMain (or, with temporal upscaling, Composite,
 the Upscale passes and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -1191,6 +1191,24 @@ ones, of big texels, change less often). San Miguel's still pose 86.9 to 68.4 ms
 more than the 9.9 ms the baseline's left out Shadows pass freed, not yet understood), Sponza's 30.35 to 29.37,
 Bistro's evening the same (its sun is down); renders identical, still and along a path.
 `resources/test-models/gltf/ShadowScene.gltf` has a sun, a point and a spot light over boxes on a ground plane.
+
+Transmissive surfaces aren't casters (nor in the rays' structures), but tint the light through them: the Shadow
+Transmittance pass draws each shadow view's transmissive draws again (`BuildShadowTransmittanceDrawList`, the transmissive
+phase's, records and all) into its tile of a second atlas at half the size (`SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE`,
+RGBA16F, persistent and kept with the atlas's tiles; 32 MB), no depth, rgb multiplied over the layers and alpha the
+nearest's depth (`rhi::BlendMode::kMultiplyMax`): what each lets through (`FragmentShadowTransmittance`: its transmission
+of the dielectric, the base color, `VolumeAttenuation` over its thickness, less what its two faces reflect at normal
+incidence), a volume's faces toward the light alone (each for the whole thickness, as the view through it takes it at its
+front face), a thin wall's both. `ShadowFactor` returns a color: the traced shadow or the atlas's, times what the 4x4
+texels around the point's place give by a cubic B-spline, each where the point is behind its nearest layer
+(`ShadowTransmittance`; the normal offset keeps a layer's own lit face in front of it), wherever the frame drew any
+(`PushConstants::shadows`' `SHADER_TYPES_SHADOWS_TRANSMITTANCE`, which also has a traced light's pixels place themselves in
+its views); bilinear over 2x2, the edges were steps a texel wide, as long again on a surface at a slant. AttenuationTest's
+blocks (the user's pose `0.0000,0.0000,19.9960,0.000,0.000`, 2 m in front of the board) cast nothing before; now each a
+blue band as deep as its thickness and attenuation make its view, overlapping bands deeper; TransmissionTest's spheres
+cast their colors on the floor, the metallic row's darker; the other glass sample models change by 0.4 of 255 at most
+(the shadows behind TransmissionRoughnessTest's panels, DragonAttenuation's at its base). Not yet: the indirect
+lighting's voxels and the traced hits (sunlight through a window into a room), caustics, and its cost measured.
 
 ## Ray traced shadows
 
@@ -2893,8 +2911,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 66
-(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces, 58 to 65 the traced glossy reflections'). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 67
+(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces, 58 to 65 the traced glossy reflections', 66 the shadow transmittance). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

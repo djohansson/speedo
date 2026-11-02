@@ -280,7 +280,7 @@ float3 Shade(Surface surface, float3 view, float3 position)
 			if (weight <= 0.0)
 				continue;
 			unshadowed += weight;
-			reaching += weight * ShadowFactor(lightIt, light, position, surface.geometryNormal, toLight);
+			reaching += weight * dot(ShadowFactor(lightIt, light, position, surface.geometryNormal, toLight), float3(0.2126, 0.7152, 0.0722));
 		}
 		// no light faces the point: a dark blue, apart from shadowed black
 		return unshadowed > 0.0 ? pow(reaching / unshadowed, 2.2) : float3(0.0, 0.0, 0.05);
@@ -290,8 +290,8 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		uint lightIt = clustered ? gClusterLights[gPushConstants.frameIndex][clusterFirst + clusterIt] : clusterIt;
 		LightData light = gLights[lightIt];
 		float3 toLight;
-		float attenuation = LightAttenuation(lightIt, light, position, surface.geometryNormal, toLight);
-		if (attenuation <= 0.0)
+		float3 attenuation = LightAttenuation(lightIt, light, position, surface.geometryNormal, toLight);
+		if (all(attenuation <= 0.0))
 			continue;
 
 		float3 halfway = normalize(toLight + view);

@@ -136,7 +136,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 66; // after the traced reflections' surfaces (SHADER_TYPES_REFLECTION_SURFACE_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 67; // after the shadow transmittance (SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -178,6 +178,9 @@ static_assert(
 	SHADER_TYPES_COMPOSITE_TEXTURE > SHADER_TYPES_RENDER_TARGET_TEXTURE && SHADER_TYPES_UPSCALE_COLOR_TEXTURE + 1 < SHADER_TYPES_MAIN_DEPTH_TEXTURE &&
 	SHADER_TYPES_UPSCALE_COLOR_RW_TEXTURE > SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE + 1 && SHADER_TYPES_COMPOSITE_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(SHADER_TYPES_SKY_VIEW_TEXTURE > SHADER_TYPES_EMITTER_SURFACE_TEXTURE + 1 && SHADER_TYPES_SKY_VIEW_TEXTURE < kModelTextureFirstSlot);
+static_assert(
+	SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE > SHADER_TYPES_REFLECTION_SURFACE_TEXTURE + 1 &&
+	SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE < kModelTextureFirstSlot);
 static_assert(SHADER_TYPES_PREPASS_MOTION_TEXTURE > SHADER_TYPES_SKY_VIEW_TEXTURE && SHADER_TYPES_PREPASS_MOTION_TEXTURE < kModelTextureFirstSlot);
 static_assert(
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE > SHADER_TYPES_PREPASS_MOTION_TEXTURE && SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE < kModelTextureFirstSlot &&
@@ -2120,6 +2123,7 @@ struct Scene::Impl
 				{"FragmentShadow", SLANG_STAGE_FRAGMENT}, // see kShadowFragmentShader
 				{"FragmentScatter", SLANG_STAGE_FRAGMENT}, // see kScatterFragmentShader
 				{"FragmentPrepass", SLANG_STAGE_FRAGMENT}, // see kPrepassFragmentShader
+				{"FragmentShadowTransmittance", SLANG_STAGE_FRAGMENT}, // see kShadowTransmittanceFragmentShader
 				{"ComputeMain", SLANG_STAGE_COMPUTE},
 				{"ComputeScatter", SLANG_STAGE_COMPUTE}, // see the Scatter Blur pass
 				{"ComputeScatterDenoise", SLANG_STAGE_COMPUTE}, // see the Scatter Denoise pass
