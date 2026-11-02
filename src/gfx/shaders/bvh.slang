@@ -36,6 +36,9 @@ struct BvhHit
 	// of the ray queries' (BvhTraceScene) hits on what doesn't move, the gModelInstances one its vertices are placed by;
 	// ~0 for what moves (its corners are the frame's, see BvhRayQueryCorners) and the BVHs' hits
 	uint modelInstance;
+	// and the one its vertices' normals are placed by: modelInstance, or what moves rigidly's (following a node); ~0 where
+	// skinned or morphed (its triangle's own normal) and for the BVHs' hits
+	uint normalInstance;
 };
 
 bool BvhHitSomething(BvhHit hit)
@@ -55,6 +58,7 @@ BvhHit BvhNothing(float tmax)
 	hit.frontFace = false;
 	hit.capped = false;
 	hit.modelInstance = ~0u;
+	hit.normalInstance = ~0u;
 	return hit;
 }
 
@@ -367,6 +371,12 @@ uint4 BvhRayQueryGeometry(uint customIndex, uint geometry)
 	return asuint(gBvhTriangles[customIndex + geometry]);
 }
 
+// whether a top level instance is of what moves (what moves, the glass that moves: its corners as the frame placed them)
+bool BvhRayQueryMoving(uint instance)
+{
+	return instance == BVH_RAY_QUERY_INSTANCE_MOVING || instance == BVH_RAY_QUERY_INSTANCE_MOVING_GLASS;
+}
+
 // a ray query's triangle's corners in world space: what doesn't move's vertices placed by its instance, what moves' as the
 // frame placed them
 void BvhRayQueryCorners(uint instance, uint4 geometry, uint primitive, out float3 corners[3])
@@ -374,7 +384,7 @@ void BvhRayQueryCorners(uint instance, uint4 geometry, uint primitive, out float
 	uint frameIndex = gPushConstants.frameIndex;
 	for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
 	{
-		if (instance == BVH_RAY_QUERY_INSTANCE_MOVING)
+		if (BvhRayQueryMoving(instance))
 			corners[cornerIt] = gBvhMovingTriangles[frameIndex][geometry.z + primitive * 3u + cornerIt].xyz;
 		else
 			corners[cornerIt] = mul(
@@ -460,8 +470,8 @@ BvhHit BvhTraceScene<Filter : IBvhFilter>(float3 origin, float3 direction, float
 		origin, direction, tmax, anyHit, moving ? (BVH_RAY_QUERY_MASK_STATIC | BVH_RAY_QUERY_MASK_MOVING) : BVH_RAY_QUERY_MASK_STATIC, filter);
 }
 
-// the nearest transmissive triangle (that doesn't move) a ray meets before tmax, which only the caustics' photons and the
-// traced refractions query (see GlassPath; BVH_RAY_QUERY_MASK_GLASS)
+// the nearest transmissive triangle (that moves or not) a ray meets before tmax, which only the paths through the glass
+// query (see GlassPath; BVH_RAY_QUERY_MASK_GLASS)
 BvhHit BvhTraceGlass(float3 origin, float3 direction, float tmax)
 {
 	return BvhTraceInstances(origin, direction, tmax, false, BVH_RAY_QUERY_MASK_GLASS, BvhOpaque());
@@ -475,7 +485,7 @@ BvhHit BvhTraceSceneOrGlass<Filter : IBvhFilter>(float3 origin, float3 direction
 	uint instance;
 	BvhHit hit = BvhTraceInstances(
 		origin, direction, tmax, false, BVH_RAY_QUERY_MASK_STATIC | BVH_RAY_QUERY_MASK_MOVING | BVH_RAY_QUERY_MASK_GLASS, filter, instance);
-	glass = instance == BVH_RAY_QUERY_INSTANCE_GLASS;
+	glass = instance == BVH_RAY_QUERY_INSTANCE_GLASS || instance == BVH_RAY_QUERY_INSTANCE_MOVING_GLASS;
 	return hit;
 }
 
@@ -532,8 +542,9 @@ BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, f
 	hit.primitive = primitive;
 	hit.flags = geometry.x;
 	hit.firstIndex = geometry.y + primitive * 3u;
-	if (query.CommittedInstanceIndex() != BVH_RAY_QUERY_INSTANCE_MOVING)
+	if (!BvhRayQueryMoving(instance))
 		hit.modelInstance = geometry.z;
+	hit.normalInstance = geometry.w;
 	float3 normal = normalize(cross(corners[1] - corners[0], corners[2] - corners[0]));
 	hit.frontFace = dot(normal, direction) < 0.0;
 	hit.normal = hit.frontFace ? normal : -normal;

@@ -3030,10 +3030,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	if (!myShadowTransmittanceList.Empty())
 		frame.pushConstants.shadows |= SHADER_TYPES_SHADOWS_TRANSMITTANCE;
 	// and refract it into caustics, where the device's ray queries trace the model's structures (its transmissive surfaces
-	// that don't move among them: a model with one that moves keeps the tint, its photons would pass it untinted)
+	// among them, those that move refit each frame: without, a model with one that moves kept the tint, whose photons would
+	// have passed it untinted, IridescentDishWithOlives' dish under its lifting cover too). the views something moves in are
+	// drawn every frame (see InternalPlanShadowCache), and their light's photons traced with them
 	myCausticsThisFrame = !myShadowTransmittanceList.Empty() && frame.caustics && frame.model != nullptr &&
-						  frame.model->GetAccelerationStructures() != nullptr &&
-						  std::ranges::none_of(myShadowTransmittanceList.items, [](const DrawItem& item) { return item.moves; });
+						  frame.model->GetAccelerationStructures() != nullptr;
 	if (myCausticsThisFrame)
 		frame.pushConstants.shadows |= SHADER_TYPES_SHADOWS_CAUSTICS;
 	frame.pushConstants.shadowView = SHADER_TYPES_NO_SHADOW;
@@ -3258,7 +3259,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 			}
 		myVisibilityTiered = specialized && generic &&
 							 (myVisibilityPlainShare >= renderer::kVisibilityTieredShare || myFrameCount % renderer::kVisibilityRecountFrameCount == 0);
-		// and without what the traced reflections do at glass, where the model has none that doesn't move (see
+		// and without what the traced reflections do at glass, where the model has none (see
 		// SHADER_TYPES_LAYERS_GLASS)
 		myVisibilityNoGlass = frame.model == nullptr || frame.model->GetAccelerationStructures() == nullptr ||
 									  !frame.model->GetAccelerationStructures()->HasGlass()

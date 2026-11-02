@@ -655,8 +655,8 @@ struct TextureView
 // layer groups a graphics pipeline can be specialized without (the shaders' specialization constant 0, kSkippedLayers):
 // their code compiles away. the extended layers: clearcoat, sheen, transmission (and volume and dispersion), anisotropy,
 // iridescence and diffuse transmission. the glass: what the traced reflections do where they meet a transmissive surface
-// (see TracedRadiance), which the visibility buffer's kernel is specialized without where the model has none that doesn't
-// move (its code alone, never run there, took MetalRoughSpheresNoTextures' Main Visibility from 0.382 ms to 0.416)
+// (see TracedRadiance), which the visibility buffer's kernel is specialized without where the model has none (its code
+// alone, never run there, took MetalRoughSpheresNoTextures' Main Visibility from 0.382 ms to 0.416)
 #define SHADER_TYPES_LAYERS_EXTENDED 1u
 #define SHADER_TYPES_LAYERS_GLASS 2u
 
@@ -999,16 +999,19 @@ struct CullView
 #define BVH2_NODE_FLOAT4_COUNT 4u
 #define BVH2_TRIANGLE_FLOAT4_COUNT 3u
 // where the device's ray queries trace instead (BVH_RAY_QUERY, see gfx/accelerationstructures.h), gBvhTriangles holds a
-// geometry a float4 (as uint4 bits): its flags, its first index, and its instance (what doesn't move: its vertices placed
-// by gModelInstances') or its first corner in gBvhMovingTriangles[frame] (what moves: its corners as placed, a float4 a
-// corner), what doesn't move's geometries first, then what moves', then the glass's. the top level structure's instances:
-// what doesn't move, then what does, then the transmissive surfaces that don't move, which only the caustics' photons
-// query (see ComputeCaustics; whose custom index is its first geometry in the table)
+// geometry a float4 (as uint4 bits): its flags, its first index, its instance (what doesn't move: its vertices placed by
+// gModelInstances') or its first corner in gBvhMovingTriangles[frame] (what moves: its corners as placed, a float4 a
+// corner), and the gModelInstances one its vertices' normals are placed by (what moves rigidly's too; ~0 where skinned or
+// morphed: its triangles' own), what doesn't move's geometries first, then what moves', then the glass's that doesn't
+// move, then the glass's that does (its corners after what moves' in the same buffers). the top level structure's
+// instances: what doesn't move, then what does, then the transmissive surfaces that don't move and those that do, which
+// only the paths through the glass query (see GlassPath; whose custom index is its first geometry in the table)
 #define BVH_RAY_QUERY_MASK_STATIC 1u
 #define BVH_RAY_QUERY_MASK_MOVING 2u
 #define BVH_RAY_QUERY_MASK_GLASS 4u
 #define BVH_RAY_QUERY_INSTANCE_MOVING 1u
 #define BVH_RAY_QUERY_INSTANCE_GLASS 2u
+#define BVH_RAY_QUERY_INSTANCE_MOVING_GLASS 3u
 // whether the shaders' rays query the device's structures (gfx::Scene compiles them with it where DeviceLimits::rayQuery)
 #ifndef BVH_RAY_QUERY
 #define BVH_RAY_QUERY 0

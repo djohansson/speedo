@@ -68,10 +68,14 @@ struct RayQueryGeometry
 	uint32_t firstIndex = 0;
 	uint32_t triangleCount = 0;
 	uint32_t instance = 0; // what doesn't move: its instance; what moves: its first corner in a frame's corners
+	// the instance its vertices' normals are placed by: what doesn't move's, what moves rigidly's (following a node), none
+	// (~0) where skinned or morphed
+	uint32_t normalInstance = ~0U;
 };
 [[nodiscard]] std::vector<RayQueryGeometry> RayQueryGeometries(const ModelDesc& desc);
-// and of its transmissive surfaces that don't move (not blended), which the caustics' photons refract through (see
-// ComputeCaustics): a structure of their own, which the other rays don't query (BVH_RAY_QUERY_MASK_GLASS)
+// and of its transmissive surfaces that don't move (not blended), which the caustics' photons, the traced refractions and
+// reflections go through (see GlassPath): a structure of their own, which the other rays don't query
+// (BVH_RAY_QUERY_MASK_GLASS)
 [[nodiscard]] std::vector<RayQueryGeometry> RayQueryGlassGeometries(const ModelDesc& desc);
 
 // the same in the moving BVH's layout (tinybvh's BVH_GPU, see Moving; BVH2_NODE_FLOAT4_COUNT and
@@ -84,7 +88,9 @@ struct RayQueryGeometry
 // tree is built once, where they are first placed), in tinybvh's binary GPU layout (BVH_GPU: copied from the refit tree,
 // where encoding a CWBVH again took BrainStem's 61000 triangles 3 ms a frame). one BVH rather than one per submesh: a ray
 // then traverses it once, where with a BVH each BrainStem's dozens of overlapping parts each took one. the shaders read
-// it from a frame's buffers (gBvhMovingNodes, gBvhMovingTriangles)
+// it from a frame's buffers (gBvhMovingNodes, gBvhMovingTriangles). glass: of the transmissive surfaces that move (not
+// blended) instead, for the device's ray queries alone (no tree: the glass is in no BVH), as RayQueryGlassGeometries'
+// that don't move
 class Moving
 {
 public:
@@ -95,7 +101,8 @@ public:
 		std::span<const SkinVertex> skinVertices,
 		std::span<const MorphDelta> morphDeltas,
 		core::TaskExecutor& executor,
-		bool tree = true);
+		bool tree = true,
+		bool glass = false);
 	~Moving();
 	Moving(const Moving&) = delete;
 	Moving& operator=(const Moving&) = delete;

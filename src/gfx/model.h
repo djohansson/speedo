@@ -165,7 +165,7 @@ struct ModelBuffers
 	Buffer bvhTriangles;
 	Buffer bvhTransforms;
 	// and of what moves (see bvh::Moving), per frame, host visible: its nodes and triangles (with ray queries, its corners
-	// alone, see bvh::Moving::WriteRayQueryCorners)
+	// alone, see bvh::Moving::WriteRayQueryCorners, then the transmissive surfaces' that move)
 	std::vector<Buffer> bvhMovingNodes;
 	std::vector<Buffer> bvhMovingTriangles;
 	// its emissive triangles that don't move and the tree over them (see gfx/emitters.h), if any, and how many
@@ -182,6 +182,7 @@ struct ModelRayQueries
 	std::vector<AccelerationStructures::Geometry> staticGeometries;
 	std::vector<AccelerationStructures::Geometry> movingGeometries;
 	std::vector<AccelerationStructures::Geometry> glassGeometries; // placed by bvhTransforms after what doesn't move's
+	std::vector<AccelerationStructures::Geometry> movingGlassGeometries; // their corners after what moves'
 };
 
 // how several model files loaded as one (Model::Load of several) are placed: side by side in a grid in the xy plane,
@@ -208,11 +209,13 @@ class Model final
 {
 public:
 	// with rayQueries, makes the structures the device's ray queries trace (see AccelerationStructures) of buffers' triangles
+	// (movingGlass: the transmissive surfaces that move, see bvh::Moving, null if none)
 	Model(
 		ModelDesc&& desc,
 		ModelBuffers&& buffers,
 		const Upload& upload,
 		std::unique_ptr<bvh::Moving>&& movingBvh,
+		std::unique_ptr<bvh::Moving>&& movingGlass,
 		std::optional<ModelRayQueries>&& rayQueries = std::nullopt) noexcept;
 	Model(const Model&) = delete;
 	Model(Model&&) noexcept = delete;
@@ -318,6 +321,7 @@ private:
 	ModelBuffers myBuffers;
 	Upload myUpload;
 	std::unique_ptr<bvh::Moving> myMovingBvh; // placed by Animate, null if nothing moves (or the rays walk the voxels)
+	std::unique_ptr<bvh::Moving> myMovingGlass; // placed by Animate, the device's ray queries' alone, null if no glass moves
 	std::unique_ptr<AccelerationStructures> myAccelerationStructures; // see GetAccelerationStructures
 	// the joint matrices Animate writes, kept between its calls
 	std::vector<SceneMatrix> myJoints;

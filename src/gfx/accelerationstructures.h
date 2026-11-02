@@ -21,10 +21,10 @@ namespace gfx
 // of what moves per frame index, refit each frame to where it was placed (bvh::Moving::WriteRayQueryCorners); and a top
 // level structure per frame index of their instances (what doesn't move, BVH_RAY_QUERY_MASK_STATIC, then what does,
 // BVH_RAY_QUERY_MASK_MOVING, then the transmissive surfaces that don't move, BVH_RAY_QUERY_MASK_GLASS, built once as what
-// doesn't move is, which only the caustics' photons query; an instance of nothing is inactive), which the shaders bind as
-// gBvhScene[frame]. the alpha masked geometries aren't opaque: their hits are candidates the shaders test. an instance's
-// first geometry among all is its custom index (what doesn't move's is 0), which the shaders' table of geometries is
-// indexed by
+// doesn't move is, and those that move, refit each frame as what moves is, under the same mask: which only the paths
+// through the glass query, see GlassPath; an instance of nothing is inactive), which the shaders bind as gBvhScene[frame].
+// the alpha masked geometries aren't opaque: their hits are candidates the shaders test. an instance's first geometry
+// among all is its custom index (what doesn't move's is 0), which the shaders' table of geometries is indexed by
 class AccelerationStructures
 {
 public:
@@ -39,8 +39,9 @@ public:
 
 	// what they are built of, in buffers with BufferUsage::kAccelerationStructureInput and kDeviceAddress: what doesn't
 	// move, the model's vertices (a position at the start of each, vertexStride apart), its indices and a transform per
-	// geometry (3x4 floats, row major); what moves, a frame index's corners (a float4 each, three a triangle); the glass as
-	// what doesn't move, its transforms after what doesn't move's. none of one: no structure of it
+	// geometry (3x4 floats, row major); what moves, a frame index's corners (a float4 each, three a triangle); the glass
+	// that doesn't move as what doesn't move, its transforms after what doesn't move's; the glass that moves as what moves,
+	// its corners in the same buffers. none of one: no structure of it
 	struct Inputs
 	{
 		const Buffer* vertices = nullptr;
@@ -52,6 +53,7 @@ public:
 		std::span<const Buffer> movingCorners;
 		std::vector<Geometry> movingGeometries;
 		std::vector<Geometry> glassGeometries;
+		std::vector<Geometry> movingGlassGeometries;
 	};
 
 	AccelerationStructures(Device& device, std::string_view name, Inputs&& inputs);
@@ -63,9 +65,9 @@ public:
 	// queries after. returns the scratch memory the build takes, to retire once the gpu is done with it
 	[[nodiscard]] std::shared_ptr<Buffer> RecordBuild(CommandBufferHandle cmd);
 
-	// records refitting the frame index's moving structure to its triangles as they are now (written by the host since
-	// the frame index's last frame completed), and building its top level structure again, ending with a barrier to the
-	// ray queries after. nothing if nothing moves
+	// records refitting the frame index's moving structures (what moves, the glass that moves) to their triangles as they
+	// are now (written by the host since the frame index's last frame completed), and building its top level structure
+	// again, ending with a barrier to the ray queries after. nothing if nothing moves
 	void RecordUpdate(CommandBufferHandle cmd, uint32_t frameIndex);
 
 	// what doesn't move is built to be compacted: once the build is done (its compacted size queried, which CanCompact
@@ -76,15 +78,18 @@ public:
 	[[nodiscard]] std::shared_ptr<void> RecordCompaction(CommandBufferHandle cmd);
 
 	[[nodiscard]] const AccelerationStructure& GetTopLevel(uint32_t frameIndex) const noexcept { return myTopLevels[frameIndex]; }
-	// whether there is a structure of the transmissive surfaces that don't move (BVH_RAY_QUERY_MASK_GLASS)
-	[[nodiscard]] bool HasGlass() const noexcept { return myGlass.has_value(); }
+	// whether there is a structure of transmissive surfaces (BVH_RAY_QUERY_MASK_GLASS), that move or not
+	[[nodiscard]] bool HasGlass() const noexcept { return myGlass.has_value() || !myMovingGlass.empty(); }
 
 private:
 	// records building the frame index's top level structure, of its instances
 	void RecordTopLevelBuild(const CommandEncoder& encoder, uint32_t frameIndex);
-	// the geometries of what doesn't move (or of the glass), and of what moves as a frame index has it
+	// records building (or refitting: update) the frame index's moving structures
+	void RecordMovingBuild(const CommandEncoder& encoder, uint32_t frameIndex, bool update);
+	// the geometries of what doesn't move (or of the glass), and of what moves (or of the glass that moves) as a frame index
+	// has it
 	[[nodiscard]] std::vector<rhi::AccelerationStructureGeometry> StaticGeometries(bool glass = false) const;
-	[[nodiscard]] std::vector<rhi::AccelerationStructureGeometry> MovingGeometries(uint32_t frameIndex) const;
+	[[nodiscard]] std::vector<rhi::AccelerationStructureGeometry> MovingGeometries(uint32_t frameIndex, bool glass = false) const;
 
 	Device& myDevice;
 	Inputs myInputs;
@@ -94,13 +99,17 @@ private:
 	std::optional<QueryPool> myCompactedSizeQuery; // what doesn't move's, until it is compacted
 	uint64_t myCompactedSize = 0;
 	std::vector<AccelerationStructure> myMoving; // per frame index
+	std::vector<AccelerationStructure> myMovingGlass; // per frame index
 	std::vector<AccelerationStructure> myTopLevels; // per frame index
-	std::vector<Buffer> myInstances; // per frame index, host visible: three rhi::AccelerationStructureInstance
-	std::vector<Buffer> myScratch; // per frame index: the moving structure's update, then the top level build
+	std::vector<Buffer> myInstances; // per frame index, host visible: four rhi::AccelerationStructureInstance
+	// per frame index: the moving structure's update, the moving glass's, then the top level build
+	std::vector<Buffer> myScratch;
 	rhi::AccelerationStructureSizes myStaticSizes{};
 	rhi::AccelerationStructureSizes myMovingSizes{};
+	rhi::AccelerationStructureSizes myMovingGlassSizes{};
 	rhi::AccelerationStructureSizes myTopLevelSizes{};
-	uint64_t myTopLevelScratchOffset = 0; // in each frame index's scratch, past the moving structure's update
+	uint64_t myMovingGlassScratchOffset = 0; // in each frame index's scratch, past the moving structure's update
+	uint64_t myTopLevelScratchOffset = 0; // and past the moving glass's
 };
 
 } // namespace gfx

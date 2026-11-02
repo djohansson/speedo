@@ -940,7 +940,7 @@ Shader tiers: `GraphicsPipelineVariant::specialization` is the shaders' speciali
 draws of materials without any of them (`LayersOf`, counting animated layers), so a plain PBR material doesn't pay the
 uber-shader's register allocation for them: Sponza's main pass took 13 to 23% less (its time over the shadow pass's,
 across runs; single runs are noisy, one pair showed almost no difference). `SHADER_TYPES_LAYERS_GLASS` (what the traced
-reflections do at glass) is the visibility buffer kernel's alone, skipped where the model has no glass that doesn't move,
+reflections do at glass) is the visibility buffer kernel's alone, skipped where the model has no glass,
 whatever `SPEEDO_SHADER_TIERS` says. `SPEEDO_SHADER_TIERS=0` draws with the
 generic pipelines. Pipelines take 15 to 50 ms each to create cold on KosmicKrisp, so a specialized one is never waited
 for: `RecordDrawList` asks `Pipeline::RequestGraphicsPipeline`, which returns it if it exists, or the first time a job
@@ -1255,13 +1255,16 @@ and shows the ground behind it upside down, its shadow at its top, and the amber
 AttenuationTest's blocks throw their light aside of their shadows, as thick
 glass does; DragonAttenuation's body spreads what it lets through over the floor and the cloth behind it, its shadow
 dark (the floor's light around it the same as with the tint alone, red 78.7 of 255 against 79.5). The other glass
-sample models change by 0.4 of 255 at most. Where a transmissive draw moves (CommercialRefrigerator's door), the frame
-takes the tint instead (the structure is of what doesn't move). Cost with the shadow cache off (every view redrawn
+sample models change by 0.4 of 255 at most. The glass that moves is in a structure of its own, refit each frame (see
+"Hardware ray queries"): before, a model with a transmissive draw that moves took the tint for all of its glass, and
+IridescentDishWithOlives' dish had none under its lifting cover. Cost with the shadow cache off (every view redrawn
 every frame; RTX 4070 Ti SUPER, 2560x1440): Caustics 0.19 to 0.55 ms, Caustics Clear 0.06, the frame 0.26 to 0.53 ms
 more (CausticSpheres, AttenuationTest, DragonAttenuation; each view tracing the glass in its tile, the cascades over
-again, 0.28 to 0.66 and 0.35 to 0.55); with it, nothing while the views are kept. Not yet: what
-moves, dispersion, rough glass's spread, the photons' light in the indirect lighting's voxels, and the caustics' noise
-where few photons land (a texel's 16).
+again, 0.28 to 0.66 and 0.35 to 0.55); with it, nothing while the views are kept. But a view a draw that may move is in
+is drawn every frame (its `moves` is the draw's, whether its animation plays or not), and its light's photons traced
+with it: IridescentDishWithOlives framed 1.27 ms of Caustics a frame (its cover a dome over most of the tiles),
+CommercialRefrigerator 0.56. Not yet: dispersion, rough glass's spread, the photons' light in the indirect lighting's
+voxels, the caustics' noise where few photons land (a texel's 16), and the views of what may move kept while it doesn't.
 
 ## Ray traced shadows
 
@@ -1438,7 +1441,8 @@ meets its back, refracted, less its Fresnel reflection, or reflected back in whe
 glass beyond, to the first opaque surface or the environment, at most `SHADER_TYPES_CAUSTIC_SURFACE_COUNT` surfaces, past
 which the screen space lookup's is kept; the opaque scene's structures hold no glass, and the ray passed through its
 own volume without leaving it: a ball showed what is behind it shifted rather than upside down, and a thin wall was
-refracted as a volume's face; a transmissive surface that moves, which no structure holds, is passed so still), sharp
+refracted as a volume's face; the glass that moves is in a structure of its own: passed through, IridescentDishWithOlives'
+cover, a shell, magnified the olives under it as a solid lens would, which it now shows as they are), sharp
 where the transmission texture's mips wouldn't blur it much (`roughness * saturate(2 ior - 2)`), what is
 behind out of the view as well; and, whatever the roughness, where the screen space lookup leaves the view (its last 5%,
 where untraced glass fades to the environment along the ray) the trace stands in for the environment: rough glass, partly
@@ -1472,7 +1476,7 @@ under 0.75. Main Transmissive (framed, 2560x1440, RTX 4070 Ti SUPER): DragonAtte
 USDShaderBallForGltf 0.71 to 1.54, GlassVaseFlowers 0.40 to 0.58, ABeautifulGame 0.13 to 0.21, CausticSpheres 0.10 to
 0.18, the hits' lookups 0.10 to 0.17 of it and the rest the path (a query for glass and one for the scene at every
 surface crossed, as at first, took the dragon's 1.31); Main Visibility, the glossy reflections' hits' lookups, 0.004 to
-0.03 more. A reflection's ray meets the glass that doesn't move too (`TracedRadiance`, with `BvhTraceSceneOrGlass`): its
+0.03 more. A reflection's ray meets the glass too, that moves or not (`TracedRadiance`, with `BvhTraceSceneOrGlass`): its
 reflection of what is around it, as a hit's specular is taken (`TracedIndirect`: the environment as much as the probes
 see of it; not its own traced reflections), and the light through it (`TracedGlassPath`, as the refractions take it),
 from inside its volume out of it (a reflection of what is in the glass, a mosquito in amber); the rays passed through
@@ -1480,7 +1484,7 @@ it, and glass was missing from every reflection (CausticSpheres' amber sphere fr
 from a mirror floor's). A reflection follows `kTracedReflectionGlassSurfaceCount` (2) surfaces through the glass, past
 which the shading keeps what it would have taken untraced: all 8, DragonAttenuation reflecting itself and its glossy
 cloth reflecting it took its Main Visibility from 0.41 ms to 0.95 and its Main Transmissive from 1.14 to 2.16, 0.65
-and 1.68 with 2 (its render within 0.09 of 255 of all 8's). Where the model has no glass that doesn't move, the visibility
+and 1.68 with 2 (its render within 0.09 of 255 of all 8's). Where the model has no glass, the visibility
 buffer's kernel is specialized without it (`SHADER_TYPES_LAYERS_GLASS`, `Renderer::myVisibilityNoGlass`): its code alone,
 never run, took MetalRoughSpheresNoTextures' Main Visibility from 0.382 ms to 0.416; specialized, it and DamagedHelmet's
 are as before. With glass (framed, 2560x1440, RTX 4070 Ti SUPER), Main Visibility and Main Transmissive: CausticSpheres
@@ -2156,15 +2160,19 @@ indices and vertices (no copy of its triangles: a geometry per triangle list and
 `bvh::RayQueryGeometries`, each placed by its instance's transform, `ModelBuffers::bvhTransforms`), and what moves, refit
 each frame from where `Model::Animate` placed it (`bvh::Moving` without its tree, `WriteRayQueryCorners`, a float4 a corner
 into the frame index's host visible buffer; `AccelerationStructures::RecordUpdate` at
-the start of `Scene::Record`, then the frame index's top level structure built again), and the transmissive surfaces that
-don't move, which only the caustics' photons query (see "Shadows"). The instances' masks tell them apart
+the start of `Scene::Record`, then the frame index's top level structure built again), and the transmissive surfaces,
+those that don't move built once and those that move refit each frame (a second `bvh::Moving` of them, `glass`, its
+corners after what moves' in the frame index's buffer; placed wherever the traced reflections, refractions or caustics
+are on too, `Scene`'s `myMovingPlaced`), which only the paths through the glass query (see "Shadows"; IridescentDishWithOlives'
+cover, 3584 triangles, 0.2 MB a frame). The instances' masks tell them apart
 (`BVH_RAY_QUERY_MASK_*`: the static voxels' kept light queries what doesn't move alone). The alpha masked geometries
 aren't opaque: their hits are the query's candidates, which `GiAlphaMask` accepts or not (`CommitNonOpaqueTriangleHit`). A
 hit's flags and first index come from its geometry's entry in `gBvhTriangles` (a uint4 a geometry: the flags, the first
-index, and the instance or, of what moves, the first corner; what doesn't move's, then what moves', then the glass's,
-each instance's first geometry its custom index: what moves' entries were missing, so a ray meeting what moves read past
-the table), and its normal and side from its corners: the model's vertices placed by `gModelInstances`, or the frame's
-corners of what moves.
+index, the instance or, of what moves, the first corner, and the instance its vertices' normals are placed by,
+`BvhHit::normalInstance`, what moves rigidly's too, none where skinned or morphed; what doesn't move's, then what moves',
+then the glass's, then the glass's that moves, each instance's first geometry its custom index: what moves' entries were
+missing, so a ray meeting what moves read past the table), and its normal and side from its corners: the model's vertices
+placed by `gModelInstances`, or the frame's corners of what moves.
 No CWBVH is uploaded nor a set's built, nor the moving tree built or refit on the cpu (BrainStem's 1 ms a frame), and no
 copy of the triangles is kept: they were 3 float4 a triangle at first (Bistro's 2.8 M, 134 MB), a uint4 and a transform a
 geometry now, renders and the traced rays identical (lavapipe). A model

@@ -286,7 +286,7 @@ private:
 	FrameGraph::BufferId myVisibilityStatisticsId;
 	float myVisibilityPlainShare = 1.0F;
 	// the layer groups the visibility buffer's kernel skips this frame (ComputePipelineVariant::specialization), of them
-	// SHADER_TYPES_LAYERS_GLASS where the model has no glass that doesn't move
+	// SHADER_TYPES_LAYERS_GLASS where the model has no glass
 	uint16_t myVisibilitySpecialization = 0;
 	uint16_t myVisibilityNoGlass = 0;
 	// the traced shadows' (see SHADER_TYPES_SHADOW_RAW_TEXTURE): the rays' visibility and blockers' distances, the

@@ -271,21 +271,23 @@ Moving::Moving(
 	std::span<const SkinVertex> skinVertices,
 	std::span<const MorphDelta> morphDeltas,
 	core::TaskExecutor& executor,
-	bool tree)
+	bool tree,
+	bool glass)
 	: myImpl(std::make_unique<Impl>())
 {
 	auto& impl = *myImpl;
 	impl.context.reset(new detail::Executor{.executor = executor}); // NOLINT(cppcoreguidelines-owning-memory): an aggregate with a mutex
 	size_t cornerCount = 0;
-	impl.buildsTree = tree;
+	impl.buildsTree = tree && !glass;
 	for (const auto& submesh : desc.submeshes)
 	{
 		if (!submesh.moves || submesh.topology != rhi::PrimitiveTopology::kTriangleList || submesh.indexCount < 3)
 			continue;
 		const ModelMaterial* material = submesh.material >= 0 ? &desc.materials[static_cast<size_t>(submesh.material)] : nullptr;
-		if (material != nullptr && (material->blend || material->transmission > 0.0F))
+		bool transmissive = material != nullptr && !material->blend && material->transmission > 0.0F;
+		if ((material != nullptr && material->blend) || transmissive != glass)
 			continue;
-		uint32_t flags = detail::TriangleFlags(submesh, material);
+		uint32_t flags = detail::TriangleFlags(submesh, material) & (glass ? ~BVH_TRIANGLE_FLAG_ALPHA_MASKED : ~0U);
 		uint32_t jointBase = submesh.skin >= 0 ? desc.animation.skins[static_cast<size_t>(submesh.skin)].jointBase : SHADER_TYPES_NOT_SKINNED;
 		for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
 		{
@@ -420,7 +422,8 @@ std::vector<RayQueryGeometry> Moving::RayQueryGeometries() const
 			.flags = part.flags,
 			.firstIndex = part.submesh.firstIndex,
 			.triangleCount = part.submesh.indexCount / 3,
-			.instance = static_cast<uint32_t>(part.firstCorner)});
+			.instance = static_cast<uint32_t>(part.firstCorner),
+			.normalInstance = part.jointBase == SHADER_TYPES_NOT_SKINNED && part.submesh.morphTargetCount == 0 ? part.instance : ~0U});
 	return geometries;
 }
 
@@ -486,7 +489,11 @@ std::vector<RayQueryGeometry> RayQueryGeometries(const ModelDesc& desc)
 		uint32_t flags = detail::TriangleFlags(submesh, material);
 		for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
 			geometries.push_back(RayQueryGeometry{
-				.flags = flags, .firstIndex = submesh.firstIndex, .triangleCount = submesh.indexCount / 3, .instance = submesh.firstInstance + instanceIt});
+				.flags = flags,
+				.firstIndex = submesh.firstIndex,
+				.triangleCount = submesh.indexCount / 3,
+				.instance = submesh.firstInstance + instanceIt,
+				.normalInstance = submesh.firstInstance + instanceIt});
 	}
 	return geometries;
 }
@@ -504,7 +511,11 @@ std::vector<RayQueryGeometry> RayQueryGlassGeometries(const ModelDesc& desc)
 		uint32_t flags = detail::TriangleFlags(submesh, &material) & ~BVH_TRIANGLE_FLAG_ALPHA_MASKED;
 		for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
 			geometries.push_back(RayQueryGeometry{
-				.flags = flags, .firstIndex = submesh.firstIndex, .triangleCount = submesh.indexCount / 3, .instance = submesh.firstInstance + instanceIt});
+				.flags = flags,
+				.firstIndex = submesh.firstIndex,
+				.triangleCount = submesh.indexCount / 3,
+				.instance = submesh.firstInstance + instanceIt,
+				.normalInstance = submesh.firstInstance + instanceIt});
 	}
 	return geometries;
 }

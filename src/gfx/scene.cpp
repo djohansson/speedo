@@ -2343,12 +2343,17 @@ struct Scene::Impl
 				from = {.animation = state.previous, .time = static_cast<float>(state.previousTime)};
 				weight = static_cast<float>(state.fade / AnimationState::kCrossfade);
 			}
-			// the moving BVH only where rays trace it: the indirect lighting's, or the traced shadows', the traced shadows' or
-			// the emitters'
+			// the moving BVH only where rays trace it: the indirect lighting's, or the traced shadows', the emitters', or (with the
+			// device's ray queries, whose structures hold the glass that moves too) the traced reflections', refractions' and the
+			// caustics' photons'
+			bool rayQueries = myModel->GetAccelerationStructures() != nullptr;
 			myMovingPlaced =
 				(mySettings.indirectLighting.load(std::memory_order_relaxed) && mySettings.traceTriangles.load(std::memory_order_relaxed)) ||
 				(mySettings.shadows.load(std::memory_order_relaxed) && mySettings.tracedShadows.load(std::memory_order_relaxed)) ||
-				(mySettings.emissiveLights.load(std::memory_order_relaxed) && myModel->GetEmitterCount() > 0);
+				(mySettings.emissiveLights.load(std::memory_order_relaxed) && myModel->GetEmitterCount() > 0) ||
+				(rayQueries &&
+				 (mySettings.tracedReflections.load(std::memory_order_relaxed) || mySettings.tracedRefractions.load(std::memory_order_relaxed) ||
+				  (mySettings.shadows.load(std::memory_order_relaxed) && mySettings.caustics.load(std::memory_order_relaxed))));
 			myModel->Animate(frameIndex, pose, from, weight, myMovingPlaced);
 			ApplyPointerValues(myRHI, graphics, *myModel);
 		}

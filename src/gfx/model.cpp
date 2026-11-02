@@ -39,11 +39,13 @@ Model::Model(
 	ModelBuffers&& buffers,
 	const Upload& upload,
 	std::unique_ptr<bvh::Moving>&& movingBvh,
+	std::unique_ptr<bvh::Moving>&& movingGlass,
 	std::optional<ModelRayQueries>&& rayQueries) noexcept
 	: myDesc(std::move(desc))
 	, myBuffers(std::move(buffers))
 	, myUpload(upload)
 	, myMovingBvh(std::move(movingBvh))
+	, myMovingGlass(std::move(movingGlass))
 	, myJoints(myDesc.animation.jointCount > 0 ? RestJoints(myDesc.animation) : std::vector<SceneMatrix>{})
 	, myPointerValues(myDesc.animation.pointerDefaults)
 	, myLights(myDesc.lights)
@@ -63,7 +65,8 @@ Model::Model(
 				.staticGeometries = std::move(rayQueries->staticGeometries),
 				.movingCorners = myBuffers.bvhMovingTriangles,
 				.movingGeometries = std::move(rayQueries->movingGeometries),
-				.glassGeometries = std::move(rayQueries->glassGeometries)});
+				.glassGeometries = std::move(rayQueries->glassGeometries),
+				.movingGlassGeometries = std::move(rayQueries->movingGlassGeometries)});
 }
 
 // writes the moving BVH as placed to a frame's buffers (see bvh::Moving)
@@ -79,11 +82,16 @@ static void WriteMovingBvh(const bvh::Moving& moving, Buffer& nodes, Buffer& tri
 	}
 }
 
-// writes what moves as placed to a frame's buffer of its corners, for the device's ray queries (see AccelerationStructures)
-static void WriteMovingRayQueryCorners(const bvh::Moving& moving, Buffer& corners)
+// writes what moves as placed to a frame's buffer of its corners, for the device's ray queries (see AccelerationStructures):
+// the opaque surfaces' (moving, if any), then the transmissive surfaces' (glass, if any)
+static void WriteMovingRayQueryCorners(const bvh::Moving* moving, const bvh::Moving* glass, Buffer& corners)
 {
 	auto memory = corners.Map();
-	moving.WriteRayQueryCorners(memory);
+	size_t opaque = moving != nullptr ? moving->CornerCount() * sizeof(glm::vec4) : 0;
+	if (moving != nullptr)
+		moving->WriteRayQueryCorners(memory);
+	if (glass != nullptr)
+		glass->WriteRayQueryCorners(memory.subspan(opaque));
 	corners.Flush(0, corners.GetDesc().size);
 	corners.Unmap();
 }
@@ -156,7 +164,7 @@ void Model::Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& f
 	instances.Flush(0, instanceMemory.size());
 	// the moving BVH reads the frame's instances
 	std::vector<ModelInstance> placed;
-	if (myMovingBvh && placeBvh)
+	if ((myMovingBvh || myMovingGlass) && placeBvh)
 	{
 		placed.resize(myDesc.instances.size());
 		std::memcpy(placed.data(), instanceMemory.data(), placed.size() * sizeof(ModelInstance));
@@ -180,13 +188,17 @@ void Model::Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& f
 		weightBuffer.Unmap();
 	}
 
-	// what moves, where the frame puts it, for the indirect lighting's rays (placeBvh: while they trace it)
-	if (myMovingBvh && placeBvh && frameIndex < myBuffers.bvhMovingTriangles.size())
+	// what moves, where the frame puts it, for the rays (placeBvh: while they trace it), and the glass that moves, for the
+	// device's ray queries' paths through the glass
+	if ((myMovingBvh || myMovingGlass) && placeBvh && frameIndex < myBuffers.bvhMovingTriangles.size())
 	{
-		myMovingBvh->Place(myJoints, weights.empty() ? std::span<const float>(myDesc.morphWeights) : std::span<const float>(weights), placed);
+		auto morphWeights = weights.empty() ? std::span<const float>(myDesc.morphWeights) : std::span<const float>(weights);
+		for (auto* moving : {myMovingBvh.get(), myMovingGlass.get()})
+			if (moving != nullptr)
+				moving->Place(myJoints, morphWeights, placed);
 		if (myAccelerationStructures)
-			WriteMovingRayQueryCorners(*myMovingBvh, myBuffers.bvhMovingTriangles[frameIndex]);
-		else
+			WriteMovingRayQueryCorners(myMovingBvh.get(), myMovingGlass.get(), myBuffers.bvhMovingTriangles[frameIndex]);
+		else if (myMovingBvh)
 			WriteMovingBvh(*myMovingBvh, myBuffers.bvhMovingNodes[frameIndex], myBuffers.bvhMovingTriangles[frameIndex]);
 	}
 }
@@ -933,12 +945,14 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 	bool rayQueries = bvh == ModelBvh::kBuild && device.GetLimits().rayQuery;
 	std::optional<ModelRayQueries> rayQueryGeometries;
 	std::vector<bvh::RayQueryGeometry> movingRayQueryGeometries; // their entries in the shaders' table, after what doesn't move's
+	std::vector<bvh::RayQueryGeometry> movingGlassRayQueryGeometries; // and the glass that moves', after the glass's
 	if (rayQueries)
 		rayQueryGeometries.emplace();
 
 	ModelBuffers buffers;
 	Buffer instanceStaging;
 	std::unique_ptr<bvh::Moving> movingBvh;
+	std::unique_ptr<bvh::Moving> movingGlass;
 	if (moves)
 	{
 		auto worlds = EvaluateNodes(desc.animation, desc.animation.animations.size(), 0.0F);
@@ -970,7 +984,8 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 		}
 
 		// the indirect lighting's BVH of what moves (see bvh::Moving), placed at rest: its tree, and every frame's buffers
-		// until Animate places it, start there
+		// until Animate places it, start there; and for the device's ray queries' paths through the glass, the transmissive
+		// surfaces that move, their corners after what moves' in the same buffers
 		// (none without the BVHs, see ModelBvh: what moves would then be traced alone)
 		if (bvh == ModelBvh::kBuild)
 		{
@@ -981,31 +996,50 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 			auto vertices = vertexStaging.Map();
 			auto skinVertices = skinStaging.IsValid() ? skinStaging.Map() : std::span<std::byte>{};
 			auto morphDeltas = morphStaging.IsValid() ? morphStaging.Map() : std::span<std::byte>{};
-			movingBvh = std::make_unique<bvh::Moving>(
-				desc,
-				std::span(reinterpret_cast<const uint32_t*>(indices.data()), desc.indexCount),
-				std::span(reinterpret_cast<const VertexP3fN3fTa4fT014fC4f*>(vertices.data()), desc.vertexCount),
-				std::span(reinterpret_cast<const SkinVertex*>(skinVertices.data()), skinVertices.size() / sizeof(SkinVertex)),
-				std::span(reinterpret_cast<const MorphDelta*>(morphDeltas.data()), morphDeltas.size() / sizeof(MorphDelta)),
-				core::Application::Get()->GetExecutor(),
-				!rayQueries);
+			auto makeMoving = [&](bool tree, bool glass)
+			{
+				auto moving = std::make_unique<bvh::Moving>(
+					desc,
+					std::span(reinterpret_cast<const uint32_t*>(indices.data()), desc.indexCount),
+					std::span(reinterpret_cast<const VertexP3fN3fTa4fT014fC4f*>(vertices.data()), desc.vertexCount),
+					std::span(reinterpret_cast<const SkinVertex*>(skinVertices.data()), skinVertices.size() / sizeof(SkinVertex)),
+					std::span(reinterpret_cast<const MorphDelta*>(morphDeltas.data()), morphDeltas.size() / sizeof(MorphDelta)),
+					core::Application::Get()->GetExecutor(),
+					tree,
+					glass);
+				if (moving->Empty())
+					return std::unique_ptr<bvh::Moving>();
+				moving->Place(joints, desc.morphWeights, restInstances);
+				return moving;
+			};
+			movingBvh = makeMoving(!rayQueries, false);
+			if (rayQueries)
+				movingGlass = makeMoving(false, true);
 			for (auto* staging : {&indexStaging, &vertexStaging, &skinStaging, &morphStaging})
 				if (staging->IsValid())
 					staging->Unmap();
-			if (movingBvh->Empty())
-				movingBvh.reset();
-			else
+			uint32_t opaqueCornerCount = movingBvh ? movingBvh->CornerCount() : 0;
+			uint32_t glassCornerCount = movingGlass ? movingGlass->CornerCount() : 0;
+			if (movingBvh && rayQueries)
 			{
-				movingBvh->Place(joints, desc.morphWeights, restInstances);
-				if (rayQueries)
+				movingRayQueryGeometries = movingBvh->RayQueryGeometries();
+				for (const auto& geometry : movingRayQueryGeometries)
+					rayQueryGeometries->movingGeometries.push_back(AccelerationStructures::Geometry{
+						.first = geometry.instance,
+						.triangleCount = geometry.triangleCount,
+						.opaque = (geometry.flags & BVH_TRIANGLE_FLAG_ALPHA_MASKED) == 0U});
+			}
+			if (movingGlass)
+			{
+				movingGlassRayQueryGeometries = movingGlass->RayQueryGeometries();
+				for (auto& geometry : movingGlassRayQueryGeometries)
 				{
-					movingRayQueryGeometries = movingBvh->RayQueryGeometries();
-					for (const auto& geometry : movingRayQueryGeometries)
-						rayQueryGeometries->movingGeometries.push_back(AccelerationStructures::Geometry{
-							.first = geometry.instance,
-							.triangleCount = geometry.triangleCount,
-							.opaque = (geometry.flags & BVH_TRIANGLE_FLAG_ALPHA_MASKED) == 0U});
+					geometry.instance += opaqueCornerCount;
+					rayQueryGeometries->movingGlassGeometries.push_back(
+						AccelerationStructures::Geometry{.first = geometry.instance, .triangleCount = geometry.triangleCount});
 				}
+			}
+			if (movingBvh || movingGlass)
 				for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 				{
 					auto hostVisible = [&](std::string_view what, size_t size, BufferUsage usage = BufferUsage::kStorage)
@@ -1018,14 +1052,11 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 					};
 					if (rayQueries)
 					{
-						auto& triangles = buffers.bvhMovingTriangles.emplace_back(hostVisible(
+						auto& corners = buffers.bvhMovingTriangles.emplace_back(hostVisible(
 							"moving ray query corners",
-							static_cast<size_t>(movingBvh->CornerCount()) * sizeof(glm::vec4),
+							static_cast<size_t>(opaqueCornerCount + glassCornerCount) * sizeof(glm::vec4),
 							BufferUsage::kStorage | BufferUsage::kAccelerationStructureInput | BufferUsage::kDeviceAddress));
-						auto memory = triangles.Map();
-						movingBvh->WriteRayQueryCorners(memory);
-						triangles.Flush(0, memory.size());
-						triangles.Unmap();
+						WriteMovingRayQueryCorners(movingBvh.get(), movingGlass.get(), corners);
 						continue;
 					}
 					buffers.bvhMovingNodes.push_back(hostVisible("moving bvh nodes", movingBvh->NodeFloat4Count() * sizeof(glm::vec4)));
@@ -1033,7 +1064,6 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 						hostVisible("moving bvh triangles", movingBvh->TriangleFloat4Count() * sizeof(glm::vec4)));
 					WriteMovingBvh(*movingBvh, buffers.bvhMovingNodes.back(), buffers.bvhMovingTriangles.back());
 				}
-			}
 		}
 	
 	}
@@ -1076,10 +1106,10 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 		// what the device's ray queries' structures are built of instead (see AccelerationStructures): the model's indices
 		// and vertices, and per geometry its transform and its entry in the shaders' table (BVH_RAY_QUERY_GEOMETRY_*): what
 		// doesn't move's, what moves' (their entries were missing, so a ray meeting what moves read past the table: its
-		// material none, and past its first geometry the wrong corners), then the glass's
+		// material none, and past its first geometry the wrong corners), then the glass's, then the glass's that moves
 		auto geometries = bvh::RayQueryGeometries(desc);
 		auto glassGeometries = bvh::RayQueryGlassGeometries(desc);
-		if (!geometries.empty() || !movingRayQueryGeometries.empty() || !glassGeometries.empty())
+		if (!geometries.empty() || !movingRayQueryGeometries.empty() || !glassGeometries.empty() || !movingGlassRayQueryGeometries.empty())
 		{
 			std::vector<glm::uvec4> table;
 			std::vector<std::array<float, 12>> transforms;
@@ -1098,18 +1128,20 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 					.first = geometry.firstIndex,
 					.triangleCount = geometry.triangleCount,
 					.opaque = (geometry.flags & BVH_TRIANGLE_FLAG_ALPHA_MASKED) == 0U});
-				table.emplace_back(geometry.flags, geometry.firstIndex, geometry.instance, 0U);
+				table.emplace_back(geometry.flags, geometry.firstIndex, geometry.instance, geometry.normalInstance);
 				place(geometry);
 			}
 			for (const auto& geometry : movingRayQueryGeometries)
-				table.emplace_back(geometry.flags, geometry.firstIndex, geometry.instance, 0U);
+				table.emplace_back(geometry.flags, geometry.firstIndex, geometry.instance, geometry.normalInstance);
 			for (const auto& geometry : glassGeometries)
 			{
 				rayQueryGeometries->glassGeometries.push_back(
 					AccelerationStructures::Geometry{.first = geometry.firstIndex, .triangleCount = geometry.triangleCount});
-				table.emplace_back(geometry.flags, geometry.firstIndex, geometry.instance, 0U);
+				table.emplace_back(geometry.flags, geometry.firstIndex, geometry.instance, geometry.normalInstance);
 				place(geometry);
 			}
+			for (const auto& geometry : movingGlassRayQueryGeometries)
+				table.emplace_back(geometry.flags, geometry.firstIndex, geometry.instance, geometry.normalInstance);
 			auto stage = [&](std::string_view what, std::span<const std::byte> bytes)
 			{
 				auto staging = Buffer::CreateStaging(device.CreateDeviceObjectCreateDesc(std::format("{} ({} staging)", filePath, what)), bytes.size());
@@ -1262,7 +1294,8 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 
 		auto uploadInfo = Upload{
 			.semaphore = &transfer->semaphore, .value = ++transfer->timeline, .queueFamilyIndex = transfer->queueFamilyIndex};
-		model = std::make_shared<Model>(std::move(desc), std::move(buffers), uploadInfo, std::move(movingBvh), std::move(rayQueryGeometries));
+		model = std::make_shared<Model>(
+			std::move(desc), std::move(buffers), uploadInfo, std::move(movingBvh), std::move(movingGlass), std::move(rayQueryGeometries));
 
 		CommandEncoder encoder(cmd);
 		for (const auto* buffer : model->GetUploadedBuffers())

@@ -427,11 +427,13 @@ float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float ro
 		float nDotV = max(dot(surface.normal, -direction), 1e-4);
 		reflection = EnvironmentBrdfApprox(float3(surface.f0), 1.0, glassRoughness, nDotV) * specularRadiance;
 	}
-	moving = false;
+	bool glassMoves = hit.modelInstance == ~0u;
+	moving = glassMoves;
 	valid = true;
 	if (!GlassPathStep(path, hit, frameIndex))
 		return reflection;
 	float3 through = TracedGlassPath(path, cone, hit.t, roughness, kTracedReflectionGlassSurfaceCount, frameIndex, valid, moving);
+	moving = moving || glassMoves;
 	return reflection + through;
 }
 
@@ -444,6 +446,7 @@ float3 TracedGlassPath(
 {
 	valid = false;
 	moving = false;
+	bool crossedMoving = false; // glass that moves (what moves' structure: no model instance)
 	for (uint surfaceIt = 0; surfaceIt < surfaceCount; surfaceIt++)
 	{
 		bool glass;
@@ -453,8 +456,11 @@ float3 TracedGlassPath(
 			TracedCone at = cone;
 			at.width += cone.spread * traveled;
 			float t;
-			return path.throughput * TracedShade(hit, path.origin, path.direction, at, roughness, t, valid, moving);
+			float3 radiance = TracedShade(hit, path.origin, path.direction, at, roughness, t, valid, moving);
+			moving = moving || crossedMoving;
+			return path.throughput * radiance;
 		}
+		crossedMoving = crossedMoving || hit.modelInstance == ~0u;
 		traveled += hit.t;
 		if (!GlassPathStep(path, hit, frameIndex))
 		{
@@ -584,8 +590,8 @@ float4 TracedGlossyReflection(
 // where it can't leave; into or through the glass beyond), to what it meets of the opaque scene, less what the surfaces
 // past this one keep (this one's own attenuation and Fresnel are the caller's). the opaque scene's structures hold no
 // glass, and the ray used to pass through its own volume without leaving it: a ball showed what is behind it shifted
-// rather than turned upside down, CausticSpheres' clear sphere the ground beyond its shadow, lit. a transmissive surface
-// that moves (no structure holds it) is passed so still. from the surface, not from where the screen space lookup has
+// rather than turned upside down, CausticSpheres' clear sphere the ground beyond its shadow, lit. the glass that moves is
+// in a structure of its own, refit each frame (see AccelerationStructures). from the surface, not from where the screen space lookup has
 // the ray leave the volume (at the material's thickness along the ray, see TransmittedLight): USDShaderBallForGltf's
 // glass shell has a thickness of up to 8.9 in a model a tenth of a unit across, which put the exit inside the core (its
 // back met: black) or past everything (the environment's), a wavy border between the two. valid: as TracedGlassPath's

@@ -98,12 +98,13 @@ struct GlassPath
 
 // a transmissive surface a ray met (glass, from origin along direction): where, its normal as interpolated (the
 // triangles' facets drew the caustics as polygons) on the side the ray comes from (the geometry's where they disagree),
-// its material and what it has at the point, its ior and its dielectric's reflectance at normal incidence, and how far
-// off it a ray goes on (its rounding)
+// and the instance that places it (see BvhHit::normalInstance), its material and what it has at the point, its ior and
+// its dielectric's reflectance at normal incidence, and how far off it a ray goes on (its rounding)
 struct GlassSurface
 {
 	float3 position;
 	float3 normal;
+	uint normalInstance;
 	MaterialData material;
 	float4 texCoord01;
 	float3 vertexColor;
@@ -128,9 +129,16 @@ GlassSurface GlassSurfaceAt(float3 origin, float3 direction, BvhHit glass, uint 
 		vertexNormal += corner.normal * barycentrics[cornerIt];
 		surface.vertexColor += corner.color.rgb * barycentrics[cornerIt];
 	}
-	float3 normal = normalize(mul(gModelInstances[frameIndex][glass.modelInstance].inverseTransposeModelTransform, float4(vertexNormal, 0.0)).xyz);
-	normal = dot(normal, glass.normal) > 0.0 ? normal : (dot(normal, glass.normal) < 0.0 ? -normal : glass.normal);
+	// (glass that moves rigidly, following a node: by its instance as the frame placed it; skinned or morphed: the
+	// triangle's own)
+	float3 normal = glass.normal;
+	if (glass.normalInstance != ~0u)
+	{
+		normal = normalize(mul(gModelInstances[frameIndex][glass.normalInstance].inverseTransposeModelTransform, float4(vertexNormal, 0.0)).xyz);
+		normal = dot(normal, glass.normal) > 0.0 ? normal : (dot(normal, glass.normal) < 0.0 ? -normal : glass.normal);
+	}
 	surface.normal = all(isfinite(normal)) ? normal : glass.normal;
+	surface.normalInstance = glass.normalInstance;
 	surface.ior = max(surface.material.specularColor.a, 1.0);
 	surface.f0 = (surface.ior - 1.0) / (surface.ior + 1.0);
 	surface.f0 *= surface.f0;
@@ -214,8 +222,11 @@ bool GlassPathStep(inout GlassPath path, BvhHit glass, uint frameIndex)
 		TextureView textureView = gTextureViews[material.thicknessView];
 		thickness *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).r;
 	}
-	float4x4 transform = gModelInstances[frameIndex][glass.modelInstance].modelTransform;
-	thickness *= pow(abs(determinant(float3x3(transform[0].xyz, transform[1].xyz, transform[2].xyz))), 1.0 / 3.0);
+	if (surface.normalInstance != ~0u) // a skinned or morphed glass's at its mesh's scale
+	{
+		float4x4 transform = gModelInstances[frameIndex][surface.normalInstance].modelTransform;
+		thickness *= pow(abs(determinant(float3x3(transform[0].xyz, transform[1].xyz, transform[2].xyz))), 1.0 / 3.0);
+	}
 	path.throughput *= VolumeAttenuation(material.attenuationColor.rgb, material.transmission.z, thickness);
 	path.direction = normalize(refract(path.direction, normal, 1.0 / ior));
 	path.origin = position - normal * eps;
