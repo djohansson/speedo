@@ -238,17 +238,16 @@ float ShadowMapSoft(ShadowMapPlace place, LightData light, float3 position, floa
 //
 // with caustics (SHADER_TYPES_SHADOWS_CAUSTICS) its rgb is the light the photons brought to a texel's nearest opaque
 // surface instead: a point behind a transmissive surface takes none straight through it, and the point a texel's nearest
-// opaque surface (not one well in front of it, a transmissive surface itself) takes the photons'
-float3 ShadowTransmittance(ShadowMapPlace place)
+// opaque surface (not one well in front of it, a transmissive surface itself) takes the photons'. receives: whether the
+// point is an opaque surface's, which the photons land on (a transmissive one's own light is what goes straight through
+// what is in front of it: by its depth against the atlas's, the normal offset put a point at a slant to the light 8
+// texels in front of the surface the atlas has, which then took none)
+float3 ShadowTransmittance(ShadowMapPlace place, bool receives)
 {
 	Texture2D transmittance = gTextures[SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE];
 	float2 size;
 	transmittance.GetDimensions(size.x, size.y);
 	bool caustics = (gPushConstants.shadows & SHADER_TYPES_SHADOWS_CAUSTICS) != 0u;
-	// the photons land on opaque surfaces: a transmissive one's own light is what goes straight through what is in front
-	// of it (by its depth against the atlas's, the normal offset put a point at a slant to the light 8 texels in front of
-	// the surface the atlas has, which then took none)
-	bool receives = !gShadingTransmissive;
 	float2 low = place.view.atlasRect.xy * size;
 	float2 high = (place.view.atlasRect.xy + place.view.atlasRect.zw) * size - 1.0;
 	float2 st = place.uv * size - 0.5;
@@ -284,7 +283,7 @@ float3 ShadowFactor(uint lightIndex, LightData light, float3 position, float3 ge
 		return gTextures[SHADER_TYPES_SHADOW_MASK_TEXTURE].Load(int3(int2(gFragmentPixel), 0))[slot];
 	ShadowMapPlace place;
 	bool placed = PlaceInShadowMap(lightIndex, light, position, geometryNormal, toLight, place) == kShadowMapPlaced;
-	float3 tint = placed && transmittance ? ShadowTransmittance(place) : float3(1.0);
+	float3 tint = placed && transmittance ? ShadowTransmittance(place, !gShadingTransmissive) : float3(1.0);
 	if (slot >= 0)
 		return gTextures[SHADER_TYPES_SHADOW_MASK_TEXTURE].Load(int3(int2(gFragmentPixel), 0))[slot] * tint;
 	if (!placed)

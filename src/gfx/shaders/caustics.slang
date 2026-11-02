@@ -84,14 +84,121 @@ void CausticSplat(uint frameIndex, ShadowData source, float3 position, float3 no
 	}
 }
 
+#if BVH_RAY_QUERY
+// a ray's way through the transmissive surfaces that don't move (BvhTraceGlass, the ray queries' structure of them): the
+// caustics' photons' (ComputeCaustics) and the traced refractions' (TracedRefraction). where it is and goes, what it
+// carries of its light, and whether it is inside a volume
+struct GlassPath
+{
+	float3 origin;
+	float3 direction;
+	float3 throughput;
+	bool inside;
+};
+
+// a path's step at the transmissive surface it met (glass): into a surface, what it lets through (its transmission of the
+// dielectric, the base color at the point, less its Fresnel reflection, by its ior), refracted about the surface's normal
+// as interpolated (the triangles' facets drew the caustics as polygons), into a volume (a thickness factor; a thin wall
+// lets it through as it was going), attenuated over its thickness (KHR_materials_volume's attenuation, as the view through
+// it has it); out of a volume, less its Fresnel reflection, or reflected back in where it can't leave. false where it
+// carries nothing on
+bool GlassPathStep(inout GlassPath path, BvhHit glass, uint frameIndex)
+{
+	float3 position = path.origin + path.direction * glass.t;
+	MaterialData material = gMaterialData[glass.flags >> BVH_TRIANGLE_MATERIAL_SHIFT];
+	float3 barycentrics = float3(1.0 - glass.barycentrics.x - glass.barycentrics.y, glass.barycentrics);
+	float4 texCoord01 = 0.0;
+	float3 vertexNormal = 0.0;
+	float3 vertexColor = 0.0;
+	for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
+	{
+		VertexP3fN3fTa4fT014fC4f corner = gVertexBuffer[gIndexBuffer[glass.firstIndex + cornerIt]];
+		texCoord01 += corner.texCoord01 * barycentrics[cornerIt];
+		vertexNormal += corner.normal * barycentrics[cornerIt];
+		vertexColor += corner.color.rgb * barycentrics[cornerIt];
+	}
+	// the interpolated normal, on the side the path comes from (the geometry's where they disagree)
+	float3 normal = normalize(mul(gModelInstances[frameIndex][glass.modelInstance].inverseTransposeModelTransform, float4(vertexNormal, 0.0)).xyz);
+	normal = dot(normal, glass.normal) > 0.0 ? normal : (dot(normal, glass.normal) < 0.0 ? -normal : glass.normal);
+	if (!all(isfinite(normal)))
+		normal = glass.normal;
+	float ior = max(material.specularColor.a, 1.0);
+	float f0 = (ior - 1.0) / (ior + 1.0);
+	f0 *= f0;
+	float eps = max(1e-4, 1e-5 * max(abs(position.x), max(abs(position.y), abs(position.z))));
+
+	if (path.inside)
+	{
+		// out of the volume: refracted out about the normal facing back inside, else reflected back in
+		float3 refracted = refract(path.direction, normal, ior);
+		if (dot(refracted, refracted) == 0.0)
+		{
+			path.direction = reflect(path.direction, normal);
+			path.origin = position + normal * eps;
+			return true;
+		}
+		refracted = normalize(refracted);
+		path.throughput *= 1.0 - FresnelSchlick(float3(f0), 1.0, saturate(dot(refracted, -normal))).r;
+		path.direction = refracted;
+		path.origin = position - normal * eps;
+		path.inside = false;
+		return true;
+	}
+
+	// into a surface: what it lets through, at the point
+	float3 color = material.color.rgb * vertexColor;
+	if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
+	{
+		TextureView textureView = gTextureViews[material.baseColorView];
+		color *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).rgb;
+	}
+	float metallic = material.metallic;
+	if ((material.flags & MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE) != 0u)
+	{
+		TextureView textureView = gTextureViews[material.metallicRoughnessView];
+		metallic *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).g;
+	}
+	float transmission = (material.flags & MATERIAL_FLAG_TRANSMISSION) != 0u ? material.transmission.x : 0.0;
+	if ((material.flags & MATERIAL_FLAG_TRANSMISSION_TEXTURE) != 0u)
+	{
+		TextureView textureView = gTextureViews[material.transmissionView];
+		transmission *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).r;
+	}
+	float fresnel = FresnelSchlick(float3(f0), 1.0, saturate(dot(-path.direction, normal))).r;
+	path.throughput *= transmission * (1.0 - metallic) * color * (1.0 - fresnel);
+	if (all(path.throughput <= 0.0))
+		return false;
+	// a thin wall: through both its faces as it was going
+	if (material.transmission.y <= 0.0)
+	{
+		path.throughput *= 1.0 - fresnel;
+		path.origin = position + path.direction * eps;
+		return true;
+	}
+	// a volume: attenuated over its thickness where it enters (its factor, its texture's, the instance's scale), as the
+	// view through it takes it (TransmittedLight) and the transmittance's tint did: along the path inside,
+	// DragonAttenuation's dragon (an attenuation distance of 0.155 m in a body some 0.6 m across, where its thickness is up
+	// to 0.57) passed almost none, an orange dragon casting a black shadow
+	float thickness = material.transmission.y;
+	if ((material.flags & MATERIAL_FLAG_THICKNESS_TEXTURE) != 0u)
+	{
+		TextureView textureView = gTextureViews[material.thicknessView];
+		thickness *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).r;
+	}
+	float4x4 transform = gModelInstances[frameIndex][glass.modelInstance].modelTransform;
+	thickness *= pow(abs(determinant(float3x3(transform[0].xyz, transform[1].xyz, transform[2].xyz))), 1.0 / 3.0);
+	path.throughput *= VolumeAttenuation(material.attenuationColor.rgb, material.transmission.z, thickness);
+	path.direction = normalize(refract(path.direction, normal, 1.0 / ior));
+	path.origin = position - normal * eps;
+	path.inside = true;
+	return true;
+}
+#endif
+
 // the caustics' photons of the shadow view PushConstants::shadowView, of its tile of the shadow transmittance: from each of
 // SHADER_TYPES_CAUSTIC_PHOTONS_PER_AXIS squared points of each texel where a transmissive surface is (its alpha the nearest
-// one's depth), along the light, through the transmissive surfaces that don't move (BvhTraceGlass, the ray queries'
-// structure of them): at each, what it lets through (its transmission of the dielectric, the base color at the point, less
-// its Fresnel reflection, by its ior), refracted about the surface's normal as interpolated (the triangles' facets drew
-// their caustics as polygons), into a volume (a thickness factor; a thin wall lets it through as it was going), attenuated
-// over its thickness (KHR_materials_volume's attenuation, as the view through it has it), out again (reflected back in
-// where it can't leave), until it meets an opaque surface (CausticSplat), at most SHADER_TYPES_CAUSTIC_SURFACE_COUNT surfaces. a photon meeting an
+// one's depth), along the light, through the transmissive surfaces that don't move (GlassPathStep at each), until it meets
+// an opaque surface (CausticSplat), at most SHADER_TYPES_CAUSTIC_SURFACE_COUNT surfaces. a photon meeting an
 // opaque surface before the transmissive one its texel has is the light straight to it, which the lookup gives it, and is
 // dropped; one meeting none (a point of the texel past the surface's edge) lands where the light straight on goes, which
 // the lookup takes away there (the texel is behind the surface). a photon's light is its share of its texel's, in units of
@@ -129,115 +236,31 @@ void ComputeCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 			return;
 	float4 nearPoint = mul(view.inverseViewProjection, float4(ndc, 1.0, 1.0)); // depth reversed: 1 at the near plane
 	float4 farPoint = mul(view.inverseViewProjection, float4(ndc, 0.0, 1.0));
-	float3 origin = nearPoint.xyz / nearPoint.w;
-	float3 direction = normalize(farPoint.xyz / farPoint.w - origin);
-	float tmax = 1e30;
-	float3 power = 1.0 / float(photons * photons);
-	bool inside = false;
+	GlassPath path;
+	path.origin = nearPoint.xyz / nearPoint.w;
+	path.direction = normalize(farPoint.xyz / farPoint.w - path.origin);
+	path.throughput = 1.0 / float(photons * photons);
+	path.inside = false;
 	bool passed = false; // through a transmissive surface
 	for (uint surfaceIt = 0; surfaceIt < SHADER_TYPES_CAUSTIC_SURFACE_COUNT; surfaceIt++)
 	{
-		BvhHit glass = BvhTraceGlass(origin, direction, tmax);
-		BvhHit opaque = BvhTraceScene(origin, direction, glass.t, false, true, GiAlphaMask());
-		if (BvhHitSomething(opaque))
-		{
-			// lands, unless inside a volume (what is inside the glass, which the view doesn't see), or the light straight
-			// to a surface in front of the transmissive one
-			if (!inside && (passed || !BvhHitSomething(glass)))
-				CausticSplat(frameIndex, view, origin + direction * opaque.t, opaque.normal, power, size);
-			return;
-		}
-		if (!BvhHitSomething(glass))
+		bool glass;
+		BvhHit hit = BvhTraceSceneOrGlass(path.origin, path.direction, 1e30, GiAlphaMask(), glass);
+		if (!BvhHitSomething(hit))
 			return; // left the scene (or out of an open volume)
-
-		float3 position = origin + direction * glass.t;
-		MaterialData material = gMaterialData[glass.flags >> BVH_TRIANGLE_MATERIAL_SHIFT];
-		float3 barycentrics = float3(1.0 - glass.barycentrics.x - glass.barycentrics.y, glass.barycentrics);
-		float4 texCoord01 = 0.0;
-		float3 vertexNormal = 0.0;
-		float3 vertexColor = 0.0;
-		for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
+		if (!glass)
 		{
-			VertexP3fN3fTa4fT014fC4f corner = gVertexBuffer[gIndexBuffer[glass.firstIndex + cornerIt]];
-			texCoord01 += corner.texCoord01 * barycentrics[cornerIt];
-			vertexNormal += corner.normal * barycentrics[cornerIt];
-			vertexColor += corner.color.rgb * barycentrics[cornerIt];
-		}
-		// the interpolated normal, on the side the photon comes from (the geometry's where they disagree)
-		float3 normal = normalize(mul(gModelInstances[frameIndex][glass.modelInstance].inverseTransposeModelTransform, float4(vertexNormal, 0.0)).xyz);
-		normal = dot(normal, glass.normal) > 0.0 ? normal : (dot(normal, glass.normal) < 0.0 ? -normal : glass.normal);
-		if (!all(isfinite(normal)))
-			normal = glass.normal;
-		float ior = max(material.specularColor.a, 1.0);
-		float f0 = (ior - 1.0) / (ior + 1.0);
-		f0 *= f0;
-		float eps = max(1e-4, 1e-5 * max(abs(position.x), max(abs(position.y), abs(position.z))));
-
-		if (inside)
-		{
-			// out of the volume: refracted out about the normal facing back inside, else reflected back in
-			float3 refracted = refract(direction, normal, ior);
-			if (dot(refracted, refracted) == 0.0)
-			{
-				direction = reflect(direction, normal);
-				origin = position + normal * eps;
-				continue;
-			}
-			refracted = normalize(refracted);
-			power *= 1.0 - FresnelSchlick(float3(f0), 1.0, saturate(dot(refracted, -normal))).r;
-			direction = refracted;
-			origin = position - normal * eps;
-			inside = false;
-			continue;
-		}
-
-		// into a surface: what it lets through, at the point
-		float3 color = material.color.rgb * vertexColor;
-		if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
-		{
-			TextureView textureView = gTextureViews[material.baseColorView];
-			color *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).rgb;
-		}
-		float metallic = material.metallic;
-		if ((material.flags & MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE) != 0u)
-		{
-			TextureView textureView = gTextureViews[material.metallicRoughnessView];
-			metallic *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).g;
-		}
-		float transmission = (material.flags & MATERIAL_FLAG_TRANSMISSION) != 0u ? material.transmission.x : 0.0;
-		if ((material.flags & MATERIAL_FLAG_TRANSMISSION_TEXTURE) != 0u)
-		{
-			TextureView textureView = gTextureViews[material.transmissionView];
-			transmission *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).r;
-		}
-		float fresnel = FresnelSchlick(float3(f0), 1.0, saturate(dot(-direction, normal))).r;
-		power *= transmission * (1.0 - metallic) * color * (1.0 - fresnel);
-		passed = true;
-		if (all(power <= 0.0))
+			// lands, but the light straight to a surface in front of the transmissive one (glass beyond it); inside a volume
+			// too (a core in a shell, a mosquito in amber, the ground behind glass modelled as one surface of a thickness,
+			// which no photon leaves): dropped there, what is inside the glass took no light, which the traced refractions
+			// show through it
+			if (passed || !BvhHitSomething(BvhTraceGlass(path.origin, path.direction, 1e30)))
+				CausticSplat(frameIndex, view, path.origin + path.direction * hit.t, hit.normal, path.throughput, size);
 			return;
-		// a thin wall: through both its faces as it was going
-		if (material.transmission.y <= 0.0)
-		{
-			power *= 1.0 - fresnel;
-			origin = position + direction * eps;
-			continue;
 		}
-		// a volume: attenuated over its thickness where it enters (its factor, its texture's, the instance's scale), as
-		// the view through it takes it (TransmittedLight) and the transmittance's tint did: along the path inside,
-		// DragonAttenuation's dragon (an attenuation distance of 0.155 m in a body some 0.6 m across, where its thickness
-		// is up to 0.57) passed almost none, an orange dragon casting a black shadow
-		float thickness = material.transmission.y;
-		if ((material.flags & MATERIAL_FLAG_THICKNESS_TEXTURE) != 0u)
-		{
-			TextureView textureView = gTextureViews[material.thicknessView];
-			thickness *= SampleViewLevel(textureView, ViewTexCoord(textureView, texCoord01), 0.0).r;
-		}
-		float4x4 transform = gModelInstances[frameIndex][glass.modelInstance].modelTransform;
-		thickness *= pow(abs(determinant(float3x3(transform[0].xyz, transform[1].xyz, transform[2].xyz))), 1.0 / 3.0);
-		power *= VolumeAttenuation(material.attenuationColor.rgb, material.transmission.z, thickness);
-		direction = normalize(refract(direction, normal, 1.0 / ior));
-		origin = position - normal * eps;
-		inside = true;
+		passed = passed || !path.inside;
+		if (!GlassPathStep(path, hit, frameIndex))
+			return;
 	}
 #endif
 }

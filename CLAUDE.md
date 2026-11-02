@@ -1207,8 +1207,9 @@ its views); bilinear over 2x2, the edges were steps a texel wide, as long again 
 blocks (the user's pose `0.0000,0.0000,19.9960,0.000,0.000`, 2 m in front of the board) cast nothing before; now each a
 blue band as deep as its thickness and attenuation make its view, overlapping bands deeper; TransmissionTest's spheres
 cast their colors on the floor, the metallic row's darker; the other glass sample models change by 0.4 of 255 at most
-(the shadows behind TransmissionRoughnessTest's panels, DragonAttenuation's at its base). Not yet: the indirect
-lighting's voxels and the traced hits (sunlight through a window into a room).
+(the shadows behind TransmissionRoughnessTest's panels, DragonAttenuation's at its base). The traced reflections' and
+refractions' hits take it too (see "Traced reflections and refractions"). Not yet: the indirect lighting's voxels
+(sunlight through a window into a room).
 
 **Caustics** (View > Caustics, under Ray Traced Refractions; on where the device has ray queries, `SPEEDO_CAUSTICS=0`
 without, which Copy Pose writes; `caustics.slang`): where the transmittance is drawn, the light the transmissive surfaces
@@ -1220,15 +1221,19 @@ transmittance where a transmissive surface is (its alpha) and no finer view of t
 (`CausticViewHolds`, at the texel's nearest layer: each point of it is traced once, by the finest), each at a point of
 its part of the texel jittered by its place (`CausticJitter`: on a regular grid a sphere drew rings of moire), from the
 view's near plane along the light
-(`ShadowData::inverseViewProjection`) through a structure of the transmissive surfaces that don't move (`BvhTraceGlass`:
-the top level structure's third instance, `BVH_RAY_QUERY_MASK_GLASS`, built once of `bvh::RayQueryGlassGeometries`; the
-other rays never query it). At each surface (at most `SHADER_TYPES_CAUSTIC_SURFACE_COUNT`, 8) a photon keeps what it
+(`ShadowData::inverseViewProjection`) through a structure of the transmissive surfaces that don't move (the top level
+structure's third instance, `BVH_RAY_QUERY_MASK_GLASS`, built once of `bvh::RayQueryGlassGeometries`, which only the
+photons and the traced refractions query; with the opaque scene's in one query, `BvhTraceSceneOrGlass`, which says
+which it met). At each surface (at most `SHADER_TYPES_CAUSTIC_SURFACE_COUNT`, 8; `GlassPath`, `GlassPathStep`, which the
+traced refractions walk too) a photon keeps what it
 lets through (the transmission of the dielectric, the base color at the point, less Schlick's Fresnel by its ior), is
 refracted about the normal as interpolated (the facets drew polygons), and in a volume attenuated over its thickness as
 the view through it takes it (`VolumeAttenuation` at the entry, the factor by the texture and the instance's scale: along
 the path inside, DragonAttenuation's dragon passed almost nothing), reflected back in where it can't leave; a thin wall
-lets it through as it was going. It lands on the first opaque surface (`BvhTraceScene`, alpha masks cut out) if what it
-crossed was transmissive and it isn't inside a volume, added in fixed point to the 2x2 texels of the surface's place in
+lets it through as it was going. It lands on the first opaque surface (alpha masks cut out) if what it crossed was
+transmissive, inside a volume too (a core in a shell, a mosquito in amber, the ground behind glass modelled as one
+surface of a thickness, which no photon leaves: dropped there, as at first, what is inside the glass took no light,
+which the traced refractions show through it), added in fixed point to the 2x2 texels of the surface's place in
 each of its light's views whose tile holds it (`CausticSplat`, by the views' texel sizes squared; `gCausticPhotons`, a
 uint per channel and texel of the transmittance, emptied by Caustics Clear) where the atlas has that surface nearest,
 within its receiver gradient's slack. A lens throws its light sideways: by the views redrawn alone, each tracing the
@@ -1243,8 +1248,8 @@ unshadowed surface; with `SHADER_TYPES_SHADOWS_CAUSTICS` the lookup gives a texe
 behind, plus its rgb for what receives light (not the transmissive surfaces themselves, `gShadingTransmissive`, set by
 `ShadeFragment`: a depth test of the point against the layer failed on surfaces at a slant, the normal offset putting
 them texels in front of it). CausticSpheres' spheres focus the sun into a spot in their dark shadows by their bases,
-the clear one's white and the amber one's orange: seen from a camera between them the clear one hides most of its own
-(the traced refractions' hits seen through it take no caustics), and the amber one leaves its own in view;
+the clear one's white and the amber one's orange: seen from a camera between them the clear one hides most of its own,
+and shows the ground behind it upside down, its shadow at its top, and the amber one leaves its own in view;
 AttenuationTest's blocks throw their light aside of their shadows, as thick
 glass does; DragonAttenuation's body spreads what it lets through over the floor and the cloth behind it, its shadow
 dark (the floor's light around it the same as with the tint alone, red 78.7 of 255 against 79.5). The other glass
@@ -1253,8 +1258,8 @@ takes the tint instead (the structure is of what doesn't move). Cost with the sh
 every frame; RTX 4070 Ti SUPER, 2560x1440): Caustics 0.19 to 0.55 ms, Caustics Clear 0.06, the frame 0.26 to 0.53 ms
 more (CausticSpheres, AttenuationTest, DragonAttenuation; each view tracing the glass in its tile, the cascades over
 again, 0.28 to 0.66 and 0.35 to 0.55); with it, nothing while the views are kept. Not yet: what
-moves, dispersion, rough glass's spread, the photons' light in the indirect lighting's voxels and the traced hits, and
-the caustics' noise where few photons land (a texel's 16).
+moves, dispersion, rough glass's spread, the photons' light in the indirect lighting's voxels, and the caustics' noise
+where few photons land (a texel's 16).
 
 ## Ray traced shadows
 
@@ -1424,9 +1429,15 @@ smooth (`sqrt(2 / (Ns + 2))`, 0.14 at 96) and their `Ks` their specular faint: t
 and changed nothing to see. Gated at 0.01 to 0.03, a faint lacquered door and pilasters in Bistro lost the dusk sky their
 reflections traced, and took back the probes' light along them, the lit interior's leaking through (orange). The ray starts
 off the geometry on the viewer's side by a pixel and a half, as the traced shadows' (a normal map turning it below the
-geometry has it skim the surface). `TransmittedLight` traces the refracted ray from the surface (`TracedRefraction`: the
-transmissive surfaces aren't in the structures, so it passes through its own volume and meets neither its own back nor
-other glass), sharp where the transmission texture's mips wouldn't blur it much (`roughness * saturate(2 ior - 2)`), what is
+geometry has it skim the surface). `TransmittedLight` traces the light through the surface (`TracedRefraction`: into
+its volume along the refracted ray, or through a thin wall as the view goes, as the screen space lookup has it, then
+through the transmissive surfaces that don't move as the caustics' photons go, `GlassPath`: out of the volume where it
+meets its back, refracted, less its Fresnel reflection, or reflected back in where it can't leave, through or into the
+glass beyond, to the first opaque surface or the environment, at most `SHADER_TYPES_CAUSTIC_SURFACE_COUNT` surfaces, past
+which the screen space lookup's is kept; the opaque scene's structures hold no glass, and the ray passed through its
+own volume without leaving it: a ball showed what is behind it shifted rather than upside down, and a thin wall was
+refracted as a volume's face; a transmissive surface that moves, which no structure holds, is passed so still), sharp
+where the transmission texture's mips wouldn't blur it much (`roughness * saturate(2 ior - 2)`), what is
 behind out of the view as well; and, whatever the roughness, where the screen space lookup leaves the view (its last 5%,
 where untraced glass fades to the environment along the ray) the trace stands in for the environment: rough glass, partly
 the transmission texture's, faded to the sky toward the view's edges as untraced glass does. Nothing else of the traced
@@ -1435,21 +1446,35 @@ which the user took for the reflections'). It used to start where the screen spa
 material's thickness: USDShaderBallForGltf's glass shell has a thickness of up to 8.9 around a core a tenth of a unit
 across, so its rays started inside the core (its back met, shaded black) or past everything (the sky), a wavy border
 between the two (the user's pose `0.0069,0.0526,0.0899,13.528,-7.460`); from the surface they meet the core through the
-shell, and DragonAttenuation, with nothing inside its volume, is the same to 0.15 of 255 (what that leaves out is a thick
-slab's sideways shift). A ray that meets a single sided triangle's back (`TracedRadiance`'s `valid`: it started inside
+shell, and DragonAttenuation, with nothing inside its volume, is the same to 0.15 of 255 (what that left out, a thick
+slab's sideways shift, its exit gives now). A ray that meets a single sided triangle's back (`TracedRadiance`'s `valid`: it started inside
 something, or looks where the triangle isn't drawn from) is dropped, and the shading keeps what it would have taken
 without it. A hit is shaded in `TracedHitRadiance`: its material at its texcoords
 (base color, metallic and roughness, emission; not the extensions' layers nor its normal map) at the mip level a ray cone
 picks (Akenine-Moller et al.: the pixel's width and angle where the ray starts, `TracedPixelCone`, against the triangle's
 texels per area; without one a reflected texture shimmers), the vertices' normal placed by its instance
 (`BvhHit::modelInstance`; what moves keeps the triangle's), lit as the voxels are (the lights of its cell of the finest
-clip holding it, each with a shadow ray; every light without the indirect lighting) and by the indirect lighting there
+clip holding it, each with a shadow ray; every light without the indirect lighting), each light by what the
+transmissive surfaces let through to the hit and the caustics' light too, the shadow transmittance's where the light's
+views hold it (`ShadowTransmittance`, as the main pass takes it: the shadow rays meet no glass, and the ground seen
+through CausticSpheres' clear sphere was lit as if the sphere weren't there, neither its shadow nor its caustic), and by
+the indirect lighting there
 (the probes' diffuse, and the environment's specular as much as they see of it), plus its emission; where the ray meets
 nothing, the environment along it (the sky with its sun). Debug view Traced Reflections (`traced-reflections`): what the
-reflections see where they are traced (the glossy ones filtered and over frames), magenta elsewhere. Not yet (TODO.md):
+reflections see where they are traced (the glossy ones filtered and over frames), magenta elsewhere. Through the glass
+(framed, against the refraction that didn't leave its volume and hits lit past the glass): the 16 glass sample models
+by 0.06 to 2.8 of 255, USDShaderBallForGltf most (its shell reflects all of the light near its rim, and shows its
+bubbles and its core as the path traced screenshot has them), then MosquitoInAmber 1.7 (the amber's surface focuses the
+sun onto the mosquito), GlassVaseFlowers 1.4 (the sky upside down in the vases' feet) and DispersionTest 1.0, the rest
+under 0.75. Main Transmissive (framed, 2560x1440, RTX 4070 Ti SUPER): DragonAttenuation 0.36 to 1.15 ms,
+USDShaderBallForGltf 0.71 to 1.54, GlassVaseFlowers 0.40 to 0.58, ABeautifulGame 0.13 to 0.21, CausticSpheres 0.10 to
+0.18, the hits' lookups 0.10 to 0.17 of it and the rest the path (a query for glass and one for the scene at every
+surface crossed, as at first, took the dragon's 1.31); Main Visibility, the glossy reflections' hits' lookups, 0.004 to
+0.03 more. Not yet (TODO.md):
 glossy refractions (the transmissive surfaces are drawn forward, after the visibility buffer: they keep the sharp trace,
 and the transmission texture's mips where rough), the emissive surfaces' light at a hit where they are lights, a hit's own
-reflections, glass in the structures, and the glossy rays at a lower resolution (their cost, below).
+reflections, the glass a reflection's ray meets (it passes through), and the glossy rays at a lower resolution (their
+cost, below).
 
 Measured on NVIDIA (RTX 4070 Ti SUPER; the benchmark poses at 2560x1440, balanced, interleaved runs), on against off. Sharp
 alone (the first version): Bistro 6.2 and 6.4 ms against 5.9 and 6.0, San Miguel 7.4 and 7.6 against 6.8 and 7.1, Sponza the

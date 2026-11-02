@@ -320,7 +320,11 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 		range = gGiLightCells[frameIndex][gi.lightCellFirst + (cell.z * SHADER_TYPES_GI_LIGHT_GRID + cell.y) * SHADER_TYPES_GI_LIGHT_GRID + cell.x];
 	}
 	// the shadow rays start off the surface toward the light, by the cone's width there and a ten thousandth of the
-	// distance (the hit's rounding)
+	// distance (the hit's rounding). they meet no glass (its structure is the caustics' and the refractions' own), so
+	// what the transmissive surfaces let through to the hit, and the caustics' light, are the shadow transmittance's where
+	// the light's views hold the hit (see ShadowTransmittance), as the main pass takes them: without, the ground seen
+	// through CausticSpheres' clear sphere was lit as if the sphere weren't there, neither its shadow nor its caustic
+	bool transmittance = (gPushConstants.shadows & SHADER_TYPES_SHADOWS_TRANSMITTANCE) != 0u;
 	float push = max(1.5 * coneWidth, 1e-4 * hit.t);
 	for (uint lightIt = 0; lightIt < range.y; lightIt++)
 	{
@@ -335,7 +339,11 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 		float reach = light.type == LIGHT_TYPE_DIRECTIONAL ? kTracedFar : distance(light.positionRange.xyz, position) - push;
 		if (BvhHitSomething(BvhTraceScene(position + hit.normal * side * push, toLight, reach, true, true, GiAlphaMask())))
 			continue;
-		radiance += BaseLobe(surface, view, toLight, nDotL) * nDotL * light.intensity.rgb * falloff;
+		float3 through = 1.0;
+		ShadowMapPlace place;
+		if (transmittance && PlaceInShadowMap(lightIndex, light, position, hit.normal, toLight, place) == kShadowMapPlaced)
+			through = ShadowTransmittance(place, true);
+		radiance += BaseLobe(surface, view, toLight, nDotL) * nDotL * light.intensity.rgb * falloff * through;
 	}
 
 	// the indirect lighting's, as Shade takes it: the probes' diffuse where they cover the hit (none where a clip holds it
@@ -371,9 +379,15 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 // moving: whether what it met moves (what moves' structure: no model instance)
 float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float roughness, out float t, out bool valid, out bool moving)
 {
+	BvhHit hit = BvhTraceScene(origin, direction, kTracedFar, false, true, GiAlphaMask());
+	return TracedShade(hit, origin, direction, cone, roughness, t, valid, moving);
+}
+
+// what TracedRadiance gives of a ray's hit (or of nothing met)
+float3 TracedShade(BvhHit hit, float3 origin, float3 direction, TracedCone cone, float roughness, out float t, out bool valid, out bool moving)
+{
 	valid = true;
 	moving = false;
-	BvhHit hit = BvhTraceScene(origin, direction, kTracedFar, false, true, GiAlphaMask());
 	if (!BvhHitSomething(hit))
 	{
 		t = kTracedMissDistance;
@@ -482,21 +496,51 @@ float4 TracedGlossyReflection(
 	return float4(radiance, ReflectionPackDistance(min(t, kTracedMissDistance), moving));
 }
 
-// the light through a transmissive surface at position, along the refracted ray from the surface: the transmissive
-// surfaces aren't in the acceleration structures (see bvh::Triangles), so it passes through its own volume and meets
-// what is behind it (nor other glass). not from where the screen space lookup has it leave the volume (at the material's
-// thickness along the ray, see TransmittedLight): USDShaderBallForGltf's glass shell has a thickness of up to 8.9 in a
-// model a tenth of a unit across, which put the exit inside the core (its back met: black) or past everything (the
-// environment's), a wavy border between the two. what that leaves out is a thick slab's sideways shift. valid: as
-// TracedRadiance's
-float3 TracedRefraction(float3 position, float3 direction, out bool valid)
+// the light through a transmissive surface at position, from the surface along direction (into its volume, refracted:
+// volume; through a thin wall, as the view goes), through the transmissive surfaces that don't move as the caustics'
+// photons go (GlassPathStep: out of the volume where it meets its back, refracted, or reflected back in where it can't
+// leave; into or through the glass beyond), to what it meets of the opaque scene (TracedShade), less what the surfaces
+// past this one keep (this one's own attenuation and Fresnel are the caller's). the opaque scene's structures hold no
+// glass, and the ray used to pass through its own volume without leaving it: a ball showed what is behind it shifted
+// rather than turned upside down, CausticSpheres' clear sphere the ground beyond its shadow, lit. a transmissive surface
+// that moves (no structure holds it) is passed so still. from the surface, not from where the screen space lookup has
+// the ray leave the volume (at the material's thickness along the ray, see TransmittedLight): USDShaderBallForGltf's
+// glass shell has a thickness of up to 8.9 in a model a tenth of a unit across, which put the exit inside the core (its
+// back met: black) or past everything (the environment's), a wavy border between the two. valid: as TracedRadiance's,
+// and false where the ray met more surfaces than are followed (SHADER_TYPES_CAUSTIC_SURFACE_COUNT)
+float3 TracedRefraction(float3 position, float3 direction, bool volume, out bool valid)
 {
 	TracedCone cone = TracedPixelCone(position);
 	float3 eye = gViewData[gPushConstants.frameIndex][gShadingViewId].eyePosition.xyz;
 	float push = max(cone.width, 1e-4 * distance(eye, position));
-	float t;
-	bool moving;
-	return TracedRadiance(position + direction * push, direction, cone, 0.0, t, valid, moving);
+	uint frameIndex = gPushConstants.frameIndex;
+	GlassPath path;
+	path.origin = position + direction * push;
+	path.direction = direction;
+	path.throughput = 1.0;
+	path.inside = volume;
+	float traveled = push;
+	valid = false;
+	for (uint surfaceIt = 0; surfaceIt < SHADER_TYPES_CAUSTIC_SURFACE_COUNT; surfaceIt++)
+	{
+		bool glass;
+		BvhHit hit = BvhTraceSceneOrGlass(path.origin, path.direction, kTracedFar, GiAlphaMask(), glass);
+		if (!glass)
+		{
+			TracedCone at = cone;
+			at.width += cone.spread * traveled;
+			float t;
+			bool moving;
+			return path.throughput * TracedShade(hit, path.origin, path.direction, at, 0.0, t, valid, moving);
+		}
+		traveled += hit.t;
+		if (!GlassPathStep(path, hit, frameIndex))
+		{
+			valid = true;
+			return 0.0;
+		}
+	}
+	return 0.0;
 }
 #endif
 

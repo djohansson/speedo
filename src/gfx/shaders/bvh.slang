@@ -460,16 +460,36 @@ BvhHit BvhTraceScene<Filter : IBvhFilter>(float3 origin, float3 direction, float
 		origin, direction, tmax, anyHit, moving ? (BVH_RAY_QUERY_MASK_STATIC | BVH_RAY_QUERY_MASK_MOVING) : BVH_RAY_QUERY_MASK_STATIC, filter);
 }
 
-// the nearest transmissive triangle (that doesn't move) a ray meets before tmax, which only the caustics' photons query
-// (see ComputeCaustics; BVH_RAY_QUERY_MASK_GLASS)
+// the nearest transmissive triangle (that doesn't move) a ray meets before tmax, which only the caustics' photons and the
+// traced refractions query (see GlassPath; BVH_RAY_QUERY_MASK_GLASS)
 BvhHit BvhTraceGlass(float3 origin, float3 direction, float tmax)
 {
 	return BvhTraceInstances(origin, direction, tmax, false, BVH_RAY_QUERY_MASK_GLASS, BvhOpaque());
 }
 
+// the nearest of BvhTraceScene's (what moves too) and BvhTraceGlass's in one query, and whether it is glass: the paths
+// through the glass (see GlassPath) took one of each for every surface they crossed (DragonAttenuation's transmissive
+// phase 1.31 ms rather than 1.15)
+BvhHit BvhTraceSceneOrGlass<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, Filter filter, out bool glass)
+{
+	uint instance;
+	BvhHit hit = BvhTraceInstances(
+		origin, direction, tmax, false, BVH_RAY_QUERY_MASK_STATIC | BVH_RAY_QUERY_MASK_MOVING | BVH_RAY_QUERY_MASK_GLASS, filter, instance);
+	glass = instance == BVH_RAY_QUERY_INSTANCE_GLASS;
+	return hit;
+}
+
 // BvhTraceScene's, of the instances of mask
 BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, uint mask, Filter filter)
 {
+	uint instance;
+	return BvhTraceInstances(origin, direction, tmax, anyHit, mask, filter, instance);
+}
+
+// and the top level instance it met (~0u where nothing)
+BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, uint mask, Filter filter, out uint instance)
+{
+	instance = ~0u;
 	bool moving = (mask & BVH_RAY_QUERY_MASK_MOVING) != 0u;
 #if BVH_RAY_QUERY_WATCH
 	uint watch = RayQueryWatchBegin(origin, direction, tmax, anyHit, moving);
@@ -501,6 +521,7 @@ BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, f
 #endif
 	if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
 		return BvhNothing(tmax);
+	instance = query.CommittedInstanceIndex();
 	uint4 geometry = BvhRayQueryGeometry(query.CommittedInstanceID(), query.CommittedGeometryIndex());
 	uint primitive = query.CommittedPrimitiveIndex();
 	float3 corners[3];

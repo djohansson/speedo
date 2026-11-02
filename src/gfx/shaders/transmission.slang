@@ -80,7 +80,10 @@ float3 TransmittedLight(
 	float blur = roughness * saturate(ior * 2.0 - 2.0);
 	float traced = TracedRefractionsOn() ? TracedShare(blur) : 0.0;
 	bool valid = false;
-	float3 tracedLight = TracedRefractionsOn() && (traced > 0.0 || inside < 1.0) ? TracedRefraction(position, ray, valid) : 0.0;
+	// a thin wall's light goes on as the view does (the screen space lookup's place is the surface's own, behind it)
+	bool volume = thickness > 0.0;
+	float3 tracedLight =
+		TracedRefractionsOn() && (traced > 0.0 || inside < 1.0) ? TracedRefraction(position, volume ? ray : -view, volume, valid) : 0.0;
 	if (valid)
 		light = lerp(lerp(tracedLight, seen, inside), tracedLight, traced);
 #endif
