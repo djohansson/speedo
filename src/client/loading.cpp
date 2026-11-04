@@ -3,12 +3,14 @@
 #include <core/application.h>
 #include <core/zip.h>
 
+#include <ranges>
+
 namespace client::windowedapplication
 {
 
-void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
+void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ModelGround ground)
 {
-	App().GetScene().LoadModels({std::string(filePath)}, progress);
+	App().GetScene().LoadModels({std::string(filePath)}, progress, {}, ModelArrangement::kSideBySide, ground);
 }
 
 // extracts a zip archive into the user profile directory, once: later loads of the same file (by path, size and time)
@@ -78,7 +80,7 @@ std::vector<std::filesystem::path> FindModels(const std::filesystem::path& direc
 }
 
 // extracts a zip archive and loads the model in it. with several, see ArchiveModels. call from a load (see gLoads).
-void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, ArchiveModels several)
+void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, ArchiveModels several, ModelGround ground)
 {
 	auto directory = ExtractArchive(archivePath, progress);
 	if (!directory) // failed or cancelled
@@ -97,7 +99,7 @@ void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::atomic_u
 		std::vector<std::string> paths;
 		for (const auto& model : models)
 			paths.push_back(model.string());
-		App().GetScene().LoadModels(paths, progress);
+		App().GetScene().LoadModels(paths, progress, {}, ModelArrangement::kSideBySide, ground);
 		return;
 	}
 
@@ -105,12 +107,13 @@ void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::atomic_u
 	gArchiveChoice = ArchiveChoice{
 		.archive = std::filesystem::path(archivePath).filename().string(),
 		.directory = std::move(*directory),
-		.models = std::move(models)};
+		.models = std::move(models),
+		.ground = ground};
 }
 
 // loads the models below a directory (e.g. the encodings of a gltf sample model) as one, side by side (see Model::Load).
 // call from a load (see gLoads).
-void LoadAndInstallFolder(RHI& rhi, std::string_view directoryPath, std::atomic_uint8_t& progress)
+void LoadAndInstallFolder(RHI& rhi, std::string_view directoryPath, std::atomic_uint8_t& progress, ModelGround ground)
 {
 	auto models = FindModels(directoryPath);
 	if (models.empty())
@@ -122,7 +125,7 @@ void LoadAndInstallFolder(RHI& rhi, std::string_view directoryPath, std::atomic_
 	std::vector<std::string> paths;
 	for (const auto& model : models)
 		paths.push_back(model.string());
-	App().GetScene().LoadModels(paths, progress);
+	App().GetScene().LoadModels(paths, progress, {}, ModelArrangement::kSideBySide, ground);
 }
 
 
@@ -145,24 +148,127 @@ void LoadAndInstallFolder(RHI& rhi, std::string_view directoryPath, std::atomic_
 
 // loads whatever path is, by its type: a directory's models or a zip archive's (see ArchiveModels), a model, an
 // environment panorama (.hdr), or an image (on the default material). call from a load (see gLoads).
-void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ArchiveModels several)
+void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ArchiveModels several, ModelGround ground)
 {
 	std::filesystem::path path(filePath);
 	auto extension = path.extension().string();
 	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
 	if (std::error_code error; std::filesystem::is_directory(path, error))
-		LoadAndInstallFolder(rhi, filePath, progress);
+		LoadAndInstallFolder(rhi, filePath, progress, ground);
 	else if (extension == ".zip")
-		LoadAndInstallArchive(rhi, filePath, progress, several);
+		LoadAndInstallArchive(rhi, filePath, progress, several, ground);
 	else if (mesh::IsModelFile(path))
-		LoadAndInstallModel(rhi, filePath, progress);
+		LoadAndInstallModel(rhi, filePath, progress, ground);
 	else if (extension == ".hdr")
 		App().GetScene().LoadEnvironment(std::string(filePath), progress);
 	else if (IsImageFile(path))
 		App().GetScene().LoadImage(filePath, progress);
 	else
 		std::println(stderr, "Failed to load file {}: not a model, zip archive, environment or image", filePath);
+}
+
+// the recent files, newest first, read from the user profile once (see RecentFiles). ui thread
+static std::vector<RecentFile> gRecentFiles;
+static bool gRecentFilesRead = false;
+
+[[nodiscard]] static std::filesystem::path RecentFilesPath()
+{
+	return std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["UserProfilePath"]) / "recent.txt";
+}
+
+// a line a recent file: its options (side-by-side or as-authored, then +ground if it stands on one), then its paths,
+// each after a tab
+static void WriteRecentFiles()
+{
+	std::string text;
+	for (const auto& recent : gRecentFiles)
+	{
+		text += recent.arrangement == ModelArrangement::kAsAuthored ? "as-authored" : "side-by-side";
+		text += recent.ground == ModelGround::kPlane ? "+ground" : "";
+		for (const auto& path : recent.paths)
+			text += std::format("\t{}", path);
+		text += '\n';
+	}
+	auto path = RecentFilesPath();
+	if (auto written = core::file::Write(path, std::as_bytes(std::span(text))); !written)
+		std::println(stderr, "Failed to write {}: {}", path.string(), written.error().message());
+}
+
+const std::vector<RecentFile>& RecentFiles()
+{
+	if (gRecentFilesRead)
+		return gRecentFiles;
+	gRecentFilesRead = true;
+
+	auto mapped = core::file::Map(RecentFilesPath());
+	if (!mapped || mapped->size() == 0) // none yet
+		return gRecentFiles;
+	std::string_view text(reinterpret_cast<const char*>(mapped->data()), mapped->size());
+	for (auto line : text | std::views::split('\n'))
+	{
+		std::string_view row(line.begin(), line.end());
+		if (row.ends_with('\r'))
+			row.remove_suffix(1);
+		RecentFile recent;
+		bool options = true;
+		for (auto field : row | std::views::split('\t'))
+		{
+			std::string_view value(field.begin(), field.end());
+			if (std::exchange(options, false))
+			{
+				recent.arrangement = value.starts_with("as-authored") ? ModelArrangement::kAsAuthored : ModelArrangement::kSideBySide;
+				recent.ground = value.ends_with("+ground") ? ModelGround::kPlane : ModelGround::kNone;
+			}
+			else if (!value.empty())
+				recent.paths.emplace_back(value);
+		}
+		if (!recent.paths.empty() && gRecentFiles.size() < kRecentFileCount)
+			gRecentFiles.push_back(std::move(recent));
+	}
+	return gRecentFiles;
+}
+
+void AddRecentFile(RecentFile file)
+{
+	(void)RecentFiles();
+	std::erase(gRecentFiles, file);
+	gRecentFiles.insert(gRecentFiles.begin(), std::move(file));
+	if (gRecentFiles.size() > kRecentFileCount)
+		gRecentFiles.resize(kRecentFileCount);
+	WriteRecentFiles();
+}
+
+void ClearRecentFiles()
+{
+	gRecentFiles.clear();
+	gRecentFilesRead = true;
+	WriteRecentFiles();
+}
+
+std::string RecentFileName(const RecentFile& file)
+{
+	if (file.paths.empty())
+		return {};
+	auto name = std::filesystem::path(file.paths.front()).filename().string();
+	return file.paths.size() == 1 ? name : std::format("{} and {} more", name, file.paths.size() - 1);
+}
+
+std::string RecentFileDetail(const RecentFile& file)
+{
+	if (file.paths.empty())
+		return {};
+	// the folder holding them all (a gltf sample model's encodings are each in a folder named after the encoding)
+	auto folder = std::filesystem::path(file.paths.front()).parent_path();
+	for (const auto& path : file.paths)
+		while (!folder.empty() && std::filesystem::path(path).lexically_relative(folder).string().starts_with(".."))
+			folder = folder.parent_path();
+	auto detail = folder.filename().string();
+	if (file.paths.size() > 1)
+		detail += file.arrangement == ModelArrangement::kAsAuthored ? ", as authored" : ", side by side";
+	if (file.ground == ModelGround::kPlane)
+		detail += ", ground plane";
+	return detail;
 }
 
 } // namespace client::windowedapplication

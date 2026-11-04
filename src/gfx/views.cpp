@@ -135,11 +135,21 @@ void Views::OnResizeGrid(glm::uvec2 grid)
 	InternalLayout();
 }
 
-void Views::FrameBounds(const Bounds3f& bounds)
+void Views::FrameBounds(const Bounds3f& bounds, const Bounds3f& reach)
 {
 	// far enough back for a sphere around the bounds to fit the (75 degree) field of view
 	auto radius = std::max(bounds.Radius(), 1e-3F);
 	auto eye = bounds.Center() + glm::vec3(0.0F, 0.0F, 1.4F * radius);
+	// and seeing as far as the farthest corner of reach
+	auto farPlane = 4.0F * radius;
+	for (uint32_t corner = 0; corner < 8; corner++)
+	{
+		glm::vec3 point(
+			(corner & 1U) != 0U ? reach.GetMax().x : reach.GetMin().x,
+			(corner & 2U) != 0U ? reach.GetMax().y : reach.GetMin().y,
+			(corner & 4U) != 0U ? reach.GetMax().z : reach.GetMin().z);
+		farPlane = std::max(farPlane, 1.1F * glm::distance(eye, point));
+	}
 
 	{
 		auto cameras = myCameras.Write();
@@ -151,7 +161,7 @@ void Views::FrameBounds(const Bounds3f& bounds)
 			desc.viewport.type = ViewType::Perspective;
 			desc.fovY = CameraCreateDesc{}.fovY;
 			desc.aspectRatio = 0.0F;
-			desc.farPlane = 4.0F * radius;
+			desc.farPlane = farPlane;
 			desc.nearPlane = desc.farPlane * 1e-4F;
 			camera.UpdateAll();
 		}
@@ -203,7 +213,7 @@ void Views::Turn(float yaw, float forward)
 
 void Views::Orbit(float yaw, float pitch, std::optional<size_t> view)
 {
-	auto center = myScene.Read().Get().bounds.Center();
+	auto center = myScene.Read().Get().framed.Center();
 	auto cameras = myCameras.Write();
 	for (size_t cameraIt = 0; cameraIt < cameras.Get().size(); cameraIt++)
 	{
@@ -227,12 +237,12 @@ void Views::Orbit(float yaw, float pitch, std::optional<size_t> view)
 	}
 }
 
-void Views::SetScene(const Bounds3f& bounds, std::vector<SceneCamera> cameras)
+void Views::SetScene(const Bounds3f& bounds, const Bounds3f& framed, std::vector<SceneCamera> cameras)
 {
 	bool hasCameras = !cameras.empty();
 	{
 		auto scene = myScene.Write();
-		scene.Get() = Scene{.bounds = bounds, .cameras = std::move(cameras)};
+		scene.Get() = Scene{.bounds = bounds, .framed = framed, .cameras = std::move(cameras)};
 	}
 	UseSceneCamera(hasCameras ? std::optional<size_t>(0) : std::nullopt);
 }
@@ -242,6 +252,7 @@ void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
 	ZoneScopedN("Views::UseSceneCamera");
 
 	Bounds3f bounds;
+	Bounds3f framed;
 	std::optional<SceneCamera> sceneCamera;
 	{
 		auto scene = myScene.Write();
@@ -249,18 +260,19 @@ void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
 			cameraIndex.reset();
 		scene.Get().current = cameraIndex;
 		bounds = scene.Get().bounds;
+		framed = scene.Get().framed;
 		if (cameraIndex)
 			sceneCamera = scene.Get().cameras[*cameraIndex];
 	}
 
 	if (!sceneCamera)
 	{
-		FrameBounds(bounds);
+		FrameBounds(framed, bounds);
 		return;
 	}
 
 	InternalApplySceneCamera(*sceneCamera, bounds);
-	SetMoveSpeed(0.25F * std::max(bounds.Radius(), 1e-3F));
+	SetMoveSpeed(0.25F * std::max(framed.Radius(), 1e-3F));
 }
 
 void Views::UpdateSceneCameras(std::span<const SceneCamera> cameras)

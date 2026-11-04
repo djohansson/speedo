@@ -51,8 +51,9 @@ public:
 	void OnInputStateChanged(const core::InputState& input);
 
 	// moves every camera back from bounds (looking down -z) until all of it is in view, fits the near and far planes to
-	// its size, and sets the movement speed after it (see GetMoveSpeed). call on the draw thread.
-	void FrameBounds(const Bounds3f& bounds);
+	// its size, as far as reach too (a ground beyond it, see ModelGround), and sets the movement speed after it (see
+	// GetMoveSpeed). call on the draw thread.
+	void FrameBounds(const Bounds3f& bounds, const Bounds3f& reach);
 	// places every view's camera at eye (world space), turned by rotation (pitch, yaw and roll, in radians: see
 	// CameraCreateDesc::cameraRotation), keeping its projection (e.g. SPEEDO_CAMERA, for measurements and screenshots).
 	// any thread
@@ -66,9 +67,10 @@ public:
 	// (e.g. dragging the file browser's preview; one view only: SPEEDO_CAMERA_VIEWS=around). any thread
 	void Orbit(float yaw, float pitch, std::optional<size_t> view = std::nullopt);
 
-	// the installed model's bounds and cameras (see ModelDesc::cameras): sets the views to its first camera, or frames
-	// the bounds if it has none. call on the draw thread.
-	void SetScene(const Bounds3f& bounds, std::vector<SceneCamera> cameras);
+	// the installed model's bounds, those the views frame (without its ground, see Model::GetFramedBounds) and cameras
+	// (see ModelDesc::cameras): sets the views to its first camera, or frames them if it has none. call on the draw
+	// thread.
+	void SetScene(const Bounds3f& bounds, const Bounds3f& framed, std::vector<SceneCamera> cameras);
 	// sets every view to one of the scene's cameras (its projection too: field of view, orthographic, near and far
 	// planes; not its roll, which the views don't have), or frames the scene's bounds (nullopt). call on the draw thread.
 	void UseSceneCamera(std::optional<size_t> camera);
@@ -132,6 +134,7 @@ private:
 	struct Scene
 	{
 		Bounds3f bounds;
+		Bounds3f framed; // what the views frame and orbit (the bounds without a ground)
 		std::vector<SceneCamera> cameras;
 		std::optional<size_t> current;
 	};

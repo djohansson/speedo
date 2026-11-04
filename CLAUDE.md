@@ -157,9 +157,16 @@ Notes for working in this codebase, distilled from real build failures.
   name); until then an empty square ("Loading..."), and nothing for an entry without a preview (a folder), or an archive
   without models ("Nothing to preview"): the last preview stayed up, which looked like the new entry's; and
   opens the selection: one model as it is, several as one (`ModelArrangement`: side by side, the grid `Model::Load` of
-  several always used, or as authored, each file where it is), the rest each by its type. `SPEEDO_BROWSE=<dir>`,
+  several always used, or as authored, each file where it is), the rest each by its type; the models and archives on a
+  ground plane where its "Ground plane" box is ticked (off by default: many models have a floor of their own; see "The
+  ground plane", under "Asset import and testing"). What it opens is the newest of File > Open Recent's list
+  (`WindowedApplication::InternalOpen`, which the menu opens through as well; `RecentFile`: the paths, how several are
+  arranged and the ground, the last `kRecentFileCount`, 6, in `<user profile>/recent.txt`, a line each, read when the
+  menu first asks and written at each change; those no longer there disabled, checked as the menu opens; the folder
+  holding them and how they were opened in the menu's right column, since a gltf sample model's encodings share its
+  name). `SPEEDO_BROWSE=<dir>`,
   `SPEEDO_BROWSE_SELECT=<path>[;<path>...]` (paths from the folder), `SPEEDO_BROWSE_ENVIRONMENT=1`, `SPEEDO_BROWSE_RECURSIVE=0`,
-  `SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at
+  `SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>`, `SPEEDO_BROWSE_GROUND=1` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at
   startup, for tests and screenshots (`SPEEDO_BROWSE_OPEN_FRAME_COUNT=<n>` opens once the preview has loaded the selection
   that many frames: a double click, whose first click started it; a preview is given up when the browser closes, its
   loads cancelled). Tiles show thumbnails (`client::Thumbnails`, `client/thumbnails.h`): rgba8 in
@@ -2043,7 +2050,7 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   copies the view as the variables that reproduce it (`SPEEDO_CAMERA`, with split screen `SPEEDO_LAYOUT` and the other
   views' cameras, `SPEEDO_CAMERA_VIEWS='<pose>;...'` for views 1 and on, placed after `SPEEDO_CAMERA` places them all, or
   `SPEEDO_CAMERA_VIEWS=around` for views turned apart about the model, 360 degrees over the views, after the framing or
-  `SPEEDO_CAMERA`: split screen for any model, as the regression runs it, `scripts/test-assets/splitscreen.txt`, `SPEEDO_AUTOLOAD_MODEL`, the environment's path,
+  `SPEEDO_CAMERA`: split screen for any model, as the regression runs it, `scripts/test-assets/splitscreen.txt`, `SPEEDO_AUTOLOAD_MODEL` (and `SPEEDO_GROUND_PLANE=1` where it stands on the ground plane), the environment's path,
   and the settings that aren't their defaults, `ui::ApplyPoseSettings`'s: the exposure, the tonemapper, the shadows,
   `SPEEDO_GI` and the indirect lighting's, the upscaling, the sky's time, `SPEEDO_DEBUG_VIEW`; then `# window <w>x<h>`,
   the framebuffer), for reports: an artifact is a pose first. View > Camera > Paste Pose (ctrl/cmd+shift+v;
@@ -3184,6 +3191,22 @@ either way), and a ray stops after `BVH_MAX_STEP_COUNT` nodes (4096; the binary 
 it met (`BvhHit::capped`; a capped shadow ray is shadowed), counted (`GI_STATISTIC_CAPPED_BVH_RAYS`, printed): every ray
 of the dual 20_20 is capped, no ray of the other test scenes. `CheckBvh` reports capped rays apart, as a warning.
 tinybvh's own stack is raised for their builds (`TINYBVH_STACK_SIZE` in `bvh.cpp`: "CombineLeafs, tree too deep" at 128).
+
+**The ground plane** (the file browser's "Ground plane", `SPEEDO_GROUND_PLANE=1` for the autoloads and Paste Pose, which
+Copy Pose writes; `ModelGround`, `Model::Load`'s `ground`): a plane under the model to see its shadows and caustics on,
+added to its staged triangles after its cache entry is read or its set merged (`AddGround` in `model.cpp`; nothing of it
+is cached): a square around the model's center, 1.25 times its largest dimension from the center to each side (a shadow
+of its height falls on it with the sun 40 degrees up), a thousandth of that dimension below its lowest point (a floor of
+its own isn't fought), facing up, single sided, of squares of two light grays (base colors 0.5 and 0.4, as vertex
+colors; roughness 0.8, untextured), checkered, a round size (1, 2 or 5 times a power of ten, 10 to 25 of them from the
+center to a side) aligned to the world's origin. A submesh, a material and an instance (the identity) of its own, after the
+model's, so its own are as they were (a skinned model's skin vertices padded with none); its BVH is built again with it
+(UploadStaged; the ray queries' structures take it as any geometry). `ModelDesc::bounds` takes it in (the shadows'
+cascades reach as far as the bounds, the indirect lighting's clipmap covers them, and the far planes), which
+coarsens the indirect lighting's voxels by the ground's share of the bounds (2.5 times for a model as wide as tall);
+`Model::GetFramedBounds` leaves it out, which the views frame and orbit (`Views::SetScene`'s `framed`, `FrameBounds`'
+reach for the far plane). `Scene::SceneState::ground` says what the installed model stands on, which View > Scene and
+Variant keep when they load it again. A set side by side is a grid in the xy plane: its upper rows stand above it.
 
 Archives of several models are sets of variants (geodesic's 86 polyhedra, sphere's tessellations and texture mappings,
 the CornellBox variants, ...), not scenes: each file stands alone at the origin, and the files of a set needn't share a

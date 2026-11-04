@@ -168,6 +168,7 @@ public:
 		uint32_t current = 0;
 		std::vector<std::string> variants;
 		std::optional<uint32_t> variant; // none: the default materials
+		ModelGround ground = ModelGround::kNone; // what it stands on (see Model::Load)
 	};
 
 	// one of the installed environment's dominant lights, for the ui: its irradiance (lux, luminance) and whether the
@@ -215,7 +216,7 @@ public:
 	// it is checked where the load takes long, and before the install). call from a load task (see core::LoadQueue).
 	// a model, or several side by side as one (see Model::Load), with its materials' textures. options: a gltf file's
 	// scene and material variant to load (one file only), else its default ones
-	// several files are arranged as arrangement says (see ModelArrangement). returns the name of the model installed (see
+	// several files are arranged as arrangement says (see ModelArrangement), and stand on ground (see ModelGround). returns the name of the model installed (see
 	// SceneState::filePath: a file's path, or for several their directory and count), or nothing if the load failed or was
 	// cancelled: it is installed once the draw thread has run the install
 	std::optional<std::string> LoadModels(
@@ -223,6 +224,7 @@ public:
 		std::atomic_uint8_t& progress,
 		const mesh::ImportOptions& options = {},
 		ModelArrangement arrangement = ModelArrangement::kSideBySide,
+		ModelGround ground = ModelGround::kNone,
 		core::CancelledFn cancelled = core::NeverCancelled);
 	// an image, on the default material (material 0)
 	void LoadImage(std::string_view filePath, std::atomic_uint8_t& progress);

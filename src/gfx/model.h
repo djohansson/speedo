@@ -194,6 +194,15 @@ enum class ModelArrangement : uint8_t
 	kAsAuthored,
 };
 
+// what a model is loaded standing on (see Model::Load): nothing, or a plane of light gray squares, checkered, under
+// it, for its shadows and caustics to land on (the file browser's option, off by default: many models have a floor of
+// their own)
+enum class ModelGround : uint8_t
+{
+	kNone,
+	kPlane,
+};
+
 // whether a model is loaded with its BVHs (see gfx/bvh.h), which its rays trace: the traced shadows, the emitters' shadows
 // and the indirect lighting's (the renderer leaves out what needs them where a model has none). none for a scene that
 // traces no rays (the file browser's preview): a file's isn't read from its cache, nor a set's built (seconds for San
@@ -296,11 +305,13 @@ public:
 	// primary device's transfer queue. returns once the upload is submitted (see GetUpload), or null if the load was
 	// cancelled (the application is exiting, or cancelled says so: a preview the browser no longer wants), or failed (the reason is printed to stderr).
 	// options: a gltf file's scene and material variant to load (see mesh::ImportOptions), else its default ones.
+	// ground: a plane added under it (see ModelGround), which its bounds take in, and GetFramedBounds leaves out
 	[[nodiscard]] static std::shared_ptr<Model> Load(
 		std::string_view filePath,
 		std::atomic_uint8_t& progress,
 		const mesh::ImportOptions& options = {},
 		ModelBvh bvh = ModelBvh::kBuild,
+		ModelGround ground = ModelGround::kNone,
 		core::CancelledFn cancelled = core::NeverCancelled);
 	// what a model file is imported with (its importer's version and its decoders'): part of its cache key, and of
 	// anything derived from how it looks (e.g. its thumbnail)
@@ -314,10 +325,18 @@ public:
 		std::atomic_uint8_t& progress,
 		ModelArrangement arrangement = ModelArrangement::kSideBySide,
 		ModelBvh bvh = ModelBvh::kBuild,
+		ModelGround ground = ModelGround::kNone,
 		core::CancelledFn cancelled = core::NeverCancelled);
+
+	// what it was loaded standing on (see ModelGround), and its bounds without it: what the views frame and orbit
+	// (ModelDesc::bounds has the ground too, which the shadows, the indirect lighting and the far planes take in)
+	[[nodiscard]] ModelGround GetGround() const noexcept { return myGround; }
+	[[nodiscard]] const Bounds3f& GetFramedBounds() const noexcept { return myFramedBounds; }
 
 private:
 	ModelDesc myDesc;
+	ModelGround myGround = ModelGround::kNone;
+	Bounds3f myFramedBounds;
 	ModelBuffers myBuffers;
 	Upload myUpload;
 	std::unique_ptr<bvh::Moving> myMovingBvh; // placed by Animate, null if nothing moves (or the rays walk the voxels)

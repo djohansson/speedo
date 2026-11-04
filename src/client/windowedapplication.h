@@ -25,6 +25,11 @@
 namespace client
 {
 
+namespace windowedapplication
+{
+struct RecentFile;
+}
+
 // the client's windowed application (see platform::WindowedApplication): it owns the rhi, draws the scene (gfx::Scene)
 // through the window's views, and runs the user interface (gfx::ImGuiLayer), the frame loop and the loads
 class WindowedApplication : public platform::WindowedApplication
@@ -76,6 +81,9 @@ private:
 	void InternalCopyPose();
 	// View > Camera > Paste Pose (ctrl/cmd+shift+v): a pose of Copy Pose's from the clipboard, applied (see PrepareDraw)
 	void InternalPastePose();
+	// opens what the browser or File > Open Recent says (a file by its type, or several models as one, see RecentFile),
+	// and makes it the most recent. ui thread
+	void InternalOpen(const windowedapplication::RecentFile& file);
 
 	
 	std::unique_ptr<gfx::RHI> myRHI;

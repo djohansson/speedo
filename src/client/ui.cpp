@@ -44,7 +44,7 @@ namespace ui
 
 // SPEEDO_OPEN_MENUS=<label>[/<label>...]: the menus of these labels are held open (each where its parent menu is), to
 // show them in screenshots without clicking (which would bring the window to the front)
-[[nodiscard]] bool BeginMenu(const char* label)
+[[nodiscard]] bool BeginMenu(const char* label, bool enabled = true)
 {
 	static const std::string kOpenMenus = []
 	{
@@ -53,7 +53,7 @@ namespace ui
 	}();
 	if (!kOpenMenus.empty() && kOpenMenus.find(std::format("/{}/", label)) != std::string::npos)
 		ImGui::OpenPopup(ImGui::GetID(label));
-	return ImGui::BeginMenu(label);
+	return ImGui::BeginMenu(label, enabled);
 }
 
 // View > Debug View's views (DEBUG_VIEW_*), by group: SPEEDO_DEBUG_VIEW takes their keys (or numbers)
@@ -368,6 +368,8 @@ void WindowedApplication::InternalCopyPose()
 			text += std::format(" SPEEDO_AUTOLOAD_SCENE={}", scenes.Get().current);
 		if (scenes.Get().variant)
 			text += std::format(" SPEEDO_AUTOLOAD_VARIANT={}", *scenes.Get().variant);
+		if (scenes.Get().ground == ModelGround::kPlane)
+			text += " SPEEDO_GROUND_PLANE=1";
 	}
 	{
 		std::string environment = scene.GetEnvironmentPath().Read().Get();
@@ -1048,7 +1050,8 @@ void WindowedApplication::PrepareDraw()
 		if (chosen)
 			(void)gLoads.Enqueue(
 				chosen->filename().string(),
-				[&rhi, path = chosen->string()](std::atomic_uint8_t& progress) { LoadAndInstallModel(rhi, path, progress); });
+				[&rhi, path = chosen->string(), ground = choice.ground](std::atomic_uint8_t& progress)
+				{ LoadAndInstallModel(rhi, path, progress, ground); });
 
 		bool all = Button("All, side by side");
 		if (all)
@@ -1058,7 +1061,8 @@ void WindowedApplication::PrepareDraw()
 				paths.push_back(model.string());
 			(void)gLoads.Enqueue(
 				choice.archive,
-				[&rhi, paths = std::move(paths)](std::atomic_uint8_t& progress) { App().GetScene().LoadModels(paths, progress); });
+				[paths = std::move(paths), ground = choice.ground](std::atomic_uint8_t& progress)
+				{ App().GetScene().LoadModels(paths, progress, {}, ModelArrangement::kSideBySide, ground); });
 		}
 		SameLine();
 
@@ -1181,15 +1185,19 @@ void WindowedApplication::PrepareDraw()
 			autoLoadOptions.scene = std::strtoull(scene, nullptr, 10);
 		if (const char* variant = std::getenv("SPEEDO_AUTOLOAD_VARIANT"); variant != nullptr && *variant != '\0')
 			autoLoadOptions.variant = std::strtoull(variant, nullptr, 10);
+		// SPEEDO_GROUND_PLANE=1: it stands on a ground plane (see ModelGround), as the file browser's option has it
+		auto autoLoadGround = ModelGround::kNone;
+		if (const char* ground = std::getenv("SPEEDO_GROUND_PLANE"); ground != nullptr && std::string_view(ground) == "1")
+			autoLoadGround = ModelGround::kPlane;
 		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"); autoLoadModel != nullptr && *autoLoadModel != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadModel,
-				[&rhi, path = (resourcePath / autoLoadModel).string(), autoLoadOptions](std::atomic_uint8_t& progress)
+				[&rhi, path = (resourcePath / autoLoadModel).string(), autoLoadOptions, autoLoadGround](std::atomic_uint8_t& progress)
 				{
 					if ((autoLoadOptions.scene || autoLoadOptions.variant) && mesh::IsModelFile(path))
-						App().GetScene().LoadModels({path}, progress, autoLoadOptions);
+						App().GetScene().LoadModels({path}, progress, autoLoadOptions, ModelArrangement::kSideBySide, autoLoadGround);
 					else
-						LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll);
+						LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll, autoLoadGround);
 				}));
 		// the settings a pose names (see ui::ApplyPoseSettings: the tonemapper, the exposure, the shadows, the emissive
 		// lights, the indirect lighting, temporal upscaling, the debug view, the environment's rotation and intensity and the
@@ -1312,6 +1320,7 @@ void WindowedApplication::PrepareDraw()
 		std::string filePath;
 		uint32_t scene = 0;
 		std::optional<uint32_t> variant;
+		ModelGround ground = ModelGround::kNone;
 	};
 	static std::optional<AutoModel> gAutoModel;
 	static std::optional<uint64_t> gAutoLoadsReadyFrame;
@@ -1320,7 +1329,8 @@ void WindowedApplication::PrepareDraw()
 	auto modelIs = [](const AutoModel& model)
 	{
 		auto scenes = App().GetScene().GetScenes().Read();
-		return scenes.Get().filePath == model.filePath && scenes.Get().current == model.scene && scenes.Get().variant == model.variant;
+		return scenes.Get().filePath == model.filePath && scenes.Get().current == model.scene && scenes.Get().variant == model.variant &&
+			   scenes.Get().ground == model.ground;
 	};
 
 	// a pose pasted (View > Camera > Paste Pose, ctrl/cmd+shift+v): its settings (those it doesn't name back to their
@@ -1346,17 +1356,20 @@ void WindowedApplication::PrepareDraw()
 				AutoModel wanted{
 					.filePath = (resourcePath / model).string(),
 					.scene = static_cast<uint32_t>(options.scene.value_or(0)),
-					.variant = options.variant ? std::optional<uint32_t>(static_cast<uint32_t>(*options.variant)) : std::nullopt};
+					.variant = options.variant ? std::optional<uint32_t>(static_cast<uint32_t>(*options.variant)) : std::nullopt,
+					.ground = pose->Get("SPEEDO_GROUND_PLANE") != nullptr && std::string_view(pose->Get("SPEEDO_GROUND_PLANE")) == "1"
+								  ? ModelGround::kPlane
+								  : ModelGround::kNone};
 				if (!modelIs(wanted))
 				{
 					gAutoLoads.emplace_back(gLoads.Enqueue(
 						model,
-						[&rhi, path = wanted.filePath, options](std::atomic_uint8_t& progress)
+						[&rhi, path = wanted.filePath, options, ground = wanted.ground](std::atomic_uint8_t& progress)
 						{
 							if ((options.scene || options.variant) && mesh::IsModelFile(path))
-								App().GetScene().LoadModels({path}, progress, options);
+								App().GetScene().LoadModels({path}, progress, options, ModelArrangement::kSideBySide, ground);
 							else
-								LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll);
+								LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll, ground);
 						}));
 					gAutoModel = std::move(wanted);
 					gAutoCameraAfterModel = true;
@@ -1749,6 +1762,47 @@ void WindowedApplication::PrepareDraw()
 				gBrowserPurpose = BrowserPurpose::kFiles;
 			}
 			SetItemTooltip("Opens models, zip archives, images and panoramas from the file browser: preview them, and open one or several (side by side, or as authored).");
+			// the files opened last (see RecentFiles), with how they were (several models side by side or as authored, on a
+			// ground plane), those no longer there disabled: checked as the menu opens
+			std::optional<RecentFile> recentChosen;
+			if (ui::BeginMenu("Open Recent", !RecentFiles().empty()))
+			{
+				static std::vector<bool> gRecentFound;
+				const auto& recents = RecentFiles();
+				if (IsWindowAppearing() || gRecentFound.size() != recents.size())
+				{
+					gRecentFound.assign(recents.size(), false);
+					for (size_t recentIt = 0; recentIt < recents.size(); recentIt++)
+						gRecentFound[recentIt] = std::ranges::all_of(
+							recents[recentIt].paths, [](const std::string& path) { std::error_code error; return std::filesystem::exists(path, error); });
+				}
+				for (size_t recentIt = 0; recentIt < recents.size(); recentIt++)
+				{
+					PushID(static_cast<int>(recentIt));
+					if (MenuItem(
+							RecentFileName(recents[recentIt]).c_str(), RecentFileDetail(recents[recentIt]).c_str(), false, gRecentFound[recentIt]))
+						recentChosen = recents[recentIt];
+					if (BeginItemTooltip())
+					{
+						constexpr size_t kTooltipPathCount = 8;
+						const auto& paths = recents[recentIt].paths;
+						for (size_t pathIt = 0; pathIt < std::min(paths.size(), kTooltipPathCount); pathIt++)
+							TextUnformatted(paths[pathIt].c_str());
+						if (paths.size() > kTooltipPathCount)
+							TextDisabled("and %zu more", paths.size() - kTooltipPathCount);
+						if (!gRecentFound[recentIt])
+							TextDisabled("Not found");
+						EndTooltip();
+					}
+					PopID();
+				}
+				Separator();
+				if (MenuItem("Clear Recent"))
+					ClearRecentFiles();
+				ImGui::EndMenu();
+			}
+			if (recentChosen)
+				InternalOpen(*recentChosen);
 			Separator();
 			if (MenuItem("Exit", SHORTCUT_LABEL("Q")))
 				core::Application::Get()->RequestExit();
@@ -1923,10 +1977,14 @@ void WindowedApplication::PrepareDraw()
 					if (MenuItem(scenes.names[sceneIt].c_str(), nullptr, scenes.current == sceneIt) && scenes.current != sceneIt)
 						(void)gLoads.Enqueue(
 							std::format("{} ({})", std::filesystem::path(scenes.filePath).filename().string(), scenes.names[sceneIt]),
-							[&rhi, path = scenes.filePath, sceneIt, variant = scenes.variant](std::atomic_uint8_t& progress)
+							[path = scenes.filePath, sceneIt, variant = scenes.variant, ground = scenes.ground](std::atomic_uint8_t& progress)
 							{
 								App().GetScene().LoadModels(
-									{path}, progress, {.scene = sceneIt, .variant = variant ? std::optional<size_t>(*variant) : std::nullopt});
+									{path},
+									progress,
+									{.scene = sceneIt, .variant = variant ? std::optional<size_t>(*variant) : std::nullopt},
+									ModelArrangement::kSideBySide,
+									ground);
 							});
 					PopID();
 				}
@@ -1943,8 +2001,8 @@ void WindowedApplication::PrepareDraw()
 				{
 					(void)gLoads.Enqueue(
 						std::format("{} ({})", std::filesystem::path(scenes.filePath).filename().string(), name),
-						[path = scenes.filePath, scene = scenes.current, variant](std::atomic_uint8_t& progress)
-						{ App().GetScene().LoadModels({path}, progress, {.scene = scene, .variant = variant}); });
+						[path = scenes.filePath, scene = scenes.current, variant, ground = scenes.ground](std::atomic_uint8_t& progress)
+						{ App().GetScene().LoadModels({path}, progress, {.scene = scene, .variant = variant}, ModelArrangement::kSideBySide, ground); });
 				};
 				if (!scenes.variants.empty() && MenuItem("Default", nullptr, !scenes.variant) && scenes.variant)
 					load(std::nullopt, "default materials");

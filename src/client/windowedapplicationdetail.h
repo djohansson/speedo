@@ -101,6 +101,7 @@ struct ArchiveChoice
 	std::string archive;
 	std::filesystem::path directory;
 	std::vector<std::filesystem::path> models;
+	ModelGround ground = ModelGround::kNone; // what they stand on (see ModelGround)
 };
 inline std::mutex gArchiveChoiceMutex;
 inline std::optional<ArchiveChoice> gArchiveChoice; // guarded by gArchiveChoiceMutex
@@ -138,7 +139,8 @@ inline constexpr const char* kEnvironmentExtensions = "hdr";
 // the image files gfx::Scene::LoadImage takes, as a file dialog filter spec (see image::Import)
 inline constexpr const char* kImageExtensions = "jpg,jpeg,png,bmp,tga,gif,psd,pic,pnm,webp,ktx2";
 
-void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress);
+// loads a model standing on ground (see ModelGround). call from a load (see gLoads).
+void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ModelGround ground = ModelGround::kNone);
 
 // extracts a zip archive into the user profile directory, once: later loads of the same file (by path, size and time)
 // reuse it. returns the directory it was extracted to, or nothing if it failed (the reason is printed to stderr) or was
@@ -149,17 +151,42 @@ std::optional<std::filesystem::path> ExtractArchive(const std::filesystem::path&
 std::vector<std::filesystem::path> FindModels(const std::filesystem::path& directory);
 
 // extracts a zip archive and loads the model in it. with several, see ArchiveModels. call from a load (see gLoads).
-void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, ArchiveModels several);
+void LoadAndInstallArchive(
+	RHI& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, ArchiveModels several, ModelGround ground = ModelGround::kNone);
 
 // loads the models below a directory (e.g. the encodings of a gltf sample model) as one, side by side (see Model::Load).
 // call from a load (see gLoads).
-void LoadAndInstallFolder(RHI& rhi, std::string_view directoryPath, std::atomic_uint8_t& progress);
+void LoadAndInstallFolder(RHI& rhi, std::string_view directoryPath, std::atomic_uint8_t& progress, ModelGround ground = ModelGround::kNone);
 
 [[nodiscard]] bool IsImageFile(const std::filesystem::path& path);
 
 // loads whatever path is, by its type: a directory's models or a zip archive's (see ArchiveModels), a model, an
-// environment panorama (.hdr), or an image (on the default material). call from a load (see gLoads).
-void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ArchiveModels several);
+// environment panorama (.hdr), or an image (on the default material). the models stand on ground (see ModelGround).
+// call from a load (see gLoads).
+void LoadAndInstallFile(
+	RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ArchiveModels several, ModelGround ground = ModelGround::kNone);
+
+// what was opened (File > Open... or Open Recent): a file of any kind the client loads (see LoadAndInstallFile), or
+// several models as one (see Scene::LoadModels), arranged and standing on a ground as the browser said
+struct RecentFile
+{
+	std::vector<std::string> paths;
+	ModelArrangement arrangement = ModelArrangement::kSideBySide; // of several models
+	ModelGround ground = ModelGround::kNone;
+
+	bool operator==(const RecentFile&) const = default;
+};
+// the files opened last (File > Open Recent), newest first, at most kRecentFileCount of them: read from the user profile
+// (recent.txt) when first asked for, and written back whenever they change. ui thread
+inline constexpr size_t kRecentFileCount = 6;
+[[nodiscard]] const std::vector<RecentFile>& RecentFiles();
+// makes it the newest (moved there if it is in the list already, the oldest dropped past kRecentFileCount)
+void AddRecentFile(RecentFile file);
+void ClearRecentFiles();
+// what the menu calls it: the file's name, or the first's and how many more; and beside it, the folder holding them and
+// how they were opened (several side by side or as authored, on a ground plane)
+[[nodiscard]] std::string RecentFileName(const RecentFile& file);
+[[nodiscard]] std::string RecentFileDetail(const RecentFile& file);
 
 // recreates the swapchain at the current surface size, and everything sized after it. caller holds gDrawMutex.
 // returns false if the surface has no area (minimized), in which case nothing is recreated.

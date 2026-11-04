@@ -183,6 +183,7 @@ struct State
 	std::optional<size_t> anchor; // the entry last clicked: what is previewed, and where shift-click ranges start
 	std::optional<size_t> scrollTo; // the entry the arrow keys moved to, scrolled into view when drawn
 	bool sideBySide = true;
+	bool ground = false; // the models opened stand on a ground plane (see ModelGround)
 	bool listed = false;
 	ListOptions options; // the current purpose's (see BrowserPurpose)
 	windowedapplication::BrowserPurpose purpose = windowedapplication::BrowserPurpose::kFiles;
@@ -304,6 +305,24 @@ struct State
 
 } // namespace browser
 
+void WindowedApplication::InternalOpen(const windowedapplication::RecentFile& file)
+{
+	using namespace windowedapplication;
+
+	auto& rhi = GetRHI();
+	if (file.paths.size() == 1)
+		(void)gLoads.Enqueue(
+			file.paths.front(),
+			[&rhi, path = file.paths.front(), ground = file.ground](std::atomic_uint8_t& progress)
+			{ LoadAndInstallFile(rhi, path, progress, ArchiveModels::kChoose, ground); });
+	else if (file.paths.size() > 1)
+		(void)gLoads.Enqueue(
+			std::format("{} models", file.paths.size()),
+			[paths = file.paths, arrangement = file.arrangement, ground = file.ground](std::atomic_uint8_t& progress)
+			{ App().GetScene().LoadModels(paths, progress, {}, arrangement, ground); });
+	AddRecentFile(file);
+}
+
 void WindowedApplication::InternalDrawBrowser()
 {
 	using namespace windowedapplication;
@@ -336,6 +355,9 @@ void WindowedApplication::InternalDrawBrowser()
 		// SPEEDO_BROWSE_ENVIRONMENT=1: for an environment (as View > Environment > Open Environment...)
 		if (const char* environment = std::getenv("SPEEDO_BROWSE_ENVIRONMENT"); environment != nullptr && std::string_view(environment) == "1")
 			gBrowserPurpose = BrowserPurpose::kEnvironment;
+		// SPEEDO_BROWSE_GROUND=1: the models opened stand on a ground plane
+		if (const char* ground = std::getenv("SPEEDO_BROWSE_GROUND"); ground != nullptr && std::string_view(ground) == "1")
+			state.ground = true;
 		// SPEEDO_BROWSE_RECURSIVE=0: without subfolders, and SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas> the
 		// kinds listed (by default every model and zip archive below the folder)
 		if (const char* recursive = std::getenv("SPEEDO_BROWSE_RECURSIVE"); recursive != nullptr && *recursive != '\0')
@@ -438,9 +460,10 @@ void WindowedApplication::InternalDrawBrowser()
 	}
 
 	// opens the selection: one model as it is, several as one (side by side, or as authored), and the rest each by its
-	// type (archives offer their models, see ArchiveModels::kChoose)
-	auto open = [this, &state, &rhi]
+	// type (archives offer their models, see ArchiveModels::kChoose); what holds models on a ground plane, if asked for
+	auto open = [this, &state]
 	{
+		auto ground = state.ground ? ModelGround::kPlane : ModelGround::kNone;
 		std::vector<std::string> models;
 		for (size_t entryIt = 0; entryIt < state.entries.size(); entryIt++)
 		{
@@ -450,19 +473,14 @@ void WindowedApplication::InternalDrawBrowser()
 			if (entry.kind == Kind::kModel)
 				models.push_back(entry.path.string());
 			else if (entry.kind != Kind::kFolder)
-				(void)gLoads.Enqueue(
-					entry.path.string(),
-					[&rhi, path = entry.path.string()](std::atomic_uint8_t& progress)
-					{ LoadAndInstallFile(rhi, path, progress, ArchiveModels::kChoose); });
+				InternalOpen(RecentFile{
+					.paths = {entry.path.string()}, .ground = entry.kind == Kind::kArchive ? ground : ModelGround::kNone});
 		}
-		if (models.size() == 1)
-			(void)gLoads.Enqueue(
-				models.front(), [&rhi, path = models.front()](std::atomic_uint8_t& progress) { LoadAndInstallModel(rhi, path, progress); });
-		else if (models.size() > 1)
-			(void)gLoads.Enqueue(
-				std::format("{} models", models.size()),
-				[models, arrangement = state.sideBySide ? ModelArrangement::kSideBySide : ModelArrangement::kAsAuthored](
-					std::atomic_uint8_t& progress) { App().GetScene().LoadModels(models, progress, {}, arrangement); });
+		if (!models.empty())
+			InternalOpen(RecentFile{
+				.paths = std::move(models),
+				.arrangement = state.sideBySide ? ModelArrangement::kSideBySide : ModelArrangement::kAsAuthored,
+				.ground = ground});
 		gShowBrowser = false;
 	};
 
@@ -751,7 +769,8 @@ void WindowedApplication::InternalDrawBrowser()
 								for (const auto& found : FindModels(*directory))
 									models.push_back(found.string());
 							if (!models.empty() && !cancelled())
-								model = preview->GetScene().LoadModels(models, progress, {}, ModelArrangement::kSideBySide, cancelled);
+								model = preview->GetScene().LoadModels(
+									models, progress, {}, ModelArrangement::kSideBySide, ModelGround::kNone, cancelled);
 						}
 						{
 							std::scoped_lock lock(load->mutex);
@@ -877,6 +896,9 @@ void WindowedApplication::InternalDrawBrowser()
 			Checkbox("Side by side", &state.sideBySide);
 			EndDisabled();
 			SetItemTooltip("Several models: side by side, each scaled to the same size (a set of variants), or as authored, each where it is (the parts of one scene).");
+			SameLine();
+			Checkbox("Ground plane", &state.ground);
+			SetItemTooltip("The models opened stand on a plane of light gray squares, for their shadows and caustics to land on.");
 			SameLine();
 		}
 		BeginDisabled(files == 0);

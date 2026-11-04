@@ -1375,7 +1375,8 @@ struct Scene::Impl
 					.names = model->GetDesc().scenes,
 					.current = model->GetDesc().scene,
 					.variants = model->GetDesc().variants,
-					.variant = model->GetDesc().variant};
+					.variant = model->GetDesc().variant,
+					.ground = model->GetGround()};
 			}
 
 			// its first animation plays, from the start (SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests)
@@ -1400,7 +1401,7 @@ struct Scene::Impl
 
 			RetireAfterGraphicsWork(graphics, std::exchange(myModel, model));
 
-			myViews.SetScene(model->GetDesc().bounds, model->GetDesc().cameras);
+			myViews.SetScene(model->GetDesc().bounds, model->GetFramedBounds(), model->GetDesc().cameras);
 		});
 	}
 
@@ -1449,19 +1450,21 @@ struct Scene::Impl
 
 	// loads a model (or several, side by side as one, see Model::Load) and its materials' textures, and has the draw thread
 	// install them, unless the load was cancelled. call from a load (see gLoads).
-	// scene: a gltf file's scene to load (one file only), else its default one
+	// scene: a gltf file's scene to load (one file only), else its default one. ground: what it stands on
 	std::optional<std::string> LoadAndInstallModels(
 		RHI& rhi,
 		const std::vector<std::string>& filePaths,
 		std::atomic_uint8_t& progress,
 		const mesh::ImportOptions& options = {},
 		ModelArrangement arrangement = ModelArrangement::kSideBySide,
+		ModelGround ground = ModelGround::kNone,
 		core::CancelledFn cancelled = core::NeverCancelled)
 	{
 		auto bvh = mySettings.modelBvhs.load(std::memory_order_relaxed) ? ModelBvh::kBuild : ModelBvh::kNone;
 		auto model = (options.scene || options.variant) && filePaths.size() == 1
-						 ? Model::Load(filePaths.front(), progress, options, bvh, cancelled)
-						 : Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress, arrangement, bvh, cancelled);
+						 ? Model::Load(filePaths.front(), progress, options, bvh, ground, cancelled)
+						 : Model::Load(
+							   std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress, arrangement, bvh, ground, cancelled);
 		if (!model) // cancelled or failed
 			return std::nullopt;
 
@@ -2510,9 +2513,10 @@ std::optional<std::string> Scene::LoadModels(
 	std::atomic_uint8_t& progress,
 	const mesh::ImportOptions& options,
 	ModelArrangement arrangement,
+	ModelGround ground,
 	core::CancelledFn cancelled)
 {
-	return myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, options, arrangement, cancelled);
+	return myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, options, arrangement, ground, cancelled);
 }
 
 void Scene::LoadImage(std::string_view filePath, std::atomic_uint8_t& progress)

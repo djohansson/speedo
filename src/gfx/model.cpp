@@ -42,6 +42,7 @@ Model::Model(
 	std::unique_ptr<bvh::Moving>&& movingGlass,
 	std::optional<ModelRayQueries>&& rayQueries) noexcept
 	: myDesc(std::move(desc))
+	, myFramedBounds(myDesc.bounds)
 	, myBuffers(std::move(buffers))
 	, myUpload(upload)
 	, myMovingBvh(std::move(movingBvh))
@@ -915,6 +916,113 @@ struct BvhCacheHeader
 	return merged;
 }
 
+// a plane under the model (ModelGround::kPlane), added to its staged triangles: a square around its center, 1.25 times
+// its largest dimension from the center to each side (where a shadow of its height falls with the sun 40 degrees up), a
+// thousandth of that dimension below its lowest point (a floor of its own isn't fought), facing up, of squares of two
+// light grays, checkered, of a round size (1, 2 or 5 times a power of ten: 10 to 25 of them from the center to a side),
+// aligned to the world's origin. a submesh with a material and an instance (the identity) of its own, so the model's
+// are as they were; the BVH is built again with it (UploadStaged), unless none is wanted. false if it doesn't fit the
+// device
+[[nodiscard]] static bool AddGround(Device& device, Staged& staged, ModelBvh bvh)
+{
+	ZoneScopedN("gfx::Model::AddGround");
+
+	constexpr float kExtent = 1.25F;
+	constexpr float kDepth = 1e-3F;
+	constexpr float kSquaresPerSide = 10.0F; // at least
+	constexpr std::array kGrays{0.5F, 0.4F}; // linear base colors, as the vertex colors are
+	constexpr float kRoughness = 0.8F;
+
+	auto& desc = staged.desc;
+	auto size = desc.bounds.Size();
+	auto largest = std::max({size.x, size.y, size.z});
+	if (!(largest > 0.0F))
+		largest = 1.0F;
+	auto halfExtent = kExtent * largest;
+	auto target = halfExtent / kSquaresPerSide;
+	auto power = std::pow(10.0F, std::floor(std::log10(target)));
+	auto square = power * (target >= 5.0F * power ? 5.0F : (target >= 2.0F * power ? 2.0F : 1.0F));
+	glm::vec2 center{desc.bounds.Center().x, desc.bounds.Center().z};
+	glm::ivec2 first(glm::floor((center - halfExtent) / square));
+	glm::ivec2 last(glm::ceil((center + halfExtent) / square));
+	float height = desc.bounds.GetMin().y - (kDepth * largest);
+	auto squareCount = static_cast<uint32_t>((last.x - first.x) * (last.y - first.y));
+	auto vertexCount = 4 * squareCount;
+	auto indexCount = 6 * squareCount;
+
+	// a staging buffer extra bytes larger, what it held copied over (and the rest zeroed), mapped
+	auto grow = [&](Buffer& staging, size_t byteCount, size_t extra, std::string_view what)
+	{
+		auto grown = Buffer::CreateStaging(
+			device.CreateDeviceObjectCreateDesc(std::format("{} ({} staging)", desc.name, what)), byteCount + extra);
+		auto memory = grown.Map();
+		if (byteCount > 0)
+		{
+			std::memcpy(memory.data(), staging.Map().data(), byteCount);
+			staging.Unmap();
+		}
+		std::memset(memory.data() + byteCount, 0, extra);
+		staging = std::move(grown);
+		return memory;
+	};
+	auto* vertices = reinterpret_cast<VertexP3fN3fTa4fT014fC4f*>(
+		grow(staged.vertexStaging, desc.vertexCount * sizeof(VertexP3fN3fTa4fT014fC4f), vertexCount * sizeof(VertexP3fN3fTa4fT014fC4f), "vertex").data());
+	auto* indices = reinterpret_cast<uint32_t*>(
+		grow(staged.indexStaging, desc.indexCount * sizeof(uint32_t), indexCount * sizeof(uint32_t), "index").data());
+	if (desc.skinned) // its vertices of no joints (the ground's submesh isn't skinned)
+	{
+		(void)grow(staged.skinStaging, desc.vertexCount * sizeof(SkinVertex), vertexCount * sizeof(SkinVertex), "skin");
+		staged.skinStaging.Unmap();
+	}
+
+	auto vertexIt = desc.vertexCount;
+	auto indexIt = desc.indexCount;
+	for (int32_t z = first.y; z < last.y; z++)
+	{
+		for (int32_t x = first.x; x < last.x; x++)
+		{
+			auto gray = kGrays[static_cast<size_t>((x + z) & 1)];
+			// counter-clockwise seen from above (+y): (x, z), (x + 1, z), (x + 1, z + 1), (x, z + 1)
+			for (auto [cornerX, cornerZ] : {std::pair{x, z}, std::pair{x + 1, z}, std::pair{x + 1, z + 1}, std::pair{x, z + 1}})
+			{
+				VertexP3fN3fTa4fT014fC4f vertex{};
+				vertex.position[0] = static_cast<float>(cornerX) * square;
+				vertex.position[1] = height;
+				vertex.position[2] = static_cast<float>(cornerZ) * square;
+				vertex.normal[1] = 1.0F;
+				vertex.color[0] = vertex.color[1] = vertex.color[2] = gray;
+				vertex.color[3] = 1.0F;
+				vertices[vertexIt++] = vertex;
+			}
+			for (uint32_t corner : {4U, 1U, 2U, 4U, 2U, 3U})
+				indices[indexIt++] = vertexIt - corner;
+		}
+	}
+	staged.vertexStaging.Unmap();
+	staged.indexStaging.Unmap();
+
+	Bounds3f bounds(
+		glm::vec3(static_cast<float>(first.x) * square, height, static_cast<float>(first.y) * square),
+		glm::vec3(static_cast<float>(last.x) * square, height, static_cast<float>(last.y) * square));
+	desc.submeshes.push_back(ModelSubmesh{
+		.firstIndex = desc.indexCount,
+		.indexCount = indexCount,
+		.material = static_cast<int32_t>(desc.materials.size()),
+		.firstInstance = static_cast<uint32_t>(desc.instances.size()),
+		.bounds = bounds});
+	auto& material = desc.materials.emplace_back();
+	material.name = "Ground";
+	material.roughness = kRoughness;
+	desc.instances.emplace_back(1.0F);
+	desc.bounds.Merge(bounds);
+	desc.indexCount += indexCount;
+	desc.vertexCount += vertexCount;
+	if (bvh == ModelBvh::kBuild)
+		staged.bvh.reset();
+
+	return FitsDevice(device, desc, desc.name);
+}
+
 // uploads a model's staged indices and vertices on the transfer queue (see Model::Load)
 // each instance's transform and its inverse transpose (for the normals), as ModelInstance
 static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memory)
@@ -1324,7 +1432,12 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 } // namespace model
 
 std::shared_ptr<Model> Model::Load(
-	std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& options, ModelBvh bvh, core::CancelledFn cancelled)
+	std::string_view filePath,
+	std::atomic_uint8_t& progress,
+	const mesh::ImportOptions& options,
+	ModelBvh bvh,
+	ModelGround ground,
+	core::CancelledFn cancelled)
 {
 	ZoneScopedN("gfx::Model::Load");
 
@@ -1335,7 +1448,16 @@ std::shared_ptr<Model> Model::Load(
 	auto staged = model::LoadStaged(device, filePath, progress, options, bvh, cancelled);
 	if (!staged || cancelled()) // cancelled or failed
 		return {};
-	return model::UploadStaged(device, std::move(*staged), bvh);
+	auto framed = staged->desc.bounds;
+	if (ground == ModelGround::kPlane && !model::AddGround(device, *staged, bvh))
+		return {};
+	auto model = model::UploadStaged(device, std::move(*staged), bvh);
+	if (model)
+	{
+		model->myGround = ground;
+		model->myFramedBounds = framed;
+	}
+	return model;
 }
 
 std::string Model::ImportVersion(std::string_view filePath)
@@ -1349,7 +1471,12 @@ std::string Model::ImportVersion(std::string_view filePath)
 }
 
 std::shared_ptr<Model> Model::Load(
-	std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress, ModelArrangement arrangement, ModelBvh bvh, core::CancelledFn cancelled)
+	std::span<const std::string_view> filePaths,
+	std::atomic_uint8_t& progress,
+	ModelArrangement arrangement,
+	ModelBvh bvh,
+	ModelGround ground,
+	core::CancelledFn cancelled)
 {
 	ZoneScopedN("gfx::Model::Load");
 
@@ -1418,8 +1545,17 @@ std::shared_ptr<Model> Model::Load(
 	// its BVH built from the staged triangles once placed (by UploadStaged), unless none is wanted
 	if (bvh == ModelBvh::kNone)
 		merged->bvh = bvh::Data{};
+	auto framed = merged->desc.bounds;
+	if (ground == ModelGround::kPlane && !model::AddGround(device, *merged, bvh))
+		return {};
 
-	return model::UploadStaged(device, std::move(*merged), bvh);
+	auto model = model::UploadStaged(device, std::move(*merged), bvh);
+	if (model)
+	{
+		model->myGround = ground;
+		model->myFramedBounds = framed;
+	}
+	return model;
 }
 //NOLINTEND(readability-magic-numbers)
 
