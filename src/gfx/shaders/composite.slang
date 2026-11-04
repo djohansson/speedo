@@ -85,7 +85,7 @@ void ComputeMain(
 		}
 
 		// the aerial perspective (see AerialPerspectiveData): the air between the eye and what was drawn, which the sky's
-		// own (the backdrop) has already; the light alone, not the debug views
+		// own (the backdrop) has already but for the fog near the ground; the light alone, not the debug views
 		AerialPerspectiveData aerial = gAerialPerspectiveData[frameIndex][0];
 		bool aerialOn = aerial.enabled != 0u && inView && debugView == DEBUG_VIEW_NONE && !voxelWorld;
 		if (aerialOn && color.a != 0.0)
@@ -94,6 +94,13 @@ void ComputeMain(
 			float3 transmittance;
 			AerialPerspectiveAtDepth(
 				aerial, pixelView, pixelViewIndex, xy, gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(xy, 0)).r, light, transmittance);
+			color.rgb = color.rgb * transmittance + light;
+		}
+		else if (aerialOn && aerial.fog.x > 0.0 && gPushConstants.environmentBackdrop != 0u)
+		{
+			float3 light;
+			float3 transmittance;
+			AerialPerspectiveSky((float2(xy) + 0.5 - pixelView.viewport.xy) / pixelView.viewport.zw, pixelViewIndex, light, transmittance);
 			color.rgb = color.rgb * transmittance + light;
 		}
 

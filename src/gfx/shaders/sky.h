@@ -113,17 +113,21 @@ float3 SkyMultipleScattering(Texture2D table, SamplerState linear, float r, floa
 	return table.SampleLevel(linear, float2(SkySubUv(saturate(muSun * 0.5 + 0.5), size), SkySubUv(altitude, size)), 0.0).rgb;
 }
 
-// the phase functions: air's (Rayleigh), and the aerosols' (Cornette and Shanks)
+// the phase functions: air's (Rayleigh), and the aerosols' (Cornette and Shanks, of an asymmetry g)
 float SkyRayleighPhase(float cosine)
 {
 	return 3.0 / (16.0 * kSkyPi) * (1.0 + cosine * cosine);
 }
 
-float SkyMiePhase(float cosine)
+float SkyCornetteShanksPhase(float cosine, float g)
 {
-	float g = SHADER_TYPES_ATMOSPHERE_MIE_G;
 	float k = 3.0 / (8.0 * kSkyPi) * (1.0 - g * g) / (2.0 + g * g);
 	return k * (1.0 + cosine * cosine) / pow(max(1.0 + g * g - 2.0 * g * cosine, 1e-6), 1.5);
+}
+
+float SkyMiePhase(float cosine)
+{
+	return SkyCornetteShanksPhase(cosine, SHADER_TYPES_ATMOSPHERE_MIE_G);
 }
 
 // the light the atmosphere scatters toward origin along a ray (a unit direction), up to the ground or the top, in

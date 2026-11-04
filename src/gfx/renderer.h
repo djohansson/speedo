@@ -104,11 +104,14 @@ struct FrameInputs
 	bool emissiveLights = true;
 	// the aerial perspective (see AerialPerspectiveData): whether the sky's atmosphere is between the eye and what it sees
 	// (where the environment is the sky), toward the sky's sun (a unit vector, the world's), the scene's unit in meters,
-	// and the light of lights that is the sky's sun, whose shadow views cast its light shafts (none: no shafts)
+	// and the light of lights that is the sky's sun, whose shadow views cast its light shafts (none: no shafts); and the fog
+	// near the ground (see AerialPerspectiveData::fog): its visibility at the ground (km, 0 for none) and scale height (m)
 	bool aerialPerspective = false;
 	glm::vec3 skySun{0.0F, 1.0F, 0.0F};
 	float metersPerUnit = 1.0F;
 	std::optional<uint32_t> shaftLight;
+	float fogVisibility = 0.0F;
+	float fogHeight = 0.0F;
 	// each view's camera, as the frame draws it: what the shadows are fitted to (see shadows::Plan), and the indirect
 	// lighting's clips follow (the first view's)
 	std::vector<shadows::ShadowCamera> cameras;
@@ -614,9 +617,11 @@ private:
 	Buffer myGiStaticVoxelBuffer;
 	FrameGraph::BufferId myGiStaticVoxels;
 	FrameGraph::PassId myGiKeepPass;
-	// the static voxels' direct light (GiData::directFirst) is made again when the lights change: the last frame's lights
+	// the static voxels' direct light (GiData::directFirst) is made again when the lights change: the last frame's lights,
+	// and the fog they come through (see AerialPerspectiveData::fog)
 	FrameGraph::PassId myGiLightStaticPass;
 	std::vector<LightData> myGiLights;
+	std::array<float, 4> myGiFog{};
 	bool myGiLightsChanged = false;
 	// and whether they changed a little (the same lights, turned and dimmed a little: the sky's sun as the time of day
 	// advances), for how many frames more the surface cache follows them rather than starting over (see

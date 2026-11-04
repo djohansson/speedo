@@ -42,6 +42,15 @@ static_assert(sizeof(PushConstants) <= 128);
 	return static_cast<uint32_t>(std::min<uint64_t>(PixelCount(extent) * SHADER_TYPES_OIT_NODES_PER_PIXEL, SHADER_TYPES_OIT_NONE - 1));
 }
 
+// the fog near the ground as AerialPerspectiveData::fog has it: its extinction at the ground (per km, Koschmieder's 3.912
+// over its visibility) and its scale height (km); none where the air isn't drawn
+[[nodiscard]] std::array<float, 4> FogData(const FrameInputs& frame)
+{
+	if (!frame.aerialPerspective || !(frame.fogVisibility > 0.0F) || !(frame.fogHeight > 0.0F))
+		return {0.0F, 1.0F, 0.0F, 0.0F};
+	return {3.912F / frame.fogVisibility, frame.fogHeight * 1e-3F, 0.0F, 0.0F};
+}
+
 // the gpu's culling: ComputeCull, the Main layout's sixth compute entry point. a job per draw list and view drawing it
 // (the main pass's phases and the scatter passes' lists by the main views, the shadows' by the shadow views), and the
 // views, main then shadow
@@ -213,7 +222,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	}
 	myEmitterReservoirs = myGraph.ImportBuffer("Emitter Reservoirs");
 	// the aerial perspective's volume (see AerialPerspectiveData): its in-scattering and transmittance, every split view's
-	// slices stacked along z, sampled where the storage views write them
+	// slices (and the fog's toward the sky, see SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT) stacked along z, sampled
+	// where the storage views write them
 	for (uint32_t volumeIt = 0; volumeIt < myAerialPerspectiveImages.size(); volumeIt++)
 	{
 		auto name = std::format("Aerial Perspective {}", volumeIt == 0 ? "Light" : "Transmittance");
@@ -225,7 +235,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		desc.memoryFlags = MemoryProperty::kDeviceLocal;
 		desc.imageAspectFlags = ImageAspect::kColor;
 		desc.layout = ImageLayout::kUndefined;
-		desc.depth = SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT;
+		desc.depth = SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT;
 		auto& volume = myAerialPerspectiveImages[volumeIt];
 		volume.image = std::make_unique<Image>(std::move(desc));
 		ImageViewCreateDesc viewDesc{
@@ -3055,6 +3065,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		data.enabled = frame.aerialPerspective ? 1U : 0U;
 		data.shaftLight = frame.shaftLight && *frame.shaftLight < frame.lights.size() && frame.shadows ? *frame.shaftLight : SHADER_TYPES_NO_SHADOW;
 		data.viewCount = std::min<uint32_t>(static_cast<uint32_t>(frame.viewports.size()), SHADER_TYPES_SPLIT_VIEW_COUNT);
+		std::ranges::copy(renderer::FogData(frame), data.fog);
 		// as far along each view as the scene goes, as the cascades reach (see shadows::Plan)
 		for (size_t viewIt = 0; viewIt < std::min<size_t>(frame.cameras.size(), SHADER_TYPES_SPLIT_VIEW_COUNT); viewIt++)
 		{
@@ -4023,15 +4034,16 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		return;
 	}
 	// the static voxels are lit again when the lights change (any of them: the environment's rotation turns its dominant
-	// lights, which are among them), and when the emissive surfaces start or stop lighting
+	// lights, which are among them), and the fog they come through, and when the emissive surfaces start or stop lighting
 	myGiEmittersToggled = myGiEmittersLit != myEmittersOn;
+	auto fog = renderer::FogData(frame);
 	myGiLightsChanged = frame.lights.size() != myGiLights.size() || !std::ranges::equal(std::as_bytes(frame.lights), std::as_bytes(std::span(myGiLights))) ||
-						myGiEmittersLit != myEmittersOn;
+						fog != myGiFog || myGiEmittersLit != myEmittersOn;
 	// a change is gradual where the same lights only turned and dimmed a little (the sky's sun as the time of day
 	// advances, drawn again every 0.05 degrees): the surface cache then keeps what it has and follows them, sampling as
 	// where something moves (at most 32 samples, see GiCacheUpdate), for kGiLightsFollowFrameCount frames after the
 	// last change, rather than starting over every frame (one ray a voxel, never accumulated)
-	myGiLightsGradual = myGiLightsChanged && frame.lights.size() == myGiLights.size() && myGiEmittersLit == myEmittersOn &&
+	myGiLightsGradual = myGiLightsChanged && frame.lights.size() == myGiLights.size() && fog == myGiFog && myGiEmittersLit == myEmittersOn &&
 						std::ranges::all_of(
 							std::views::iota(size_t{0}, frame.lights.size()),
 							[&frame, this](size_t lightIt)
@@ -4054,7 +4066,10 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	else if (myGiLightsFollowFrames > 0)
 		myGiLightsFollowFrames--;
 	if (myGiLightsChanged)
+	{
 		myGiLights.assign(frame.lights.begin(), frame.lights.end());
+		myGiFog = fog;
+	}
 	myGiEmittersLit = myEmittersOn;
 
 	// the clipmap, made again (and voxelized) when the model, its bounds or its draws change; a clip that moves with the

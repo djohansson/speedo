@@ -2568,6 +2568,8 @@ struct Scene::Impl
 				.skySun = skySun,
 				.metersPerUnit = mySettings.metersPerUnit.load(std::memory_order_relaxed),
 				.shaftLight = mySettings.lightShafts.load(std::memory_order_relaxed) ? SkySunLight(skySun) : std::nullopt,
+				.fogVisibility = mySettings.fog.load(std::memory_order_relaxed) ? mySettings.fogVisibility.load(std::memory_order_relaxed) : 0.0F,
+				.fogHeight = mySettings.fogHeight.load(std::memory_order_relaxed),
 				.cameras = std::move(shadowCameras),
 				.sceneBounds = myModel ? myModel->GetDesc().bounds : Bounds3f{},
 				.casterBounds = myModel ? myModel->GetFramedBounds() : Bounds3f{},

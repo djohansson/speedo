@@ -138,6 +138,12 @@ public:
 		std::atomic<bool> aerialPerspective = true;
 		std::atomic<bool> lightShafts = true;
 		std::atomic<float> metersPerUnit = 1.0F;
+		// the fog near the ground, in the aerial perspective's air (see AerialPerspectiveData::fog; View > Environment > Fog,
+		// SPEEDO_FOG=0 to start without), its visibility at the ground (km; Fog Visibility, SPEEDO_FOG_VISIBILITY) and the
+		// scale height its density falls by (m; Fog Height, SPEEDO_FOG_HEIGHT): a clear day's by default
+		std::atomic<bool> fog = true;
+		std::atomic<float> fogVisibility = environment::kFogDefaultVisibility;
+		std::atomic<float> fogHeight = environment::kFogDefaultHeight;
 	};
 
 	// which of the installed model's animations plays (see Model::Animate), and its clock. the ui thread reads and

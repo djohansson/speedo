@@ -34,8 +34,23 @@ float3 LightAttenuation(uint lightIndex, LightData light, float3 position, float
 	return attenuation * ShadowFactor(lightIndex, light, position, geometryNormal, toLight);
 }
 
+// how much of a light's intensity the fog near the ground lets through to position (see AerialPerspectiveData::fog, where
+// the air is drawn), toward it (toLight): a directional light's through the layer above, a point or spot light's along
+// the way from it
+float LightFog(LightData light, float3 position, float3 toLight)
+{
+	AerialPerspectiveData data = gAerialPerspectiveData[gPushConstants.frameIndex][0];
+	if (data.enabled == 0u || data.fog.x <= 0.0)
+		return 1.0;
+	float altitude = AerialPerspectiveAltitude(data, position.y);
+	if (light.type == LIGHT_TYPE_DIRECTIONAL)
+		return exp(-FogDepthToSky(data, altitude, toLight.y));
+	float km = distance(light.positionRange.xyz, position) * data.metersPerUnit * 1e-3;
+	return exp(-FogDepthAlong(data, altitude, AerialPerspectiveAltitude(data, light.positionRange.y), km));
+}
+
 // the direction from position towards a light (toLight), and how much of its intensity reaches there unshadowed: by
-// distance and a spot light's cone
+// distance and a spot light's cone, through the fog near the ground (LightFog)
 float LightFalloff(LightData light, float3 position, out float3 toLight)
 {
 	float attenuation = 1.0;
@@ -61,5 +76,5 @@ float LightFalloff(LightData light, float3 position, out float3 toLight)
 			attenuation *= cone * cone;
 		}
 	}
-	return attenuation;
+	return attenuation > 0.0 ? attenuation * LightFog(light, position, toLight) : 0.0;
 }

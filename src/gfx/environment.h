@@ -67,6 +67,17 @@ constexpr float kSkyClearestVisibility = static_cast<float>(3.912 / SHADER_TYPES
 // the aerosols for a visibility, times Hillaire's (EnvironmentData::skyAtmosphere's x)
 [[nodiscard]] float SkyAerosols(float visibility);
 
+// the fog near the ground (see AerialPerspectiveData::fog), a layer of haze and droplets on top of the sky's air, densest
+// at the ground: a clear day's by default, 30 km of visibility at the ground (a clear day's is 20 to 40, the sky's own air
+// very clear above it, see kSkyDefaultVisibility) in a layer of 200 m scale height (the air near the surface, where the
+// day's haze and moisture gather: an optical depth of 0.03 up through it, a clean day's aerosols), which hazes what is far
+// along the ground and the horizon's lowest degrees, and leaves the sky above and the sun clear (5% of it taken at 30
+// degrees up). 50 m drew its horizon a line a pixel thick, darker than the sky above and the ground below. mist and fog
+// are hundreds of metres of visibility, and layers of tens of metres what the light shafts of a building's scale shine
+// through
+constexpr float kFogDefaultVisibility = 30.0F; // km
+constexpr float kFogDefaultHeight = 200.0F; // m
+
 // the atmosphere's transmittance toward a direction (a unit vector, +y up), from the eye's altitude
 // (SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE) to the top of the atmosphere, as the sky's transmittance table has it: 0 where the
 // planet is in the way (the sun below the horizon). aerosols: see SkyAerosols

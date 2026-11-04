@@ -199,6 +199,12 @@ struct Pose
 
 // the least visibility through the sky's air View > Environment offers (km: mist, see environment::SkyAerosols)
 constexpr float kMinVisibility = 1.0F;
+// the fog near the ground's (see Scene::Settings::fog): its visibility, from thick fog (km) to as good as none, and its
+// scale height (m)
+constexpr float kMinFogVisibility = 0.05F;
+constexpr float kMaxFogVisibility = 1000.0F;
+constexpr float kMinFogHeight = 1.0F;
+constexpr float kMaxFogHeight = 5000.0F;
 
 // the settings a pose names (see InternalCopyPose), as View sets them, from the variables that reproduce them, at startup
 // from the environment and from a pose pasted (Paste Pose): lookup(name) is a variable's value, or null where it isn't
@@ -331,6 +337,10 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 	apply(settings.aerialPerspective, kDefaults.aerialPerspective, "SPEEDO_AERIAL_PERSPECTIVE", unless("0"));
 	apply(settings.lightShafts, kDefaults.lightShafts, "SPEEDO_LIGHT_SHAFTS", unless("0"));
 	apply(settings.metersPerUnit, kDefaults.metersPerUnit, "SPEEDO_METERS_PER_UNIT", number(1e-6F, kAny));
+	// the fog near the ground in it, its visibility at the ground (km) and its scale height (m)
+	apply(settings.fog, kDefaults.fog, "SPEEDO_FOG", unless("0"));
+	apply(settings.fogVisibility, kDefaults.fogVisibility, "SPEEDO_FOG_VISIBILITY", number(kMinFogVisibility, kMaxFogVisibility));
+	apply(settings.fogHeight, kDefaults.fogHeight, "SPEEDO_FOG_HEIGHT", number(kMinFogHeight, kMaxFogHeight));
 }
 
 // a pose's text read from the clipboard (on the main thread, see InternalPastePose), for the next PrepareDraw
@@ -579,6 +589,12 @@ void WindowedApplication::InternalCopyPose()
 			text += " SPEEDO_AERIAL_PERSPECTIVE=0";
 		if (!settings.lightShafts.load(std::memory_order_relaxed))
 			text += " SPEEDO_LIGHT_SHAFTS=0";
+		if (!settings.fog.load(std::memory_order_relaxed))
+			text += " SPEEDO_FOG=0";
+		if (float visibility = settings.fogVisibility.load(std::memory_order_relaxed); visibility != gfx::environment::kFogDefaultVisibility)
+			text += std::format(" SPEEDO_FOG_VISIBILITY={:.4g}", static_cast<double>(visibility));
+		if (float height = settings.fogHeight.load(std::memory_order_relaxed); height != gfx::environment::kFogDefaultHeight)
+			text += std::format(" SPEEDO_FOG_HEIGHT={:.4g}", static_cast<double>(height));
 	}
 	if (float metersPerUnit = settings.metersPerUnit.load(std::memory_order_relaxed); metersPerUnit != 1.0F)
 		text += std::format(" SPEEDO_METERS_PER_UNIT={:.6g}", static_cast<double>(metersPerUnit));
@@ -2241,6 +2257,23 @@ void WindowedApplication::PrepareDraw()
 						if (Checkbox("Light Shafts", &shafts))
 							settings.lightShafts.store(shafts, std::memory_order_relaxed);
 						SetItemTooltip("The sun's shadows in the air: shafts of light where it shines between what casts them.");
+						// the fog near the ground, in the air (see AerialPerspectiveData::fog)
+						bool fog = settings.fog.load(std::memory_order_relaxed);
+						if (Checkbox("Fog", &fog))
+							settings.fog.store(fog, std::memory_order_relaxed);
+						SetItemTooltip(
+							"A layer of haze near the ground, densest at it: what is far along the ground fades into it, the lights "
+							"shine through it, and the sun in shafts where it is dense.");
+						BeginDisabled(!fog);
+						float fogVisibility = settings.fogVisibility.load(std::memory_order_relaxed);
+						if (DragFloat("Fog Visibility", &fogVisibility, 0.5F, ui::kMinFogVisibility, ui::kMaxFogVisibility, "%.3g km", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+							settings.fogVisibility.store(fogVisibility, std::memory_order_relaxed);
+						SetItemTooltip("How far one sees through the fog at the ground: 30 km a clear day, 2 km mist, 0.2 km fog. Drag, or double-click to type.");
+						float fogHeight = settings.fogHeight.load(std::memory_order_relaxed);
+						if (DragFloat("Fog Height", &fogHeight, 1.0F, ui::kMinFogHeight, ui::kMaxFogHeight, "%.3g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+							settings.fogHeight.store(fogHeight, std::memory_order_relaxed);
+						SetItemTooltip("How thick the layer is: this high up it is a third as dense as at the ground (its scale height). Drag, or double-click to type.");
+						EndDisabled();
 						float metersPerUnit = settings.metersPerUnit.load(std::memory_order_relaxed);
 						if (DragFloat("Meters per Unit", &metersPerUnit, 0.01F, 1e-4F, 1e4F, "%.4g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
 							settings.metersPerUnit.store(metersPerUnit, std::memory_order_relaxed);

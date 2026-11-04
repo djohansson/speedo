@@ -256,6 +256,11 @@ extern "C"
 #define SHADER_TYPES_ATMOSPHERE_MIE_EXTINCTION 4.440e-3
 #define SHADER_TYPES_ATMOSPHERE_MIE_SCALE_HEIGHT 1.2
 #define SHADER_TYPES_ATMOSPHERE_MIE_G 0.8
+// the fog near the ground's phase asymmetry (see AerialPerspectiveData::fog): broader than the aerosols', haze's (0.6 to
+// 0.7) rather than a droplet's alone (0.85), whose light the fog scatters again. by the aerosols' 0.8, which scatters a
+// tenth of what Rayleigh's does sideways, a fog thick along the ground but not above it gave the horizon away from the sun
+// half the clear air's light: a dark line between the sky and the lit ground
+#define SHADER_TYPES_FOG_G 0.6
 // ozone: absorption per km at its densest, rgb, in a layer 30 km thick around 25 km up, densest in its middle
 #define SHADER_TYPES_ATMOSPHERE_OZONE_R 0.650e-3
 #define SHADER_TYPES_ATMOSPHERE_OZONE_G 1.881e-3
@@ -278,10 +283,12 @@ extern "C"
 // the aerial perspective's volume (see AerialPerspectiveData), per view: _WIDTH by _HEIGHT cells across its viewport, and
 // _SLICE_COUNT slices of distance along each cell's ray, the first at the eye, the second _NEAR meters from it and each after
 // a constant factor farther, the last _FAR meters (the light shafts are near the eye, the haze kilometres off), each marched
-// in _STEP_COUNT steps
+// in _STEP_COUNT steps; then one more, _VIEW_SLICE_COUNT in all, of what the fog near the ground does to the sky seen through
+// it (see AerialPerspectiveData::fog: the sky has the rest of the air already)
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH 160u
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT 90u
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT 64u
+#define SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT (SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT + 1u)
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_STEP_COUNT 4u
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_NEAR 1.0
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_FAR 200000.0
@@ -505,6 +512,11 @@ struct AerialPerspectiveData
 	// per view: as far along it as the scene goes (as the shadows' cascades reach, see shadows::Plan), past which neither
 	// the light shafts' shadow views nor the indirect lighting's probes hold anything
 	alignas(16) FLOAT4(sceneDepths);
+	// the fog near the ground, a layer of the air denser near the planet's surface (droplets and haze: it scatters what it
+	// takes, by a phase of its own, SHADER_TYPES_FOG_G) on top of the sky's, whose density falls exponentially with the height: x
+	// its extinction at the surface (per km: 3.912 over its visibility, Koschmieder's), 0 for none; y its scale height (km).
+	// the air's light and the lights' (LightFog) go through it; the sky's tables don't (it is far thinner than their rows)
+	alignas(16) FLOAT4(fog);
 };
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,

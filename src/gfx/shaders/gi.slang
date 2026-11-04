@@ -1238,7 +1238,7 @@ float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool 
 		if (attenuation * nDotL <= 0.0)
 			continue;
 		float visibility = GiVisibility(gi, position + normal * push, toLight, distance - push, moving);
-		irradiance += light.intensity.rgb * attenuation * nDotL * visibility;
+		irradiance += light.intensity.rgb * attenuation * LightFog(light, position, toLight) * nDotL * visibility;
 	}
 	return emission + albedo.rgb / 3.14159265 * irradiance + (emitters ? GiEmitterRadiance(gi, at, voxel, albedo, moving, open) : 0.0);
 }

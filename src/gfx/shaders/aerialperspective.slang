@@ -24,6 +24,42 @@ float AerialPerspectiveDistance(float slice)
 	return near * exp2((slice - 1.0) / (last - 1.0) * log2(SHADER_TYPES_AERIAL_PERSPECTIVE_FAR / near));
 }
 
+// the altitude (km over the planet's surface) of a height in the scene (its y): the scene's lowest point is on the surface,
+// where an eye is SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE up, the sky's (see AerialPerspectiveData::groundHeight)
+float AerialPerspectiveAltitude(AerialPerspectiveData data, float y)
+{
+	return SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE + max(y - data.groundHeight, 0.0) * data.metersPerUnit * 1e-3;
+}
+
+// the fog near the ground (see AerialPerspectiveData::fog): its extinction at an altitude (km), per km
+float FogExtinction(AerialPerspectiveData data, float altitude)
+{
+	return data.fog.x * exp(-max(altitude, 0.0) / data.fog.y);
+}
+
+// its optical depth from an altitude (km) to the sky, along a direction rising at a sine of rise: the layer is level over
+// the ground it covers, and a ray along the ground leaves it where the planet's curve has taken it up the scale height,
+// sqrt(2 R H) away (the least rise, sqrt(2 H / (pi R)), gives that depth: Chapman's at the horizon)
+float FogDepthToSky(AerialPerspectiveData data, float altitude, float rise)
+{
+	float height = data.fog.y;
+	float least = sqrt(2.0 * height / (kSkyPi * SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS));
+	return data.fog.x * height * exp(-max(altitude, 0.0) / height) / max(rise, least);
+}
+
+// its optical depth along a straight segment of a length (km) from an altitude to another (km): the mean of its density
+// between them, which falls exponentially with the height, times the length
+float FogDepthAlong(AerialPerspectiveData data, float from, float to, float length)
+{
+	float height = data.fog.y;
+	float low = max(from, 0.0);
+	float high = max(to, 0.0);
+	float a = exp(-low / height);
+	float b = exp(-high / height);
+	float mean = abs(high - low) > 1e-3 * height ? (a - b) * height / (high - low) : 0.5 * (a + b);
+	return data.fog.x * mean * length;
+}
+
 // how much of the sun's light reaches a point in the air (in the world), by the light's shadow views (a directional
 // light's cascades, finest first, as PlaceInShadowMap takes them, without its normal offset: the air has no surface): a
 // bilinear comparison in the finest that holds it, lit where none does (past the scene, whose casters they hold)
@@ -127,7 +163,9 @@ float4 AerialPerspectiveAmbient(float3 position)
 // else the sky's multiple scattering (as under an open sky: in a roofed corridor, the air glowed with skylight it has
 // none of). in the renderer's units. the steps are offset per cell by interleaved gradient noise, the same every frame,
 // so that a shaft's edge dithers across cells rather than banding along slices; the volume's slices store what reaches
-// the eye from up to each
+// the eye from up to each. the fog near the ground (AerialPerspectiveData::fog) is part of the air, and the sun's light
+// reaching a point comes through it (FogDepthToSky); what it alone scatters and lets through along the whole ray goes in
+// the view's last slice, for the sky seen through it (AerialPerspectiveSky), which has the rest of the air already
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void ComputeAerialPerspective(uint3 id : SV_DispatchThreadID)
@@ -145,17 +183,39 @@ void ComputeAerialPerspective(uint3 id : SV_DispatchThreadID)
 	float3 eye = view.eyePosition.xyz;
 
 	float metersPerUnit = data.metersPerUnit;
-	float altitude = SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE + max(eye.y - data.groundHeight, 0.0) * metersPerUnit * 1e-3;
-	float3 origin = float3(0.0, SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS + altitude, 0.0); // km
+	float3 origin = float3(0.0, SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS + AerialPerspectiveAltitude(data, eye.y), 0.0); // km
+	bool fog = data.fog.x > 0.0;
 	float3 sun = data.sun.xyz;
 	float cosine = dot(ray, sun);
 	float rayleighPhase = SkyRayleighPhase(cosine);
 	float miePhase = SkyMiePhase(cosine);
+	float fogPhase = SkyCornetteShanksPhase(cosine, SHADER_TYPES_FOG_G);
 	Texture2D transmittanceTable = gTextures[SHADER_TYPES_SKY_TRANSMITTANCE_TEXTURE];
 	Texture2D multipleTable = gTextures[SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE];
 	SamplerState linear = gSamplers[SHADER_TYPES_CLAMP_SAMPLER];
 	float aerosols = gEnvironment[0].skyAtmosphere.x; // as the sky's tables were made for
 	bool shafts = data.shaftLight != SHADER_TYPES_NO_SHADOW;
+	// the light around the fog under an open sky, which it scatters by its phase: mostly forward, so mostly what comes from
+	// behind it along the ray, the environment's radiance that way (prefiltered to about the phase's width: the sky's
+	// without its sun, a directional light, over the ground lit by it), the rest the sky's and the ground's mean (the
+	// environment's irradiance over pi, along the axes); not the air's multiple scattering alone, which the clear air takes
+	// (the fog isn't in the sky's tables, so the sky's whole light is light the fog scatters again). by the table alone, or
+	// the mean alone, a fog along the ground darkened the horizon a tenth to a third below the clear sky's, a gray line
+	// between the sky and the lit ground: the air's phase scatters a high sun sideways four times as much as the fog's
+	float3 skyAround = 0.0;
+	if (fog)
+	{
+		EnvironmentData environment = gEnvironment[0];
+		float3 mean = 0.0;
+		for (uint axisIt = 0; axisIt < 3; axisIt++)
+		{
+			float3 axis = float3(axisIt == 0 ? 1.0 : 0.0, axisIt == 1 ? 1.0 : 0.0, axisIt == 2 ? 1.0 : 0.0);
+			mean += EnvironmentIrradiance(environment, axis) + EnvironmentIrradiance(environment, -axis);
+		}
+		const float kForwardShare = 0.75; // of the phase's weight within 60 degrees of forward, at SHADER_TYPES_FOG_G
+		const float kForwardRoughness = 0.5; // a lobe about as wide
+		skyAround = kForwardShare * EnvironmentRadiance(environment, ray, kForwardRoughness) + (1.0 - kForwardShare) * mean / 6.0;
+	}
 	float offset = shafts ? frac(52.9829189 * frac(dot(float2(id.xy) + float(id.z) * 17.0, float2(0.06711056, 0.00583715)))) : 0.5;
 	// the scene's reach along the ray, in meters (the view's depth over the ray's share of it): past it, no shadow view
 	// nor probe holds anything
@@ -164,11 +224,13 @@ void ComputeAerialPerspective(uint3 id : SV_DispatchThreadID)
 	float3 forward = normalize(centerFar.xyz / centerFar.w - centerNear.xyz / centerNear.w);
 	float sceneReach = data.sceneDepths[min(id.z, 3u)] / max(dot(ray, forward), 1e-3) * metersPerUnit;
 
-	uint first = id.z * SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT;
+	uint first = id.z * SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT;
 	gAerialPerspectiveImages[0][uint3(id.xy, first)] = float4(0.0, 0.0, 0.0, 0.0);
 	gAerialPerspectiveImages[1][uint3(id.xy, first)] = float4(1.0, 1.0, 1.0, 1.0);
 	float3 light = 0.0; // in the renderer's units
 	float3 transmittance = 1.0;
+	float3 fogLight = 0.0; // the fog's alone (see the last slice)
+	float fogTransmittance = 1.0;
 	float previous = 0.0; // meters
 	for (uint slice = 1; slice < SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT; slice++)
 	{
@@ -186,21 +248,39 @@ void ComputeAerialPerspective(uint3 id : SV_DispatchThreadID)
 			float3 position = origin + ray * (at * 1e-3);
 			float r = length(position);
 			float muSun = dot(position / r, sun);
-			SkyMedium medium = SkyMediumAt(r - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS, aerosols);
+			float altitude = r - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS;
+			SkyMedium medium = SkyMediumAt(altitude, aerosols);
+			// the fog: it scatters what it takes (water and haze), by a phase of its own (SHADER_TYPES_FOG_G)
+			float fogExtinction = fog ? FogExtinction(data, altitude) : 0.0;
+			float3 extinction = medium.extinction + fogExtinction;
 			float3 sunLight = SkyTransmittance(transmittanceTable, linear, r, muSun) * SkySunVisible(position, sun);
+			if (fog)
+				sunLight *= exp(-FogDepthToSky(data, altitude, muSun));
 			if (shafts && at <= sceneReach && any(sunLight > 0.0))
 				sunLight *= AerialPerspectiveShadow(data.shaftLight, eye + ray * (at / metersPerUnit));
-			// the light scattered more than once: the sky's, as under an open sky, where the probes don't hold the air
+			// the light scattered more than once: the sky's, as under an open sky, where the probes don't hold the air (the
+			// fog's the sky's whole light, see skyAround)
 			float3 around = ambient.rgb + (1.0 - ambient.a) * SkyMultipleScattering(multipleTable, linear, r, muSun) * data.sun.w;
-			float3 source = sunLight * (medium.rayleigh * rayleighPhase + medium.mie * miePhase) * data.sun.w + around * medium.scattering;
-			float3 through = exp(-medium.extinction * (step * 1e-3));
-			light += transmittance * (source - source * through) / max(medium.extinction, 1e-9);
+			float3 fogAround = ambient.rgb + (1.0 - ambient.a) * skyAround;
+			float3 source = sunLight * (medium.rayleigh * rayleighPhase + medium.mie * miePhase + fogExtinction * fogPhase) * data.sun.w +
+							around * medium.scattering + fogAround * fogExtinction;
+			float3 through = exp(-extinction * (step * 1e-3));
+			light += transmittance * (source - source * through) / max(extinction, 1e-9);
 			transmittance *= through;
+			if (fog)
+			{
+				float3 fogSource = (sunLight * fogPhase * data.sun.w + fogAround) * fogExtinction;
+				float fogThrough = exp(-fogExtinction * (step * 1e-3));
+				fogLight += fogTransmittance * (fogSource - fogSource * fogThrough) / max(fogExtinction, 1e-9);
+				fogTransmittance *= fogThrough;
+			}
 		}
 		previous = distance;
 		gAerialPerspectiveImages[0][uint3(id.xy, first + slice)] = float4(light, 0.0);
 		gAerialPerspectiveImages[1][uint3(id.xy, first + slice)] = float4(transmittance, 1.0);
 	}
+	gAerialPerspectiveImages[0][uint3(id.xy, first + SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT)] = float4(fogLight, 0.0);
+	gAerialPerspectiveImages[1][uint3(id.xy, first + SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT)] = float4(fogTransmittance.xxx, 1.0);
 }
 
 // the aerial perspective at what a pixel sees a distance from the eye (in the scene's units): at local, its place in its
@@ -209,8 +289,21 @@ void ComputeAerialPerspective(uint3 id : SV_DispatchThreadID)
 void AerialPerspectiveAt(AerialPerspectiveData data, float2 local, uint viewIndex, float distance, out float3 light, out float3 transmittance)
 {
 	float slice = AerialPerspectiveSlice(distance * data.metersPerUnit);
-	float depth = float(SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT);
-	float3 uvw = float3(saturate(local), (float(viewIndex * SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT) + slice + 0.5) / depth);
+	float depth = float(SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT);
+	float3 uvw = float3(saturate(local), (float(viewIndex * SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT) + slice + 0.5) / depth);
+	SamplerState linear = gSamplers[SHADER_TYPES_CLAMP_SAMPLER];
+	light = gAerialPerspective[0].SampleLevel(linear, uvw, 0.0).rgb;
+	transmittance = gAerialPerspective[1].SampleLevel(linear, uvw, 0.0).rgb;
+}
+
+// what the fog near the ground does to the sky seen through it, at local (see AerialPerspectiveAt), of the view index'th
+// volume: light, what it scatters toward the eye, and transmittance, what it lets through (the backdrop, the sky, has the
+// rest of the air already)
+void AerialPerspectiveSky(float2 local, uint viewIndex, out float3 light, out float3 transmittance)
+{
+	float depth = float(SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT);
+	float slice = float(viewIndex * SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT + SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT);
+	float3 uvw = float3(saturate(local), (slice + 0.5) / depth);
 	SamplerState linear = gSamplers[SHADER_TYPES_CLAMP_SAMPLER];
 	light = gAerialPerspective[0].SampleLevel(linear, uvw, 0.0).rgb;
 	transmittance = gAerialPerspective[1].SampleLevel(linear, uvw, 0.0).rgb;
