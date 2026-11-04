@@ -8,8 +8,7 @@
 #include <gfx/environmentfilter.h>
 #include <gfx/gpu.h>
 #include <gfx/graphicsqueue.h>
-#include <gfx/imguilayer.h>
-#include <gfx/imgui_extra.h>
+#include <gfx/imguirenderer.h>
 #include <gfx/meshimport.h>
 #include <gfx/model.h>
 #include <gfx/renderer.h>

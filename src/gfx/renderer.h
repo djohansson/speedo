@@ -116,9 +116,9 @@ struct FrameInputs
 	// the queue the frame is recorded for (its pool's secondary command buffers record the views), and its timeline
 	Queue* graphicsQueue = nullptr;
 	uint64_t graphicsTimeline = 0;
-	// the ui: records its uploads (outside of a render pass), and its draws (in the swapchain's)
+	// the ui: records its uploads (outside of a render pass), and its draws (in target, the swapchain frame begun)
 	core::std_extra::function_ref<void(CommandBufferHandle cmd)> prepareUi = NoUi;
-	core::std_extra::function_ref<void(CommandBufferHandle cmd)> drawUi = NoUi;
+	core::std_extra::function_ref<void(CommandBufferHandle cmd, IRenderTarget& target)> drawUi = NoUiDraw;
 	// the ui's frosted panels (see Scene::FrameTarget::uiBlurRects)
 	std::span<const UiBlurRect> uiBlurRects;
 	// temporal upscaling (see upscale.slang): the frame is rendered at the extent Resize was given and reconstructed at the

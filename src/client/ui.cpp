@@ -2335,7 +2335,7 @@ void WindowedApplication::PrepareDraw()
 	PopStyleVar(2);
 	PopStyleColor();
 
-	myImGui->EndFrame();
+	myImGui->EndFrame([this](uint64_t sequence) { myImGuiRenderer->UpdateTextures(sequence); });
 }
 
 } // namespace client

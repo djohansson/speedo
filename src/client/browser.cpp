@@ -453,7 +453,7 @@ void WindowedApplication::InternalDrawBrowser()
 	auto* preview = GetPreview();
 	if (preview && state.texture == ImTextureID_Invalid)
 	{
-		state.texture = myImGui->AddTexture(preview->GetOutput().GetView());
+		state.texture = myImGuiRenderer->AddTexture(preview->GetOutput().GetView());
 		(void)gLoads.Enqueue(
 			"Preview: sky",
 			[preview](std::atomic_uint8_t& progress) { preview->GetScene().LoadEnvironment(std::nullopt, progress); });

@@ -98,7 +98,6 @@
           "features": [
             "freetype",
             "glfw-binding",
-            "vulkan-binding",
             "wchar32"
           ]
         },

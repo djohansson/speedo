@@ -1,8 +1,8 @@
 #include "imguilayer.h"
+#include "imguiplatform.h"
 
 #include <core/application.h>
 #include <core/profiling.h>
-#include <platform/imguiplatform.h>
 
 #include <algorithm>
 #include <array>
@@ -14,7 +14,7 @@
 #include <imgui_freetype.h>
 #include <imgui_internal.h> // ImGuiWindow, for the frosted panels (see EndFrame)
 
-namespace gfx
+namespace platform
 {
 
 namespace
@@ -24,13 +24,7 @@ constexpr float kDefaultFontSize = 16.0F;
 
 } // namespace
 
-ImGuiLayer::ImGuiLayer(
-	const platform::Window& window,
-	Swapchain& swapchain,
-	RHI& rhi,
-	Queue& graphicsQueue,
-	uint32_t graphicsQueueCount,
-	std::string_view imguiIniSettings)
+ImGuiLayer::ImGuiLayer(const Window& window, std::string_view iniSettings)
 {
 	ZoneScopedN("ImGuiLayer::Init");
 
@@ -46,7 +40,7 @@ ImGuiLayer::ImGuiLayer(
 	//imguiIO.FontGlobalScale = 1.0f;
 	//imguiIO.FontAllowUserScaling = true;
 
-	LoadIniSettingsFromMemory(imguiIniSettings.data(), imguiIniSettings.size());
+	LoadIniSettingsFromMemory(iniSettings.data(), iniSettings.size());
 
 #if defined(__OSX__)
 	float dpiScaleX = 1.0F;
@@ -161,10 +155,7 @@ ImGuiLayer::ImGuiLayer(
 	colors[ImGuiCol_PlotHistogram] = tinted(blue, 0.90F);
 	imguiIO.FontDefault = defaultFont;
 
-	// we allow up to queue count in-flight renders per frame due to triple buffering. passed in rather than read here,
-	// since the caller already holds the graphics queue write lock.
-	myRenderer = std::make_unique<ImGuiRenderer>(rhi.GetPrimaryDevice(), swapchain, graphicsQueue, graphicsQueueCount);
-	platform::imgui::Init(window);
+	imgui::Init(window);
 
 	// IMNODES_NAMESPACE::CreateContext();
 	// IMNODES_NAMESPACE::LoadCurrentEditorStateFromIniString(
@@ -177,8 +168,7 @@ ImGuiLayer::~ImGuiLayer()
 	// myNodeGraph.layout.assign(IMNODES_NAMESPACE::SaveCurrentEditorStateToIniString(&count));
 	// IMNODES_NAMESPACE::DestroyContext();
 
-	myRenderer.reset();
-	platform::imgui::Shutdown();
+	imgui::Shutdown();
 
 	// snapshot draw lists are registered with the context's shared data, and must be gone before it is destroyed
 	for (auto& frame : myFrames)
@@ -193,8 +183,7 @@ ImGuiLayer::~ImGuiLayer()
 void ImGuiLayer::BeginFrame()
 {
 	// polls the window's input into imgui's io, locked against the window's callbacks until imgui has consumed it
-	auto inputLock = platform::imgui::NewFrame();
-	myRenderer->NewFrame();
+	auto inputLock = imgui::NewFrame();
 	ImGui::NewFrame();
 
 	myFadeOpacity = 1.0F;
@@ -210,17 +199,17 @@ void ImGuiLayer::Fade(float opacity)
 	ImGui::GetStyle().Alpha = myFadeOpacity;
 }
 
-void ImGuiLayer::EndFrame()
+void ImGuiLayer::EndFrame(core::std_extra::function_ref<void(uint64_t sequence)> updateTextures)
 {
 	ImGui::Render();
 
-	// process texture creates/updates/destroys here rather than in the render thread: the snapshot below
-	// outlives this frame, and imgui frees ImTextureData (e.g. when the font atlas grows) on the next NewFrame().
-	myRenderer->UpdateTextures(++myFrameSequence);
+	// texture creates, updates and destroys here rather than on the draw thread: the snapshot below outlives this frame,
+	// and imgui frees ImTextureData (e.g. when the font atlas grows) on the next NewFrame()
+	updateTextures(++myFrameSequence);
 
 	if (auto *data = ImGui::GetDrawData())
 	{
-		auto& [snapshot, drawData, sequence, blurRects] = myFrames[myWriteFrame];
+		auto& [snapshot, drawData, sequence, panels] = myFrames[myWriteFrame];
 		snapshot.SnapUsingSwap(data, &drawData, ImGui::GetTime());
 		sequence = myFrameSequence;
 
@@ -228,7 +217,7 @@ void ImGuiLayer::EndFrame()
 		// menus, popups, tooltips; child windows are inside theirs, and a window without a background would show the blur
 		// alone), collapsed ones by their title bar, in pixels of the framebuffer, with their windows' corners, as opaque
 		// as their window (see Fade)
-		blurRects.clear();
+		panels.clear();
 		myShowedFadingWindows = false;
 		const auto& io = ImGui::GetIO();
 		for (const ImGuiWindow* window : ImGui::GetCurrentContext()->Windows)
@@ -250,14 +239,14 @@ void ImGuiLayer::EndFrame()
 			if ((window->Flags & ImGuiWindowFlags_NoBackground) != 0 || opacity <= 0.0F)
 				continue;
 			float height = window->Collapsed ? window->TitleBarHeight : window->Size.y;
-			UiBlurRect rect{};
-			rect.rect[0] = window->Pos.x * io.DisplayFramebufferScale.x;
-			rect.rect[1] = window->Pos.y * io.DisplayFramebufferScale.y;
-			rect.rect[2] = (window->Pos.x + window->Size.x) * io.DisplayFramebufferScale.x;
-			rect.rect[3] = (window->Pos.y + height) * io.DisplayFramebufferScale.y;
-			rect.radius = window->WindowRounding * io.DisplayFramebufferScale.y;
-			rect.opacity = opacity;
-			blurRects.push_back(rect);
+			panels.push_back(ImGuiPanel{
+				.rect = {
+					window->Pos.x * io.DisplayFramebufferScale.x,
+					window->Pos.y * io.DisplayFramebufferScale.y,
+					(window->Pos.x + window->Size.x) * io.DisplayFramebufferScale.x,
+					(window->Pos.y + height) * io.DisplayFramebufferScale.y},
+				.radius = window->WindowRounding * io.DisplayFramebufferScale.y,
+				.opacity = opacity});
 		}
 
 		// detach the snapshot from imgui-owned texture data: resolve texture refs to their (already uploaded)
@@ -272,39 +261,15 @@ void ImGuiLayer::EndFrame()
 	}
 }
 
-std::span<const UiBlurRect> ImGuiLayer::TakeFrame()
+ImGuiFrame ImGuiLayer::TakeFrame()
 {
-	// before the texture uploads (PrepareFrame): a frame is published after the uploads it depends on were queued. keep
+	// before the renderer's texture uploads: a frame is published after the uploads it depends on were queued. keep
 	// drawing the previous frame if no new one was published.
 	if ((myPendingFrame.load(std::memory_order_relaxed) & kFrameFresh) != 0)
 		myReadFrame = myPendingFrame.exchange(myReadFrame, std::memory_order_acq_rel) & ~kFrameFresh;
 
-	return myFrames[myReadFrame].blurRects;
+	const auto& frame = myFrames[myReadFrame];
+	return ImGuiFrame{.drawData = frame.drawData, .sequence = frame.sequence, .panels = frame.panels};
 }
 
-void ImGuiLayer::PrepareFrame(CommandBufferHandle cmd, std::vector<core::TaskHandle>& callbacks)
-{
-	ZoneScopedN("ImGuiLayer::PrepareFrame");
-
-	myRenderer->PrepareFrame(cmd, myFrames[myReadFrame].sequence, callbacks);
-}
-
-ImTextureID ImGuiLayer::AddTexture(ImageViewHandle view)
-{
-	return static_cast<ImTextureID>(myRenderer->AddTexture(view));
-}
-
-void ImGuiLayer::RemoveTexture(ImTextureID id)
-{
-	// the frame being built is published as the next sequence, and doesn't draw it
-	myRenderer->RemoveTexture(static_cast<uint64_t>(id), myFrameSequence + 1);
-}
-
-void ImGuiLayer::Draw(CommandBufferHandle cmd)
-{
-	ZoneScopedN("ImGuiLayer::Draw");
-
-	myRenderer->Render(myFrames[myReadFrame].drawData, cmd);
-}
-
-} // namespace gfx
+} // namespace platform

@@ -5,8 +5,8 @@
 #include <mutex>
 
 // imgui's platform side: input, the cursor and the display size from the window system (imgui's glfw backend). the
-// imgui context is its user's to create first, and to destroy after Shutdown (see client::WindowedApplication); the
-// renderer side is rhi's (rhi::ImGuiRenderer).
+// imgui context is ImGuiLayer's, which creates it first and destroys it after Shutdown; the renderer is gfx's
+// (gfx::ImGuiRenderer).
 namespace platform::imgui
 {
 

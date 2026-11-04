@@ -131,6 +131,19 @@ void CommandEncoder<kVk>::CopyImageToBuffer(ImageHandle<kVk> image, Extent2d ext
 }
 
 template <>
+void CommandEncoder<kVk>::CopyBufferToImage(const Buffer<kVk>& buffer, const Image<kVk>& image, const Rect& region) const
+{
+	VkBufferImageCopy copy{
+		.bufferOffset = 0,
+		.bufferRowLength = 0,
+		.bufferImageHeight = 0,
+		.imageSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
+		.imageOffset = {.x = region.x, .y = region.y, .z = 0},
+		.imageExtent = {.width = region.width, .height = region.height, .depth = 1}};
+	vkCmdCopyBufferToImage(myCmd, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+}
+
+template <>
 void CommandEncoder<kVk>::CopyBuffer(const Buffer<kVk>& source, const Buffer<kVk>& destination, uint64_t size, uint64_t offset) const
 {
 	VkBufferCopy region{.srcOffset = offset, .dstOffset = offset, .size = size};

@@ -190,9 +190,9 @@ public:
 		uint16_t outputIndex = 0;
 		Queue* graphicsQueue = nullptr;
 		uint64_t graphicsTimeline = 0;
-		// record the ui's texture uploads and draws, over a window's frames (see SwapchainOutput)
+		// record the ui's texture uploads and draws, over a window's frames (see SwapchainOutput: in target, the frame begun)
 		core::std_extra::function_ref<void(CommandBufferHandle cmd)> prepareUi = NoUi;
-		core::std_extra::function_ref<void(CommandBufferHandle cmd)> drawUi = NoUi;
+		core::std_extra::function_ref<void(CommandBufferHandle cmd, IRenderTarget& target)> drawUi = NoUiDraw;
 		// the ui's frosted panels, whose backdrop is blurred (see UiBlurRect: their rectangles and corners, in pixels of the
 		// output; the threads are the renderer's to fill in). of the ui frame drawUi draws
 		std::span<const UiBlurRect> uiBlurRects;

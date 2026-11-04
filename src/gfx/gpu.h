@@ -6,7 +6,6 @@
 #include <rhi/crashreport.h>
 #include <rhi/device.h>
 #include <rhi/image.h>
-#include <rhi/imguirenderer.h>
 #include <rhi/pipeline.h>
 #include <rhi/querypool.h>
 #include <rhi/renderimageset.h>
@@ -48,7 +47,6 @@ using CommandBufferHandle = ::CommandBufferHandle<rhi::kGraphicsApi>;
 using SemaphoreHandle = ::SemaphoreHandle<rhi::kGraphicsApi>;
 using PipelineLayoutHandle = ::PipelineLayoutHandle<rhi::kGraphicsApi>;
 using ImageViewHandle = ::ImageViewHandle<rhi::kGraphicsApi>;
-using ImGuiRenderer = rhi::ImGuiRenderer<rhi::kGraphicsApi>;
 using BufferBinding = rhi::BufferBinding<rhi::kGraphicsApi>;
 using ImageBinding = rhi::ImageBinding<rhi::kGraphicsApi>;
 using IRenderTarget = rhi::IRenderTarget<rhi::kGraphicsApi>;

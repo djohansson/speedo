@@ -11,12 +11,17 @@ Notes for working in this codebase, distilled from real build failures.
   C entry points `main.c` calls: `PlatformInit`, `PlatformWaitEvents`, `PlatformWakeMain`, `PlatformTerminate`, and
   `PlatformCreateVulkanSurface` for rhi, its types opaque, `void*`), `platform::WindowedApplication` (makes its window
   and destroys it, runs `mainCalls` on the main thread in `Main`, wakes the main loop on `RequestExit`, tracks
-  minimizing in `OnResizeFramebuffer`, and the window changes: fullscreen, sizes, monitors) and imgui's platform side (`platform::imgui`, imgui's glfw
+  minimizing in `OnResizeFramebuffer`, and the window changes: fullscreen, sizes, monitors) and imgui, all but its
+  drawing: `platform::ImGuiLayer` (`platform/imguilayer.h`: the context, fonts and style, the frames built on the ui
+  thread, `BeginFrame`, `Fade`, `EndFrame`, and the triple buffer of their draw data snapshots, `imgui_extra`, which the
+  draw thread takes, `TakeFrame`, with the frosted panels' rectangles, `ImGuiPanel`; its renderer is gfx's), and its
+  platform side (`platform::imgui`, imgui's glfw
   backend; its input callbacks are installed by `platform::imgui::Init` rather than the backend: they run on the main
   thread, in `glfwWaitEvents`, and fill imgui's input queue, an `ImVector`, which `ImGui::NewFrame` consumes on the ui
   thread, so each calls the window's own callback, then the backend's under a mutex that `NewFrame` returns held until
   `ImGui::NewFrame` is done; unlocked, the two once crashed in `FindLatestInputEvent` with an index out of range). It
-  links glfw and imgui privately (and Vulkan's headers, for `glfwCreateWindowSurface`'s types), and its interface knows
+  links glfw privately (and Vulkan's headers, for `glfwCreateWindowSurface`'s types), imgui publicly (the frames' draw
+  data), and its interface knows
   nothing of graphics (no native file dialogs: the client's file browser replaced nfd's): the server, which has no
   windows, doesn't link it. Its callbacks translate glfw's keys, buttons, actions and modifiers into core's input
   vocabulary (`enum Key`, `MOUSE_BUTTON_*`, `INPUT_ACTION_*`, `INPUT_MOD_*` in `core/capi.h`, which `InputState` and the
@@ -117,24 +122,24 @@ Notes for working in this codebase, distilled from real build failures.
   weren't taken from the environment here: the dump's settings show what was). With the layer loaded, the client's own
   crash report defers to it (see "Crash reports").
 - `rhi` is the graphics backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains),
-  templated on `GraphicsApi`. It must not include `gfx` or know about the application: rhi objects find
+  templated on `GraphicsApi`. It must not include `gfx` or know about the application, nor hold code of a library above
+  the graphics api (imgui's renderer is gfx's, see below): rhi objects find
   their instance and devices through `rhi::GetRHI<G>()`, which an `RHI<G>` serves for its whole lifetime (registered
   by its first member, so before its members are created and after they are destroyed).
   The RHI is made for a window the platform already made (`RHIInitializationData::window`): its surface picks the
   devices that can present to it, and it keeps a swapchain per window (`RHI::GetSwapchain(WindowHandle)`).
 - `gfx` is everything above it: importers (`obj::Import`, `image::Import`), `Model`, `LoadTexture`, cameras and
-  `Views`, the renderer and frame graph, `gfx::Scene` and `gfx::ImGuiLayer`. `gfx::Scene` (`gfx/scene.h`) is what is
+  `Views`, the renderer and frame graph, `gfx::Scene` and `gfx::ImGuiRenderer`. `gfx::Scene` (`gfx/scene.h`) is what is
   drawn and how it is lit: the installed model, image and environment, their materials, textures, lights and animation,
   the default resources standing in for what they don't have, and the `Renderer`. Its loads (`LoadModels`,
   `LoadImage`, `LoadEnvironment`) run in load tasks and install on the draw thread; `Update` and `Record` are the draw
   thread's per frame; the ui changes its `Settings` and reads its animation, scenes and statistics. Its state is an
   `Impl` in `scene.cpp` (what were the application's file statics), whose lambdas capture `this`: the application
-  destroys the scene in `Shutdown`, after the tasks and draw calls that may use it. `gfx::ImGuiLayer` is the ui's imgui:
-  its context, fonts and style, its platform binding and renderer, and the triple buffer handing a frame's draw data
-  from the ui thread (`BeginFrame`/`EndFrame`) to the draw thread (`PrepareFrame`/`Draw`). `gfx/graphicsqueue.h` has
+  destroys the scene in `Shutdown`, after the tasks and draw calls that may use it. `gfx::ImGuiRenderer` draws the ui's
+  imgui frames (see "ImGui's renderer", below). `gfx/graphicsqueue.h` has
   the draw thread's graphics queue helpers (`UpdateBufferOnGraphics`, `TransitionThenBind`, `RetireAfterGraphicsWork`).
 - `client` is the application: `client::WindowedApplication` (a `platform::WindowedApplication`) owns the rhi, the
-  views, the scene and the imgui layer, and keeps the frame loop (`client/windowedapplication.cpp`: `Draw`, fences,
+  views, the scene, the imgui layer and its renderer, and keeps the frame loop (`client/windowedapplication.cpp`: `Draw`, fences,
   pool resets, draw calls, present, frame statistics; construction, resizes and `Shutdown`), the ui (`client/ui.cpp`:
   `PrepareDraw`'s menus and windows, and the autoload variables) and the load policy (`client/loading.cpp`: files by
   type, zip archives extracted into the user profile, folders). What the three share is in
@@ -177,7 +182,7 @@ Notes for working in this codebase, distilled from real build failures.
   that many frames: a double click, whose first click started it; a preview is given up when the browser closes, its
   loads cancelled). Tiles show thumbnails (`client::Thumbnails`, `client/thumbnails.h`): rgba8 in
   one imgui texture registered with `ImGui::RegisterUserTexture` (an atlas of 160 pixel slots, 24x24, reused least
-  recently drawn first: imgui's 1024 descriptor sets wouldn't hold a texture each), made on the task executor (4 at a
+  recently drawn first: the renderer's texture slots, `SHADER_TYPES_IMGUI_TEXTURE_COUNT`, wouldn't hold one each), made on the task executor (4 at a
   time, newest asked for first, skipped once scrolled away): an image decoded (`image::Decode`) and scaled down, a
   panorama imported small and tonemapped, a model's bundled screenshot (`<model>/screenshot/screenshot.*`, as the
   glTF-Sample-Assets have), else, for a model without one or a zip archive (`Source::kArchive`, keyed by the archive and
@@ -216,11 +221,23 @@ Notes for working in this codebase, distilled from real build failures.
   dispatch, buffer updates, memory barriers); secondary command buffers inheriting a render target come from
   `CommandPool::SecondaryCommands`; descriptor values are `BufferBinding<G>`/`ImageBinding<G>`, which `Pipeline`
   stores in Vulkan's form (the update templates read them in place).
-- ImGui's renderer is rhi's `ImGuiRenderer<G>` (`rhi/imguirenderer.h`, drawing into a swapchain's frames): the imgui
-  Vulkan backend plus imgui's textures, which it creates and uploads itself on the ui thread and records on the draw
-  thread. Its platform side is `platform::imgui` (`Init`, `NewFrame`, `Shutdown`). gfx owns the imgui context (made
-  before `platform::imgui::Init`, destroyed after `Shutdown`) and the triple buffer of draw data snapshots between the
-  two threads.
+- ImGui's renderer is gfx's `ImGuiRenderer` (`gfx/imguirenderer.h`), on rhi alone, as anything else gfx draws: rhi
+  knows nothing of imgui (it used imgui's Vulkan backend, `ImGuiRenderer<G>`). A pipeline of its own (its descriptor
+  sets are the ui's) and a layout, "ImGui" (`imgui.slang`): imgui's vertices pulled from a host visible buffer per frame
+  slot (`gImGuiVertices[frame]`, 5 words a vertex: rhi's pipelines have no vertex input), its 16 bit indices bound, each
+  draw's texture a slot of one array (`gImGuiTextures`, `SHADER_TYPES_IMGUI_TEXTURE_COUNT`, 256; slot 0 a white default
+  for the slots nothing holds, so `ImTextureID_Invalid` is none) and its first vertex pushed as constants
+  (`ImGuiConstants`): the draws' vertex offset is 0, since slang's `SV_VertexID` leaves the draw's base vertex out (as
+  D3D's), and with imgui's offsets the draws after a frame's first read the wrong vertices (spikes and scrambled text,
+  found comparing captures). The blending, sampler (linear, clamped) and clipping are imgui's Vulkan backend's, and its
+  ui renders the same, to 0.007 of 255 (the menus and the Lights window, the old renderer's capture from a debug client
+  built before, imgui being linked statically). imgui's textures (its font atlas: replaced as it grows, around the 8th
+  frame of every run) are created on the ui thread as imgui asks (`UpdateTextures`, from `ImGuiLayer::EndFrame`), and the
+  caller's (`AddTexture`: the browser's preview) take slots as well; the draw thread binds them, records the uploads
+  (`CommandEncoder::CopyBufferToImage`) and releases them once no frame drawing them remains (`PrepareFrame`: the slot
+  bound to the default, the texture destroyed and the slot freed once the gpu is done). A change of the slots takes a
+  new descriptor set, and the ones before go once the gpu is done with them (`Pipeline::TakeDescriptorSets`). Its
+  platform side is `platform::imgui` (`Init`, `NewFrame`, `Shutdown`), and the rest of imgui `platform::ImGuiLayer`.
 - Shaders are gfx's: the slang sources and the C header they share with the C++ code (`gfx/shaders/`), and
   `gfx::ShaderLoader`, which compiles them for `rhi::kShaderFormat` and reflects their bindings into a neutral
   `rhi::ShaderSet` (`rhi/shaderset.h`: binaries, entry points, and per set the bindings and push constants). rhi
@@ -250,9 +267,8 @@ tooling info (`vkCmdBeginRendering`, `vkCmdPipelineBarrier2`, `vkCmdSetCullMode`
 extensions' (`deviceFeatureParams`: present id and wait, swapchain maintenance1, the crash reports', the ray queries' where
 wanted, see "Hardware ray queries"); the device is made
 with the whole chain, so it enables every feature it has, and `Device` checks by name the optional ones the renderer
-needs (dynamic rendering, synchronization2, shader draw parameters, timeline semaphores, push descriptors). VMA and
-imgui's backend are told the version too (imgui then loads the core dynamic rendering functions: the KHR ones aren't
-enabled). Verified on Windows (NVIDIA, 1.4.341); macOS needs KosmicKrisp or MoltenVK to report 1.4, else no device is a
+needs (dynamic rendering, synchronization2, shader draw parameters, timeline semaphores, push descriptors). VMA is told
+the version too. Verified on Windows (NVIDIA, 1.4.341); macOS needs KosmicKrisp or MoltenVK to report 1.4, else no device is a
 candidate.
 
 ## Crash reports
@@ -658,10 +674,10 @@ attachment, srgb encoded as the swapchain's) with a `RenderImageSet` over it, on
 serial on the graphics queue): an Output pass leaves it in `kShaderReadOnly` for the UI to sample (`GetView()`), as
 `Prepare` does before its first frame; its owner recreates it (`Resize(extent)`) and then has the scene resize. The
 output's owner keeps it alive longer than the scene. The UI shows a GPU image it doesn't own through
-`ImGuiLayer::AddTexture(view)` (an `ImTextureID` for `ImGui::Image`; the view must be in `kShaderReadOnly` whenever a
-frame drawing it runs, as an `ImageOutput`'s is) and `RemoveTexture(id)`, both on the ui thread: the descriptor set is
-released as imgui's own textures are, once the draw thread has drawn a ui frame published after the removal and the gpu
-is done with it, and freed back on the ui thread (the backend's pool, 1024 sets, is the ui thread's).
+`ImGuiRenderer::AddTexture(view)` (an `ImTextureID` for `ImGui::Image`, a slot of the renderer's texture array; the view
+must be in `kShaderReadOnly` whenever a frame drawing it runs, as an `ImageOutput`'s is) and `RemoveTexture(id)`, both on
+the ui thread: the slot is released as imgui's own textures' are, once the draw thread has drawn a ui frame published
+after the removal and the gpu is done with it.
 
 The ui's frosted panels, as macOS's: every top level window shown with a background (the main menu bar's, the dialogs
 such as the file browser and Lights, menus, popups, tooltips; not child windows, which are inside theirs, nor windows
@@ -669,8 +685,8 @@ without a background, which would show the blur alone; a collapsed one by its ti
 `TitleBg*`, `MenuBarBg` and `PopupBg` with alpha) and rounded, over its backdrop blurred, with the controls in a macOS
 dark palette: faint white buttons, fields and scrollbars, macOS's blue for what is hovered, open, selected or pressed,
 rounded frames (all `ImGuiLayer`'s style). `ImGuiLayer::EndFrame` collects their windows' rectangles and corners (in
-framebuffer pixels: `UiBlurRect`) with the frame's draw data, so a panel and its blur are of the same ui frame; `Draw`
-takes the frame (`TakeFrame`) before recording and hands them to the scene (`FrameTarget::uiBlurRects`). `ComputeMain`
+framebuffer pixels: `ImGuiPanel`) with the frame's draw data, so a panel and its blur are of the same ui frame; `Draw`
+takes the frame (`TakeFrame`) before recording and hands them to the scene as `UiBlurRect`s (`FrameTarget::uiBlurRects`). `ComputeMain`
 also writes its finished linear color within the blur's reach of a panel to a transient
 (`SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE`), and the UI Blur X and Y passes (`uiblur.slang`: a 24 pixel gaussian in 25 reads
 per pass, the taps paired into one linear filtered read between each two, at the offset weighing them as the gaussian
@@ -3133,8 +3149,9 @@ all. Debug clients load the validation layer themselves (in code, `instance.cpp`
 messages); `-Validate` loads it into a profile or release preset's clients through the environment (`VK_INSTANCE_LAYERS`,
 and the settings the code gives it as `VK_KHRONOS_VALIDATION_*` variables), each client's messages to a file of its own,
 appended to its log (without a messenger of the client's the layer prints them itself, and only to a file once the crash
-reports make one, on NVIDIA), which fails a run on `VUID-`, `UNASSIGNED-` or `Validation Error: ` as a debug client's
-log does. The quick tier runs once, on every platform: a profile preset with `-Validate` (the user's call, 2026-11-04:
+reports make one, on NVIDIA), which fails a run on `VUID-`, `UNASSIGNED-`, `Validation Error: ` or `Validation Warning: ` as
+a debug client's log does, and on `WARNING-CoreValidation-`, the debug messenger's form of a warning (the ImGui pipeline's
+pool lacking a type its layout allocates was only a warning, which neither check caught). The quick tier runs once, on every platform: a profile preset with `-Validate` (the user's call, 2026-11-04:
 with ray query clients one at a time on the mac, its clients took 198 s, where profile's took 140 and then debug's
 1237). What only a debug client checks (`ASSERT`s, which `NDEBUG` compiles out, and rhi's object tracking and uuid
 checks, `SPEEDO_GRAPHICS_VALIDATION_LEVEL`) the full sets still check: the profile preset first, then debug with

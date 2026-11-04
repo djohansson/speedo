@@ -477,6 +477,20 @@ struct EnvironmentFilterConstants
 	alignas(4) UINT1(padding1);
 };
 
+// the ui's draws (the ImGui layout, imgui.slang, see gfx::ImGuiRenderer): imgui's coordinates to clip space (scale, then
+// translate), the frame slot whose vertices are drawn, the draw's texture (its slot of gImGuiTextures) and its first vertex
+// (added to the indices: the draws' vertex offset is 0, so that SV_VertexID is the index on every backend)
+#define SHADER_TYPES_IMGUI_TEXTURE_COUNT 256u
+struct ImGuiConstants
+{
+	alignas(8) FLOAT2(scale);
+	alignas(8) FLOAT2(translate);
+	alignas(4) UINT1(frame);
+	alignas(4) UINT1(texture);
+	alignas(4) UINT1(vertexBase);
+	alignas(4) UINT1(padding0);
+};
+
 struct OitNode
 {
 	alignas(4) UINT1(color); // rgb times alpha, as R11G11B10 floats (r in the low bits)
@@ -624,7 +638,7 @@ struct UiBlurRect
 	alignas(4) FLOAT1(radius); // its corners' radius, in pixels
 	alignas(4) UINT1(firstThreadX); // ascending with the panels: each panel's threads follow the one's before
 	alignas(4) UINT1(firstThreadY);
-	alignas(4) FLOAT1(opacity); // how much of the blur shows (the ui fading, see ImGuiLayer::Fade)
+	alignas(4) FLOAT1(opacity); // how much of the blur shows (the ui fading, see platform::ImGuiLayer::Fade)
 };
 
 // how a view's clusters cut its frustum (gClusterViews[frame][view])

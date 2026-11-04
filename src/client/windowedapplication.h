@@ -1,13 +1,14 @@
 #pragma once
 
 #include <gfx/gpu.h>
-#include <gfx/imguilayer.h>
+#include <gfx/imguirenderer.h>
 #include <gfx/scene.h>
 #include <gfx/views.h>
 
 #include "preview.h"
 #include "thumbnails.h"
 
+#include <platform/imguilayer.h>
 #include <platform/windowedapplication.h>
 
 #include <core/loadqueue.h>
@@ -21,6 +22,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace client
 {
@@ -31,7 +33,7 @@ struct RecentFile;
 }
 
 // the client's windowed application (see platform::WindowedApplication): it owns the rhi, draws the scene (gfx::Scene)
-// through the window's views, and runs the user interface (gfx::ImGuiLayer), the frame loop and the loads
+// through the window's views, and runs the user interface (platform::ImGuiLayer, drawn by gfx::ImGuiRenderer), the frame loop and the loads
 class WindowedApplication : public platform::WindowedApplication
 {	
 public:
@@ -90,7 +92,9 @@ private:
 	std::unique_ptr<gfx::Views> myViews; // of the window
 	std::unique_ptr<gfx::SwapchainOutput> myOutput; // the window's swapchain, which the scene draws into
 	std::unique_ptr<gfx::Scene> myScene; // drawn through the views
-	std::unique_ptr<gfx::ImGuiLayer> myImGui; // the user interface
+	std::unique_ptr<platform::ImGuiLayer> myImGui; // the user interface: imgui's context and frames
+	std::unique_ptr<gfx::ImGuiRenderer> myImGuiRenderer; // which draws them
+	std::vector<UiBlurRect> myUiBlurRects; // the ui frame drawn's frosted panels (see Draw), draw thread only
 	std::unique_ptr<Preview> myPreview; // made on the draw thread once requested (see RequestPreview)
 	// the browser's thumbnails, and its image preview (one big slot): made with its first frame, ui thread. destroyed after
 	// imgui's renderer, which destroys their textures

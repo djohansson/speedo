@@ -158,9 +158,12 @@ target_link_libraries(
 ###############################################################################
 
 # windows and the window system: the windowed application base (its window, main thread work, exit wake-ups), the file
-# dialogs and imgui's platform side, between core and rhi (whose surfaces are made for the platform's windows)
+# dialogs and imgui, all but its drawing (its context, fonts and style, its frames, and its binding to the window), between
+# core and rhi (whose surfaces are made for the platform's windows)
 set(PLATFORM_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/platform/glfw.cpp
+	${SPEEDO_SOURCE_DIR}/platform/imgui_extra.cpp
+	${SPEEDO_SOURCE_DIR}/platform/imguilayer.cpp
 	${SPEEDO_SOURCE_DIR}/platform/imguiplatform.cpp
 	${SPEEDO_SOURCE_DIR}/platform/windowedapplication.cpp)
 add_library(platform STATIC ${PLATFORM_SOURCE_FILES})
@@ -180,9 +183,9 @@ target_link_libraries(
 	platform
 	PUBLIC
 		core
+		imgui::imgui # its frames' draw data (see ImGuiLayer)
 	PRIVATE
 		glfw
-		imgui::imgui
 		Vulkan::Headers # glfwCreateWindowSurface's types (PlatformCreateVulkanSurface)
 )
 
@@ -201,8 +204,7 @@ set(GFX_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/gfx/gltfimport.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/graphicsqueue.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/imageimport.cpp
-	${SPEEDO_SOURCE_DIR}/gfx/imgui_extra.cpp
-	${SPEEDO_SOURCE_DIR}/gfx/imguilayer.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/imguirenderer.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/indirectlight.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/lightgizmos.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/meshimport.cpp
@@ -296,7 +298,6 @@ set(RHI_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/fence.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/frame.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/image.cpp
-	${SPEEDO_SOURCE_DIR}/rhi/vulkan/imguirenderer.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/instance.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/memory.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipeline.cpp
@@ -338,7 +339,6 @@ target_link_libraries(
 		core
 		platform
 		xxHash::xxhash
-		imgui::imgui
 		Vulkan::Vulkan
 )
 

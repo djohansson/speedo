@@ -70,9 +70,8 @@ void SwapchainOutput::AddFinalPasses(FrameGraph& graph, FrameGraph::ImageId outp
 		},
 		[this, &frame](FrameGraph::PassContext& context)
 		{
-			// the ui's pipelines are made for the swapchain's frames
-			frame.pipeline->SetRenderTarget(InternalSwapchain().GetFrames()[frame.inputs->outputIndex]);
-			frame.inputs->drawUi(context.cmd);
+			// into the swapchain frame the pass began
+			frame.inputs->drawUi(context.cmd, InternalSwapchain().GetFrames()[frame.inputs->outputIndex]);
 		});
 	graph.AddPass(
 		"Present",

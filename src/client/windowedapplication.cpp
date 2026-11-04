@@ -321,9 +321,17 @@ bool WindowedApplication::Draw()
 		}
 
 		// the ui's frame to draw over the window's: taken now, for its frosted panels' blur, recorded before the ui
-		auto uiBlurRects = myImGui->TakeFrame();
-		if (!gDrawUi)
-			uiBlurRects = {};
+		auto uiFrame = myImGui->TakeFrame();
+		myUiBlurRects.clear();
+		if (gDrawUi)
+			for (const auto& panel : uiFrame.panels)
+			{
+				UiBlurRect rect{};
+				std::ranges::copy(panel.rect, std::begin(rect.rect));
+				rect.radius = panel.radius;
+				rect.opacity = panel.opacity;
+				myUiBlurRects.push_back(rect);
+			}
 		myScene->Record(
 			cmd,
 			Scene::FrameTarget{
@@ -331,13 +339,14 @@ bool WindowedApplication::Draw()
 				.outputIndex = static_cast<uint16_t>(newFrameIndex),
 				.graphicsQueue = &graphicsQueue,
 				.graphicsTimeline = graphics->timeline,
-				.prepareUi = [this, &graphicsCallbacks](CommandBufferHandle cmd) { myImGui->PrepareFrame(cmd, graphicsCallbacks); },
-				.drawUi = [this](CommandBufferHandle cmd)
+				.prepareUi = [this, &uiFrame, &graphicsCallbacks, frameSlot](CommandBufferHandle cmd)
+				{ myImGuiRenderer->PrepareFrame(cmd, uiFrame.drawData, uiFrame.sequence, frameSlot, graphicsCallbacks); },
+				.drawUi = [this, &uiFrame, frameSlot](CommandBufferHandle cmd, gfx::IRenderTarget& target)
 				{
 					if (gDrawUi)
-						myImGui->Draw(cmd);
+						myImGuiRenderer->Draw(cmd, uiFrame.drawData, frameSlot, target);
 				},
-				.uiBlurRects = uiBlurRects,
+				.uiBlurRects = myUiBlurRects,
 				.executor = &GetExecutor()});
 
 		// a read back of the frame into a bitmap file at path, then done (if given) once written: out of the present layout
@@ -547,11 +556,9 @@ WindowedApplication::WindowedApplication(
 	myOutput = std::make_unique<gfx::SwapchainOutput>(rhi, GetCurrentWindow());
 	myScene = std::make_unique<Scene>(rhi, pipeline, *myViews, *myOutput);
 
-	{
-		auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
-		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
-		myImGui = std::make_unique<ImGuiLayer>(window, swapchain, rhi, graphicsQueue, graphics->queues.Capacity(), myImGuiIniSettings);
-	}
+	// the ui: imgui's context and frames (platform's), and its renderer (gfx's)
+	myImGui = std::make_unique<platform::ImGuiLayer>(window, myImGuiIniSettings);
+	myImGuiRenderer = std::make_unique<gfx::ImGuiRenderer>(device);
 }
 
 WindowedApplication::~WindowedApplication()
@@ -676,6 +683,8 @@ void WindowedApplication::Shutdown()
 	// what the last frames presented with, once shown (the swapchain goes with the rhi)
 	InternalRetirePresents(rhi.GetSwapchain(GetWindow(GetCurrentWindow())));
 
+	// the renderer before the imgui context it draws (its textures are imgui's)
+	myImGuiRenderer.reset();
 	myImGui.reset();
 	myThumbnails.reset();
 	myImagePreview.reset();
