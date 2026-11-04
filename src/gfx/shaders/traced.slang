@@ -568,7 +568,11 @@ float3 TracedShade(
 	if (!BvhHitSomething(hit))
 	{
 		t = kTracedMissDistance;
-		return EnvironmentRadiance(gEnvironment[0], direction, roughness);
+		// through the fog near the ground toward the sky along the ray (FogToSky), as the shading's environment is
+		float3 fogLight;
+		float3 fogTransmittance;
+		FogToSky(gAerialPerspectiveData[gPushConstants.frameIndex][0], direction, origin.y, fogLight, fogTransmittance);
+		return EnvironmentRadiance(gEnvironment[0], direction, roughness) * fogTransmittance + fogLight;
 	}
 	t = hit.t;
 	moving = hit.modelInstance == ~0u;
@@ -697,6 +701,16 @@ void TracedFragmentRays(
 			float3 radiance = TracedPath(
 				path, cone, refraction ? push : 0.0, 0.0,
 				refraction ? SHADER_TYPES_CAUSTIC_SURFACE_COUNT : 1u + kTracedReflectionGlassSurfaceCount, !refraction, t, valid, moving);
+			// through the air between the surface and what the ray met, as if that lay along the eye's ray that much
+			// farther (AerialPerspectiveBetween); a miss has the fog toward the sky (TracedShade)
+			if (valid && t < kTracedMissDistance)
+			{
+				float3 airLight;
+				float3 airTransmittance;
+				float near = distance(eye, position);
+				AerialPerspectiveBetween(near, near + t, airLight, airTransmittance);
+				radiance = radiance * airTransmittance + airLight;
+			}
 			light[rayIt] = float4(radiance, valid ? 1.0 : 0.0);
 		}
 	}
@@ -745,6 +759,16 @@ void ComputeReflectionTrace(uint3 dispatchThreadId: SV_DispatchThreadID)
 		bool valid;
 		bool moving;
 		float3 radiance = TracedReflection(surface.position, surface.normal, direction, spread, roughness, t, valid, moving);
+		// through the air between the surface and what the ray met, as if that lay along the eye's ray that much farther
+		// (AerialPerspectiveBetween); a miss has the fog toward the sky (TracedShade)
+		if (valid && t < kTracedMissDistance)
+		{
+			float3 airLight;
+			float3 airTransmittance;
+			float near = distance(view.eyePosition.xyz, surface.position);
+			AerialPerspectiveBetween(near, near + t, airLight, airTransmittance);
+			radiance = radiance * airTransmittance + airLight;
+		}
 		if (isCoat)
 		{
 			if (valid)

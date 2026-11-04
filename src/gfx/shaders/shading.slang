@@ -144,6 +144,14 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 			environmentRadiance,
 			EnvironmentRadiance(environment, DominantDirection(reflectionNormal, view, roughness), roughness),
 			surface.retroreflection);
+	// through the fog near the ground toward the sky along the reflection (FogToSky: the sky has the rest of the air)
+	AerialPerspectiveData aerial = gAerialPerspectiveData[gPushConstants.frameIndex][0];
+	{
+		float3 fogLight;
+		float3 fogTransmittance;
+		FogToSky(aerial, reflected, position.y, fogLight, fogTransmittance);
+		environmentRadiance = environmentRadiance * fogTransmittance + fogLight;
+	}
 	// KHR_materials_diffuse_transmission: that much of the diffuse is lit from the back instead, tinted by the
 	// transmission color alone (the spec's diffuse_btdf(diffuseTransmissionColor): not the base color)
 	// the indirect lighting's (see GiIrradiance), where its probes cover the point: the environment occluded, and the light
@@ -217,6 +225,12 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 				// the ray, which the Reflection Trace pass traces (ComputeReflectionTrace), and what is predicted along it
 				float3 direction = TracedGlossyDirection(surface.geometryNormal, normal, view, roughness, gFragmentPixel);
 				float3 expected = EnvironmentRadiance(environment, direction, roughness);
+				{
+					float3 fogLight;
+					float3 fogTransmittance;
+					FogToSky(aerial, direction, position.y, fogLight, fogTransmittance);
+					expected = expected * fogTransmittance + fogLight;
+				}
 				if (indirect.x >= 0.0)
 					expected = lerp(expected * seen, lerp(indirect, GiEvaluate(gi, direction), giTrust), rough);
 				float least = kReflectionPredictionLeast / max(gViewData[gPushConstants.frameIndex][gShadingViewId].exposure, 1e-6);

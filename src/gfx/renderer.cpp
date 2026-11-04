@@ -984,6 +984,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				// sampled in the general layout the resolve writes them in (see gGiVolumes)
 				for (auto volume : myGiVolumes)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
+				// the air between a surface and what its rays and its glass show (see AerialPerspectiveBetween)
+				for (auto volume : myAerialPerspective)
+					builder.Use(volume, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.ColorAttachment(myColor, load, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 				builder.DepthAttachment(myDepth, LoadOp::kLoad);
 				useOitLists(builder, PipelineStage::kFragmentShader, kOitAccess);
@@ -1514,6 +1517,29 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kEmitterTemporalEntryPoint}, extent.width, extent.height);
 		});
 
+	// the aerial perspective's volume, which ComputeMain applies (see ComputeAerialPerspective): a thread per cell and view,
+	// lit through the sun's shadow views where they cast its light shafts. before the reflections' rays and the main
+	// passes, whose rays and glass read it for the air between a surface and what they show (AerialPerspectiveBetween)
+	myAerialPerspectivePass = myGraph.AddPass(
+		"Aerial Perspective",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead)); // the probes' light
+			for (auto volume : myAerialPerspective)
+				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			for (auto history : myAerialPerspectiveHistory) // the last frame's read, the frame's written
+				builder.Use(history, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		},
+		[this, bindKernel](FrameGraph::PassContext& context)
+		{
+			ComputePipelineVariant variant{.entryPoint = kAerialPerspectiveEntryPoint};
+			auto& pipeline = bindKernel(context.cmd, variant);
+			auto viewCount = std::min<uint32_t>(static_cast<uint32_t>(myFrame.inputs->viewports.size()), SHADER_TYPES_SPLIT_VIEW_COUNT);
+			CommandEncoder(context.cmd).DispatchThreads(
+				pipeline.GetComputeLaunchParameters(variant), SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH, SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT, viewCount);
+		});
+
 	// the visibility buffer's shading (see ComputeMainVisibility): the opaque triangles' pixels shaded from what the
 	// pre-pass wrote, every view's at once, before Main draws the rest over them (the blended draws, points and lines),
 	// loading the color. where the frame has materials with an extended layer and without, its tiles are sorted first (Main
@@ -1625,8 +1651,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.Use(myReflectionCoat, ResourceUse::Sampled(PipelineStage::kComputeShader));
 				builder.Use(myReflectionRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 				builder.Use(myColor, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
-				// what a hit's shading reads (see TracedHitRadiance)
+				// what a hit's shading reads (see TracedHitRadiance), and the air between the surface and the hit
 				builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				for (auto volume : myAerialPerspective)
+					builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				for (auto volume : myGiVolumes)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
@@ -1698,6 +1726,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{
 			builder.Use(myColor, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myTransmission, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			// the air between the eye and the opaque scene, at its depth
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			for (auto volume : myAerialPerspective)
+				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{
@@ -1723,28 +1755,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{
 			auto extent = myGraph.GetExtent();
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kDepthSaveEntryPoint}, extent.width, extent.height);
-		});
-
-	// the aerial perspective's volume, which ComputeMain applies (see ComputeAerialPerspective): a thread per cell and view,
-	// lit through the sun's shadow views where they cast its light shafts
-	myAerialPerspectivePass = myGraph.AddPass(
-		"Aerial Perspective",
-		[this](FrameGraph::PassBuilder& builder)
-		{
-			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
-			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead)); // the probes' light
-			for (auto volume : myAerialPerspective)
-				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
-			for (auto history : myAerialPerspectiveHistory) // the last frame's read, the frame's written
-				builder.Use(history, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
-		},
-		[this, bindKernel](FrameGraph::PassContext& context)
-		{
-			ComputePipelineVariant variant{.entryPoint = kAerialPerspectiveEntryPoint};
-			auto& pipeline = bindKernel(context.cmd, variant);
-			auto viewCount = std::min<uint32_t>(static_cast<uint32_t>(myFrame.inputs->viewports.size()), SHADER_TYPES_SPLIT_VIEW_COUNT);
-			CommandEncoder(context.cmd).DispatchThreads(
-				pipeline.GetComputeLaunchParameters(variant), SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH, SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT, viewCount);
 		});
 
 	// the frame's exposure histogram, emptied for ComputeMain to count into

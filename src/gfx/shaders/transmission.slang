@@ -23,7 +23,9 @@ float3 TransmissionDecompress(float3 color, float exposure)
 	return color / max(1.0 - max(max(color.r, color.g), color.b) * exposure, 1e-3);
 }
 
-// the Transmission pass: the opaque scene into the transmission texture's level 0, compressed (see TransmissionCompress)
+// the Transmission pass: the opaque scene into the transmission texture's level 0, compressed (see TransmissionCompress),
+// through the air between the eye and it (the aerial perspective at its depth, which ComputeMain applies to what is drawn
+// over it at the glass's depth alone: the glass takes the eye's stretch out again, see TransmittedLight)
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void ComputeTransmissionCopy(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -31,10 +33,20 @@ void ComputeTransmissionCopy(uint3 dispatchThreadId : SV_DispatchThreadID)
 	int2 pixel = int2(dispatchThreadId.xy);
 	if (pixel.x >= int(gPushConstants.framebufferWidth) || pixel.y >= int(gPushConstants.framebufferHeight))
 		return;
+	uint frameIndex = gPushConstants.frameIndex;
 	float4 color = gTextures[SHADER_TYPES_RENDER_TARGET_TEXTURE].Load(int3(pixel, 0));
+	ViewData view;
 	uint viewId;
-	ViewIndexAt(pixel, viewId);
-	float exposure = gViewData[gPushConstants.frameIndex][viewId].exposure;
+	bool inView = ViewAt(pixel, view, viewId);
+	AerialPerspectiveData aerial = gAerialPerspectiveData[frameIndex][0];
+	if (aerial.enabled != 0u && inView && color.a > 0.0)
+	{
+		float3 light;
+		float3 transmittance;
+		AerialPerspectiveAtDepth(aerial, view, viewId, uint2(pixel), gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(pixel, 0)).r, light, transmittance);
+		color.rgb = color.rgb * transmittance + color.a * light;
+	}
+	float exposure = inView ? view.exposure : gPushConstants.exposure;
 	gRWTextures[SHADER_TYPES_TRANSMISSION_RW_TEXTURE][pixel] = float4(TransmissionCompress(color.rgb, exposure), color.a);
 }
 
@@ -105,9 +117,28 @@ float3 TransmittedLight(
 	float2 uv = (viewData.viewport.xy + saturate(local) * viewData.viewport.zw) / float2(width, height);
 	float lod = log2(float(width)) * roughness * saturate(ior * 2.0 - 2.0);
 	float4 behind = scene.SampleLevel(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], uv, lod);
-	// premultiplied: the clear color is transparent black
+	// premultiplied: the clear color is transparent black. the air: the copy has it from the eye to what it shows (see
+	// ComputeTransmissionCopy), and ComputeMain applies the eye's stretch to this surface once this fragment is drawn, so
+	// that stretch is taken out here, by this surface's distance at the copy's place, leaving the air between the surface
+	// and what it shows; the environment, where nothing was drawn, is seen through the fog near the ground toward the sky
+	// along the ray (FogToSky: the sky has the rest of the air already)
+	AerialPerspectiveData aerial = gAerialPerspectiveData[gPushConstants.frameIndex][0];
+	float3 seen = TransmissionDecompress(behind.rgb, viewData.exposure);
+	if (aerial.enabled != 0u && behind.a > 0.0)
+	{
+		float3 toHereLight;
+		float3 toHereTransmittance;
+		AerialPerspectiveAt(aerial, saturate(local), viewId, distance(viewData.eyePosition.xyz, position), toHereLight, toHereTransmittance);
+		seen = max(seen - behind.a * toHereLight, 0.0) / max(toHereTransmittance, 1e-6);
+	}
 	float3 environment = EnvironmentRadiance(gEnvironment[0], ray, roughness);
-	float3 seen = TransmissionDecompress(behind.rgb, viewData.exposure) + (1.0 - behind.a) * environment;
+	{
+		float3 fogLight;
+		float3 fogTransmittance;
+		FogToSky(aerial, ray, position.y, fogLight, fogTransmittance);
+		environment = environment * fogTransmittance + fogLight;
+	}
+	seen += (1.0 - behind.a) * environment;
 	float3 light = lerp(environment, seen, inside);
 	if (traced.a > 0.0)
 		light = lerp(lerp(traced.rgb, seen, inside), traced.rgb, TransmittedTracedShare(roughness, ior));

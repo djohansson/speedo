@@ -2810,7 +2810,20 @@ share. It replaced a stylized gradient whose sun was fixed.
   times as much as the fog's; now a tenth under it and grayer, away from the sun). The sky's tables don't have it (it is
   far thinner than their rows): what it alone scatters and lets through along the whole ray goes in a slice of its own
   at the end of each view's (`SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT`, `AerialPerspectiveSky`), which
-  ComputeMain applies to the backdrop, so the sky seen through it hazes and the sun dims. The lights' light comes through
+  ComputeMain applies to the backdrop, so the sky seen through it hazes and the sun dims. Glass and the traced rays see
+  through the air too (2026-11-05): the transmission copy has the air from the eye to the opaque scene at its depth
+  (`ComputeTransmissionCopy`), of which the glass takes the eye's stretch to itself out again by its own distance
+  (`TransmittedLight`: ComputeMain applies that stretch to the glass's fragment), leaving the air between the glass and
+  what it shows; a traced hit's radiance comes through the air between the surface and the hit as if the hit lay along
+  the eye's ray that much farther (`AerialPerspectiveBetween`: the volume's integrals from the eye, at the shading's
+  pixel; the air is nearly the same within the scene's reach, the shadows and the probes aside); and what rays,
+  refractions and the shading's environment reflection show of the sky comes through the fog toward it in closed form
+  (`FogToSky`: the depth through the layer that way, Chapman's at the horizon, and the fog's source over it, the sun's
+  light by the phase and the light around, `FogAround`; the volume's own slice toward the sky has the shadows, which
+  these don't). The Aerial Perspective pass runs before Reflection Trace and the main passes for it, and the Transmission
+  pass reads the depth. MetalRoughSpheresNoTextures' mirror spheres in dense fog reflect the fogged horizon as the sky
+  behind them is (1.3% of the pixels off by more than 16 of 255 against before); the shading's fog toward the sky costs
+  within the runs' noise (Sponza 32.9 and 33.2 ms against 32.3 with the pass off). The lights' light comes through
   it too (`LightFog`, in `LightFalloff`: a directional light's through the layer above the point, a point or spot light's
   along the way from it; the main pass's, the traced hits', the scattering's and the voxels' kept light, which is made
   again when the fog changes, as when the lights do, and not gradually, which the surface cache would follow), so a thick
@@ -2829,8 +2842,7 @@ share. It replaced a stylized gradient whose sun was fixed.
   no fog), the emitters' light through it, the fog's own multiple scattering (a thick bank should glow nearly as white as
   a sunlit wall), and the fog in the sky's tables.
 - **Not yet** (TODO.md): clouds, the moon and the stars, the time of day's redraw cost spread over frames; and the aerial
-  perspective's (its follow-ups): the haze between glass or a reflection and what it shows, the sky's view from the
-  camera's altitude.
+  perspective's (its follow-ups): the sky's view from the camera's altitude.
 
 ## Descriptor sets: redundant updates consume the pool
 
