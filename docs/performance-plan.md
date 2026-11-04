@@ -84,6 +84,8 @@ emitters each run now. Measured by step 1's costs, and by A/B captures against t
 
 Status (2026-10-30): the ray queries are in, where the device has them (CLAUDE.md, "Hardware ray queries"), checked against
 the BVHs on lavapipe; they wait for a measurement on a desktop gpu. KosmicKrisp has none, so the M4 keeps the BVHs.
+Since then (2026-11-04): the mesa port's KosmicKrisp has them (the djohansson/mesa fork), on by default on the mac, and
+measured on NVIDIA; the M4 Pro baseline below is the BVHs' (`SPEEDO_RAY_QUERY=0` measures it again).
 
 Rays are now in nearly every system: the traced shadows, the emitters' shadow rays, the near field, the probes' rays,
 the probes' visibility, the voxels' shadow rays and the surface cache. `VK_KHR_ray_query` in the compute kernels where

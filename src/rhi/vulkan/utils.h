@@ -76,6 +76,8 @@ void InitDeviceExtensions(VkDevice device);
 
 [[nodiscard]] bool SupportsExtension(const char* extensionName, VkInstance device);
 [[nodiscard]] bool SupportsExtension(const char* extensionName, VkPhysicalDevice device);
+// whether the application asks for ray queries: unless SPEEDO_RAY_QUERY=0
+[[nodiscard]] bool RayQueriesEnabled();
 // whether a device is made with ray queries (VK_KHR_ray_query, its acceleration structures and their deferred host
 // operations, see DeviceLimits::rayQuery): where it has the extensions, unless SPEEDO_RAY_QUERY=0
 [[nodiscard]] bool WantsRayQueries(VkPhysicalDevice device);

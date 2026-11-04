@@ -424,6 +424,14 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 
 	ZoneScopedN("Instance()");
 
+#if defined(__APPLE__)
+	// KosmicKrisp has ray queries behind its experimental flags (MESA_KK_EXPERIMENTAL=ray_query), which it reads once, as
+	// its instance is created: asked for unless the flags are set (an empty value: none) or ray queries aren't wanted
+	// (SPEEDO_RAY_QUERY=0, see RayQueriesEnabled). no other driver reads them
+	if (RayQueriesEnabled())
+		setenv("MESA_KK_EXPERIMENTAL", "ray_query", 0);
+#endif
+
 	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		static const char* gVkLoaderDebugStr = "VK_LOADER_DEBUG";

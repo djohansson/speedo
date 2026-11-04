@@ -173,14 +173,19 @@ bool SupportsExtension(const char* extensionName, VkPhysicalDevice device)
 		}) != std::ranges::end(deviceExtensions);
 }
 
-bool WantsRayQueries(VkPhysicalDevice device)
+bool RayQueriesEnabled()
 {
 	static const bool kEnabled = []
 	{
 		const char* rayQuery = std::getenv("SPEEDO_RAY_QUERY");
 		return rayQuery == nullptr || std::string_view(rayQuery) != "0";
 	}();
-	return kEnabled && SupportsExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, device) &&
+	return kEnabled;
+}
+
+bool WantsRayQueries(VkPhysicalDevice device)
+{
+	return RayQueriesEnabled() && SupportsExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, device) &&
 		   SupportsExtension(VK_KHR_RAY_QUERY_EXTENSION_NAME, device) && SupportsExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, device);
 }
 
