@@ -7,7 +7,6 @@ set(VCPKG_LIBRARY_LINKAGE dynamic)
 # these needs to be set both in cmake presets as well as here for both regular vcpkg invocation and cmake invocations from presets (e.g. vscode cmake extension)
 set(VCPKG_OSX_SYSROOT $ENV{SDKROOT})
 set(VCPKG_OSX_ARCHITECTURES "$ENV{CMAKE_APPLE_SILICON_PROCESSOR}")
-set(VCPKG_FIXUP_ELF_RPATH ON)
 set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/../toolchains/clang.toolchain.cmake)
 set(VCPKG_DISABLE_COMPILER_TRACKING ON) # This target is not compiled yet when vcpkg wants to calculate the compiler hash.
 # libc++ 23 dropped many transitive includes; keep them for third-party ports that rely on them (e.g. tbb's missing <algorithm>).
