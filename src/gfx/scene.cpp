@@ -110,11 +110,13 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 		{.type = rhi::DescriptorType::kSampler, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_SAMPLER_COUNT},
 		{.type = rhi::DescriptorType::kCombinedImageSampler, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_SAMPLER_COUNT},
 		{.type = rhi::DescriptorType::kSampledImage,
-		 // gTextures, gMainStencil, gGiVolumes and gVisibility
-		 .count = kGlobalResourceBaseCount * (SHADER_TYPES_GLOBAL_TEXTURE_COUNT + 1 + SHADER_TYPES_GI_VOLUME_COUNT + 1)},
+		 // gTextures, gMainStencil, gGiVolumes, gVisibility and gAerialPerspective
+		 .count = kGlobalResourceBaseCount * (SHADER_TYPES_GLOBAL_TEXTURE_COUNT + 1 + SHADER_TYPES_GI_VOLUME_COUNT + 1 + 2)},
 		{.type = rhi::DescriptorType::kStorageImage,
+		 // gRWTextures, gDepthPyramid, gShadowDepthPyramid, gGiVolumeImages, gMainColor, gShadowTransmittanceImage and
+		 // gAerialPerspectiveImages
 		 .count = kGlobalResourceBaseCount * (SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT + SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT +
-											  SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT + SHADER_TYPES_GI_VOLUME_COUNT + 2)},
+											  SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT + SHADER_TYPES_GI_VOLUME_COUNT + 2 + 2)},
 		{.type = rhi::DescriptorType::kUniformTexelBuffer, .count = kBufferBaseCount},
 		{.type = rhi::DescriptorType::kStorageTexelBuffer, .count = kBufferBaseCount},
 		{.type = rhi::DescriptorType::kUniformBuffer, .count = kBufferBaseCount},
@@ -136,7 +138,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 69; // after the reflection rays (SHADER_TYPES_REFLECTION_COAT_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 71; // after the sky's tables (SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -186,6 +188,10 @@ static_assert(
 	SHADER_TYPES_REFLECTION_RAY_RW_TEXTURE > SHADER_TYPES_TRANSMISSION_RW_TEXTURE &&
 	SHADER_TYPES_REFLECTION_COAT_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(SHADER_TYPES_PREPASS_MOTION_TEXTURE > SHADER_TYPES_SKY_VIEW_TEXTURE && SHADER_TYPES_PREPASS_MOTION_TEXTURE < kModelTextureFirstSlot);
+static_assert(
+	SHADER_TYPES_SKY_TRANSMITTANCE_TEXTURE > SHADER_TYPES_REFLECTION_COAT_TEXTURE &&
+	SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE == SHADER_TYPES_SKY_TRANSMITTANCE_TEXTURE + 1 &&
+	SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE < kModelTextureFirstSlot);
 static_assert(
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE > SHADER_TYPES_PREPASS_MOTION_TEXTURE && SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE > SHADER_TYPES_COMPOSITE_RW_TEXTURE &&
@@ -373,9 +379,11 @@ struct Scene::Impl
 	core::ConcurrentAccess<std::string> myEnvironmentName;
 	core::ConcurrentAccess<std::string> myEnvironmentPath; // its file, empty for the sky
 	// the installed environment if it is the sky, which UpdateSky draws again as the time of day moves its sun (see
-	// kSkyRedrawAngle), the sun it was last drawn for, and the time of day's clock (draw thread)
+	// kSkyRedrawAngle) and as its air changes, the sun and the aerosols it was last drawn for, and the time of day's clock
+	// (draw thread)
 	std::shared_ptr<const EnvironmentTexture> mySky;
 	glm::vec3 mySkySunDrawn{0.0F};
+	float mySkyAerosolsDrawn = 1.0F;
 	std::chrono::steady_clock::time_point myTimeLast = std::chrono::steady_clock::now();
 	std::atomic<bool> mySkyInstalled = false;
 
@@ -565,23 +573,62 @@ struct Scene::Impl
 			mySettings.timeOfDay.load(std::memory_order_relaxed));
 	}
 
-	// the sky's dominant lights for its sun: the sun as a directional light, none once it is below the horizon
-	static std::vector<environment::DominantLight> SkyLights(const glm::vec3& sun)
+	// how much of the aerosols the sky's air has, by the visibility through it (see environment::SkyAerosols)
+	float SkyAerosols() const { return environment::SkyAerosols(mySettings.visibility.load(std::memory_order_relaxed)); }
+
+	// the sky's dominant lights for its sun through its air: the sun as a directional light, none once it is below the horizon
+	static std::vector<environment::DominantLight> SkyLights(const glm::vec3& sun, float aerosols)
 	{
-		auto light = environment::SkySun(sun);
+		auto light = environment::SkySun(sun, aerosols);
 		return light ? std::vector<environment::DominantLight>{light} : std::vector<environment::DominantLight>{};
 	}
 
-	// gEnvironment's sky fields for its sun (see EnvironmentData::skySun): its disk's radiance, its illuminance through
-	// the atmosphere over its solid angle
-	static void FillSkyData(EnvironmentData& data, const glm::vec3& sun)
+	// gEnvironment's sky fields for its sun and air (see EnvironmentData::skySun): its disk's radiance, its illuminance
+	// through the atmosphere over its solid angle, and the aerosols
+	static void FillSkyData(EnvironmentData& data, const glm::vec3& sun, float aerosols)
 	{
 		std::copy_n(glm::value_ptr(sun), 3, data.skySun);
 		float cosRadius = std::cos(environment::kSkySunRadius);
 		data.skySun[3] = cosRadius;
-		auto radiance = environment::SkySun(sun).irradiance / (2.0F * glm::pi<float>() * (1.0F - cosRadius));
+		auto radiance = environment::SkySun(sun, aerosols).irradiance / (2.0F * glm::pi<float>() * (1.0F - cosRadius));
 		std::copy_n(glm::value_ptr(radiance), 3, data.skySunRadiance);
 		data.skySunRadiance[3] = 1.0F;
+		data.skyAtmosphere[0] = aerosols;
+	}
+
+	// a model's directional light within this (degrees) of a dominant light's direction is the same light (see SyncLights)
+	static constexpr float kMergeAngle = 5.0F;
+
+	// toward the sky's sun as last drawn, in the world (turned back by the environment's rotation, as SyncLights turns the
+	// dominant lights), which the aerial perspective is lit by
+	glm::vec3 SkySunWorld() const
+	{
+		float angle = glm::radians(mySettings.environmentRotationDegrees.load(std::memory_order_relaxed));
+		float c = std::cos(angle);
+		float s = std::sin(angle);
+		const auto& d = mySkySunDrawn;
+		return {(c * d.x) + (s * d.z), d.y, (-s * d.x) + (c * d.z)};
+	}
+
+	// which of the lights (gLights) is the sky's sun toward sun: its own dominant light, or a model's directional light
+	// merged with it (the nearest within kMergeAngle), if any (none below the horizon), for the light shafts' shadow views
+	std::optional<uint32_t> SkySunLight(const glm::vec3& sun) const
+	{
+		std::optional<uint32_t> found;
+		float best = std::cos(glm::radians(kMergeAngle));
+		for (size_t lightIt = 0; lightIt < myLightData.size(); lightIt++)
+		{
+			const auto& light = myLightData[lightIt];
+			glm::vec3 toward(-light.direction[0], -light.direction[1], -light.direction[2]);
+			if (light.type != LIGHT_TYPE_DIRECTIONAL || !(glm::length(toward) > 0.0F))
+				continue;
+			if (float cosine = glm::dot(glm::normalize(toward), sun); cosine >= best)
+			{
+				best = cosine;
+				found = static_cast<uint32_t>(lightIt);
+			}
+		}
+		return found;
 	}
 
 	// draws the sky again where the sun has moved more than this (degrees) since it was last drawn (see UpdateSky): a
@@ -615,31 +662,39 @@ struct Scene::Impl
 		if (!mySky)
 			return;
 		auto sun = SkySunDirection();
-		if (glm::dot(sun, mySkySunDrawn) >= std::cos(glm::radians(kSkyRedrawAngle)))
+		auto aerosols = SkyAerosols();
+		if (glm::dot(sun, mySkySunDrawn) >= std::cos(glm::radians(kSkyRedrawAngle)) && aerosols == mySkyAerosolsDrawn)
 			return;
 
 		auto& device = rhi.GetPrimaryDevice();
 		auto& environmentBuffer = *device.GetResource<Buffer>(myEnvironmentUuid);
 		EnvironmentData data{};
-		FillSkyData(data, sun);
+		FillSkyData(data, sun, aerosols);
 		// the sky fields alone: the irradiance is the filter's to write
 		static_assert(offsetof(EnvironmentData, skySunRadiance) == offsetof(EnvironmentData, skySun) + sizeof(data.skySun));
+		static_assert(offsetof(EnvironmentData, skyAtmosphere) == offsetof(EnvironmentData, skySunRadiance) + sizeof(data.skySunRadiance));
 		auto first = reinterpret_cast<const std::byte*>(&data) + offsetof(EnvironmentData, skySun);
-		UpdateBufferOnGraphics(graphics, environmentBuffer, offsetof(EnvironmentData, skySun), std::span(first, sizeof(data.skySun) + sizeof(data.skySunRadiance)));
-		RecordEnvironment(graphics, *mySky, environmentBuffer);
-		myEnvironmentLights = SkyLights(sun);
+		UpdateBufferOnGraphics(
+			graphics,
+			environmentBuffer,
+			offsetof(EnvironmentData, skySun),
+			std::span(first, sizeof(data.skySun) + sizeof(data.skySunRadiance) + sizeof(data.skyAtmosphere)));
+		RecordEnvironment(graphics, *mySky, environmentBuffer, aerosols);
+		myEnvironmentLights = SkyLights(sun, aerosols);
 		mySkySunDrawn = sun;
+		mySkyAerosolsDrawn = aerosols;
 		// the frame binds what it draws with: the main layout, as before
 		myPipeline.BindLayoutAuto(myPipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 	}
 
 	// prefilters an environment on the gpu (see EnvironmentFilter::Record), before the frames that sample it (the same
 	// queue), keeping what it reads until the gpu is done. draw thread.
-	void RecordEnvironment(QueueTimelineContextData& graphics, const EnvironmentTexture& environment, const Buffer& environmentBuffer)
+	void RecordEnvironment(
+		QueueTimelineContextData& graphics, const EnvironmentTexture& environment, const Buffer& environmentBuffer, float skyAerosols = 1.0F)
 	{
 		auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 		auto cmd = graphicsQueue.GetPool().Begin();
-		auto used = myEnvironmentFilter->Record(cmd, myPipeline, environment, environmentBuffer);
+		auto used = myEnvironmentFilter->Record(cmd, myPipeline, environment, environmentBuffer, skyAerosols);
 		cmd.End();
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
 			.waitSemaphores = {graphics.semaphore},
@@ -673,14 +728,13 @@ struct Scene::Impl
 				light.size = size;
 			}
 		}
-		std::vector<environment::DominantLight> dominants = myEnvironmentLights ? *myEnvironmentLights : SkyLights(SkySunDirection());
+		std::vector<environment::DominantLight> dominants = myEnvironmentLights ? *myEnvironmentLights : SkyLights(SkySunDirection(), SkyAerosols());
 
 		// the panorama's space to the world's (the inverse of the shader's EnvironmentDirection)
 		float angle = glm::radians(mySettings.environmentRotationDegrees.load(std::memory_order_relaxed));
 		float intensity = mySettings.environmentIntensity.load(std::memory_order_relaxed);
 		float c = std::cos(angle);
 		float s = std::sin(angle);
-		constexpr float kMergeAngle = 5.0F; // degrees
 		float cosMerge = std::cos(glm::radians(kMergeAngle));
 		bool merge = mySettings.mergeLights.load(std::memory_order_relaxed);
 
@@ -1069,6 +1123,8 @@ struct Scene::Impl
 				const auto& desc = descMaterials[materialIt];
 				std::ranges::fill(material.color, 1.0F);
 				material.alphaCutoff = desc.alphaCutoff;
+				if (model->GetGroundMaterial() == materialIt || model->GetHorizonMaterial() == materialIt)
+					material.checker = kGroundChecker;
 				std::copy_n(glm::value_ptr(desc.emissive), 3, material.emissive);
 				material.metallic = desc.metallic;
 				material.roughness = desc.roughness;
@@ -1406,13 +1462,14 @@ struct Scene::Impl
 			RetireAfterGraphicsWork(graphics, std::exchange(myModel, model));
 
 			// on a ground plane, framed from above, so that a set's back rows show over its front ones (see model::Merge) and
-			// the shadows on the ground are in view
+			// the shadows on the ground are in view, and seen without a far plane: the ground reaches the horizon
 			constexpr float kGroundFramePitch = glm::radians(30.0F);
 			myViews.SetScene(
 				model->GetDesc().bounds,
 				model->GetFramedBounds(),
 				model->GetDesc().cameras,
-				model->GetGround() == ModelGround::kPlane ? kGroundFramePitch : 0.0F);
+				model->GetGround() == ModelGround::kPlane ? kGroundFramePitch : 0.0F,
+				model->GetGround() == ModelGround::kPlane);
 		});
 	}
 
@@ -1671,19 +1728,21 @@ struct Scene::Impl
 					.samplerId = kDefaultSamplerId,
 					.levelCount = static_cast<float>(environment->levelCount),
 					.sheenLevelCount = static_cast<float>(environment->sheenLevelCount)};
-				// the sky for the sun where the time of day puts it now (UpdateSky draws it again as it moves)
+				// the sky for the sun where the time of day puts it now, through its air (UpdateSky draws it again as they change)
 				auto sun = SkySunDirection();
+				auto aerosols = SkyAerosols();
 				if (environment->sky)
-					FillSkyData(data, sun);
+					FillSkyData(data, sun, aerosols);
 				// the irradiance is the filter's to write, after the rest
 				UpdateBufferOnGraphics(graphics, environmentBuffer, 0, std::as_bytes(std::span(&data, 1)));
 
 				// prefiltered on the gpu, before the frames that sample it (the same queue); what the filter reads (the source,
 				// a file's panoramas) kept until the gpu is done, and the sky's for as long as it is installed
-				RecordEnvironment(graphics, *environment, environmentBuffer);
+				RecordEnvironment(graphics, *environment, environmentBuffer, aerosols);
 				RetireAfterGraphicsWork(graphics, std::make_shared<std::shared_ptr<const EnvironmentTexture>>(environment));
 				mySky = environment->sky ? environment : nullptr;
 				mySkySunDrawn = sun;
+				mySkyAerosolsDrawn = aerosols;
 				mySkyInstalled.store(environment->sky, std::memory_order_relaxed);
 
 				pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
@@ -1706,7 +1765,7 @@ struct Scene::Impl
 				myEnvironmentViewUuid = view->GetUuid();
 				myEnvironmentSheenImageUuid = sheenImage->GetUuid();
 				myEnvironmentSheenViewUuid = sheenView->GetUuid();
-				myEnvironmentLights = environment->sky ? SkyLights(sun) : environment->dominantLights;
+				myEnvironmentLights = environment->sky ? SkyLights(sun, aerosols) : environment->dominantLights;
 				myEnvironmentName.Write().Get() = std::move(name);
 				myEnvironmentPath.Write().Get() = std::move(path);
 			});
@@ -2207,6 +2266,7 @@ struct Scene::Impl
 				{"ComputeCaustics", SLANG_STAGE_COMPUTE}, // see the Caustics pass
 				{"ComputeCausticsResolve", SLANG_STAGE_COMPUTE},
 				{"ComputeReflectionTrace", SLANG_STAGE_COMPUTE}, // see the Reflection Trace pass
+				{"ComputeAerialPerspective", SLANG_STAGE_COMPUTE}, // see the Aerial Perspective pass
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -2222,12 +2282,17 @@ struct Scene::Impl
 
 		myEnvironmentFilter = std::make_unique<EnvironmentFilter>(device, pipeline, shaderLoader, shaderIncludePath / "environment.slang");
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
-		// the sky's view of itself, which the backdrop samples where the sky is the environment (see SkyRadiance)
-		pipeline.SetDescriptorData(
-			"gTextures",
-			ImageBinding{.sampler = {}, .imageView = myEnvironmentFilter->GetSkyView(), .layout = ImageLayout::kGeneral},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-			SHADER_TYPES_SKY_VIEW_TEXTURE);
+		// the sky's view of itself, which the backdrop samples where the sky is the environment (see SkyRadiance), and its
+		// other tables, which the aerial perspective is made from (see ComputeAerialPerspective)
+		for (auto [view, slot] : std::array{
+				 std::pair{&myEnvironmentFilter->GetSkyView(), SHADER_TYPES_SKY_VIEW_TEXTURE},
+				 std::pair{&myEnvironmentFilter->GetSkyTransmittance(), SHADER_TYPES_SKY_TRANSMITTANCE_TEXTURE},
+				 std::pair{&myEnvironmentFilter->GetSkyMultipleScattering(), SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE}})
+			pipeline.SetDescriptorData(
+				"gTextures",
+				ImageBinding{.sampler = {}, .imageView = *view, .layout = ImageLayout::kGeneral},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+				slot);
 
 		pipeline.SetDescriptorData(
 			"gMaterialData",
@@ -2459,6 +2524,7 @@ struct Scene::Impl
 				 .inverseViewProjection = glm::inverse(viewProjections[cameraIt]),
 				 .nearPlane = cameras[cameraIt].GetDesc().nearPlane,
 				 .farPlane = cameras[cameraIt].GetDesc().farPlane});
+		auto skySun = SkySunWorld();
 		myRenderer->Record(
 			cmd,
 			pipeline,
@@ -2494,8 +2560,13 @@ struct Scene::Impl
 				.tracedRefractions = mySettings.tracedRefractions.load(std::memory_order_relaxed),
 				.caustics = mySettings.caustics.load(std::memory_order_relaxed),
 				.emissiveLights = mySettings.emissiveLights.load(std::memory_order_relaxed),
+				.aerialPerspective = mySettings.aerialPerspective.load(std::memory_order_relaxed) && mySkyInstalled.load(std::memory_order_relaxed),
+				.skySun = skySun,
+				.metersPerUnit = mySettings.metersPerUnit.load(std::memory_order_relaxed),
+				.shaftLight = mySettings.lightShafts.load(std::memory_order_relaxed) ? SkySunLight(skySun) : std::nullopt,
 				.cameras = std::move(shadowCameras),
 				.sceneBounds = myModel ? myModel->GetDesc().bounds : Bounds3f{},
+				.casterBounds = myModel ? myModel->GetFramedBounds() : Bounds3f{},
 				.lookDistances = lookDistances,
 				.exposureHistogram = &*device.GetResource<Buffer>(myExposureHistogramUuid),
 				.graphicsQueue = target.graphicsQueue,

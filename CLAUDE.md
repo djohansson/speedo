@@ -169,7 +169,7 @@ Notes for working in this codebase, distilled from real build failures.
   without models ("Nothing to preview"): the last preview stayed up, which looked like the new entry's; and
   opens the selection: one model as it is, several as one (`ModelArrangement`: side by side, the grid `Model::Load` of
   several always used, or as authored, each file where it is), the rest each by its type; the models and archives on a
-  ground plane where its "Ground plane" box is ticked (off by default: many models have a floor of their own; see "The
+  ground plane where its "Ground plane" box is ticked (on by default since 2026-11-04, the user's call; see "The
   ground plane", under "Asset import and testing"). What it opens is the newest of File > Open Recent's list
   (`WindowedApplication::InternalOpen`, which the menu opens through as well; `RecentFile`: the paths, how several are
   arranged and the ground, the last `kRecentFileCount`, 6, in `<user profile>/recent.txt`, a line each, read when the
@@ -177,7 +177,7 @@ Notes for working in this codebase, distilled from real build failures.
   holding them and how they were opened in the menu's right column, since a gltf sample model's encodings share its
   name). `SPEEDO_BROWSE=<dir>`,
   `SPEEDO_BROWSE_SELECT=<path>[;<path>...]` (paths from the folder), `SPEEDO_BROWSE_ENVIRONMENT=1`, `SPEEDO_BROWSE_RECURSIVE=0`,
-  `SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>`, `SPEEDO_BROWSE_GROUND=1` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at
+  `SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>`, `SPEEDO_BROWSE_GROUND=0` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at
   startup, for tests and screenshots (`SPEEDO_BROWSE_OPEN_FRAME_COUNT=<n>` opens once the preview has loaded the selection
   that many frames: a double click, whose first click started it; a preview is given up when the browser closes, its
   loads cancelled). Tiles show thumbnails (`client::Thumbnails`, `client/thumbnails.h`): rgba8 in
@@ -262,7 +262,7 @@ Notes for working in this codebase, distilled from real build failures.
   `RHIInitializationData::descriptorPoolSizes`, since only the app knows its array sizes. The main layout's module,
   `shaders.slang`, is parts by area (`bindings`, `common`, `debug`, `packing`, `vertex`, `texturing`, `ibl`, `brdf`, `shading`,
   `shadows`, `lights`, `transmission`, `scatter`, `fragment`, `tonemap`, `composite`, `uiblur`, `cull`, `bvh`, `gi`,
-  `tracedshadows`, `traced`, `ginear`, `emitters`, `upscale`), which it includes textually after
+  `tracedshadows`, `traced`, `ginear`, `emitters`, `upscale`, `aerialperspective`), which it includes textually after
   `capi.h` and `sky.h`: one translation unit, so the header's declarations exist once (each part including it as a part
   of the module, `__include` and `implementing`, declared its structs again: ambiguous). A part may use what any other
   declares, in any order. Slang's dependency list names every part, so editing one recompiles. Entry points are chosen
@@ -677,7 +677,7 @@ Consequences:
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
 stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Shadow Transmittance (with transmissive materials; Caustics Clear and Caustics where it redraws views and the device has ray queries), Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility Clear, Main Visibility Classify and Main Visibility (the visibility buffer), Reflection Trace, Reflection X and Y and Reflection Temporal (the traced glossy reflections), Main,
-Transmission and Transmission Mips, Main Transmissive, Exposure Clear, ComputeMain (or, with temporal upscaling, Composite,
+Transmission and Transmission Mips, Main Transmissive, Depth Save, Aerial Perspective (the sky's air, see "The sky"), Exposure Clear, ComputeMain (or, with temporal upscaling, Composite,
 the Upscale passes and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
 Where a scene's frames go is a `gfx::RenderOutput` (`gfx/renderoutput.h`), which the scene and its renderer are given
@@ -1034,6 +1034,16 @@ occlusion mode, CornellBox, ShadowScene, ManyLights, the blending, scattering an
 each scene within 0.03 of 255 a pixel where nothing fought (Bistro 0.1 to 0.3, its noise), and the same draws culled and
 hidden (Bistro through its arch 46.8 a frame two-phase, 46.5 reprojected and hybrid; the shadow views' occlusion 11.9).
 
+A view of a model on the ground plane has no far plane (the ground reaches the horizon: `Views::SetScene`'s `horizon`;
+`CameraCreateDesc::farPlane` 0, glm's perspective as its far plane goes to infinity, `Camera::UpdateProjectionMatrix`), the
+near plane the framing's as before. Not infinity: the release and profile builds are `-ffast-math`, which assumes there is
+none, so `std::isinf` was compiled to false and the ground past the old far plane was clipped (the sky's own ground showed
+there, below its horizon). What took a far plane takes none: the cascades slice along the frustum's edges from the eye
+(`shadows.cpp`'s `unbounded`), the clusters and the frustum culling already did (Gribb and Hartmann's far plane comes out
+as (0, 0, 0, near)). Unprojections stay sound at the ground's tiny depths (its depth row is (0, 0, 0, near) exactly, so
+the inverse's w row has the zeros it should, and w is proportional to the depth): the haze at the horizon came out as the
+aerial perspective's slices have it.
+
 ## Temporal upscaling
 
 View > Upscaling (`SPEEDO_UPSCALING=off|native|quality|balanced|performance`, `gfx::Upscaling` in `gfx/upscaling.h`;
@@ -1345,7 +1355,9 @@ transients, a slot a channel). Main's opaque fragments take them for the traced 
 `PushConstants::prepassImages`' `PREPASS_IMAGE_SHADOW_MASK`); everything else is the atlas's.
 
 - **Classify** (Shadow Classify, `ComputeShadowClassify`, compute entry point 18): where the atlas is sure, no ray
-  (`ShadowMapClassify`): its 3x3 filter all lit or all shadowed, and none of 24 taps up to 24 texels away says otherwise
+  (`ShadowMapClassify`): a point no shadow view holds lit, unless its way to the light passes the casters' bounds
+  (`ShadowPathMeetsCasters`, `ShadowTraceData::casterMin` and `casterMax`: the ground plane past the cascades traced a ray
+  a pixel, see "The ground plane"); its 3x3 filter all lit or all shadowed, and none of 24 taps up to 24 texels away says otherwise
   within the penumbra it would make (a blocking texel within the half width its depth gives, plus 2 texels, of a lit
   pixel; an unblocked one within its own blocker's reach, of a shadowed one), each compared with the pixel's tangent
   plane where the texel is (`ShadowReceiverGradient`: a surface sloping toward the light isn't its own blocker), and
@@ -2088,7 +2100,7 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   copies the view as the variables that reproduce it (`SPEEDO_CAMERA`, with split screen `SPEEDO_LAYOUT` and the other
   views' cameras, `SPEEDO_CAMERA_VIEWS='<pose>;...'` for views 1 and on, placed after `SPEEDO_CAMERA` places them all, or
   `SPEEDO_CAMERA_VIEWS=around` for views turned apart about the model, 360 degrees over the views, after the framing or
-  `SPEEDO_CAMERA`: split screen for any model, as the regression runs it, `scripts/test-assets/splitscreen.txt`, `SPEEDO_AUTOLOAD_MODEL` (and `SPEEDO_GROUND_PLANE=1` where it stands on the ground plane), the environment's path,
+  `SPEEDO_CAMERA`: split screen for any model, as the regression runs it, `scripts/test-assets/splitscreen.txt`, `SPEEDO_AUTOLOAD_MODEL` (and `SPEEDO_GROUND_PLANE=0` where it stands on no ground plane), the environment's path,
   and the settings that aren't their defaults, `ui::ApplyPoseSettings`'s: the exposure, the tonemapper, the shadows,
   `SPEEDO_GI` and the indirect lighting's, the upscaling, the sky's time, `SPEEDO_DEBUG_VIEW`; then `# window <w>x<h>`,
   the framebuffer), for reports: an artifact is a pose first. View > Camera > Paste Pose (ctrl/cmd+shift+v;
@@ -2731,8 +2743,47 @@ share. It replaced a stylized gradient whose sun was fixed.
   environment (the sun the one dominant light, where and as bright as put), the table against the cpu's transmittance at
   90, 30, 10 and 3 degrees up, the zenith blue at noon, the sky's share of the noon light (5 to 40%), the sun red at 3
   degrees up, and midnight dark.
-- **Not yet** (TODO.md): aerial perspective (the haze between the eye and far surfaces), clouds, the moon and the stars,
-  the aerosols as a setting (turbidity), and the time of day's redraw cost spread over frames.
+- **How clear the air is** (View > Environment > Visibility, `SPEEDO_VISIBILITY=<km>`, which Copy Pose writes): the
+  meteorological visibility at the ground (where a dark object against the horizon keeps 2% of its contrast: Koschmieder's
+  3.912 over the extinction at 550 nm, the green channel's), which sets the aerosols' density (`environment::SkyAerosols`,
+  times Hillaire's: 1 at `kSkyDefaultVisibility`, 217 km, a very clear day; none from `kSkyClearestVisibility`, 288 km,
+  the air alone; 41 at 20 km, a hazy day; 880 at 1 km, the least offered), in `EnvironmentData::skyAtmosphere`'s x, which
+  `SkyMediumAt` scales the aerosols by everywhere: the tables (made again when it changes, `EnvironmentFilter::Record`'s
+  `skyAerosols`), the sky's view of itself, the sun through it (`SunTransmittance`'s and `SkySun`'s, on the cpu) and the
+  aerial perspective. A change draws the sky again (`UpdateSky`, as the sun's moving does), and its lights. Haze spread
+  through the whole atmosphere (the aerosols' scale height is 1.2 km) blocks the sun as it thickens: at 1 km the sunlit
+  patches on Sponza's floor are gone, lit by gray skylight alone.
+- **Aerial perspective** (View > Environment > Aerial Perspective, on by default where the environment is the sky,
+  `SPEEDO_AERIAL_PERSPECTIVE=0`; Light Shafts, `SPEEDO_LIGHT_SHAFTS=0`; both written by Copy Pose; `aerialperspective.slang`,
+  `AerialPerspectiveData`): the light the air scatters toward the eye between it and what it sees, and what it lets through
+  of that, as Hillaire's aerial perspective volume. Per view a volume over its viewport (`gAerialPerspective`: two RGBA16F 3D
+  images, the in-scattering and the transmittance, colored, 160x90 cells by 64 slices, every split view's stacked along z,
+  59 MB, made each frame by the Aerial Perspective pass, `ComputeAerialPerspective`, a thread per cell's column): the first
+  slice at the eye, the second 1 m away and each after a constant factor farther, to 200 km at the last (fine near the eye
+  for the shafts, kilometres apart in the haze), each marched in 4 steps through the sky's medium as the sky's view is
+  (`SkyScatteredLight`'s energy conserving step), the eye at its altitude over the planet's surface (the scene's lowest
+  point, by `SPEEDO_METERS_PER_UNIT`, the scene's unit in meters, 1 by default: View > Environment > Meters per Unit, 0.01
+  for Bistro's centimetres). The sun's single scattering by each phase function through the transmittance table, shadowed
+  by the sun's cascades (its light among `gLights`, the sky's own or a model's merged with it: `AerialPerspectiveData::
+  shaftLight`; a bilinear comparison in the finest cascade holding the point, lit where none does, only as far along the
+  ray as the scene goes, `sceneDepths`) where the shafts are on, the steps offset per cell by interleaved gradient noise,
+  the same every frame. The light scattered more than once: the indirect lighting's around the air where its probes hold
+  it (`AerialPerspectiveAmbient`, a slice's middle: the 8 probes around in each clip, blended as `GiSampleAt` blends them,
+  each the mean of its faces, those that traced and aren't inside something alone: the volumes are only resolved near
+  surfaces), else the sky's multiple scattering table, as under an open sky: by the table alone the air in Sponza's roofed
+  corridors glowed with skylight it has none of (the user: "a bit bright"; at 100 m a unit, a corridor's pixel 19,43,82
+  of 255, now 14,6,5). `ComputeMain` applies it by the main depth's distance (the volume sampled trilinearly, each view
+  within its own slices), to everything drawn: an opaque pixel's color times the transmittance plus the light, each blended
+  layer's light through the air in front of it (`layer T + alpha S`, by its depth from the transparency's sort key); not
+  the backdrop (the sky has its air), the debug views or the voxel world. At 1 m a unit it is what clear air does at eye
+  height: the ground plane's last pixels below the horizon (36 km of air at 1000 m a unit takes the ground's red to 76%,
+  its blue to a third, and adds the horizon's light), a faint warmth down Sponza's corridors; shafts at a building's scale
+  want a denser layer near the ground (TODO.md). Cost by the draw thread's frame time on KosmicKrisp at Sponza (2560x1440,
+  GI on, the user's shadow pose): 0.6 to 0.7 ms (30.54 and 31.63 ms against 30.00 and 30.91, interleaved; by the sky's
+  term alone, before the probes' light, within the runs' noise).
+- **Not yet** (TODO.md): clouds, the moon and the stars, the time of day's redraw cost spread over frames; and the aerial
+  perspective's (its follow-ups): a fog layer near the ground, finer cells, the haze between glass or a reflection and
+  what it shows, the sky's view from the camera's altitude.
 
 ## Descriptor sets: redundant updates consume the pool
 
@@ -3112,8 +3163,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 69
-(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces, 58 to 65 the traced glossy reflections', 66 the shadow transmittance, 67 and 68 the reflection rays the visibility buffer's shading records). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 71
+(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces, 58 to 65 the traced glossy reflections', 66 the shadow transmittance, 67 and 68 the reflection rays the visibility buffer's shading records, 69 and 70 the sky's transmittance and multiple scattering tables). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the
@@ -3241,20 +3292,41 @@ it met (`BvhHit::capped`; a capped shadow ray is shadowed), counted (`GI_STATIST
 of the dual 20_20 is capped, no ray of the other test scenes. `CheckBvh` reports capped rays apart, as a warning.
 tinybvh's own stack is raised for their builds (`TINYBVH_STACK_SIZE` in `bvh.cpp`: "CombineLeafs, tree too deep" at 128).
 
-**The ground plane** (the file browser's "Ground plane", `SPEEDO_GROUND_PLANE=1` for the autoloads and Paste Pose, which
-Copy Pose writes; `ModelGround`, `Model::Load`'s `ground`): a plane under the model to see its shadows and caustics on,
+**The ground plane** (on by default since 2026-11-04, the user's call: the file browser's "Ground plane", and
+`SPEEDO_GROUND_PLANE=0` for none for the autoloads and Paste Pose, which Copy Pose writes; `ModelGround`, `Model::Load`'s
+`ground`): a plane under the model to see its shadows and caustics on,
 added to its staged triangles after its cache entry is read or its set merged (`AddGround` in `model.cpp`; nothing of it
-is cached): a square around the model's center, 1.25 times its largest dimension from the center to each side (a shadow
+is cached): a patch around the model's center, 1.25 times its largest dimension from the center to each side (a shadow
 of its height falls on it with the sun 40 degrees up), a thousandth of that dimension below its lowest point (a floor of
-its own isn't fought), facing up, single sided, of squares of two light grays (base colors 0.5 and 0.4, as vertex
-colors; roughness 0.8, untextured), checkered, a round size (1, 2 or 5 times a power of ten, 10 to 25 of them from the
-center to a side) aligned to the world's origin. A submesh, a material and an instance (the identity) of its own, after the
-model's, so its own are as they were (a skinned model's skin vertices padded with none); its BVH is built again with it
-(UploadStaged; the ray queries' structures take it as any geometry). `ModelDesc::bounds` takes it in (the shadows'
-cascades reach as far as the bounds, the indirect lighting's clipmap covers them, and the far planes), which
-coarsens the indirect lighting's voxels by the ground's share of the bounds (2.5 times for a model as wide as tall);
-`Model::GetFramedBounds` leaves it out, which the views frame and orbit (`Views::SetScene`'s `framed`, `FrameBounds`'
-reach for the far plane). `Scene::SceneState::ground` says what the installed model stands on, which View > Scene and
+its own isn't fought), facing up, single sided, of tiles of a round size (1, 2 or 5 times a power of ten, 10 to 25 of them
+from the center to a side) aligned to the world's origin; then out to the horizon (the user's call, 2026-11-04, to see the
+aerial perspective in the distance), 10 rings around it, each 4 times as far as the one inside, to a million times the
+patch: far enough that the sky's air hides its edge, and the views have no far plane where the model stands on it (see
+"Depth: reversed"). A ring's inner edge has the vertices of the edge it meets (the patch's tiles' corners, the ring
+inside's outer edge scaled from them), so that no pixel falls between. Light gray, checkered in squares of a unit (the
+user's call: they measure the model), drawn by the shading (`MaterialData::checker`, `kGroundChecker`: the mean gray
+0.45 times 1 plus or minus a ninth, 0.5 and 0.4, by the parity of the texcoords' squares, which are the place;
+`GroundChecker` box filters the square waves' product over the pixel's footprint, Quilez's, so that it fades to its gray
+toward the horizon rather than aliasing), and its vertex colors the mean gray, which what the shading doesn't draw sees
+(the voxels, the rays' hits); roughness 0.8. Two submeshes and materials of its own, the patch's and the rings' (the same
+look; their checker by `Model::GetGroundMaterial` and `GetHorizonMaterial`, its last two, not a field of `ModelMaterial`,
+which the model cache serializes), and an instance (the identity), after the model's, so its own are as they were (a
+skinned model's skin vertices padded with none). The GI and the shadows are the model's alone, which the ground takes
+where they are (the user's call: "only where other geometry exist"): the rings are drawn alone (no shadows cast, no
+voxels, not in the BVH nor the ray queries' structures: `Staged::untracedMaterial`, `bvh::Triangles`' and
+`RayQueryGeometries`' `untraced`), and the patch casts nothing (`BuildShadowDrawList`) but takes the model's shadows,
+caustics and light; the indirect lighting's clipmap covers the model's bounds (`FrameInputs::casterBounds`, its framed
+bounds), the ground right under it in the last clip's margin, over which the clips fade into the environment's light
+(`GiClipWeight`, `GiSample::held`), so there is no seam; and a point no shadow view holds is lit unless its way to the
+light passes the casters' bounds (`ShadowPathMeetsCasters`), else every pixel of ground past the cascades traced a
+shadow ray. DamagedHelmet on the ground (2560x1440, KosmicKrisp): 81 ms a frame at first, 156 with the clipmap the
+model's alone (no change in its probes or rays: the probes' rays met the rings), 113 without the surface cache, 28 on
+the BVHs (`SPEEDO_RAY_QUERY=0`), 20.5 with ray queries and the patch alone: the rings' triangles, a million times the
+model's size, made every ray query of KosmicKrisp's structures ten times as dear. Now 27.0 ms, against 20.2 without the
+ground (its pixels, most of the frame, shaded). Its BVH is built again with it (UploadStaged). The patch's submesh's
+bounds are the patch, the rings' all of them (what the culling goes by); `ModelDesc::bounds` takes in the patch alone
+(the shadows' cascades reach as far as it, where the model's shadow falls). `Model::GetFramedBounds` leaves it out,
+which the views frame and orbit (`Views::SetScene`'s `framed`, `FrameBounds`' reach for the near plane). `Scene::SceneState::ground` says what the installed model stands on, which View > Scene and
 Variant keep when they load it again. A set side by side stands on it (see "Archives of several models"), and a model on a
 ground plane is framed from 30 degrees above (`Views::FrameBounds`' pitch), so that a set's back rows show over its front
 ones and the shadows are in view.

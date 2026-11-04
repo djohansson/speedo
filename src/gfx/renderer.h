@@ -102,10 +102,22 @@ struct FrameInputs
 	bool caustics = true;
 	// whether the model's emissive surfaces light the scene (see EmitterData), where it has BVHs for their shadow rays
 	bool emissiveLights = true;
+	// the aerial perspective (see AerialPerspectiveData): whether the sky's atmosphere is between the eye and what it sees
+	// (where the environment is the sky), toward the sky's sun (a unit vector, the world's), the scene's unit in meters,
+	// and the light of lights that is the sky's sun, whose shadow views cast its light shafts (none: no shafts)
+	bool aerialPerspective = false;
+	glm::vec3 skySun{0.0F, 1.0F, 0.0F};
+	float metersPerUnit = 1.0F;
+	std::optional<uint32_t> shaftLight;
 	// each view's camera, as the frame draws it: what the shadows are fitted to (see shadows::Plan), and the indirect
 	// lighting's clips follow (the first view's)
 	std::vector<shadows::ShadowCamera> cameras;
 	Bounds3f sceneBounds;
+	// and what casts shadows, which the indirect lighting covers: the model's bounds, without the ground plane under it
+	// (Model::GetFramedBounds; the same where it has none). the ground takes their shadows and their light where they are
+	// (the ground right under the model is in the clips' margin) and the sky's elsewhere: by its patch, every clip held a
+	// plane of surface, and the helmet on the ground took 103 ms a frame without its traced shadows, 20 without the ground
+	Bounds3f casterBounds;
 	// how far what each view looks at is (the median distance of the last frame's drawn pixels from its eye, smoothed):
 	// the indirect lighting's finer clips are centered that far ahead of the eye, at most a share of their size (see
 	// gi::MakeClipmap)
@@ -738,6 +750,18 @@ private:
 	// whether they light this frame, whether the last frame's history and reservoirs hold anything (they lit it, at this
 	// size), and the frames they have lit
 	std::vector<Buffer> myEmitterDataBuffers;
+	// the aerial perspective (see AerialPerspectiveData): the frame's, per frame index (gAerialPerspectiveData, host
+	// visible), and its volume (gAerialPerspective: the light the air scatters toward the eye, and what it lets through),
+	// room for every split view's, written every frame it is on, always in the general layout
+	std::vector<Buffer> myAerialPerspectiveDataBuffers;
+	struct AerialPerspectiveVolume
+	{
+		std::unique_ptr<Image> image;
+		std::unique_ptr<ImageView> view;
+	};
+	std::array<AerialPerspectiveVolume, 2> myAerialPerspectiveImages;
+	std::array<FrameGraph::ImageId, 2> myAerialPerspective{};
+	FrameGraph::PassId myAerialPerspectivePass;
 	Buffer myEmitterReservoirBuffer;
 	FrameGraph::BufferId myEmitterReservoirs;
 	FrameGraph::ImageId myEmitterRaw;

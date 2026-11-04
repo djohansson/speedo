@@ -195,13 +195,17 @@ enum class ModelArrangement : uint8_t
 };
 
 // what a model is loaded standing on (see Model::Load): nothing, or a plane of light gray squares, checkered, under
-// it, for its shadows and caustics to land on (the file browser's option, off by default: many models have a floor of
-// their own)
+// it and out to the horizon, for its shadows and caustics to land on, and the sky's air to be seen over (the file
+// browser's option, on by default since 2026-11-04)
 enum class ModelGround : uint8_t
 {
 	kNone,
 	kPlane,
 };
+
+// the ground plane's checkerboard (see MaterialData::checker): its squares' base color is its mean gray times 1 + this or
+// 1 - this
+constexpr float kGroundChecker = 1.0F / 9.0F;
 
 // whether a model is loaded with its BVHs (see gfx/bvh.h), which its rays trace: the traced shadows, the emitters' shadows
 // and the indirect lighting's (the renderer leaves out what needs them where a model has none). none for a scene that
@@ -329,8 +333,21 @@ public:
 		core::CancelledFn cancelled = core::NeverCancelled);
 
 	// what it was loaded standing on (see ModelGround), and its bounds without it: what the views frame and orbit
-	// (ModelDesc::bounds has the ground too, which the shadows, the indirect lighting and the far planes take in)
+	// (ModelDesc::bounds has the ground's patch around it too, which the shadows and the indirect lighting take in, not
+	// what reaches to the horizon; its submesh's bounds do, which the culling goes by)
 	[[nodiscard]] ModelGround GetGround() const noexcept { return myGround; }
+	// the ground's materials (its last two, see AddGround), if it stands on one: its patch around the model's, which takes
+	// what it casts and the light it gives, and its rings out to the horizon's, which are drawn alone (no shadows cast, no
+	// voxels, not in the rays' structures: their triangles, a million times the model's size, made every ray query of
+	// KosmicKrisp's structures ten times as dear, the helmet on the ground 113 ms a frame, 20 without them)
+	[[nodiscard]] std::optional<size_t> GetGroundMaterial() const noexcept
+	{
+		return myGround == ModelGround::kPlane && myDesc.materials.size() >= 2 ? std::optional<size_t>(myDesc.materials.size() - 2) : std::nullopt;
+	}
+	[[nodiscard]] std::optional<size_t> GetHorizonMaterial() const noexcept
+	{
+		return myGround == ModelGround::kPlane && myDesc.materials.size() >= 2 ? std::optional<size_t>(myDesc.materials.size() - 1) : std::nullopt;
+	}
 	[[nodiscard]] const Bounds3f& GetFramedBounds() const noexcept { return myFramedBounds; }
 
 private:

@@ -32,6 +32,7 @@ gfx::environment::Environment Prefilter(const Source& source, std::vector<std::b
 		std::copy_n(glm::value_ptr(sun), 3, environmentData.skySun);
 		environmentData.skySun[3] = std::cos(kSkySunRadius);
 		environmentData.skySunRadiance[3] = 1.0F;
+		environmentData.skyAtmosphere[0] = SkyAerosols(kSkyDefaultVisibility); // as the sun's gfx::environment::SkySun has it
 	}
 	auto output = bridge::Prefilter(
 		input,

@@ -14,6 +14,7 @@
 #include <format>
 #include <mutex>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <glm/gtc/type_ptr.hpp>
@@ -147,12 +148,12 @@ static uint32_t TriangleFlags(const ModelSubmesh& submesh, const ModelMaterial* 
 } // namespace detail
 
 std::vector<Triangle> Triangles(
-	const ModelDesc& desc, std::span<const uint32_t> indices, std::span<const VertexP3fN3fTa4fT014fC4f> vertices)
+	const ModelDesc& desc, std::span<const uint32_t> indices, std::span<const VertexP3fN3fTa4fT014fC4f> vertices, std::optional<size_t> untraced)
 {
 	std::vector<Triangle> triangles;
 	for (const auto& submesh : desc.submeshes)
 	{
-		if (submesh.moves || submesh.topology != rhi::PrimitiveTopology::kTriangleList)
+		if (submesh.moves || submesh.topology != rhi::PrimitiveTopology::kTriangleList || (untraced && std::cmp_equal(submesh.material, *untraced)))
 			continue;
 		const ModelMaterial* material = submesh.material >= 0 ? &desc.materials[static_cast<size_t>(submesh.material)] : nullptr;
 		if (material != nullptr && (material->blend || material->transmission > 0.0F))
@@ -476,12 +477,13 @@ Data BuildBinary(std::span<const Triangle> triangles, core::TaskExecutor& execut
 	return data;
 }
 
-std::vector<RayQueryGeometry> RayQueryGeometries(const ModelDesc& desc)
+std::vector<RayQueryGeometry> RayQueryGeometries(const ModelDesc& desc, std::optional<size_t> untraced)
 {
 	std::vector<RayQueryGeometry> geometries;
 	for (const auto& submesh : desc.submeshes)
 	{
-		if (submesh.moves || submesh.topology != rhi::PrimitiveTopology::kTriangleList || submesh.indexCount < 3)
+		if (submesh.moves || submesh.topology != rhi::PrimitiveTopology::kTriangleList || submesh.indexCount < 3 ||
+			(untraced && std::cmp_equal(submesh.material, *untraced)))
 			continue;
 		const ModelMaterial* material = submesh.material >= 0 ? &desc.materials[static_cast<size_t>(submesh.material)] : nullptr;
 		if (material != nullptr && (material->blend || material->transmission > 0.0F))

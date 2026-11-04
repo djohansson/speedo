@@ -33,7 +33,7 @@ struct ShadowCamera
 	glm::mat4 view{1.0F};
 	glm::mat4 inverseViewProjection{1.0F};
 	float nearPlane = 0.01F;
-	float farPlane = 100.0F;
+	float farPlane = 100.0F; // 0: none (see CameraCreateDesc::farPlane)
 };
 
 // a frame's shadows: the views (gShadowViews), each light's first (gLightShadows), and the pixel rectangles of the views'

@@ -77,6 +77,11 @@ Texture3D<float4> gGiVolumes[SHADER_TYPES_GI_VOLUME_COUNT];
 // surface from (ComputeMainVisibility)
 [[vk::binding(3, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D<uint2> gVisibility;
+// the aerial perspective's volume (see AerialPerspectiveData): the light the air scatters toward the eye up to each
+// slice (rgb), and what it lets through (rgb), sampled trilinearly, and written as storage images
+// (gAerialPerspectiveImages), always in the general layout
+[[vk::binding(4, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
+Texture3D<float4> gAerialPerspective[2];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]]
 RWTexture2D gRWTextures[SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT];
@@ -95,6 +100,8 @@ RWTexture2D<float4> gMainColor;
 // light goes in (see ComputeCaustics)
 [[vk::binding(5, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("rgba16f")]]
 RWTexture2D<float4> gShadowTransmittanceImage;
+[[vk::binding(6, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("rgba16f")]]
+RWTexture3D<float4> gAerialPerspectiveImages[2];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS)]]
 SamplerState gSamplers[SHADER_TYPES_GLOBAL_SAMPLER_COUNT];
@@ -278,3 +285,7 @@ RWStructuredBuffer<uint> gVisibilityStatistics[SHADER_TYPES_FRAME_COUNT];
 // SHADER_TYPES_SHADOWS_CAUSTICS), emptied each frame they are traced in
 [[vk::binding(50, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gCausticPhotons;
+
+// the frame's aerial perspective (see AerialPerspectiveData), per frame index
+[[vk::binding(51, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<AerialPerspectiveData> gAerialPerspectiveData[SHADER_TYPES_FRAME_COUNT];

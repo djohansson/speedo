@@ -1,6 +1,7 @@
 #pragma once
 
 #include <gfx/imageimport.h>
+#include <gfx/shaders/capi.h>
 
 #include <glm/vec3.hpp>
 
@@ -56,10 +57,20 @@ constexpr float kSkyDefaultTimeOfDay = 10.5F; // hours of local solar time: 12 t
 // angle by the time (15 degrees an hour from noon; no equation of time)
 [[nodiscard]] glm::vec3 SunDirection(float latitudeDegrees, float dayOfYear, float timeOfDay);
 
+// how clear the sky's air is: how far one sees through it at the ground, its meteorological visibility in km (where a
+// dark object against the horizon keeps 2% of its contrast: Koschmieder's 3.912 over the extinction, at 550 nm, the
+// green channel's), which sets how much of the aerosols it has: Hillaire's at kSkyDefaultVisibility (a very clear day),
+// none from kSkyClearestVisibility (the air's own scattering alone), more the hazier (20 km a hazy day, 2 km mist)
+constexpr float kSkyDefaultVisibility =
+	static_cast<float>(3.912 / (SHADER_TYPES_ATMOSPHERE_RAYLEIGH_G + SHADER_TYPES_ATMOSPHERE_MIE_EXTINCTION));
+constexpr float kSkyClearestVisibility = static_cast<float>(3.912 / SHADER_TYPES_ATMOSPHERE_RAYLEIGH_G);
+// the aerosols for a visibility, times Hillaire's (EnvironmentData::skyAtmosphere's x)
+[[nodiscard]] float SkyAerosols(float visibility);
+
 // the atmosphere's transmittance toward a direction (a unit vector, +y up), from the eye's altitude
 // (SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE) to the top of the atmosphere, as the sky's transmittance table has it: 0 where the
-// planet is in the way (the sun below the horizon)
-[[nodiscard]] glm::vec3 SunTransmittance(const glm::vec3& direction);
+// planet is in the way (the sun below the horizon). aerosols: see SkyAerosols
+[[nodiscard]] glm::vec3 SunTransmittance(const glm::vec3& direction, float aerosols = 1.0F);
 
 // a panorama's dominant light: a strong compact light source (the sun, a lamp, a window), which lights the scene
 // as a directional light (with shadows) instead of as part of the environment. direction: towards it (in the
@@ -77,8 +88,9 @@ struct DominantLight
 };
 
 // the sky's sun toward a direction (see SunDirection), as a directional light: the sun's illuminance at the top of the
-// atmosphere (SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE) through it (SunTransmittance), none below the horizon
-[[nodiscard]] DominantLight SkySun(const glm::vec3& direction);
+// atmosphere (SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE) through it (SunTransmittance, with its aerosols), none below the
+// horizon
+[[nodiscard]] DominantLight SkySun(const glm::vec3& direction, float aerosols = 1.0F);
 
 // a sun's disk (kSkySunRadius) added to a panorama, its texels covered in part where its edge crosses them (4x4 samples
 // each), giving exactly its irradiance: for tests of the dominant lights' extraction

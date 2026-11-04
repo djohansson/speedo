@@ -146,15 +146,22 @@ void Cascades(
 	std::span<const ShadowPlan::Tile> tiles,
 	std::vector<ShadowData>& views)
 {
+	// the frustum's corners, near and far; without a far plane (a perspective view to the horizon, see CameraCreateDesc), from the eye
+	// through the near ones instead
+	bool unbounded = camera.farPlane <= 0.0F;
+	glm::vec3 eye(glm::inverse(camera.view)[3]);
 	std::array<glm::vec3, 4> nearCorners;
 	std::array<glm::vec3, 4> farCorners;
 	for (size_t i = 0; i < 4; i++)
 	{
 		glm::vec2 ndc((i & 1U) != 0 ? 1.0F : -1.0F, (i & 2U) != 0 ? 1.0F : -1.0F);
 		auto nearPoint = camera.inverseViewProjection * glm::vec4(ndc, 1.0F, 1.0F); // depth reversed
-		auto farPoint = camera.inverseViewProjection * glm::vec4(ndc, 0.0F, 1.0F);
 		nearCorners[i] = glm::vec3(nearPoint) / nearPoint.w;
-		farCorners[i] = glm::vec3(farPoint) / farPoint.w;
+		if (!unbounded)
+		{
+			auto farPoint = camera.inverseViewProjection * glm::vec4(ndc, 0.0F, 1.0F);
+			farCorners[i] = glm::vec3(farPoint) / farPoint.w;
+		}
 	}
 
 	// as far as the scene goes (along the view), within the camera's range
@@ -162,7 +169,7 @@ void Cascades(
 	for (const auto& corner : sceneCorners)
 		sceneDepth = std::max(sceneDepth, -(camera.view * glm::vec4(corner, 1.0F)).z);
 	float nearDepth = camera.nearPlane;
-	float farDepth = std::clamp(sceneDepth, nearDepth * 2.0F, camera.farPlane);
+	float farDepth = std::clamp(sceneDepth, nearDepth * 2.0F, unbounded ? std::numeric_limits<float>::max() : camera.farPlane);
 
 	std::array<float, SHADER_TYPES_SHADOW_CASCADE_COUNT + 1> splits{};
 	for (uint32_t i = 0; i <= SHADER_TYPES_SHADOW_CASCADE_COUNT; i++)
@@ -181,8 +188,9 @@ void Cascades(
 		for (size_t i = 0; i < 4; i++)
 			for (size_t end = 0; end < 2; end++)
 			{
-				float t = (splits[cascade + end] - camera.nearPlane) / (camera.farPlane - camera.nearPlane);
-				slice[(end * 4) + i] = glm::mix(nearCorners[i], farCorners[i], t);
+				float depth = splits[cascade + end];
+				slice[(end * 4) + i] = unbounded ? eye + ((nearCorners[i] - eye) * (depth / camera.nearPlane))
+												 : glm::mix(nearCorners[i], farCorners[i], (depth - camera.nearPlane) / (camera.farPlane - camera.nearPlane));
 			}
 		glm::vec3 center = std::accumulate(slice.begin(), slice.end(), glm::vec3(0.0F)) / 8.0F;
 		float radius = 0.0F;

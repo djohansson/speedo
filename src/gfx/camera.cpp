@@ -4,6 +4,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <cmath>
+
 namespace gfx
 {
 
@@ -44,7 +46,19 @@ void Camera::UpdateProjectionMatrix()
 			1.0F};
 		auto aspect =
 			static_cast<float>(myDesc.viewport.width) / static_cast<float>(myDesc.viewport.height);
-		if (myDesc.viewport.type == ViewType::Perspective)
+		if (myDesc.viewport.type == ViewType::Perspective && myDesc.farPlane <= 0.0F)
+		{
+			// no far plane: glm::perspective's as the far plane goes to infinity (depth 0 there, which nothing reaches)
+			float tanHalf = std::tan(0.5F * myDesc.fovY);
+			glm::mat4 projection(0.0F);
+			projection[0][0] = 1.0F / (aspect * tanHalf);
+			projection[1][1] = 1.0F / tanHalf;
+			projection[2][2] = -1.0F;
+			projection[2][3] = -1.0F;
+			projection[3][2] = -2.0F * myDesc.nearPlane;
+			myProjectionMatrix = kClip * projection;
+		}
+		else if (myDesc.viewport.type == ViewType::Perspective)
 		{
 			myProjectionMatrix = kClip * glm::perspective(myDesc.fovY, aspect, myDesc.nearPlane, myDesc.farPlane);
 		}

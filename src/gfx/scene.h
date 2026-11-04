@@ -128,6 +128,16 @@ public:
 		std::atomic<float> dayOfYear = environment::kSkyDefaultDayOfYear;
 		std::atomic<bool> advanceTime = false;
 		std::atomic<float> timeSpeed = 60.0F;
+		// how clear the sky's air is: how far one sees through it, km (see environment::SkyAerosols; View > Environment >
+		// Visibility, SPEEDO_VISIBILITY): the sky, its sun's light and the aerial perspective go by it
+		std::atomic<float> visibility = environment::kSkyDefaultVisibility;
+		// the aerial perspective, where the environment is the sky (FrameInputs::aerialPerspective; View > Environment >
+		// Aerial Perspective, SPEEDO_AERIAL_PERSPECTIVE=0 to start without), and its light shafts, the sun's shadows in the air
+		// (View > Environment > Light Shafts, SPEEDO_LIGHT_SHAFTS=0); and the scene's unit in meters, which the air's
+		// thickness goes by (View > Environment > Meters per Unit, SPEEDO_METERS_PER_UNIT)
+		std::atomic<bool> aerialPerspective = true;
+		std::atomic<bool> lightShafts = true;
+		std::atomic<float> metersPerUnit = 1.0F;
 	};
 
 	// which of the installed model's animations plays (see Model::Animate), and its clock. the ui thread reads and

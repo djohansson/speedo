@@ -32,6 +32,8 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 
 	// linear: the vertex colors hold the materials' diffuse colors, and textures are sampled through srgb formats
 	float4 color = v.color * material.color;
+	if (material.checker != 0.0)
+		color.rgb *= GroundChecker(v.texCoord01.xy, material.checker);
 
 	// cutouts (foliage, fences) keep their mask in the diffuse texture's alpha channel, or in a separate texture
 	if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)

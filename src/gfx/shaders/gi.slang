@@ -212,8 +212,11 @@ float GiClipWeight(GiClipView clip, float3 position)
 	float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
 	float3 size = float3(clip.volumeSize.xyz);
 	float edge = min(min(coordinate.x, coordinate.y), min(coordinate.z, min(min(size.x - coordinate.x, size.y - coordinate.y), size.z - coordinate.z)));
+	// the last clip all of what it holds, fading out over its margin (a probe spacing around the casters' bounds, see
+	// gi::MakeClipmap), where nothing but what is past them is (the ground plane beyond the model, which the environment's
+	// light then takes without a seam)
 	if (clip.clip + 1 >= clip.clipCount)
-		return edge > 0.0 ? 1.0 : 0.0;
+		return saturate(edge / clip.probeSpacing);
 	float3 beyond = abs(position - clip.fadeCenter.xyz) - (clip.fadeExtent.xyz - clip.fadeExtent.w);
 	float fade = 1.0 - smoothstep(0.0, clip.fadeExtent.w, max(beyond.x, max(beyond.y, beyond.z)));
 	return min(fade, saturate((edge - clip.probeSpacing) / 8.0));
@@ -3704,6 +3707,9 @@ struct GiSample
 	float4 last; // blue along +z and -z, unused, and the weight
 	bool valid;
 	bool inside; // whether a clip holds the point (though none of its voxels around it saw a probe, if not valid)
+	// how much of the point the clips hold: 1, but over the last one's margin (see GiClipWeight), past the casters' bounds,
+	// where the rest is the environment's light
+	float held;
 };
 
 // a clip's voxels' resolved probes around the point offset along its normal (see GiIrradianceResolved), normalized by
@@ -3732,6 +3738,8 @@ GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias
 	result.b = gGiVolumes[2].SampleLevel(linear, uvw, 0.0) * scale;
 	result.z = gGiVolumes[3].SampleLevel(linear, uvw, 0.0) * scale;
 	result.last = float4(result.last.xyz * scale, weight);
+	result.inside = true;
+	result.held = 1.0;
 	return result;
 }
 
@@ -3751,6 +3759,7 @@ GiSample GiSampleAt(float3 position, float3 normal, float3 bias)
 	none.last = 0.0;
 	none.valid = false;
 	none.inside = false;
+	none.held = 0.0;
 	if (gGi[gPushConstants.frameIndex][0].enabled == 0)
 		return none;
 	// each clip by its weight (GiClipWeight) of what the finer ones leave, the shares of those that see probes there
@@ -3780,6 +3789,7 @@ GiSample GiSampleAt(float3 position, float3 normal, float3 bias)
 		result.last += share * sample.last;
 		covered += share;
 	}
+	none.held = 1.0 - remaining;
 	if (covered <= 0.0)
 		return none;
 	float scale = 1.0 / covered;
@@ -3790,6 +3800,7 @@ GiSample GiSampleAt(float3 position, float3 normal, float3 bias)
 	result.last *= scale;
 	result.valid = true;
 	result.inside = true;
+	result.held = 1.0 - remaining;
 	return result;
 }
 

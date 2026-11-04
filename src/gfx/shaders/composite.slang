@@ -84,6 +84,19 @@ void ComputeMain(
 			}
 		}
 
+		// the aerial perspective (see AerialPerspectiveData): the air between the eye and what was drawn, which the sky's
+		// own (the backdrop) has already; the light alone, not the debug views
+		AerialPerspectiveData aerial = gAerialPerspectiveData[frameIndex][0];
+		bool aerialOn = aerial.enabled != 0u && inView && debugView == DEBUG_VIEW_NONE && !voxelWorld;
+		if (aerialOn && color.a != 0.0)
+		{
+			float3 light;
+			float3 transmittance;
+			AerialPerspectiveAtDepth(
+				aerial, pixelView, pixelViewIndex, xy, gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(xy, 0)).r, light, transmittance);
+			color.rgb = color.rgb * transmittance + light;
+		}
+
 		// how much of the pixel the blended layers cover, temporal upscaling's reactive mask (see UpscaleReactiveMask): they
 		// draw no motion of their own, so their history would follow what is behind them
 		float coverage = 0.0;
@@ -118,7 +131,18 @@ void ComputeMain(
 			{
 				OitNode layer = gOitNodes[layers[layerIt - 1]];
 				float alpha = float(layer.alphaDepth >> 24) / 255.0;
-				color.rgb = color.rgb * (1.0 - alpha) + UnpackR11G11B10(layer.color);
+				float3 layerColor = UnpackR11G11B10(layer.color);
+				// through the air in front of it: what is behind already has the air up to the layer, as the layer's light
+				// is seen through it, and its coverage hides the air's light behind it (see FragmentTransparent's depth key)
+				if (aerialOn)
+				{
+					float3 light;
+					float3 transmittance;
+					AerialPerspectiveAtDepth(
+						aerial, pixelView, pixelViewIndex, xy, asfloat(0x3f800000u - ((layer.alphaDepth & 0xffffffu) << 6)), light, transmittance);
+					layerColor = layerColor * transmittance + alpha * light;
+				}
+				color.rgb = color.rgb * (1.0 - alpha) + layerColor;
 				coverage = coverage + alpha - coverage * alpha;
 			}
 		}

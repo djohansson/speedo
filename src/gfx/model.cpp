@@ -388,14 +388,21 @@ struct Staged
 	// the indirect lighting's BVH of what doesn't move (see gfx/bvh.h), kept in the model's cache: none for a merged set,
 	// whose files are placed when merged (UploadStaged builds it)
 	std::optional<bvh::Data> bvh;
+	// a material drawn alone, which neither the BVH nor the ray queries' structures hold (see bvh::Triangles): the ground
+	// plane's horizon (see AddGround), none otherwise
+	std::optional<size_t> untracedMaterial;
 };
 
 // a model's BVH (see bvh::Build), timed
 [[nodiscard]] static bvh::Data BuildBvh(
-	const ModelDesc& desc, std::span<const uint32_t> indices, std::span<const VertexP3fN3fTa4fT014fC4f> vertices, std::string_view name)
+	const ModelDesc& desc,
+	std::span<const uint32_t> indices,
+	std::span<const VertexP3fN3fTa4fT014fC4f> vertices,
+	std::string_view name,
+	std::optional<size_t> untraced = std::nullopt)
 {
 	auto start = std::chrono::steady_clock::now();
-	auto data = bvh::Build(bvh::Triangles(desc, indices, vertices), core::Application::Get()->GetExecutor());
+	auto data = bvh::Build(bvh::Triangles(desc, indices, vertices, untraced), core::Application::Get()->GetExecutor());
 	if (data.triangleCount > 0)
 		std::println(
 			"{}: a BVH of {} triangles, {} nodes ({:.1f} MB), built in {:.0f} ms",
@@ -1058,22 +1065,34 @@ static void MergeAnimation(
 	return merged;
 }
 
-// a plane under the model (ModelGround::kPlane), added to its staged triangles: a square around its center, 1.25 times
-// its largest dimension from the center to each side (where a shadow of its height falls with the sun 40 degrees up), a
-// thousandth of that dimension below its lowest point (a floor of its own isn't fought), facing up, of squares of two
-// light grays, checkered, of a round size (1, 2 or 5 times a power of ten: 10 to 25 of them from the center to a side),
-// aligned to the world's origin. a submesh with a material and an instance (the identity) of its own, so the model's
-// are as they were; the BVH is built again with it (UploadStaged), unless none is wanted. false if it doesn't fit the
-// device
+// a plane under the model (ModelGround::kPlane), added to its staged triangles: a patch around its center, 1.25 times its
+// largest dimension from the center to each side (where a shadow of its height falls with the sun 40 degrees up), a
+// thousandth of that dimension below its lowest point (a floor of its own isn't fought), facing up, of tiles of a round
+// size (1, 2 or 5 times a power of ten: 10 to 25 of them from the center to a side) aligned to the world's origin, two
+// triangles each, then rings around it out to the horizon, each 4 times as far as the one inside it, to a million times
+// the patch (kGroundRingCount): far enough that the sky's air hides its edge (see AerialPerspectiveData). light gray,
+// checkered in squares of a unit (the texcoords are the place: the user's call, so that the squares measure the model),
+// which the shading draws (MaterialData::checker, by kGroundChecker, filtered: thousands of squares to a pixel at the
+// horizon, and a model a thousand units across sees its squares as its gray), and the vertex colors their mean, which
+// what the shading doesn't draw sees (the indirect lighting's voxels, the rays' hits). a ring's inner edge has the
+// vertices of the edge it meets (the patch's tiles' corners, or the ring inside's outer edge, scaled from them), so that
+// no pixel falls between them. two submeshes and materials of its own, the patch's and the rings' (the same look), and an
+// instance (the identity), so the model's are as they were; the rings are drawn alone (Model::GetHorizonMaterial: no
+// shadows cast, no voxels, not in the rays' structures, Staged::untracedMaterial), the patch takes the model's shadows
+// and light. the submeshes' bounds are their own (what the culling goes by), the model's take in the patch alone (the
+// shadows' cascades and the views' framing). the BVH is built again with it (UploadStaged), unless none is wanted. false
+// if it doesn't fit the device
 [[nodiscard]] static bool AddGround(Device& device, Staged& staged, ModelBvh bvh)
 {
 	ZoneScopedN("gfx::Model::AddGround");
 
 	constexpr float kExtent = 1.25F;
 	constexpr float kDepth = 1e-3F;
-	constexpr float kSquaresPerSide = 10.0F; // at least
-	constexpr std::array kGrays{0.5F, 0.4F}; // linear base colors, as the vertex colors are
+	constexpr float kTilesPerSide = 10.0F; // at least
+	constexpr float kGray = 0.45F; // the squares' mean linear base color (as the vertex colors are): 0.5 and 0.4
 	constexpr float kRoughness = 0.8F;
+	constexpr uint32_t kGroundRingCount = 10;
+	constexpr float kRingScale = 4.0F;
 
 	auto& desc = staged.desc;
 	auto size = desc.bounds.Size();
@@ -1081,16 +1100,32 @@ static void MergeAnimation(
 	if (!(largest > 0.0F))
 		largest = 1.0F;
 	auto halfExtent = kExtent * largest;
-	auto target = halfExtent / kSquaresPerSide;
+	auto target = halfExtent / kTilesPerSide;
 	auto power = std::pow(10.0F, std::floor(std::log10(target)));
-	auto square = power * (target >= 5.0F * power ? 5.0F : (target >= 2.0F * power ? 2.0F : 1.0F));
+	auto tile = power * (target >= 5.0F * power ? 5.0F : (target >= 2.0F * power ? 2.0F : 1.0F));
 	glm::vec2 center{desc.bounds.Center().x, desc.bounds.Center().z};
-	glm::ivec2 first(glm::floor((center - halfExtent) / square));
-	glm::ivec2 last(glm::ceil((center + halfExtent) / square));
+	glm::ivec2 first(glm::floor((center - halfExtent) / tile));
+	glm::ivec2 last(glm::ceil((center + halfExtent) / tile));
 	float height = desc.bounds.GetMin().y - (kDepth * largest);
-	auto squareCount = static_cast<uint32_t>((last.x - first.x) * (last.y - first.y));
-	auto vertexCount = 4 * squareCount;
-	auto indexCount = 6 * squareCount;
+	auto tileCount = static_cast<uint32_t>((last.x - first.x) * (last.y - first.y));
+
+	// the patch's edge, counter-clockwise seen from above, a vertex at each tile's corner (as the tiles place theirs),
+	// and the rings' edges, each the one inside it scaled about the patch's center
+	std::vector<glm::vec2> edge;
+	auto corner = [tile](int32_t x, int32_t z) { return glm::vec2(static_cast<float>(x) * tile, static_cast<float>(z) * tile); };
+	for (int32_t x = first.x; x < last.x; x++)
+		edge.push_back(corner(x, first.y));
+	for (int32_t z = first.y; z < last.y; z++)
+		edge.push_back(corner(last.x, z));
+	for (int32_t x = last.x; x > first.x; x--)
+		edge.push_back(corner(x, last.y));
+	for (int32_t z = last.y; z > first.y; z--)
+		edge.push_back(corner(first.x, z));
+	glm::vec2 patchCenter = 0.5F * (corner(first.x, first.y) + corner(last.x, last.y));
+	auto edgeCount = static_cast<uint32_t>(edge.size());
+
+	auto vertexCount = (4 * tileCount) + (kGroundRingCount * 2 * edgeCount);
+	auto indexCount = (6 * tileCount) + (kGroundRingCount * 6 * edgeCount);
 
 	// a staging buffer extra bytes larger, what it held copied over (and the rest zeroed), mapped
 	auto grow = [&](Buffer& staging, size_t byteCount, size_t extra, std::string_view what)
@@ -1119,44 +1154,93 @@ static void MergeAnimation(
 
 	auto vertexIt = desc.vertexCount;
 	auto indexIt = desc.indexCount;
+	// a vertex at a place on the plane: facing up, its texcoords its place (the checker's squares a unit)
+	auto addVertex = [&](const glm::vec2& place)
+	{
+		VertexP3fN3fTa4fT014fC4f vertex{};
+		vertex.position[0] = place.x;
+		vertex.position[1] = height;
+		vertex.position[2] = place.y;
+		vertex.normal[1] = 1.0F;
+		vertex.texCoord01[0] = place.x;
+		vertex.texCoord01[1] = place.y;
+		vertex.color[0] = vertex.color[1] = vertex.color[2] = kGray;
+		vertex.color[3] = 1.0F;
+		vertices[vertexIt] = vertex;
+		return vertexIt++;
+	};
 	for (int32_t z = first.y; z < last.y; z++)
 	{
 		for (int32_t x = first.x; x < last.x; x++)
 		{
-			auto gray = kGrays[static_cast<size_t>((x + z) & 1)];
 			// counter-clockwise seen from above (+y): (x, z), (x + 1, z), (x + 1, z + 1), (x, z + 1)
-			for (auto [cornerX, cornerZ] : {std::pair{x, z}, std::pair{x + 1, z}, std::pair{x + 1, z + 1}, std::pair{x, z + 1}})
-			{
-				VertexP3fN3fTa4fT014fC4f vertex{};
-				vertex.position[0] = static_cast<float>(cornerX) * square;
-				vertex.position[1] = height;
-				vertex.position[2] = static_cast<float>(cornerZ) * square;
-				vertex.normal[1] = 1.0F;
-				vertex.color[0] = vertex.color[1] = vertex.color[2] = gray;
-				vertex.color[3] = 1.0F;
-				vertices[vertexIt++] = vertex;
-			}
-			for (uint32_t corner : {4U, 1U, 2U, 4U, 2U, 3U})
-				indices[indexIt++] = vertexIt - corner;
+			std::array<uint32_t, 4> quad{
+				addVertex(corner(x, z)), addVertex(corner(x + 1, z)), addVertex(corner(x + 1, z + 1)), addVertex(corner(x, z + 1))};
+			for (uint32_t cornerIt : {0U, 3U, 2U, 0U, 2U, 1U})
+				indices[indexIt++] = quad[cornerIt];
 		}
 	}
+	// the rings: between each edge and the next, a quad per edge vertex, two triangles facing up
+	std::vector<glm::vec2> outer(edge.size());
+	auto scale = 1.0F;
+	for (uint32_t ringIt = 0; ringIt < kGroundRingCount; ringIt++)
+	{
+		auto inner = ringIt == 0 ? edge : outer;
+		scale *= kRingScale;
+		for (size_t edgeIt = 0; edgeIt < edge.size(); edgeIt++)
+			outer[edgeIt] = patchCenter + ((edge[edgeIt] - patchCenter) * scale);
+		auto innerFirst = vertexIt;
+		for (const auto& place : inner)
+			(void)addVertex(place);
+		auto outerFirst = vertexIt;
+		for (const auto& place : outer)
+			(void)addVertex(place);
+		for (uint32_t edgeIt = 0; edgeIt < edgeCount; edgeIt++)
+		{
+			uint32_t next = (edgeIt + 1) % edgeCount;
+			for (auto triangle : {std::array{innerFirst + edgeIt, innerFirst + next, outerFirst + next}, std::array{innerFirst + edgeIt, outerFirst + next, outerFirst + edgeIt}})
+			{
+				// facing up: the edges' order needn't say which way round the triangle goes
+				auto at = [&](uint32_t index) { return glm::vec3(vertices[index].position[0], 0.0F, vertices[index].position[2]); };
+				if (glm::cross(at(triangle[1]) - at(triangle[0]), at(triangle[2]) - at(triangle[0])).y < 0.0F)
+					std::swap(triangle[1], triangle[2]);
+				for (auto index : triangle)
+					indices[indexIt++] = index;
+			}
+		}
+	}
+	ENSURE(vertexIt == desc.vertexCount + vertexCount && indexIt == desc.indexCount + indexCount);
 	staged.vertexStaging.Unmap();
 	staged.indexStaging.Unmap();
 
-	Bounds3f bounds(
-		glm::vec3(static_cast<float>(first.x) * square, height, static_cast<float>(first.y) * square),
-		glm::vec3(static_cast<float>(last.x) * square, height, static_cast<float>(last.y) * square));
+	Bounds3f patch(
+		glm::vec3(static_cast<float>(first.x) * tile, height, static_cast<float>(first.y) * tile),
+		glm::vec3(static_cast<float>(last.x) * tile, height, static_cast<float>(last.y) * tile));
+	Bounds3f all = patch;
+	for (const auto& place : outer)
+		all.Merge(Bounds3f(glm::vec3(place.x, height, place.y), glm::vec3(place.x, height, place.y)));
+	// the patch and the rings, each a submesh and a material of its own (the same look): the rings are drawn alone (see
+	// Model::GetHorizonMaterial)
+	auto patchIndexCount = 6 * tileCount;
+	auto firstMaterial = static_cast<int32_t>(desc.materials.size());
+	auto instance = static_cast<uint32_t>(desc.instances.size());
 	desc.submeshes.push_back(ModelSubmesh{
-		.firstIndex = desc.indexCount,
-		.indexCount = indexCount,
-		.material = static_cast<int32_t>(desc.materials.size()),
-		.firstInstance = static_cast<uint32_t>(desc.instances.size()),
-		.bounds = bounds});
-	auto& material = desc.materials.emplace_back();
-	material.name = "Ground";
-	material.roughness = kRoughness;
+		.firstIndex = desc.indexCount, .indexCount = patchIndexCount, .material = firstMaterial, .firstInstance = instance, .bounds = patch});
+	desc.submeshes.push_back(ModelSubmesh{
+		.firstIndex = desc.indexCount + patchIndexCount,
+		.indexCount = indexCount - patchIndexCount,
+		.material = firstMaterial + 1,
+		.firstInstance = instance,
+		.bounds = all});
+	for (const char* name : {"Ground", "Ground Horizon"})
+	{
+		auto& material = desc.materials.emplace_back();
+		material.name = name;
+		material.roughness = kRoughness;
+	}
+	staged.untracedMaterial = static_cast<size_t>(firstMaterial + 1);
 	desc.instances.emplace_back(1.0F);
-	desc.bounds.Merge(bounds);
+	desc.bounds.Merge(patch);
 	desc.indexCount += indexCount;
 	desc.vertexCount += vertexCount;
 	if (bvh == ModelBvh::kBuild)
@@ -1188,7 +1272,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 
 	ZoneScopedN("gfx::Model::Upload");
 
-	auto& [desc, indexStaging, vertexStaging, skinStaging, morphStaging, bvhData] = staged;
+	auto& [desc, indexStaging, vertexStaging, skinStaging, morphStaging, bvhData, untracedMaterial] = staged;
 	std::string filePath = desc.name; // for the buffers' names: desc is moved into the model
 	bool moves = !desc.animation.Empty();
 	// the device's ray queries trace the triangles themselves where it has them (see AccelerationStructures), else gfx's BVHs
@@ -1357,7 +1441,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 		// and vertices, and per geometry its transform and its entry in the shaders' table (BVH_RAY_QUERY_GEOMETRY_*): what
 		// doesn't move's, what moves' (their entries were missing, so a ray meeting what moves read past the table: its
 		// material none, and past its first geometry the wrong corners), then the glass's, then the glass's that moves
-		auto geometries = bvh::RayQueryGeometries(desc);
+		auto geometries = bvh::RayQueryGeometries(desc, untracedMaterial);
 		auto glassGeometries = bvh::RayQueryGlassGeometries(desc);
 		if (!geometries.empty() || !movingRayQueryGeometries.empty() || !glassGeometries.empty() || !movingGlassRayQueryGeometries.empty())
 		{
@@ -1415,7 +1499,8 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 			desc,
 			std::span(reinterpret_cast<const uint32_t*>(indices.data()), desc.indexCount),
 			std::span(reinterpret_cast<const VertexP3fN3fTa4fT014fC4f*>(vertices.data()), desc.vertexCount),
-			filePath);
+			filePath,
+			untracedMaterial);
 		vertexStaging.Unmap();
 		indexStaging.Unmap();
 	}

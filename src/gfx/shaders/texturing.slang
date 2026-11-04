@@ -52,6 +52,32 @@ SurfaceDerivatives SurfaceDerivativesAt(float3 position, TextureView view, float
 	return result;
 }
 
+// the ground plane's checkerboard at a pixel (see MaterialData::checker): the base color's factor, 1 + contrast on the
+// squares of the first texcoords whose integer parts sum to an even number, 1 - contrast on the others, box filtered over
+// the pixel's footprint in them (Quilez's analytic filter of the square waves' product: their integrals are triangle waves),
+// as wide as SampleView's mips take it, so that it fades to its mean toward the horizon rather than aliasing
+float4 FirstTexCoordDerivatives(float2 uv)
+{
+	__stage_switch
+	{
+	case fragment:
+		return float4(ddx(uv), ddy(uv));
+	case compute:
+		return float4(gTexCoordDx.xy, gTexCoordDy.xy);
+	}
+	// (no other stage shades a surface)
+	return 0.0;
+}
+
+float GroundChecker(float2 uv, float contrast)
+{
+	float4 d = FirstTexCoordDerivatives(uv);
+	float scale = exp2(gViewData[gPushConstants.frameIndex][gShadingViewId].textureLodBias);
+	float2 width = max(abs(d.xy), abs(d.zw)) * scale + 1e-4;
+	float2 wave = 2.0 * (abs(frac((uv - 0.5 * width) * 0.5) - 0.5) - abs(frac((uv + 0.5 * width) * 0.5) - 0.5)) / width;
+	return 1.0 + contrast * wave.x * wave.y;
+}
+
 // the tangent frame at a pixel, from the screen space derivatives of its position and a view's texcoords (Christian
 // Schüler, "Normal Mapping Without Precomputed Tangents"), so that meshes need no tangents. rows: along +u, along +v,
 // normal.

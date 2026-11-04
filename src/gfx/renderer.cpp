@@ -106,6 +106,8 @@ constexpr uint8_t kCausticsEntryPoint = 48;
 constexpr uint8_t kCausticsResolveEntryPoint = 49;
 // the visibility buffer's reflection rays, traced (see ComputeReflectionTrace)
 constexpr uint8_t kReflectionTraceEntryPoint = 50;
+// the aerial perspective's volume (see ComputeAerialPerspective)
+constexpr uint8_t kAerialPerspectiveEntryPoint = 51;
 // the share of a frame's tiles with something drawn without a material with an extended layer from which sorting the
 // tiles pays (see ComputeMainVisibilityClassify): it costs 0.21 to 0.25 ms, and the specialized kernel saves 1.9 ms on a
 // frame of them (2.4 at Sponza). below it the generic kernel shades every tile, and sorts them every
@@ -113,7 +115,7 @@ constexpr uint8_t kReflectionTraceEntryPoint = 50;
 constexpr float kVisibilityTieredShare = 0.125F;
 constexpr uint64_t kVisibilityRecountFrameCount = 16;
 // diagnostic: the ray query replay's (see gfx/rayquerywatch.h), after the others, where the shaders have the watch
-constexpr uint8_t kRayQueryReplayEntryPoint = 51;
+constexpr uint8_t kRayQueryReplayEntryPoint = 52;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -210,6 +212,28 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myEmitterPixelSurfaces[historyIt] = myGraph.ImportImage(std::format("Emitter Pixel Surface {}", historyIt));
 	}
 	myEmitterReservoirs = myGraph.ImportBuffer("Emitter Reservoirs");
+	// the aerial perspective's volume (see AerialPerspectiveData): its in-scattering and transmittance, every split view's
+	// slices stacked along z, sampled where the storage views write them
+	for (uint32_t volumeIt = 0; volumeIt < myAerialPerspectiveImages.size(); volumeIt++)
+	{
+		auto name = std::format("Aerial Perspective {}", volumeIt == 0 ? "Light" : "Transmittance");
+		ImageCreateDesc desc{device.CreateDeviceObjectCreateDesc(name)};
+		desc.mipLevels = {{.extent = {.width = SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH, .height = SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT}}};
+		desc.format = Format::kR16G16B16A16Sfloat;
+		desc.tiling = ImageTiling::kOptimal;
+		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled;
+		desc.memoryFlags = MemoryProperty::kDeviceLocal;
+		desc.imageAspectFlags = ImageAspect::kColor;
+		desc.layout = ImageLayout::kUndefined;
+		desc.depth = SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT;
+		auto& volume = myAerialPerspectiveImages[volumeIt];
+		volume.image = std::make_unique<Image>(std::move(desc));
+		ImageViewCreateDesc viewDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("{} View", name)), *volume.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor};
+		viewDesc.volume = true;
+		volume.view = std::make_unique<ImageView>(std::move(viewDesc));
+		myAerialPerspective[volumeIt] = myGraph.ImportImage(name);
+	}
 	// the pixels whose shadows the atlas isn't sure of, for the rays (gShadowTraceList: a count, then a pixel each)
 	myShadowTraceList = myGraph.CreateBuffer(
 		{.name = "Shadow Trace List", .sizeOf = [](Extent2d extent) { return (PixelCount(extent) + 1) * sizeof(uint32_t); }});
@@ -309,6 +333,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myEmitterDataBuffers.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("Emitter Data {}", frameIt)),
 			sizeof(EmitterData),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
+		myAerialPerspectiveDataBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Aerial Perspective Data {}", frameIt)),
+			sizeof(AerialPerspectiveData),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
 		myClusterViewBuffers.emplace_back(BufferCreateDesc{
@@ -1661,6 +1690,26 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kDepthSaveEntryPoint}, extent.width, extent.height);
 		});
 
+	// the aerial perspective's volume, which ComputeMain applies (see ComputeAerialPerspective): a thread per cell and view,
+	// lit through the sun's shadow views where they cast its light shafts
+	myAerialPerspectivePass = myGraph.AddPass(
+		"Aerial Perspective",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead)); // the probes' light
+			for (auto volume : myAerialPerspective)
+				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, bindKernel](FrameGraph::PassContext& context)
+		{
+			ComputePipelineVariant variant{.entryPoint = kAerialPerspectiveEntryPoint};
+			auto& pipeline = bindKernel(context.cmd, variant);
+			auto viewCount = std::min<uint32_t>(static_cast<uint32_t>(myFrame.inputs->viewports.size()), SHADER_TYPES_SPLIT_VIEW_COUNT);
+			CommandEncoder(context.cmd).DispatchThreads(
+				pipeline.GetComputeLaunchParameters(variant), SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH, SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT, viewCount);
+		});
+
 	// the frame's exposure histogram, emptied for ComputeMain to count into
 	myGraph.AddPass(
 		"Exposure Clear",
@@ -1717,6 +1766,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		builder.Use(myGiFlags, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		useOitLists(builder, PipelineStage::kComputeShader, Access::kShaderRead);
 		builder.Use(myExposureHistogram, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		for (auto volume : myAerialPerspective)
+			builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 	};
 	myComputeMainPass = myGraph.AddPass(
 		"ComputeMain",
@@ -2315,6 +2366,12 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myTransmission), .layout = ImageLayout::kShaderReadOnly},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 		SHADER_TYPES_TRANSMISSION_TEXTURE);
+	for (uint32_t volumeIt = 0; volumeIt < myAerialPerspectiveImages.size(); volumeIt++)
+	{
+		ImageBinding binding{.sampler = {}, .imageView = *myAerialPerspectiveImages[volumeIt].view, .layout = ImageLayout::kGeneral};
+		pipeline.SetDescriptorData("gAerialPerspective", binding, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES, volumeIt);
+		pipeline.SetDescriptorData("gAerialPerspectiveImages", binding, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES, volumeIt);
+	}
 	myTransmissionLevelView = std::make_unique<ImageView>(ImageViewCreateDesc{
 		device.CreateDeviceObjectCreateDesc("Transmission Level 0"),
 		myGraph.GetImage(myTransmission),
@@ -2465,6 +2522,11 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		pipeline.SetDescriptorData(
 			"gEmitterData",
 			BufferBinding{.buffer = myEmitterDataBuffers[frameIt], .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+			frameIt);
+		pipeline.SetDescriptorData(
+			"gAerialPerspectiveData",
+			BufferBinding{.buffer = myAerialPerspectiveDataBuffers[frameIt], .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 			frameIt);
 		for (auto [name, buffers] : std::array{
@@ -2964,6 +3026,12 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 				trace.lights[slot] = candidates[slot].second;
 			trace.movingBvh = frame.model->HasMovingBvh() ? 1U : 0U;
 			trace.mapped = frame.tracedShadowsEverywhere ? 0U : 1U;
+			// a thousandth of their size more each way, against rounding
+			auto pad = glm::vec3(1e-3F * glm::length(frame.casterBounds.Size()));
+			auto casterMin = frame.casterBounds.GetMin() - pad;
+			auto casterMax = frame.casterBounds.GetMax() + pad;
+			std::copy_n(glm::value_ptr(casterMin), 3, trace.casterMin);
+			std::copy_n(glm::value_ptr(casterMax), 3, trace.casterMax);
 		}
 		myShadowsTraced = trace.lights[0] != SHADER_TYPES_NO_SHADOW;
 		auto& buffer = myShadowTraceBuffers[frame.frameIndex];
@@ -2973,6 +3041,40 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		buffer.Unmap();
 		for (auto pass : {myShadowTraceClearPass, myShadowClassifyPass, myShadowTracePass, myShadowDenoiseXPass, myShadowDenoiseYPass})
 			myGraph.SetEnabled(pass, myShadowsTraced);
+	}
+	// the aerial perspective (see AerialPerspectiveData): the sky's sun at the top of the atmosphere, as the sky is lit, the
+	// planet's surface at the scene's lowest point, and the light shafts where the sun's light has shadow views
+	{
+		myGraph.SetEnabled(myAerialPerspectivePass, frame.aerialPerspective);
+		AerialPerspectiveData data{};
+		auto sun = glm::length(frame.skySun) > 0.0F ? glm::normalize(frame.skySun) : glm::vec3(0.0F, 1.0F, 0.0F);
+		std::copy_n(glm::value_ptr(sun), 3, data.sun);
+		data.sun[3] = SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE * frame.pushConstants.environmentIntensity;
+		data.metersPerUnit = frame.metersPerUnit > 0.0F ? frame.metersPerUnit : 1.0F;
+		data.groundHeight = frame.sceneBounds.GetMin().y;
+		data.enabled = frame.aerialPerspective ? 1U : 0U;
+		data.shaftLight = frame.shaftLight && *frame.shaftLight < frame.lights.size() && frame.shadows ? *frame.shaftLight : SHADER_TYPES_NO_SHADOW;
+		data.viewCount = std::min<uint32_t>(static_cast<uint32_t>(frame.viewports.size()), SHADER_TYPES_SPLIT_VIEW_COUNT);
+		// as far along each view as the scene goes, as the cascades reach (see shadows::Plan)
+		for (size_t viewIt = 0; viewIt < std::min<size_t>(frame.cameras.size(), SHADER_TYPES_SPLIT_VIEW_COUNT); viewIt++)
+		{
+			const auto& camera = frame.cameras[viewIt];
+			float depth = 0.0F;
+			for (uint32_t cornerIt = 0; cornerIt < 8; cornerIt++)
+			{
+				glm::vec3 corner(
+					(cornerIt & 1U) != 0 ? frame.sceneBounds.GetMax().x : frame.sceneBounds.GetMin().x,
+					(cornerIt & 2U) != 0 ? frame.sceneBounds.GetMax().y : frame.sceneBounds.GetMin().y,
+					(cornerIt & 4U) != 0 ? frame.sceneBounds.GetMax().z : frame.sceneBounds.GetMin().z);
+				depth = std::max(depth, -(camera.view * glm::vec4(corner, 1.0F)).z);
+			}
+			data.sceneDepths[viewIt] = camera.farPlane > 0.0F ? std::min(depth, camera.farPlane) : depth;
+		}
+		auto& buffer = myAerialPerspectiveDataBuffers[frame.frameIndex];
+		auto memory = buffer.Map();
+		std::memcpy(memory.data(), &data, sizeof(data));
+		buffer.Flush(0, sizeof(data));
+		buffer.Unmap();
 	}
 	// the emissive surfaces as lights (see EmitterData), where the model has them and BVHs to trace their shadow rays
 	// through; the last frame's reservoirs and history count if they lit it (at this size: Resize clears them)
@@ -3335,6 +3437,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myGiCacheFree, myGiCacheFreeBuffer);
 	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		myGraph.Bind(myGiVolumes[volumeIt], *myGiVolumeImages[volumeIt].image);
+	for (uint32_t volumeIt = 0; volumeIt < myAerialPerspectiveImages.size(); volumeIt++)
+		myGraph.Bind(myAerialPerspective[volumeIt], *myAerialPerspectiveImages[volumeIt].image);
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
 		myGraph.Bind(myGiNearHistory[historyIt], *myGiNearHistoryImages[historyIt].image);
@@ -3977,10 +4081,10 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	auto resolution = std::clamp<uint32_t>(frame.giResolution, gi::kMinResolution, gi::kMaxResolution);
 	bool resolutionChanged = resolution != myGiResolution;
 	myGiResolution = resolution;
-	auto clipmap = gi::MakeClipmap(frame.sceneBounds, eyes, myGiLookAhead, myGiResolution, myGiLevelCount, myGiProbeSpacing, myGiMaxVolumeSide);
+	auto clipmap = gi::MakeClipmap(frame.casterBounds, eyes, myGiLookAhead, myGiResolution, myGiLevelCount, myGiProbeSpacing, myGiMaxVolumeSide);
 	// and when split screen's views come or go (each its own clips)
-	bool changed = frame.model != myGiModel || frame.sceneBounds.GetMin() != myGiBounds.GetMin() ||
-				   frame.sceneBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount || myGiRevoxelize || resolutionChanged ||
+	bool changed = frame.model != myGiModel || frame.casterBounds.GetMin() != myGiBounds.GetMin() ||
+				   frame.casterBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount || myGiRevoxelize || resolutionChanged ||
 				   clipmap.clips.size() != myGiClipmap.clips.size();
 	// how far each clip moved, in voxels (whole probe cells, see gi::MakeClipmap): a voxel takes the one that was at its
 	// place plus that. all of it is voxelized again when the scene changed, or when it moved by its size or more
@@ -4006,7 +4110,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	if (changed)
 	{
 		myGiModel = frame.model;
-		myGiBounds = frame.sceneBounds;
+		myGiBounds = frame.casterBounds;
 		myGiItemCount = mainList.items.size();
 		const auto& total = clipmap.total;
 		const auto& previous = myGiClipmap.total;
@@ -4139,13 +4243,17 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// a job per draw (its first triangle of the run, first index, DrawRecord and instances), the triangle count after:
 		// per clip voxelized, the static draws whose bounds reach it, then what moves, every frame (for every clip)
 		std::vector<uint32_t> jobs;
-		auto addJobs = [&jobs, &mainList](bool moving, std::span<const Bounds3f> reach, uint32_t& jobCount, uint32_t& triangleCount)
+		// not the ground plane's horizon (see Model::GetHorizonMaterial): its huge triangles reach every clip, and are drawn alone
+		auto horizon = frame.model->GetHorizonMaterial();
+		auto addJobs = [&jobs, &mainList, horizon](bool moving, std::span<const Bounds3f> reach, uint32_t& jobCount, uint32_t& triangleCount)
 		{
 			auto first = jobs.size();
 			uint32_t triangles = 0;
 			for (const auto& item : mainList.items)
 			{
 				if (item.moves != moving || item.variant.topology != PrimitiveTopology::kTriangleList || item.variant.fragmentShader != 0)
+					continue;
+				if (horizon && std::cmp_equal(static_cast<int32_t>(item.materialSlot) - 1, *horizon))
 					continue;
 				if (!moving && std::ranges::none_of(
 								   reach,

@@ -11,7 +11,8 @@
 static const float kSkyPi = 3.14159265358979;
 
 // what the air is made of at an altitude: its scattering (air and aerosols), the air's and the aerosols' apart (for their
-// phase functions), and its extinction (both scatter, aerosols absorb a little, ozone absorbs)
+// phase functions), and its extinction (both scatter, aerosols absorb a little, ozone absorbs). aerosols: how much of
+// them there is, times Hillaire's (EnvironmentData::skyAtmosphere's x: how clear the air is)
 struct SkyMedium
 {
 	float3 scattering;
@@ -20,10 +21,10 @@ struct SkyMedium
 	float mie;
 };
 
-SkyMedium SkyMediumAt(float altitude)
+SkyMedium SkyMediumAt(float altitude, float aerosols)
 {
 	float rayleighDensity = exp(-altitude / SHADER_TYPES_ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT);
-	float mieDensity = exp(-altitude / SHADER_TYPES_ATMOSPHERE_MIE_SCALE_HEIGHT);
+	float mieDensity = exp(-altitude / SHADER_TYPES_ATMOSPHERE_MIE_SCALE_HEIGHT) * aerosols;
 	float ozoneDensity = max(0.0, 1.0 - abs(altitude - SHADER_TYPES_ATMOSPHERE_OZONE_CENTER) / SHADER_TYPES_ATMOSPHERE_OZONE_HALF_WIDTH);
 	SkyMedium medium;
 	medium.rayleigh = float3(SHADER_TYPES_ATMOSPHERE_RAYLEIGH_R, SHADER_TYPES_ATMOSPHERE_RAYLEIGH_G, SHADER_TYPES_ATMOSPHERE_RAYLEIGH_B) * rayleighDensity;
@@ -129,9 +130,10 @@ float SkyMiePhase(float cosine)
 // sampleCount steps, the sun toward sunDirection: its single scattering by each phase function, and the multiple
 // scattering's (see SkyMultipleScattering); where the ray meets the ground, the ground's light, lit by the sun alone
 // (Lambertian, SHADER_TYPES_ATMOSPHERE_GROUND_ALBEDO). each step integrated as Hillaire's (the source constant over it,
-// the transmittance exponential), so that few steps keep the energy
+// the transmittance exponential), so that few steps keep the energy. aerosols: see SkyMediumAt
 float3 SkyScatteredLight(
-	Texture2D transmittanceTable, Texture2D multipleTable, SamplerState linear, float3 origin, float3 direction, float3 sunDirection, uint sampleCount)
+	Texture2D transmittanceTable, Texture2D multipleTable, SamplerState linear, float3 origin, float3 direction, float3 sunDirection, uint sampleCount,
+	float aerosols)
 {
 	float toBottom = SkySphere(origin, direction, SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS);
 	float toTop = SkySphere(origin, direction, SHADER_TYPES_ATMOSPHERE_TOP_RADIUS);
@@ -149,7 +151,7 @@ float3 SkyScatteredLight(
 		float3 position = origin + direction * ((float(sampleIt) + 0.5) * step);
 		float r = length(position);
 		float muSun = dot(position / r, sunDirection);
-		SkyMedium medium = SkyMediumAt(r - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS);
+		SkyMedium medium = SkyMediumAt(r - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS, aerosols);
 		float3 sun = SkyTransmittance(transmittanceTable, linear, r, muSun) * SkySunVisible(position, sunDirection);
 		float3 source = sun * (medium.rayleigh * rayleighPhase + medium.mie * miePhase) +
 						SkyMultipleScattering(multipleTable, linear, r, muSun) * medium.scattering;

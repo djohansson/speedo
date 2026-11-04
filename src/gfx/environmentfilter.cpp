@@ -96,7 +96,7 @@ EnvironmentFilter::EnvironmentFilter(Device& device, Pipeline& pipeline, ShaderL
 EnvironmentFilter::~EnvironmentFilter() = default;
 
 std::shared_ptr<void> EnvironmentFilter::Record(
-	CommandBufferHandle cmd, Pipeline& pipeline, const EnvironmentTexture& environment, const Buffer& environmentBuffer)
+	CommandBufferHandle cmd, Pipeline& pipeline, const EnvironmentTexture& environment, const Buffer& environmentBuffer, float skyAerosols)
 {
 	using namespace environmentfilter;
 
@@ -177,14 +177,15 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	}
 	else
 	{
-		// the sky: its tables the first time (the atmosphere doesn't change), its view of itself for the sun now, and its
-		// panorama from that
+		// the sky: its tables the first time, and again when its air changes (its aerosols), its view of itself for the sun
+		// now, and its panorama from that
 		auto extentOfTable = [](const Texture& texture) { return texture.image->GetDesc().mipLevels[0].extent; };
-		if (!mySkyTablesMade)
+		if (!mySkyTablesMade || mySkyTablesAerosols != skyAerosols)
 		{
 			dispatch(kSkyTransmittance, nullptr, *mySkyTransmittance.view, extentOfTable(mySkyTransmittance), 0.0F);
 			dispatch(kSkyMultipleScattering, nullptr, *mySkyMultipleScattering.view, extentOfTable(mySkyMultipleScattering), 0.0F);
 			mySkyTablesMade = true;
+			mySkyTablesAerosols = skyAerosols;
 		}
 		dispatch(kSkyView, nullptr, *mySkyView.view, extentOfTable(mySkyView), 0.0F);
 		dispatch(kSky, nullptr, *sourceMips[0], extentOf(source, 0), 0.0F);

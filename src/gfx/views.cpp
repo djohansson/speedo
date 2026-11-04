@@ -135,7 +135,7 @@ void Views::OnResizeGrid(glm::uvec2 grid)
 	InternalLayout();
 }
 
-void Views::FrameBounds(const Bounds3f& bounds, const Bounds3f& reach, float pitch)
+void Views::FrameBounds(const Bounds3f& bounds, const Bounds3f& reach, float pitch, bool horizon)
 {
 	// far enough back for a sphere around the bounds to fit the (75 degree) field of view, from pitch above
 	auto radius = std::max(bounds.Radius(), 1e-3F);
@@ -161,8 +161,8 @@ void Views::FrameBounds(const Bounds3f& bounds, const Bounds3f& reach, float pit
 			desc.viewport.type = ViewType::Perspective;
 			desc.fovY = CameraCreateDesc{}.fovY;
 			desc.aspectRatio = 0.0F;
-			desc.farPlane = farPlane;
-			desc.nearPlane = desc.farPlane * 1e-4F;
+			desc.farPlane = horizon ? 0.0F : farPlane; // none (see CameraCreateDesc::farPlane)
+			desc.nearPlane = farPlane * 1e-4F;
 			camera.UpdateAll();
 		}
 	}
@@ -237,12 +237,12 @@ void Views::Orbit(float yaw, float pitch, std::optional<size_t> view)
 	}
 }
 
-void Views::SetScene(const Bounds3f& bounds, const Bounds3f& framed, std::vector<SceneCamera> cameras, float framePitch)
+void Views::SetScene(const Bounds3f& bounds, const Bounds3f& framed, std::vector<SceneCamera> cameras, float framePitch, bool horizon)
 {
 	bool hasCameras = !cameras.empty();
 	{
 		auto scene = myScene.Write();
-		scene.Get() = Scene{.bounds = bounds, .framed = framed, .framePitch = framePitch, .cameras = std::move(cameras)};
+		scene.Get() = Scene{.bounds = bounds, .framed = framed, .framePitch = framePitch, .horizon = horizon, .cameras = std::move(cameras)};
 	}
 	UseSceneCamera(hasCameras ? std::optional<size_t>(0) : std::nullopt);
 }
@@ -254,6 +254,7 @@ void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
 	Bounds3f bounds;
 	Bounds3f framed;
 	float framePitch = 0.0F;
+	bool horizon = false;
 	std::optional<SceneCamera> sceneCamera;
 	{
 		auto scene = myScene.Write();
@@ -263,17 +264,18 @@ void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
 		bounds = scene.Get().bounds;
 		framed = scene.Get().framed;
 		framePitch = scene.Get().framePitch;
+		horizon = scene.Get().horizon;
 		if (cameraIndex)
 			sceneCamera = scene.Get().cameras[*cameraIndex];
 	}
 
 	if (!sceneCamera)
 	{
-		FrameBounds(framed, bounds, framePitch);
+		FrameBounds(framed, bounds, framePitch, horizon);
 		return;
 	}
 
-	InternalApplySceneCamera(*sceneCamera, bounds);
+	InternalApplySceneCamera(*sceneCamera, bounds, horizon);
 	SetMoveSpeed(0.25F * std::max(framed.Radius(), 1e-3F));
 }
 
@@ -282,6 +284,7 @@ void Views::UpdateSceneCameras(std::span<const SceneCamera> cameras)
 	ZoneScopedN("Views::UpdateSceneCameras");
 
 	Bounds3f bounds;
+	bool horizon = false;
 	std::optional<SceneCamera> sceneCamera;
 	{
 		auto scene = myScene.Write();
@@ -291,14 +294,15 @@ void Views::UpdateSceneCameras(std::span<const SceneCamera> cameras)
 		if (auto current = scene.Get().current; current && cameras[*current].animated)
 			sceneCamera = cameras[*current];
 		bounds = scene.Get().bounds;
+		horizon = scene.Get().horizon;
 	}
 	if (!sceneCamera)
 		return;
 
-	InternalApplySceneCamera(*sceneCamera, bounds);
+	InternalApplySceneCamera(*sceneCamera, bounds, horizon);
 }
 
-void Views::InternalApplySceneCamera(const SceneCamera& camera, const Bounds3f& bounds)
+void Views::InternalApplySceneCamera(const SceneCamera& camera, const Bounds3f& bounds, bool horizon)
 {
 	const auto* sceneCamera = &camera;
 
@@ -316,10 +320,14 @@ void Views::InternalApplySceneCamera(const SceneCamera& camera, const Bounds3f& 
 	auto up = glm::vec3(sceneCamera->up[0], sceneCamera->up[1], sceneCamera->up[2]);
 	auto roll = std::atan2(-glm::dot(up, right0), glm::dot(up, up0));
 
-	// a far plane the file leaves out (an infinite perspective) takes in all of the bounds
+	// a far plane the file leaves out (an infinite perspective) takes in all of the bounds, or none where the scene reaches
+	// the horizon
 	auto radius = std::max(bounds.Radius(), 1e-3F);
-	auto farPlane = sceneCamera->zfar > 0.0F ? sceneCamera->zfar : 2.0F * (glm::distance(eye, bounds.Center()) + radius);
-	auto nearPlane = sceneCamera->znear > 0.0F ? sceneCamera->znear : farPlane * 1e-4F;
+	auto boundsFar = 2.0F * (glm::distance(eye, bounds.Center()) + radius);
+	auto farPlane = sceneCamera->zfar > 0.0F ? sceneCamera->zfar
+				  : horizon && !sceneCamera->orthographic ? 0.0F
+														  : boundsFar;
+	auto nearPlane = sceneCamera->znear > 0.0F ? sceneCamera->znear : (farPlane > 0.0F ? std::min(farPlane, boundsFar) : boundsFar) * 1e-4F;
 
 	{
 		auto cameras = myCameras.Write();

@@ -52,8 +52,9 @@ public:
 
 	// moves every camera back from bounds (looking down -z, from pitch radians above: positive looks down) until all of
 	// it is in view, fits the near and far planes to its size, as far as reach too (a ground beyond it, see ModelGround),
-	// and sets the movement speed after it (see GetMoveSpeed). call on the draw thread.
-	void FrameBounds(const Bounds3f& bounds, const Bounds3f& reach, float pitch = 0.0F);
+	// or with no far plane where the scene reaches the horizon (a ground to the horizon), and sets the movement speed after
+	// it (see GetMoveSpeed). call on the draw thread.
+	void FrameBounds(const Bounds3f& bounds, const Bounds3f& reach, float pitch = 0.0F, bool horizon = false);
 	// places every view's camera at eye (world space), turned by rotation (pitch, yaw and roll, in radians: see
 	// CameraCreateDesc::cameraRotation), keeping its projection (e.g. SPEEDO_CAMERA, for measurements and screenshots).
 	// any thread
@@ -69,8 +70,9 @@ public:
 
 	// the installed model's bounds, those the views frame (without its ground, see Model::GetFramedBounds) and cameras
 	// (see ModelDesc::cameras): sets the views to its first camera, or frames them if it has none, from framePitch above
-	// (see FrameBounds). call on the draw thread.
-	void SetScene(const Bounds3f& bounds, const Bounds3f& framed, std::vector<SceneCamera> cameras, float framePitch = 0.0F);
+	// (see FrameBounds; horizon: it reaches the horizon, so no far plane where a camera leaves it out). call on the draw
+	// thread.
+	void SetScene(const Bounds3f& bounds, const Bounds3f& framed, std::vector<SceneCamera> cameras, float framePitch = 0.0F, bool horizon = false);
 	// sets every view to one of the scene's cameras (its projection too: field of view, orthographic, near and far
 	// planes; not its roll, which the views don't have), or frames the scene's bounds (nullopt). call on the draw thread.
 	void UseSceneCamera(std::optional<size_t> camera);
@@ -136,12 +138,13 @@ private:
 		Bounds3f bounds;
 		Bounds3f framed; // what the views frame and orbit (the bounds without a ground)
 		float framePitch = 0.0F; // from how far above (see FrameBounds)
+		bool horizon = false; // it reaches the horizon (see SetScene)
 		std::vector<SceneCamera> cameras;
 		std::optional<size_t> current;
 	};
 	core::ConcurrentAccess<Scene> myScene;
 	// a scene camera's pose and projection, for all views (see UseSceneCamera)
-	void InternalApplySceneCamera(const SceneCamera& camera, const Bounds3f& bounds);
+	void InternalApplySceneCamera(const SceneCamera& camera, const Bounds3f& bounds, bool horizon);
 	static constexpr float kDefaultMoveSpeed = 5.0F; // until a model is framed
 
 	std::atomic<float> myMoveSpeed{kDefaultMoveSpeed};

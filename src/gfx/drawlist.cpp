@@ -119,13 +119,18 @@ DrawList BuildShadowDrawList(const Model& model, core::std_extra::function_ref<b
 
 	auto list = BuildDrawList(model, MainPassPhase::kOpaque, false, transmissive);
 	const auto& materials = model.GetDesc().materials;
+	// nor the ground plane (see ModelGround): it takes the model's shadows, and nothing is under it to cast its own on
+	auto ground = model.GetGroundMaterial();
+	auto horizon = model.GetHorizonMaterial();
 	std::erase_if(
 		list.items,
 		[&](const DrawItem& item)
 		{
 			auto material = static_cast<int32_t>(item.materialSlot) - 1;
 			return item.variant.topology != PrimitiveTopology::kTriangleList || item.variant.fragmentShader != 0 ||
-				   (material >= 0 && std::cmp_less(material, materials.size()) && transmissive(static_cast<size_t>(material)));
+				   (material >= 0 && std::cmp_less(material, materials.size()) && transmissive(static_cast<size_t>(material))) ||
+				   (material >= 0 && ground && std::cmp_equal(material, *ground)) ||
+				   (material >= 0 && horizon && std::cmp_equal(material, *horizon));
 		});
 	// both faces of every caster: a single sided triangle blocks the light from behind too, as the traced shadows' rays
 	// and the indirect lighting's voxels have it. culled as the main pass draws them, CornellBox's ceiling, its back to

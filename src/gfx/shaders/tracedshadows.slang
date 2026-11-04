@@ -124,6 +124,25 @@ float ShadowPenumbraHalfWidth(LightData light, float d, float s)
 	return light.type == LIGHT_TYPE_DIRECTIONAL ? d * tan(light.size) : light.size * d / max(s - d, 1e-3);
 }
 
+// whether a point's way to a light (toLight, a unit vector) passes what casts shadows (ShadowTraceData::casterMin and
+// casterMax, the model's bounds): where no shadow view holds the point (past as far along the view as the scene goes,
+// which a directional light's cascades reach), nothing else can shadow it. the ground plane to the horizon, most of the
+// frame and none of it held, traced a ray a pixel otherwise: the helmet on it 81 ms a frame, 20 without it
+bool ShadowPathMeetsCasters(LightData light, float3 position, float3 toLight)
+{
+	ShadowTraceData trace = gShadowTrace[gPushConstants.frameIndex][0];
+	float reach = light.type == LIGHT_TYPE_DIRECTIONAL ? 3.4e38 : length(light.positionRange.xyz - position);
+	float3 safe = select(abs(toLight) < 1e-8, float3(1e-8), toLight);
+	float3 inverse = 1.0 / safe;
+	float3 t0 = (trace.casterMin.xyz - position) * inverse;
+	float3 t1 = (trace.casterMax.xyz - position) * inverse;
+	float3 low = min(t0, t1);
+	float3 high = max(t0, t1);
+	float enter = max(max(low.x, low.y), max(low.z, 0.0));
+	float leave = min(min(high.x, high.y), high.z);
+	return enter <= leave && enter <= reach;
+}
+
 // what the shadow atlas says of a pixel for a light: 1 lit, 0 shadowed, else -1 (unsure: traced). sure where its filter
 // is all lit or all shadowed and no texel around (24 taps up to 24 texels, more of them near the pixel) says otherwise
 // within the reach of the penumbra it would make: a blocking texel within half the penumbra's width its depth gives
@@ -140,7 +159,7 @@ float ShadowMapClassify(uint lightIndex, LightData light, ShadowSurface surface,
 	if (placed == kShadowMapNearer)
 		return 1.0;
 	if (placed != kShadowMapPlaced)
-		return -1.0;
+		return ShadowPathMeetsCasters(light, surface.position, toLight) ? -1.0 : 1.0;
 	float filtered = ShadowMapFilter(place.uv, place.depth);
 	if (filtered > 0.0 && filtered < 1.0)
 		return -1.0;

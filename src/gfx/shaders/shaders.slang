@@ -25,6 +25,7 @@ __include types;
 #include "fragment.slang"
 #include "tonemap.slang"
 #include "composite.slang"
+#include "aerialperspective.slang"
 #include "uiblur.slang"
 #include "cull.slang"
 #include "bvh.slang"

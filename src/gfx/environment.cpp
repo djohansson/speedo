@@ -120,7 +120,14 @@ glm::vec3 SunDirection(float latitudeDegrees, float dayOfYear, float timeOfDay)
 	return glm::normalize(glm::vec3(east, up, -north));
 }
 
-glm::vec3 SunTransmittance(const glm::vec3& direction)
+float SkyAerosols(float visibility)
+{
+	// the extinction at the ground (at 550 nm) the visibility means, less the air's own: the aerosols', in Hillaire's
+	double extinction = 3.912 / std::max(static_cast<double>(visibility), 1e-3);
+	return static_cast<float>(std::max(extinction - SHADER_TYPES_ATMOSPHERE_RAYLEIGH_G, 0.0) / SHADER_TYPES_ATMOSPHERE_MIE_EXTINCTION);
+}
+
+glm::vec3 SunTransmittance(const glm::vec3& direction, float aerosols)
 {
 	// in doubles, km from the planet's center (as sky.h's SkyMediumAt and EnvironmentSkyTransmittance, which integrate
 	// the same optical depth in floats)
@@ -147,7 +154,7 @@ glm::vec3 SunTransmittance(const glm::vec3& direction)
 	{
 		double altitude = glm::length(origin + (d * ((stepIt + 0.5) * step))) - kBottom;
 		double rayleigh = std::exp(-altitude / SHADER_TYPES_ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT);
-		double mie = std::exp(-altitude / SHADER_TYPES_ATMOSPHERE_MIE_SCALE_HEIGHT);
+		double mie = std::exp(-altitude / SHADER_TYPES_ATMOSPHERE_MIE_SCALE_HEIGHT) * aerosols;
 		double ozone = std::max(0.0, 1.0 - (std::abs(altitude - SHADER_TYPES_ATMOSPHERE_OZONE_CENTER) / SHADER_TYPES_ATMOSPHERE_OZONE_HALF_WIDTH));
 		depth += (glm::dvec3(SHADER_TYPES_ATMOSPHERE_RAYLEIGH_R, SHADER_TYPES_ATMOSPHERE_RAYLEIGH_G, SHADER_TYPES_ATMOSPHERE_RAYLEIGH_B) * rayleigh +
 				  glm::dvec3(SHADER_TYPES_ATMOSPHERE_MIE_EXTINCTION * mie) +
@@ -157,10 +164,10 @@ glm::vec3 SunTransmittance(const glm::vec3& direction)
 	return glm::vec3(glm::exp(-depth));
 }
 
-DominantLight SkySun(const glm::vec3& direction)
+DominantLight SkySun(const glm::vec3& direction, float aerosols)
 {
 	DominantLight sun{.direction = glm::normalize(direction), .angularRadius = kSkySunRadius};
-	sun.irradiance = static_cast<float>(SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE) * SunTransmittance(sun.direction);
+	sun.irradiance = static_cast<float>(SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE) * SunTransmittance(sun.direction, aerosols);
 	return sun;
 }
 

@@ -194,6 +194,10 @@ extern "C"
 // the gTextures slot of the sky's view of itself (see atmosphere.h: the sky's radiance around the eye, by its angle above
 // the horizon and from the sun's azimuth), which the backdrop and mirror reflections sample (see SkyRadiance)
 #define SHADER_TYPES_SKY_VIEW_TEXTURE 37u
+// the gTextures slots of the sky's other tables (see sky.h), which the aerial perspective is made from (see
+// ComputeAerialPerspective): the transmittance to the top of the atmosphere, and the light scattered more than once
+#define SHADER_TYPES_SKY_TRANSMITTANCE_TEXTURE 69u
+#define SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE 70u
 // the gTextures slot of the pre-pass's motion: where each pixel's point was in the last frame, in the render target's
 // pixels from it, unjittered (see FragmentPrepass), which temporal upscaling reprojects what moves by
 #define SHADER_TYPES_PREPASS_MOTION_TEXTURE 38u
@@ -271,6 +275,16 @@ extern "C"
 #define SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE 32u
 #define SHADER_TYPES_SKY_VIEW_WIDTH 256u
 #define SHADER_TYPES_SKY_VIEW_HEIGHT 128u
+// the aerial perspective's volume (see AerialPerspectiveData), per view: _WIDTH by _HEIGHT cells across its viewport, and
+// _SLICE_COUNT slices of distance along each cell's ray, the first at the eye, the second _NEAR meters from it and each after
+// a constant factor farther, the last _FAR meters (the light shafts are near the eye, the haze kilometres off), each marched
+// in _STEP_COUNT steps
+#define SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH 160u
+#define SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT 90u
+#define SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT 64u
+#define SHADER_TYPES_AERIAL_PERSPECTIVE_STEP_COUNT 4u
+#define SHADER_TYPES_AERIAL_PERSPECTIVE_NEAR 1.0
+#define SHADER_TYPES_AERIAL_PERSPECTIVE_FAR 200000.0
 #define SHADER_TYPES_UI_BLUR_RECT_COUNT 32u
 #define SHADER_TYPES_UI_BLUR_GROUP_SIZE 64u
 // the gSamplers slot of a linear sampler that clamps to the edge (for screen space lookups)
@@ -465,6 +479,32 @@ struct EnvironmentData
 	// and none of these are used)
 	alignas(16) FLOAT4(skySun);
 	alignas(16) FLOAT4(skySunRadiance);
+	// x: how much of the aerosols the sky's air has (see SkyMediumAt), times Hillaire's (a very clear day: see
+	// gfx::environment::SkyAerosols, by the visibility through it)
+	alignas(16) FLOAT4(skyAtmosphere);
+};
+
+// the aerial perspective (see aerialperspective.slang, Hillaire 2020's): the light the sky's atmosphere scatters toward the
+// eye between it and what it sees, and what it lets through of that, per view a volume over its frustum
+// (gAerialPerspective: the views' stacked along z, see SHADER_TYPES_AERIAL_PERSPECTIVE_*), made each frame by
+// ComputeAerialPerspective and applied by ComputeMain to everything drawn. gAerialPerspectiveData[frame][0]
+struct AerialPerspectiveData
+{
+	// xyz: toward the sky's sun, in the world (EnvironmentData::skySun turned back by the environment's rotation); w: its
+	// illuminance at the top of the atmosphere (SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE times the environment's intensity)
+	alignas(16) FLOAT4(sun);
+	// the scene's unit in meters (SPEEDO_METERS_PER_UNIT), and the height of the planet's surface in the scene (its lowest
+	// point: an eye there is SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE up, the sky's)
+	alignas(4) FLOAT1(metersPerUnit);
+	alignas(4) FLOAT1(groundHeight);
+	// whether ComputeMain applies it (the environment is the sky, and it is on), the light of gLights whose shadow views
+	// cast its light shafts (the sky's sun, if it has views), else SHADER_TYPES_NO_SHADOW, and the main views
+	alignas(4) UINT1(enabled);
+	alignas(4) UINT1(shaftLight);
+	alignas(4) UINT1(viewCount);
+	// per view: as far along it as the scene goes (as the shadows' cascades reach, see shadows::Plan), past which neither
+	// the light shafts' shadow views nor the indirect lighting's probes hold anything
+	alignas(16) FLOAT4(sceneDepths);
 };
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,
@@ -537,6 +577,10 @@ struct ShadowTraceData
 	alignas(4) UINT1(mapped);
 	alignas(4) UINT1(padding1);
 	alignas(4) UINT1(padding2);
+	// what casts shadows: the model's bounds, not the ground plane under it (see FrameInputs::casterBounds). a point no
+	// shadow view holds is lit where its way to the light misses them, no ray traced (see ShadowMapClassify)
+	alignas(16) FLOAT4(casterMin);
+	alignas(16) FLOAT4(casterMax);
 };
 
 // emissive surfaces as lights (see gfx/emitters.h, emitters.slang): the installed model's emissive triangles that don't
@@ -789,6 +833,10 @@ struct MaterialData
 	// extinction, see SingleScatterAlbedo)
 	alignas(16) FLOAT4(multiscatterColor);
 	alignas(4) UINT1(multiscatterColorView);
+	// the ground plane's checkerboard (see gfx::model's AddGround): the base color times 1 + checker on the squares of the
+	// texcoords whose integer parts sum to an even number, 1 - checker on the others, box filtered over the pixel (see
+	// GroundChecker). 0: none
+	alignas(4) FLOAT1(checker);
 };
 
 struct ModelInstance

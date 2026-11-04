@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -51,9 +52,14 @@ struct Triangle
 };
 
 // what of a model the BVH holds, what the voxels hold of its static draws (see ComputeGiVoxelize): its triangle lists'
-// triangles that don't move and aren't blended or transmissive, at each of their instances
+// triangles that don't move and aren't blended or transmissive, at each of their instances; not those of untraced, a
+// material drawn alone (the ground plane's horizon, see ModelGround: triangles a million times the model's size, which
+// made every ray of KosmicKrisp's structures ten times as dear)
 [[nodiscard]] std::vector<Triangle> Triangles(
-	const ModelDesc& desc, std::span<const uint32_t> indices, std::span<const VertexP3fN3fTa4fT014fC4f> vertices);
+	const ModelDesc& desc,
+	std::span<const uint32_t> indices,
+	std::span<const VertexP3fN3fTa4fT014fC4f> vertices,
+	std::optional<size_t> untraced = std::nullopt);
 
 // a CWBVH over triangles, built on the executor's threads
 [[nodiscard]] Data Build(std::span<const Triangle> triangles, core::TaskExecutor& executor);
@@ -72,7 +78,7 @@ struct RayQueryGeometry
 	// (~0) where skinned or morphed
 	uint32_t normalInstance = ~0U;
 };
-[[nodiscard]] std::vector<RayQueryGeometry> RayQueryGeometries(const ModelDesc& desc);
+[[nodiscard]] std::vector<RayQueryGeometry> RayQueryGeometries(const ModelDesc& desc, std::optional<size_t> untraced = std::nullopt);
 // and of its transmissive surfaces that don't move (not blended), which the caustics' photons, the traced refractions and
 // reflections go through (see GlassPath): a structure of their own, which the other rays don't query
 // (BVH_RAY_QUERY_MASK_GLASS)

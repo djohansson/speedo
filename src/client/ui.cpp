@@ -195,6 +195,9 @@ struct Pose
 	return pose;
 }
 
+// the least visibility through the sky's air View > Environment offers (km: mist, see environment::SkyAerosols)
+constexpr float kMinVisibility = 1.0F;
+
 // the settings a pose names (see InternalCopyPose), as View sets them, from the variables that reproduce them, at startup
 // from the environment and from a pose pasted (Paste Pose): lookup(name) is a variable's value, or null where it isn't
 // set, which leaves its setting as it is, or where resetMissing (a pose names only what isn't the default) sets the default
@@ -320,6 +323,12 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 		kDefaults.advanceTime,
 		"SPEEDO_TIME_SPEED",
 		[](const char* value) { return std::optional<bool>(std::strtof(value, nullptr) != 0.0F); });
+	// how clear the sky's air is (km of visibility), the air between the eye and what it sees, its light shafts, and the
+	// scene's unit in meters it goes by
+	apply(settings.visibility, kDefaults.visibility, "SPEEDO_VISIBILITY", number(kMinVisibility, gfx::environment::kSkyClearestVisibility));
+	apply(settings.aerialPerspective, kDefaults.aerialPerspective, "SPEEDO_AERIAL_PERSPECTIVE", unless("0"));
+	apply(settings.lightShafts, kDefaults.lightShafts, "SPEEDO_LIGHT_SHAFTS", unless("0"));
+	apply(settings.metersPerUnit, kDefaults.metersPerUnit, "SPEEDO_METERS_PER_UNIT", number(1e-6F, kAny));
 }
 
 // a pose's text read from the clipboard (on the main thread, see InternalPastePose), for the next PrepareDraw
@@ -415,8 +424,8 @@ void WindowedApplication::InternalCopyPose()
 			text += std::format(" SPEEDO_AUTOLOAD_SCENE={}", scenes.Get().current);
 		if (scenes.Get().variant)
 			text += std::format(" SPEEDO_AUTOLOAD_VARIANT={}", *scenes.Get().variant);
-		if (scenes.Get().ground == ModelGround::kPlane)
-			text += " SPEEDO_GROUND_PLANE=1";
+		if (scenes.Get().ground != ModelGround::kPlane)
+			text += " SPEEDO_GROUND_PLANE=0";
 	}
 	{
 		std::string environment = scene.GetEnvironmentPath().Read().Get();
@@ -433,7 +442,15 @@ void WindowedApplication::InternalCopyPose()
 			text += std::format(" SPEEDO_DAY_OF_YEAR={:.0f}", static_cast<double>(day));
 		if (settings.advanceTime.load(std::memory_order_relaxed))
 			text += std::format(" SPEEDO_TIME_SPEED={:.4g}", static_cast<double>(settings.timeSpeed.load(std::memory_order_relaxed)));
+		if (float visibility = settings.visibility.load(std::memory_order_relaxed); visibility != gfx::environment::kSkyDefaultVisibility)
+			text += std::format(" SPEEDO_VISIBILITY={:.4g}", static_cast<double>(visibility));
+		if (!settings.aerialPerspective.load(std::memory_order_relaxed))
+			text += " SPEEDO_AERIAL_PERSPECTIVE=0";
+		if (!settings.lightShafts.load(std::memory_order_relaxed))
+			text += " SPEEDO_LIGHT_SHAFTS=0";
 	}
+	if (float metersPerUnit = settings.metersPerUnit.load(std::memory_order_relaxed); metersPerUnit != 1.0F)
+		text += std::format(" SPEEDO_METERS_PER_UNIT={:.6g}", static_cast<double>(metersPerUnit));
 	float intensity = settings.environmentIntensity.load(std::memory_order_relaxed);
 	if (intensity != 1.0F)
 		text += std::format(" SPEEDO_ENVIRONMENT_INTENSITY={:.3f}", static_cast<double>(intensity));
@@ -1232,10 +1249,11 @@ void WindowedApplication::PrepareDraw()
 			autoLoadOptions.scene = std::strtoull(scene, nullptr, 10);
 		if (const char* variant = std::getenv("SPEEDO_AUTOLOAD_VARIANT"); variant != nullptr && *variant != '\0')
 			autoLoadOptions.variant = std::strtoull(variant, nullptr, 10);
-		// SPEEDO_GROUND_PLANE=1: it stands on a ground plane (see ModelGround), as the file browser's option has it
-		auto autoLoadGround = ModelGround::kNone;
-		if (const char* ground = std::getenv("SPEEDO_GROUND_PLANE"); ground != nullptr && std::string_view(ground) == "1")
-			autoLoadGround = ModelGround::kPlane;
+		// it stands on a ground plane (see ModelGround), as the file browser's option has it by default (since 2026-11-04,
+		// the user's call), unless SPEEDO_GROUND_PLANE=0
+		auto autoLoadGround = ModelGround::kPlane;
+		if (const char* ground = std::getenv("SPEEDO_GROUND_PLANE"); ground != nullptr && std::string_view(ground) == "0")
+			autoLoadGround = ModelGround::kNone;
 		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"); autoLoadModel != nullptr && *autoLoadModel != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadModel,
@@ -1406,9 +1424,9 @@ void WindowedApplication::PrepareDraw()
 					.arrangement = ui::AutoLoadArrangement(pose->Get("SPEEDO_AUTOLOAD_ARRANGEMENT")),
 					.scene = static_cast<uint32_t>(options.scene.value_or(0)),
 					.variant = options.variant ? std::optional<uint32_t>(static_cast<uint32_t>(*options.variant)) : std::nullopt,
-					.ground = pose->Get("SPEEDO_GROUND_PLANE") != nullptr && std::string_view(pose->Get("SPEEDO_GROUND_PLANE")) == "1"
-								  ? ModelGround::kPlane
-								  : ModelGround::kNone};
+					.ground = pose->Get("SPEEDO_GROUND_PLANE") != nullptr && std::string_view(pose->Get("SPEEDO_GROUND_PLANE")) == "0"
+								  ? ModelGround::kNone
+								  : ModelGround::kPlane};
 				if (!modelIs(wanted))
 				{
 					gAutoLoads.emplace_back(gLoads.Enqueue(
@@ -1969,6 +1987,29 @@ void WindowedApplication::PrepareDraw()
 						if (DragFloat("Day of Year", &day, 0.5F, 1.0F, 365.0F, "%.0f", ImGuiSliderFlags_AlwaysClamp))
 							settings.dayOfYear.store(day, std::memory_order_relaxed);
 						SetItemTooltip("1 the 1st of January, 172 the 21st of June (the longest day north of the equator).");
+						// how clear the air is (see environment::SkyAerosols), the air between the eye and what it sees (see
+						// AerialPerspectiveData), and the sun's shadows in it
+						float visibility = settings.visibility.load(std::memory_order_relaxed);
+						if (DragFloat("Visibility", &visibility, 0.5F, ui::kMinVisibility, gfx::environment::kSkyClearestVisibility, "%.3g km", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+							settings.visibility.store(visibility, std::memory_order_relaxed);
+						SetItemTooltip(
+							"How clear the air is: how far one sees through it (217 km a very clear day, from 288 km the air alone, "
+							"20 km a hazy day, 2 km mist). The sky, the sun's light, the haze and the light shafts all go by it. "
+							"Drag, or double-click to type.");
+						bool aerial = settings.aerialPerspective.load(std::memory_order_relaxed);
+						if (Checkbox("Aerial Perspective", &aerial))
+							settings.aerialPerspective.store(aerial, std::memory_order_relaxed);
+						SetItemTooltip("The sky's air between the eye and what it sees: far things fade into the haze of the horizon.");
+						BeginDisabled(!aerial);
+						bool shafts = settings.lightShafts.load(std::memory_order_relaxed);
+						if (Checkbox("Light Shafts", &shafts))
+							settings.lightShafts.store(shafts, std::memory_order_relaxed);
+						SetItemTooltip("The sun's shadows in the air: shafts of light where it shines between what casts them.");
+						float metersPerUnit = settings.metersPerUnit.load(std::memory_order_relaxed);
+						if (DragFloat("Meters per Unit", &metersPerUnit, 0.01F, 1e-4F, 1e4F, "%.4g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+							settings.metersPerUnit.store(metersPerUnit, std::memory_order_relaxed);
+						SetItemTooltip("How long the model's unit is, which the air's thickness goes by (0.01 for a model in centimetres, as Bistro is). Drag, or double-click to type.");
+						EndDisabled();
 						Separator();
 					}
 					// its strongest light sources, directional lights (with shadows) rather than part of the environment

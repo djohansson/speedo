@@ -26,22 +26,29 @@ public:
 	// irradiance into gEnvironment[0] of environmentBuffer (whose sky fields it reads). the frames before it may still be
 	// reading the levels and the sky's view (it waits for them on the gpu), so the sky can be drawn again into the same
 	// environment as the sun moves. returns what the commands use beyond the environment (image views of its mips), to
-	// keep until the gpu is done with them.
+	// keep until the gpu is done with them. skyAerosols: what gEnvironment[0] says of them (EnvironmentData::skyAtmosphere),
+	// for which the sky's tables are made again if they were made for other
 	[[nodiscard]] std::shared_ptr<void> Record(
-		CommandBufferHandle cmd, Pipeline& pipeline, const EnvironmentTexture& environment, const Buffer& environmentBuffer);
+		CommandBufferHandle cmd, Pipeline& pipeline, const EnvironmentTexture& environment, const Buffer& environmentBuffer, float skyAerosols = 1.0F);
 
 	// the sky's view of itself (SHADER_TYPES_SKY_VIEW_TEXTURE, see sky.h), in the general layout once the first
 	// environment is recorded
 	[[nodiscard]] const ImageView& GetSkyView() const { return *mySkyView.view; }
+	// and its other tables (SHADER_TYPES_SKY_TRANSMITTANCE_TEXTURE, SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE), which the
+	// aerial perspective is made from: the same, once the sky is
+	[[nodiscard]] const ImageView& GetSkyTransmittance() const { return *mySkyTransmittance.view; }
+	[[nodiscard]] const ImageView& GetSkyMultipleScattering() const { return *mySkyMultipleScattering.view; }
 
 private:
 	PipelineLayoutHandle myLayout{};
 	std::unique_ptr<SamplerVector> mySampler; // linear, around in u, clamped in v (as the cpu pyramid samples)
-	// the sky's tables (see sky.h), storage images always in the general layout, and whether the first two are made
+	// the sky's tables (see sky.h), storage images always in the general layout, and whether the first two are made, for
+	// how much of the aerosols (see EnvironmentData::skyAtmosphere)
 	Texture mySkyTransmittance;
 	Texture mySkyMultipleScattering;
 	Texture mySkyView;
 	bool mySkyTablesMade = false;
+	float mySkyTablesAerosols = 1.0F;
 };
 
 } // namespace gfx

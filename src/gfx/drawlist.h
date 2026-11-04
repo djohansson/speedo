@@ -121,7 +121,7 @@ struct DrawList
 	std::optional<core::std_extra::function_ref<uint16_t(size_t material)>> specialization = std::nullopt);
 
 // a model's draws for the shadow pass: the triangles of the submeshes that cast shadows (opaque or alpha masked, not
-// blended or transmissive)
+// blended or transmissive, nor the ground plane under it)
 [[nodiscard]] DrawList BuildShadowDrawList(const Model& model, core::std_extra::function_ref<bool(size_t material)> transmissive);
 
 // a model's draws for the Shadow Transmittance pass, from its transmissive phase's (keeping their records): the triangles

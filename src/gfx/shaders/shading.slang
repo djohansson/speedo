@@ -162,6 +162,10 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 	// where a clip holds the point but no probe is seen around it, none of its light: the environment's there (the sky
 	// unoccluded) shone into dark interiors along their edges
 	float3 indirect = gi.valid ? GiEvaluate(gi, normal) : (gi.inside ? 0.0 : -1.0);
+	// and the environment's as the clips let go of the point (the last one's margin: the ground plane past the model, where
+	// the light changed from the clips' to the environment's at once, a seam around the model)
+	if (gi.inside && gi.held < 1.0)
+		indirect = lerp(EnvironmentIrradiance(environment, normal), indirect, gi.held);
 	indirect = GiNearIrradiance(near, indirect, giTrust);
 	// the emissive surfaces' light (the main pass's opaque fragments, see EmitterIrradiance): what a white surface reflects
 	// of it, -1 where it isn't gathered

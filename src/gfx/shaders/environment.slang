@@ -114,7 +114,7 @@ void EnvironmentSkyTransmittance(uint3 id : SV_DispatchThreadID)
 	for (uint stepIt = 0; stepIt < kStepCount; stepIt++)
 	{
 		float3 position = origin + direction * ((float(stepIt) + 0.5) * step);
-		depth += SkyMediumAt(length(position) - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS).extinction * step;
+		depth += SkyMediumAt(length(position) - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS, gEnvironment[0].skyAtmosphere.x).extinction * step;
 	}
 	gOutput[id.xy] = float4(exp(-depth), 1.0);
 }
@@ -158,7 +158,7 @@ void EnvironmentSkyMultipleScattering(uint3 id : SV_DispatchThreadID)
 		{
 			float3 position = origin + direction * ((float(stepIt) + 0.5) * step);
 			float radius = length(position);
-			SkyMedium medium = SkyMediumAt(radius - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS);
+			SkyMedium medium = SkyMediumAt(radius - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS, gEnvironment[0].skyAtmosphere.x);
 			float3 sun = SkyTransmittance(gSkyTransmittance, gSampler, radius, dot(position / radius, sunDirection)) *
 						 SkySunVisible(position, sunDirection);
 			float3 through = exp(-medium.extinction * step);
@@ -202,7 +202,7 @@ void EnvironmentSkyView(uint3 id : SV_DispatchThreadID)
 	float sinZenith = sqrt(max(1.0 - viewZenithCos * viewZenithCos, 0.0));
 	float3 direction = float3(sinZenith * sunViewCos, viewZenithCos, sinZenith * sqrt(max(1.0 - sunViewCos * sunViewCos, 0.0)));
 	float3 origin = float3(0.0, SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS + SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE, 0.0);
-	float3 light = SkyScatteredLight(gSkyTransmittance, gSkyMultipleScattering, gSampler, origin, direction, sunDirection, 32);
+	float3 light = SkyScatteredLight(gSkyTransmittance, gSkyMultipleScattering, gSampler, origin, direction, sunDirection, 32, gEnvironment[0].skyAtmosphere.x);
 	gOutput[id.xy] = float4(light * SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE, 1.0);
 }
 

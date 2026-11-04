@@ -183,7 +183,7 @@ struct State
 	std::optional<size_t> anchor; // the entry last clicked: what is previewed, and where shift-click ranges start
 	std::optional<size_t> scrollTo; // the entry the arrow keys moved to, scrolled into view when drawn
 	bool sideBySide = true;
-	bool ground = false; // the models opened stand on a ground plane (see ModelGround)
+	bool ground = true; // the models opened stand on a ground plane (see ModelGround): by default since 2026-11-04
 	bool listed = false;
 	ListOptions options; // the current purpose's (see BrowserPurpose)
 	windowedapplication::BrowserPurpose purpose = windowedapplication::BrowserPurpose::kFiles;
@@ -355,9 +355,9 @@ void WindowedApplication::InternalDrawBrowser()
 		// SPEEDO_BROWSE_ENVIRONMENT=1: for an environment (as View > Environment > Open Environment...)
 		if (const char* environment = std::getenv("SPEEDO_BROWSE_ENVIRONMENT"); environment != nullptr && std::string_view(environment) == "1")
 			gBrowserPurpose = BrowserPurpose::kEnvironment;
-		// SPEEDO_BROWSE_GROUND=1: the models opened stand on a ground plane
-		if (const char* ground = std::getenv("SPEEDO_BROWSE_GROUND"); ground != nullptr && std::string_view(ground) == "1")
-			state.ground = true;
+		// SPEEDO_BROWSE_GROUND=0: the models opened stand on no ground plane
+		if (const char* ground = std::getenv("SPEEDO_BROWSE_GROUND"); ground != nullptr && std::string_view(ground) == "0")
+			state.ground = false;
 		// SPEEDO_BROWSE_RECURSIVE=0: without subfolders, and SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas> the
 		// kinds listed (by default every model and zip archive below the folder)
 		if (const char* recursive = std::getenv("SPEEDO_BROWSE_RECURSIVE"); recursive != nullptr && *recursive != '\0')
