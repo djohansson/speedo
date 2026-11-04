@@ -42,7 +42,16 @@ enum : unsigned long
 	kMacPresentationDefault = 0,
 	kMacPresentationHideDock = 1UL << 1, // NSApplicationPresentationHideDock
 	kMacPresentationHideMenuBar = 1UL << 3, // NSApplicationPresentationHideMenuBar
+	kMacWindowStyleFullScreen = 1UL << 14, // NSWindowStyleMaskFullScreen
 };
+
+// whether the window is in a space of its own (native fullscreen: FULLSCREEN_MODE_NATIVE's, or the green button's, which
+// glfw doesn't know of)
+bool InMacSpace(GLFWwindow* window)
+{
+	auto styleMask = reinterpret_cast<unsigned long (*)(id, SEL)>(objc_msgSend)(glfwGetCocoaWindow(window), sel_registerName("styleMask"));
+	return (styleMask & kMacWindowStyleFullScreen) != 0;
+}
 #endif
 
 // the monitor whose area holds the point (screen coordinates), else the primary one
@@ -132,6 +141,20 @@ void WindowedApplication::ToggleFullscreen(WindowHandle handle)
 	auto& state = window.GetState();
 	auto& placement = window.GetWindowedPlacement();
 	auto* glfwWindow = reinterpret_cast<GLFWwindow*>(handle); //NOLINT(performance-no-int-to-ptr)
+
+#if defined(__APPLE__)
+	// in a space of its own, it leaves it, whatever the mode: the green button's space isn't in the state, and toggling
+	// took the window to exclusive fullscreen inside it (glfwSetWindowMonitor), where leaving restored the display mode
+	// under the space, which AppKit threw on (an NSException reshaping its tile, in _NSFullScreenContentController). and
+	// out of its space by the green button, it is windowed
+	if (InMacSpace(glfwWindow))
+	{
+		state.fullscreenEnabled = 1U;
+		placement.fullscreenMode = FULLSCREEN_MODE_NATIVE;
+	}
+	else if (state.fullscreenEnabled != 0U && placement.fullscreenMode == FULLSCREEN_MODE_NATIVE)
+		state.fullscreenEnabled = 0U;
+#endif
 
 	// left the way it was entered
 	uint32_t fullscreenMode = state.fullscreenEnabled != 0U ? placement.fullscreenMode : state.fullscreenMode;

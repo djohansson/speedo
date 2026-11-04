@@ -46,7 +46,13 @@ Notes for working in this codebase, distilled from real build failures.
   undecorated window covering the monitor, on every platform; on macOS with the menu bar and dock hidden, and composited)
   or, on macOS, native (its own space). Exclusive and native
   let macOS scan the swapchain out directly, which flickered with KosmicKrisp from mesa 26.2 (frames out of order), so
-  borderless was the only mode for a while; with mesa main (8fc4981) all three work. The same menu sets the swapchain's
+  borderless was the only mode for a while; with mesa main (8fc4981) all three work. On macOS exclusive keeps the
+  display's mode: glfw sets the mode nearest the one asked for among those it lists, which left out a Retina display's
+  scaled modes, so a MacBook Pro's 1512x982 points at 2x became 1920x1200 at 1x (the ui and the window changed scale),
+  and the `glfw3` overlay port lists them (see "vcpkg"). A window in a space of its own (native's, or the green button's,
+  which glfw and the state don't know of) leaves it at Alt+Enter whatever the mode (`InMacSpace`): taken to exclusive
+  inside the green button's space, leaving it crashed (glfw restored the display mode under the space, and AppKit threw
+  reshaping it, in `_NSFullScreenContentController`). The same menu sets the swapchain's
   presentation (`Swapchain::Configure`: `rhi::PresentationMode`, FIFO, FIFO relaxed, mailbox or immediate, of those the
   surface has, and an image count, applied by `Draw`, which recreates the swapchain; KosmicKrisp has FIFO and immediate,
   and takes exactly 3 images; at startup the swapchain takes FIFO, with 3 images where the surface allows: mailbox, the
@@ -3555,6 +3561,13 @@ run KTX's `mkversion` script, and `0007-version-without-bash.patch` writes the s
 (bash is still required for the tests or `KTX_GENERATE_VK_FILES`, which we don't build). Don't add ports that need an
 msys2 shell (`vcpkg_acquire_msys` with `bash`, `vcpkg_configure_make`) without patching that out; vcpkg's own
 `pkgconf.exe` (`vcpkg_fixup_pkgconfig`) runs fine.
+
+`ports/glfw3` exists for glfw 3.4's Cocoa display modes (`0001-cocoa-hidpi-display-modes.patch`): it lists them
+without `kCGDisplayShowDuplicateLowResolutionModes`, so a Retina display's scaled modes are missing (its current one
+too), and full screen switched the display to the 1x mode nearest in points; the patch lists them, and sets the HiDPI
+mode rather than its 1x duplicate, as SDL does. Retire it once upstream glfw does the same. (Building it found the macOS
+triplet setting `VCPKG_FIXUP_ELF_RPATH`, which runs patchelf over Mach-O files to no effect, and failed every port rebuilt
+on the Mac since setup stopped installing patchelf: it is Linux's alone now.)
 
 `ports/mimalloc` exists for a macOS bug in mimalloc 3.x, so retire it only once upstream fixes it. dyld allocates
 each image's thread-local-variable block from the system zone (`malloc_type_malloc`) and frees it at thread exit
