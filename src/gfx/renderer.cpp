@@ -117,6 +117,8 @@ constexpr uint8_t kCausticsResolveEntryPoint = 49;
 constexpr uint8_t kReflectionTraceEntryPoint = 50;
 // the aerial perspective's volume (see ComputeAerialPerspective)
 constexpr uint8_t kAerialPerspectiveEntryPoint = 51;
+// how much of its history a slice of the volume keeps each frame (see AerialPerspectiveData::historyBlend)
+constexpr float kAerialPerspectiveHistoryBlend = 0.9F;
 // the share of a frame's tiles with something drawn without a material with an extended layer from which sorting the
 // tiles pays (see ComputeMainVisibilityClassify): it costs 0.21 to 0.25 ms, and the specialized kernel saves 1.9 ms on a
 // frame of them (2.4 at Sponza). below it the generic kernel shades every tile, and sorts them every
@@ -243,6 +245,29 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		viewDesc.volume = true;
 		volume.view = std::make_unique<ImageView>(std::move(viewDesc));
 		myAerialPerspective[volumeIt] = myGraph.ImportImage(name);
+	}
+	// and its history (gAerialPerspectiveHistory, see ComputeAerialPerspective): each slice's light per meter and the fog's
+	// share of it, kept over frames, the frame's and the last's (AerialPerspectiveData::historySlot), of the first
+	// SHADER_TYPES_AERIAL_PERSPECTIVE_HISTORY_SLICE_COUNT slices
+	for (uint32_t historyIt = 0; historyIt < myAerialPerspectiveHistoryImages.size(); historyIt++)
+	{
+		auto name = std::format("Aerial Perspective History {}", historyIt);
+		ImageCreateDesc desc{device.CreateDeviceObjectCreateDesc(name)};
+		desc.mipLevels = {{.extent = {.width = SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH, .height = SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT}}};
+		desc.format = Format::kR16G16B16A16Sfloat;
+		desc.tiling = ImageTiling::kOptimal;
+		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled;
+		desc.memoryFlags = MemoryProperty::kDeviceLocal;
+		desc.imageAspectFlags = ImageAspect::kColor;
+		desc.layout = ImageLayout::kUndefined;
+		desc.depth = SHADER_TYPES_AERIAL_PERSPECTIVE_HISTORY_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT;
+		auto& volume = myAerialPerspectiveHistoryImages[historyIt];
+		volume.image = std::make_unique<Image>(std::move(desc));
+		ImageViewCreateDesc viewDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("{} View", name)), *volume.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor};
+		viewDesc.volume = true;
+		volume.view = std::make_unique<ImageView>(std::move(viewDesc));
+		myAerialPerspectiveHistory[historyIt] = myGraph.ImportImage(name);
 	}
 	// the pixels whose shadows the atlas isn't sure of, for the rays (gShadowTraceList: a count, then a pixel each)
 	myShadowTraceList = myGraph.CreateBuffer(
@@ -1710,6 +1735,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead)); // the probes' light
 			for (auto volume : myAerialPerspective)
 				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			for (auto history : myAerialPerspectiveHistory) // the last frame's read, the frame's written
+				builder.Use(history, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
 		[this, bindKernel](FrameGraph::PassContext& context)
 		{
@@ -2381,6 +2408,12 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		ImageBinding binding{.sampler = {}, .imageView = *myAerialPerspectiveImages[volumeIt].view, .layout = ImageLayout::kGeneral};
 		pipeline.SetDescriptorData("gAerialPerspective", binding, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES, volumeIt);
 		pipeline.SetDescriptorData("gAerialPerspectiveImages", binding, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES, volumeIt);
+	}
+	for (uint32_t historyIt = 0; historyIt < myAerialPerspectiveHistoryImages.size(); historyIt++)
+	{
+		ImageBinding binding{.sampler = {}, .imageView = *myAerialPerspectiveHistoryImages[historyIt].view, .layout = ImageLayout::kGeneral};
+		pipeline.SetDescriptorData("gAerialPerspectiveHistory", binding, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES, historyIt);
+		pipeline.SetDescriptorData("gAerialPerspectiveHistoryImages", binding, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES, historyIt);
 	}
 	myTransmissionLevelView = std::make_unique<ImageView>(ImageViewCreateDesc{
 		device.CreateDeviceObjectCreateDesc("Transmission Level 0"),
@@ -3066,6 +3099,12 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		data.shaftLight = frame.shaftLight && *frame.shaftLight < frame.lights.size() && frame.shadows ? *frame.shaftLight : SHADER_TYPES_NO_SHADOW;
 		data.viewCount = std::min<uint32_t>(static_cast<uint32_t>(frame.viewports.size()), SHADER_TYPES_SPLIT_VIEW_COUNT);
 		std::ranges::copy(renderer::FogData(frame), data.fog);
+		// the history over frames: the last frame's where the pass ran then
+		data.frame = static_cast<uint32_t>(myFrameCount);
+		data.history = myAerialPerspectiveHistoryValid ? 1U : 0U;
+		data.historySlot = static_cast<uint32_t>(myFrameCount & 1);
+		data.historyBlend = renderer::kAerialPerspectiveHistoryBlend;
+		myAerialPerspectiveHistoryValid = frame.aerialPerspective;
 		// as far along each view as the scene goes, as the cascades reach (see shadows::Plan)
 		for (size_t viewIt = 0; viewIt < std::min<size_t>(frame.cameras.size(), SHADER_TYPES_SPLIT_VIEW_COUNT); viewIt++)
 		{
@@ -3450,6 +3489,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myGraph.Bind(myGiVolumes[volumeIt], *myGiVolumeImages[volumeIt].image);
 	for (uint32_t volumeIt = 0; volumeIt < myAerialPerspectiveImages.size(); volumeIt++)
 		myGraph.Bind(myAerialPerspective[volumeIt], *myAerialPerspectiveImages[volumeIt].image);
+	for (uint32_t historyIt = 0; historyIt < myAerialPerspectiveHistoryImages.size(); historyIt++)
+		myGraph.Bind(myAerialPerspectiveHistory[historyIt], *myAerialPerspectiveHistoryImages[historyIt].image);
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
 		myGraph.Bind(myGiNearHistory[historyIt], *myGiNearHistoryImages[historyIt].image);

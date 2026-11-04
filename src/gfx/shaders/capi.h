@@ -283,13 +283,16 @@ extern "C"
 // the aerial perspective's volume (see AerialPerspectiveData), per view: _WIDTH by _HEIGHT cells across its viewport, and
 // _SLICE_COUNT slices of distance along each cell's ray, the first at the eye, the second _NEAR meters from it and each after
 // a constant factor farther, the last _FAR meters (the light shafts are near the eye, the haze kilometres off), each marched
-// in _STEP_COUNT steps; then one more, _VIEW_SLICE_COUNT in all, of what the fog near the ground does to the sky seen through
-// it (see AerialPerspectiveData::fog: the sky has the rest of the air already)
+// in _STEP_COUNT steps, their offsets turned every frame and the slices' light kept over frames (the first
+// _HISTORY_SLICE_COUNT slices, to 2 km: the scene's reach, where the shadows and the probes are); then one more,
+// _VIEW_SLICE_COUNT in all, of what the fog near the ground does to the sky seen through it (see AerialPerspectiveData::fog:
+// the sky has the rest of the air already)
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH 160u
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT 90u
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT 64u
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT (SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT + 1u)
-#define SHADER_TYPES_AERIAL_PERSPECTIVE_STEP_COUNT 4u
+#define SHADER_TYPES_AERIAL_PERSPECTIVE_HISTORY_SLICE_COUNT 40u
+#define SHADER_TYPES_AERIAL_PERSPECTIVE_STEP_COUNT 2u
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_NEAR 1.0
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_FAR 200000.0
 #define SHADER_TYPES_UI_BLUR_RECT_COUNT 32u
@@ -517,6 +520,13 @@ struct AerialPerspectiveData
 	// its extinction at the surface (per km: 3.912 over its visibility, Koschmieder's), 0 for none; y its scale height (km).
 	// the air's light and the lights' (LightFog) go through it; the sky's tables don't (it is far thinner than their rows)
 	alignas(16) FLOAT4(fog);
+	// the history over frames (gAerialPerspectiveHistory, see ComputeAerialPerspective): the frames counted (the steps'
+	// offsets turn by it), whether the last frame's is valid (the pass ran then), which of the two the frame writes (it
+	// reads the other), and how much of the history a slice keeps (0.9: a tenth the frame's own samples)
+	alignas(4) UINT1(frame);
+	alignas(4) UINT1(history);
+	alignas(4) UINT1(historySlot);
+	alignas(4) FLOAT1(historyBlend);
 };
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,

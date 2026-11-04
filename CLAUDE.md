@@ -2758,16 +2758,29 @@ share. It replaced a stylized gradient whose sun was fixed.
   `AerialPerspectiveData`): the light the air scatters toward the eye between it and what it sees, and what it lets through
   of that, as Hillaire's aerial perspective volume. Per view a volume over its viewport (`gAerialPerspective`: two RGBA16F 3D
   images, the in-scattering and the transmittance, colored, 160x90 cells by 64 slices, every split view's stacked along z,
-  59 MB, made each frame by the Aerial Perspective pass, `ComputeAerialPerspective`, a thread per cell's column): the first
+  59 MB, and a history over frames of the first 40 slices' light, 37 MB, made each frame by the Aerial Perspective pass, `ComputeAerialPerspective`, a thread per cell's column): the first
   slice at the eye, the second 1 m away and each after a constant factor farther, to 200 km at the last (fine near the eye
-  for the shafts, kilometres apart in the haze), each marched in 4 steps through the sky's medium as the sky's view is
+  for the shafts, kilometres apart in the haze), each marched in 2 steps through the sky's medium as the sky's view is
   (`SkyScatteredLight`'s energy conserving step), the eye at its altitude over the planet's surface (the scene's lowest
   point, by `SPEEDO_METERS_PER_UNIT`, the scene's unit in meters, 1 by default: View > Environment > Meters per Unit, 0.01
   for Bistro's centimetres). The sun's single scattering by each phase function through the transmittance table, shadowed
   by the sun's cascades (its light among `gLights`, the sky's own or a model's merged with it: `AerialPerspectiveData::
   shaftLight`; a bilinear comparison in the finest cascade holding the point, lit where none does, only as far along the
   ray as the scene goes, `sceneDepths`) where the shafts are on, the steps offset per cell by interleaved gradient noise,
-  the same every frame. The light scattered more than once: the indirect lighting's around the air where its probes hold
+  and turned every frame by the golden ratio: each of the first 40 slices (to 2 km, the scene's reach, where the
+  shadows and the probes are) keeps its light per meter over frames (`gAerialPerspectiveHistory`, two of them by the
+  frame's parity, `AerialPerspectiveData::history*`; per meter, since the last frame's slices there are of other
+  lengths), the last frame's taken from where the slice's middle was in its view (`ViewData::previousViewProjection`
+  and `previousEyePosition`, where the view was at this place then; none where it falls behind that eye, out of its
+  view or past its 40 slices) and kept by 0.9 (`kAerialPerspectiveHistoryBlend`); the fog's share of each slice's light
+  rides in its alpha, for the fog's slice toward the sky. The same offsets every frame and 4 steps a slice aliased against
+  the shadows' edges in dense fog (dotted arcs across FogHall's sheets, 2 m steps at 38 m against sheets 1.7 m thick),
+  which the frames' different samples average out; the history costs nothing measurable (Sponza at the user's shadow
+  pose, 2560x1440, KosmicKrisp: 31.6 and 31.5 ms against 31.4 and 30.8 with the pass off, interleaved, where the pass
+  cost 0.6 to 0.7 before it). Finer cells were tried with it, 240x135: about a millisecond more there, for cells of 10.7
+  pixels rather than 16 (the probes' ambient, read every other slice since, the history's samples and the slices' stores
+  all scale with them), and kept out; a shaft's edge stays as soft as a cell, and a cell's ray past a near silhouette
+  still lends the pixels beside it its integral. The light scattered more than once: the indirect lighting's around the air where its probes hold
   it (`AerialPerspectiveAmbient`, a slice's middle: the 8 probes around in each clip, blended as `GiSampleAt` blends them,
   each the mean of its faces, those that traced and aren't inside something alone: the volumes are only resolved near
   surfaces), else the sky's multiple scattering table, as under an open sky: by the table alone the air in Sponza's roofed
@@ -2808,15 +2821,16 @@ share. It replaced a stylized gradient whose sun was fixed.
   width, over the strips they make on the floor. Only from the side: looking at the sun through the slots, the sheets fell
   on the slots themselves (bright sky either way) and the roof's underside alone showed the haze, a glow about the sun;
   and a hall a third open to the sky had its air, lit by its sky and its sunlit floor, as bright as the sun's light
-  scattered sideways (a tenth of what the fog scatters forward). The march's steps alias against the sheets' edges (2 m
-  steps at 38 m, sheets 1.7 m thick), dotted arcs across the bands: the finer cells' follow-up. The default fog costs
+  scattered sideways (a tenth of what the fog scatters forward). The march's steps aliased against the sheets' edges (2 m
+  steps at 38 m, sheets 1.7 m thick), dotted arcs across the bands, until the volume's history over frames (above:
+  the steps' offsets turn every frame). The default fog costs
   nothing measurable (Sponza at the user's shadow pose, 2560x1440, KosmicKrisp: 31.57 and 31.64 ms a frame against 31.61
   and 31.66 without, interleaved). Not yet: the environment's irradiance on surfaces (the sky's light reaches them through
   no fog), the emitters' light through it, the fog's own multiple scattering (a thick bank should glow nearly as white as
   a sunlit wall), and the fog in the sky's tables.
 - **Not yet** (TODO.md): clouds, the moon and the stars, the time of day's redraw cost spread over frames; and the aerial
-  perspective's (its follow-ups): finer cells, the haze between glass or a reflection and what it shows, the sky's view
-  from the camera's altitude.
+  perspective's (its follow-ups): the haze between glass or a reflection and what it shows, the sky's view from the
+  camera's altitude.
 
 ## Descriptor sets: redundant updates consume the pool
 

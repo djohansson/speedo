@@ -110,13 +110,13 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 		{.type = rhi::DescriptorType::kSampler, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_SAMPLER_COUNT},
 		{.type = rhi::DescriptorType::kCombinedImageSampler, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_SAMPLER_COUNT},
 		{.type = rhi::DescriptorType::kSampledImage,
-		 // gTextures, gMainStencil, gGiVolumes, gVisibility and gAerialPerspective
-		 .count = kGlobalResourceBaseCount * (SHADER_TYPES_GLOBAL_TEXTURE_COUNT + 1 + SHADER_TYPES_GI_VOLUME_COUNT + 1 + 2)},
+		 // gTextures, gMainStencil, gGiVolumes, gVisibility, gAerialPerspective and gAerialPerspectiveHistory
+		 .count = kGlobalResourceBaseCount * (SHADER_TYPES_GLOBAL_TEXTURE_COUNT + 1 + SHADER_TYPES_GI_VOLUME_COUNT + 1 + 2 + 2)},
 		{.type = rhi::DescriptorType::kStorageImage,
-		 // gRWTextures, gDepthPyramid, gShadowDepthPyramid, gGiVolumeImages, gMainColor, gShadowTransmittanceImage and
-		 // gAerialPerspectiveImages
+		 // gRWTextures, gDepthPyramid, gShadowDepthPyramid, gGiVolumeImages, gMainColor, gShadowTransmittanceImage,
+		 // gAerialPerspectiveImages and gAerialPerspectiveHistoryImages
 		 .count = kGlobalResourceBaseCount * (SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT + SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT +
-											  SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT + SHADER_TYPES_GI_VOLUME_COUNT + 2 + 2)},
+											  SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT + SHADER_TYPES_GI_VOLUME_COUNT + 2 + 2 + 2)},
 		{.type = rhi::DescriptorType::kUniformTexelBuffer, .count = kBufferBaseCount},
 		{.type = rhi::DescriptorType::kStorageTexelBuffer, .count = kBufferBaseCount},
 		{.type = rhi::DescriptorType::kUniformBuffer, .count = kBufferBaseCount},

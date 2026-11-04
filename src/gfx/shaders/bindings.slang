@@ -82,6 +82,10 @@ Texture2D<uint2> gVisibility;
 // (gAerialPerspectiveImages), always in the general layout
 [[vk::binding(4, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture3D<float4> gAerialPerspective[2];
+// its history (see ComputeAerialPerspective): each slice's light per meter (rgb) and the fog's share of it (a), kept over
+// frames, the frame's and the last's (AerialPerspectiveData::historySlot), the views' stacked along z as the volume's
+[[vk::binding(5, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
+Texture3D<float4> gAerialPerspectiveHistory[2];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]]
 RWTexture2D gRWTextures[SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT];
@@ -102,6 +106,8 @@ RWTexture2D<float4> gMainColor;
 RWTexture2D<float4> gShadowTransmittanceImage;
 [[vk::binding(6, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("rgba16f")]]
 RWTexture3D<float4> gAerialPerspectiveImages[2];
+[[vk::binding(7, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("rgba16f")]]
+RWTexture3D<float4> gAerialPerspectiveHistoryImages[2];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS)]]
 SamplerState gSamplers[SHADER_TYPES_GLOBAL_SAMPLER_COUNT];

@@ -767,6 +767,11 @@ private:
 	std::array<AerialPerspectiveVolume, 2> myAerialPerspectiveImages;
 	std::array<FrameGraph::ImageId, 2> myAerialPerspective{};
 	FrameGraph::PassId myAerialPerspectivePass;
+	// and its history over frames (gAerialPerspectiveHistory, see AerialPerspectiveData::history): the frame's and the
+	// last's, by the frame's parity, valid where the pass ran last frame
+	std::array<AerialPerspectiveVolume, 2> myAerialPerspectiveHistoryImages;
+	std::array<FrameGraph::ImageId, 2> myAerialPerspectiveHistory{};
+	bool myAerialPerspectiveHistoryValid = false;
 	Buffer myEmitterReservoirBuffer;
 	FrameGraph::BufferId myEmitterReservoirs;
 	FrameGraph::ImageId myEmitterRaw;

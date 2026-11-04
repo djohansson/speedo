@@ -216,15 +216,30 @@ void ComputeAerialPerspective(uint3 id : SV_DispatchThreadID)
 		const float kForwardRoughness = 0.5; // a lobe about as wide
 		skyAround = kForwardShare * EnvironmentRadiance(environment, ray, kForwardRoughness) + (1.0 - kForwardShare) * mean / 6.0;
 	}
-	float offset = shafts ? frac(52.9829189 * frac(dot(float2(id.xy) + float(id.z) * 17.0, float2(0.06711056, 0.00583715)))) : 0.5;
+	// the steps' offset within a slice: per cell by interleaved gradient noise, so that a shaft's edge dithers across
+	// cells rather than banding along slices, and turned every frame by the golden ratio, so that the frames' samples
+	// differ, which the history averages (the same every frame, the steps aliased against the shadows' edges in dense fog,
+	// dotted arcs across FogHall's sheets); the slices past the history take the middle
+	float noise = frac(52.9829189 * frac(dot(float2(id.xy) + float(id.z) * 17.0, float2(0.06711056, 0.00583715))));
+	float offset = frac(noise + float(data.frame % 64u) * 0.6180339887);
 	// the scene's reach along the ray, in meters (the view's depth over the ray's share of it): past it, no shadow view
 	// nor probe holds anything
 	float4 centerNear = mul(view.inverseViewProjection, float4(0.0, 0.0, 1.0, 1.0));
 	float4 centerFar = mul(view.inverseViewProjection, float4(0.0, 0.0, 0.5, 1.0));
 	float3 forward = normalize(centerFar.xyz / centerFar.w - centerNear.xyz / centerNear.w);
 	float sceneReach = data.sceneDepths[min(id.z, 3u)] / max(dot(ray, forward), 1e-3) * metersPerUnit;
-
+	// the history (gAerialPerspectiveHistory): each of the first SHADER_TYPES_AERIAL_PERSPECTIVE_HISTORY_SLICE_COUNT
+	// slices' light per meter and the fog's share of it, from where its middle was in the last frame's view (the last view
+	// projection and eye, where the view was at this place then), blended in by historyBlend; per meter, since the slices
+	// there are of other lengths; none for a slice the last frame's volume doesn't hold (behind its eye, outside its view,
+	// past its history)
 	uint first = id.z * SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT;
+	uint historyFirst = id.z * SHADER_TYPES_AERIAL_PERSPECTIVE_HISTORY_SLICE_COUNT;
+	float historyDepth = float(SHADER_TYPES_AERIAL_PERSPECTIVE_HISTORY_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT);
+	bool viewHeld = data.history != 0u && view.previousEyePosition.w > 0.0;
+	Texture3D<float4> history = gAerialPerspectiveHistory[data.historySlot ^ 1u];
+	RWTexture3D<float4> historyImage = gAerialPerspectiveHistoryImages[data.historySlot];
+
 	gAerialPerspectiveImages[0][uint3(id.xy, first)] = float4(0.0, 0.0, 0.0, 0.0);
 	gAerialPerspectiveImages[1][uint3(id.xy, first)] = float4(1.0, 1.0, 1.0, 1.0);
 	float3 light = 0.0; // in the renderer's units
@@ -232,19 +247,27 @@ void ComputeAerialPerspective(uint3 id : SV_DispatchThreadID)
 	float3 fogLight = 0.0; // the fog's alone (see the last slice)
 	float fogTransmittance = 1.0;
 	float previous = 0.0; // meters
+	float4 ambient = 0.0;
 	for (uint slice = 1; slice < SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT; slice++)
 	{
 		float distance = AerialPerspectiveDistance(float(slice));
-		float step = (distance - previous) / float(SHADER_TYPES_AERIAL_PERSPECTIVE_STEP_COUNT);
-		// the light around the air in the scene, the indirect lighting's at the slice's middle (it changes slowly), where
-		// its probes hold it
-		float4 ambient = 0.0;
+		float sliceLength = distance - previous;
+		float step = sliceLength / float(SHADER_TYPES_AERIAL_PERSPECTIVE_STEP_COUNT);
+		bool held = slice <= SHADER_TYPES_AERIAL_PERSPECTIVE_HISTORY_SLICE_COUNT;
+		float stepOffset = held ? offset : 0.5;
+		// the light around the air in the scene, the indirect lighting's at the slice's middle (it changes slowly: taken
+		// every other slice, for two, the 8 probes' 6 faces each being most of a slice's reads), where its probes hold it
 		float middle = 0.5 * (previous + distance);
-		if (middle <= sceneReach)
-			ambient = AerialPerspectiveAmbient(eye + ray * (middle / metersPerUnit));
+		if ((slice & 1u) != 0u)
+			ambient = middle <= sceneReach ? AerialPerspectiveAmbient(eye + ray * (middle / metersPerUnit)) : 0.0;
+		// the slice's own: what it scatters toward its start, and what it lets through
+		float3 sliceLight = 0.0;
+		float3 sliceTransmittance = 1.0;
+		float3 fogSliceLight = 0.0;
+		float fogSliceTransmittance = 1.0;
 		for (uint stepIt = 0; stepIt < SHADER_TYPES_AERIAL_PERSPECTIVE_STEP_COUNT; stepIt++)
 		{
-			float at = previous + (float(stepIt) + offset) * step;
+			float at = previous + (float(stepIt) + stepOffset) * step;
 			float3 position = origin + ray * (at * 1e-3);
 			float r = length(position);
 			float muSun = dot(position / r, sun);
@@ -265,16 +288,44 @@ void ComputeAerialPerspective(uint3 id : SV_DispatchThreadID)
 			float3 source = sunLight * (medium.rayleigh * rayleighPhase + medium.mie * miePhase + fogExtinction * fogPhase) * data.sun.w +
 							around * medium.scattering + fogAround * fogExtinction;
 			float3 through = exp(-extinction * (step * 1e-3));
-			light += transmittance * (source - source * through) / max(extinction, 1e-9);
-			transmittance *= through;
+			sliceLight += sliceTransmittance * (source - source * through) / max(extinction, 1e-9);
+			sliceTransmittance *= through;
 			if (fog)
 			{
 				float3 fogSource = (sunLight * fogPhase * data.sun.w + fogAround) * fogExtinction;
 				float fogThrough = exp(-fogExtinction * (step * 1e-3));
-				fogLight += fogTransmittance * (fogSource - fogSource * fogThrough) / max(fogExtinction, 1e-9);
-				fogTransmittance *= fogThrough;
+				fogSliceLight += fogSliceTransmittance * (fogSource - fogSource * fogThrough) / max(fogExtinction, 1e-9);
+				fogSliceTransmittance *= fogThrough;
 			}
 		}
+		if (held)
+		{
+			float sliceLuminance = dot(sliceLight, float3(0.2126, 0.7152, 0.0722));
+			float fogShare = sliceLuminance > 0.0 ? saturate(dot(fogSliceLight, float3(0.2126, 0.7152, 0.0722)) / sliceLuminance) : 0.0;
+			float4 stored = float4(sliceLight / sliceLength, fogShare);
+			if (viewHeld)
+			{
+				float3 point = eye + ray * (middle / metersPerUnit);
+				float4 clip = mul(view.previousViewProjection, float4(point, 1.0));
+				if (clip.w > 0.0)
+				{
+					float2 uv = clip.xy / clip.w * 0.5 + 0.5;
+					float previousSlice = AerialPerspectiveSlice(length(point - view.previousEyePosition.xyz) * metersPerUnit);
+					if (all(uv >= 0.0) && all(uv <= 1.0) && previousSlice >= 1.0 && previousSlice <= float(SHADER_TYPES_AERIAL_PERSPECTIVE_HISTORY_SLICE_COUNT))
+					{
+						float3 uvw = float3(uv, (float(historyFirst) + previousSlice - 1.0 + 0.5) / historyDepth);
+						stored = lerp(stored, history.SampleLevel(linear, uvw, 0.0), data.historyBlend);
+					}
+				}
+			}
+			historyImage[uint3(id.xy, historyFirst + slice - 1u)] = stored;
+			sliceLight = stored.rgb * sliceLength;
+			fogSliceLight = stored.rgb * stored.a * sliceLength;
+		}
+		light += transmittance * sliceLight;
+		transmittance *= sliceTransmittance;
+		fogLight += fogTransmittance * fogSliceLight;
+		fogTransmittance *= fogSliceTransmittance;
 		previous = distance;
 		gAerialPerspectiveImages[0][uint3(id.xy, first + slice)] = float4(light, 0.0);
 		gAerialPerspectiveImages[1][uint3(id.xy, first + slice)] = float4(transmittance, 1.0);
