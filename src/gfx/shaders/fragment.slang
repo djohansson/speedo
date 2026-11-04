@@ -162,9 +162,13 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 	float3 eye = gViewData[gPushConstants.frameIndex][viewId].eyePosition.xyz;
 	float3 view = normalize(eye - v.position);
 
-	// KHR_materials_transmission: that much of the dielectric's diffuse is the light through it instead
+	// KHR_materials_transmission: that much of the dielectric's diffuse is the light through it instead (TransmittedLight,
+	// once the rays are traced: see below)
 	surface.transmitted = 0.0;
 	float transmission = 0.0;
+	float transmissionThickness = 0.0;
+	float transmissionIor = 1.0;
+	float transmissionSpread = 0.0; // KHR_materials_dispersion: each color refracted by its own ior, spread around it
 	gShadingTransmissive = false;
 	if (Layer(material, MATERIAL_FLAG_TRANSMISSION))
 	{
@@ -172,29 +176,12 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 		gShadingTransmissive = transmission > 0.0;
 		if ((material.flags & MATERIAL_FLAG_TRANSMISSION_TEXTURE) != 0u)
 			transmission *= SampleView(material.transmissionView, v.texCoord01).r;
-		float thickness = material.transmission.y;
+		transmissionThickness = material.transmission.y;
 		if ((material.flags & MATERIAL_FLAG_THICKNESS_TEXTURE) != 0u)
-			thickness *= SampleView(material.thicknessView, v.texCoord01).r;
-		thickness *= input.modelScale;
-		float ior = material.specularColor.a;
-		float3 light;
-		// KHR_materials_dispersion: each color refracted by its own ior, spread around it
-		float spread = (ior - 1.0) * 0.025 * material.transmission.w;
-		if (spread > 0.0)
-		{
-			float3 iors = float3(ior - spread, ior, ior + spread);
-			for (uint channel = 0; channel < 3; channel++)
-				light[channel] = TransmittedLight(
-					normal, view, v.position, surface.roughness, iors[channel], thickness, material.attenuationColor.rgb,
-					material.transmission.z, viewId)[channel];
-		}
-		else
-		{
-			light = TransmittedLight(
-				normal, view, v.position, surface.roughness, ior, thickness, material.attenuationColor.rgb, material.transmission.z, viewId);
-		}
-		float dielectric = transmission * (1.0 - metallic);
-		surface.transmitted = dielectric * color.rgb * light;
+			transmissionThickness *= SampleView(material.thicknessView, v.texCoord01).r;
+		transmissionThickness *= input.modelScale;
+		transmissionIor = material.specularColor.a;
+		transmissionSpread = (transmissionIor - 1.0) * 0.025 * material.transmission.w;
 		surface.diffuseColor *= 1.0 - transmission;
 	}
 
@@ -322,9 +309,51 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 	// scattering's (which is lights' and ambient alike)
 	if (debugView == DEBUG_VIEW_EMISSIVE)
 		return float4(emissive, color.a);
-	if (debugView != DEBUG_VIEW_NONE)
-		return float4(Shade(surface, view, v.position), color.a);
-	return float4(Shade(surface, view, v.position) + scattered + emissive, color.a);
+
+	// a fragment's sharp rays, all traced in one loop (TracedFragmentRays): its reflections (see Shade) and its refraction,
+	// of each color where dispersion spreads them (see TransmittedLight)
+	bool dispersion = transmissionSpread > 0.0;
+	float3 transmissionIors = dispersion ? transmissionIor + float3(-transmissionSpread, 0.0, transmissionSpread) : float3(transmissionIor);
+	float4 traced[kTracedFragmentRayCount];
+	for (uint rayIt = 0; rayIt < kTracedFragmentRayCount; rayIt++)
+		traced[rayIt] = 0.0;
+#if BVH_RAY_QUERY
+	if (!TracedGlossyHere() && (TracedReflectionsOn() || TracedRefractionsOn()))
+	{
+		float3 directions[kTracedFragmentRayCount];
+		for (uint rayIt = 0; rayIt < kTracedFragmentRayCount; rayIt++)
+			directions[rayIt] = 0.0;
+		float shares[2];
+		SharpReflections(surface, view, directions[kTracedFragmentBase], shares[0], directions[kTracedFragmentCoat], shares[1]);
+		bool tracing[kTracedFragmentRayCount];
+		tracing[kTracedFragmentBase] = shares[0] > 0.0;
+		tracing[kTracedFragmentCoat] = shares[1] > 0.0;
+		for (uint channel = 0; channel < 3u; channel++)
+			tracing[kTracedFragmentRefraction + channel] = transmission > 0.0 && (dispersion || channel == 0u) &&
+				TransmittedTraced(normal, view, v.position, surface.roughness, transmissionIors[channel], transmissionThickness, viewId,
+					directions[kTracedFragmentRefraction + channel]);
+		TracedFragmentRays(v.position, geometryNormal, directions, tracing, transmissionThickness > 0.0, traced);
+	}
+#endif
+	// the light through the surface (KHR_materials_transmission), the dielectric's
+	if (transmission > 0.0)
+	{
+		float3 light;
+		for (uint channel = 0; channel < (dispersion ? 3u : 1u); channel++)
+		{
+			float3 channelLight = TransmittedLight(
+				normal, view, v.position, surface.roughness, transmissionIors[channel], transmissionThickness,
+				material.attenuationColor.rgb, material.transmission.z, viewId, traced[kTracedFragmentRefraction + channel]);
+			if (dispersion)
+				light[channel] = channelLight[channel];
+			else
+				light = channelLight;
+		}
+		surface.transmitted = transmission * (1.0 - metallic) * color.rgb * light;
+	}
+
+	float3 shaded = Shade(surface, view, v.position, traced[kTracedFragmentBase], traced[kTracedFragmentCoat]);
+	return float4(debugView != DEBUG_VIEW_NONE ? shaded : shaded + scattered + emissive, color.a);
 }
 
 // the debug views of a surface's values (DEBUG_VIEW_BASE_COLOR to DEBUG_VIEW_TEXCOORD): true and the value if debugView
@@ -445,9 +474,12 @@ void ShadeVisibility(int2 pixel)
 	gMainColor.GetDimensions(extent.x, extent.y);
 	if (any(pixel >= int2(extent)))
 		return;
-	// the traced glossy reflections: none here, unless Shade traces one (see TracedReflectionStore)
+	// the traced reflections: none here, unless Shade records one (see TracedReflectionRecord, TracedCoatRecord)
 	if (TracedReflectionsOn())
-		TracedReflectionStore(uint2(pixel), kReflectionUnknown, kReflectionUnknown);
+	{
+		TracedReflectionRecord(uint2(pixel), float3(0.0, 0.0, 1.0), 0.0, kReflectionUnknown, kReflectionUnknown);
+		TracedCoatRecord(uint2(pixel), float3(0.0, 0.0, 1.0), 0.0, 0.0);
+	}
 	uint frameIndex = gPushConstants.frameIndex;
 	float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(pixel, 0)).r;
 	uint viewId;

@@ -104,6 +104,8 @@ constexpr uint8_t kTransmissionCopyEntryPoint = 47;
 // ComputeCaustics, ComputeCausticsResolve)
 constexpr uint8_t kCausticsEntryPoint = 48;
 constexpr uint8_t kCausticsResolveEntryPoint = 49;
+// the visibility buffer's reflection rays, traced (see ComputeReflectionTrace)
+constexpr uint8_t kReflectionTraceEntryPoint = 50;
 // the share of a frame's tiles with something drawn without a material with an extended layer from which sorting the
 // tiles pays (see ComputeMainVisibilityClassify): it costs 0.21 to 0.25 ms, and the specialized kernel saves 1.9 ms on a
 // frame of them (2.4 at Sponza). below it the generic kernel shades every tile, and sorts them every
@@ -111,7 +113,7 @@ constexpr uint8_t kCausticsResolveEntryPoint = 49;
 constexpr float kVisibilityTieredShare = 0.125F;
 constexpr uint64_t kVisibilityRecountFrameCount = 16;
 // diagnostic: the ray query replay's (see gfx/rayquerywatch.h), after the others, where the shaders have the watch
-constexpr uint8_t kRayQueryReplayEntryPoint = 50;
+constexpr uint8_t kRayQueryReplayEntryPoint = 51;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -185,6 +187,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myReflectionWeight = myGraph.CreateImage({.name = "Reflection Weight", .format = Format::kR16G16B16A16Sfloat});
 		myReflectionRows = myGraph.CreateImage({.name = "Reflection Rows", .format = Format::kR16G16B16A16Sfloat});
 		myReflectionFiltered = myGraph.CreateImage({.name = "Reflection Filtered", .format = Format::kR16G16B16A16Sfloat});
+		myReflectionRay = myGraph.CreateImage({.name = "Reflection Ray", .format = Format::kR16G16B16A16Sfloat});
+		myReflectionCoat = myGraph.CreateImage({.name = "Reflection Coat", .format = Format::kR16G16B16A16Sfloat});
 		for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 		{
 			myReflectionHistory[historyIt] = myGraph.ImportImage(std::format("Reflection History {}", historyIt));
@@ -1471,9 +1475,12 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			for (auto image : myEmitterHistory)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
-			// the traced glossy reflections' samples and weights (see TracedReflectionStore)
+			// the traced reflections' rays, and what is predicted along the glossy one and its weight (see
+			// TracedReflectionRecord, TracedCoatRecord)
 			builder.Use(myReflectionRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 			builder.Use(myReflectionWeight, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myReflectionRay, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myReflectionCoat, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 			// a list's indirect dispatch and tiles (see VisibilityTileFirst)
 			builder.Use(
 				myVisibilityTiles,
@@ -1528,8 +1535,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				// passes of their own, the graph put one there, both writing the color)
 				if (myVisibilityTiered)
 				{
-					shadeList(context, VISIBILITY_TILES_SPECIALIZED, SHADER_TYPES_LAYERS_EXTENDED | myVisibilityNoGlass);
-					shadeList(context, VISIBILITY_TILES_GENERIC, myVisibilityNoGlass);
+					shadeList(context, VISIBILITY_TILES_SPECIALIZED, SHADER_TYPES_LAYERS_EXTENDED);
+					shadeList(context, VISIBILITY_TILES_GENERIC, 0);
 					return;
 				}
 				auto extent = myGraph.GetExtent();
@@ -1539,9 +1546,41 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					extent.width, extent.height, 0, 0, 0, 0, 0, prepassImages());
 			});
 
-		// the traced glossy reflections the shading sampled (see traced.slang): filtered along rows, then columns, then over
-		// frames (the history the frame's parity says), and added to the main color by the specular's weight, before what
-		// draws over it or reads it (Main's blended surfaces and points, the transmission texture)
+		// the reflections' rays the shading recorded, traced (see ComputeReflectionTrace): the glossy ones' samples, and the
+		// clearcoat's difference added to the main color. a kernel of its own, so that the shading's has no ray queries
+		// (each of its copies of a hit's shading took KosmicKrisp a minute to compile), specialized without the glass
+		// where there is none (see TracedPath)
+		myReflectionTracePass = myGraph.AddPass(
+			"Reflection Trace",
+			[this](FrameGraph::PassBuilder& builder)
+			{
+				builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myReflectionWeight, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myReflectionRay, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myReflectionCoat, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myReflectionRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+				builder.Use(myColor, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+				// what a hit's shading reads (see TracedHitRadiance)
+				builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				for (auto volume : myGiVolumes)
+					builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myShadowTransmittance, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			},
+			[this, kernel](FrameGraph::PassContext& context)
+			{
+				auto extent = myGraph.GetExtent();
+				kernel(
+					context.cmd,
+					ComputePipelineVariant{.entryPoint = kReflectionTraceEntryPoint, .specialization = myVisibilityNoGlass},
+					extent.width, extent.height);
+			});
+
+		// the traced glossy reflections' samples (see traced.slang): filtered along rows, then columns, then over frames (the
+		// history the frame's parity says), and added to the main color by the specular's weight, before what draws over it
+		// or reads it (Main's blended surfaces and points, the transmission texture)
 		auto reflectionKernel = [this, kernel](CommandBufferHandle cmd, uint8_t entryPoint)
 		{
 			auto extent = myGraph.GetExtent();
@@ -2359,7 +2398,9 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 				 std::tuple{myReflectionRaw, SHADER_TYPES_REFLECTION_RAW_TEXTURE, SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE},
 				 std::tuple{myReflectionWeight, SHADER_TYPES_REFLECTION_WEIGHT_TEXTURE, SHADER_TYPES_REFLECTION_WEIGHT_RW_TEXTURE},
 				 std::tuple{myReflectionRows, SHADER_TYPES_REFLECTION_ROWS_TEXTURE, SHADER_TYPES_REFLECTION_ROWS_RW_TEXTURE},
-				 std::tuple{myReflectionFiltered, SHADER_TYPES_REFLECTION_FILTERED_TEXTURE, SHADER_TYPES_REFLECTION_FILTERED_RW_TEXTURE}})
+				 std::tuple{myReflectionFiltered, SHADER_TYPES_REFLECTION_FILTERED_TEXTURE, SHADER_TYPES_REFLECTION_FILTERED_RW_TEXTURE},
+				 std::tuple{myReflectionRay, SHADER_TYPES_REFLECTION_RAY_TEXTURE, SHADER_TYPES_REFLECTION_RAY_RW_TEXTURE},
+				 std::tuple{myReflectionCoat, SHADER_TYPES_REFLECTION_COAT_TEXTURE, SHADER_TYPES_REFLECTION_COAT_RW_TEXTURE}})
 		{
 			pipeline.SetDescriptorData(
 				"gTextures",
@@ -3048,7 +3089,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	if (myVisibilityBuffer)
 	{
 		bool reflections = (frame.pushConstants.traced & TRACED_REFLECTIONS) != 0U;
-		for (auto pass : {myReflectionXPass, myReflectionYPass, myReflectionTemporalPass})
+		for (auto pass : {myReflectionTracePass, myReflectionXPass, myReflectionYPass, myReflectionTemporalPass})
 			myGraph.SetEnabled(pass, reflections);
 		if (reflections)
 		{
@@ -3259,14 +3300,13 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 			}
 		myVisibilityTiered = specialized && generic &&
 							 (myVisibilityPlainShare >= renderer::kVisibilityTieredShare || myFrameCount % renderer::kVisibilityRecountFrameCount == 0);
-		// and without what the traced reflections do at glass, where the model has none (see
+		// the Reflection Trace pass's kernel without what the traced reflections do at glass, where the model has none (see
 		// SHADER_TYPES_LAYERS_GLASS)
 		myVisibilityNoGlass = frame.model == nullptr || frame.model->GetAccelerationStructures() == nullptr ||
 									  !frame.model->GetAccelerationStructures()->HasGlass()
 			? SHADER_TYPES_LAYERS_GLASS
 			: 0;
-		myVisibilitySpecialization =
-			(specialized && (myVisibilityTiered || !generic) ? SHADER_TYPES_LAYERS_EXTENDED : 0) | myVisibilityNoGlass;
+		myVisibilitySpecialization = specialized && (myVisibilityTiered || !generic) ? SHADER_TYPES_LAYERS_EXTENDED : 0;
 		for (auto pass : {myVisibilityClearPass, myVisibilityClassifyPass})
 			myGraph.SetEnabled(pass, myVisibilityTiered);
 	}

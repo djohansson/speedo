@@ -136,7 +136,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 67; // after the shadow transmittance (SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 69; // after the reflection rays (SHADER_TYPES_REFLECTION_COAT_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -181,6 +181,10 @@ static_assert(SHADER_TYPES_SKY_VIEW_TEXTURE > SHADER_TYPES_EMITTER_SURFACE_TEXTU
 static_assert(
 	SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE > SHADER_TYPES_REFLECTION_SURFACE_TEXTURE + 1 &&
 	SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE < kModelTextureFirstSlot);
+static_assert(
+	SHADER_TYPES_REFLECTION_RAY_TEXTURE > SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE && SHADER_TYPES_REFLECTION_COAT_TEXTURE < kModelTextureFirstSlot &&
+	SHADER_TYPES_REFLECTION_RAY_RW_TEXTURE > SHADER_TYPES_TRANSMISSION_RW_TEXTURE &&
+	SHADER_TYPES_REFLECTION_COAT_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(SHADER_TYPES_PREPASS_MOTION_TEXTURE > SHADER_TYPES_SKY_VIEW_TEXTURE && SHADER_TYPES_PREPASS_MOTION_TEXTURE < kModelTextureFirstSlot);
 static_assert(
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE > SHADER_TYPES_PREPASS_MOTION_TEXTURE && SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE < kModelTextureFirstSlot &&
@@ -2188,6 +2192,7 @@ struct Scene::Impl
 				{"ComputeTransmissionCopy", SLANG_STAGE_COMPUTE}, // see the Transmission pass
 				{"ComputeCaustics", SLANG_STAGE_COMPUTE}, // see the Caustics pass
 				{"ComputeCausticsResolve", SLANG_STAGE_COMPUTE},
+				{"ComputeReflectionTrace", SLANG_STAGE_COMPUTE}, // see the Reflection Trace pass
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

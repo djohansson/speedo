@@ -86,7 +86,7 @@ void CausticSplat(uint frameIndex, ShadowData source, float3 position, float3 no
 
 #if BVH_RAY_QUERY
 // a ray's way through the transmissive surfaces that don't move (BvhTraceGlass, the ray queries' structure of them): the
-// caustics' photons' (ComputeCaustics) and the traced refractions' and reflections' (TracedGlassPath). where it is and
+// caustics' photons' (ComputeCaustics) and the traced refractions' and reflections' (TracedPath). where it is and
 // goes, what it carries of its light, and whether it is inside a volume
 struct GlassPath
 {
@@ -151,10 +151,10 @@ GlassSurface GlassSurfaceAt(float3 origin, float3 direction, BvhHit glass, uint 
 // dielectric, the base color at the point, less its Fresnel reflection, by its ior), refracted about the surface's normal,
 // into a volume (a thickness factor; a thin wall lets it through as it was going), attenuated over its thickness
 // (KHR_materials_volume's attenuation, as the view through it has it); out of a volume, less its Fresnel reflection, or
-// reflected back in where it can't leave. false where it carries nothing on
-bool GlassPathStep(inout GlassPath path, BvhHit glass, uint frameIndex)
+// reflected back in where it can't leave. false where it carries nothing on. surface: GlassSurfaceAt's of the path's
+// origin and direction
+bool GlassPathStep(inout GlassPath path, GlassSurface surface, uint frameIndex)
 {
-	GlassSurface surface = GlassSurfaceAt(path.origin, path.direction, glass, frameIndex);
 	float3 position = surface.position;
 	float3 normal = surface.normal;
 	MaterialData material = surface.material;
@@ -232,6 +232,11 @@ bool GlassPathStep(inout GlassPath path, BvhHit glass, uint frameIndex)
 	path.origin = position - normal * eps;
 	path.inside = true;
 	return true;
+}
+
+bool GlassPathStep(inout GlassPath path, BvhHit glass, uint frameIndex)
+{
+	return GlassPathStep(path, GlassSurfaceAt(path.origin, path.direction, glass, frameIndex), frameIndex);
 }
 #endif
 

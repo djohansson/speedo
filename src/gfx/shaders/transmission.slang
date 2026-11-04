@@ -38,28 +38,65 @@ void ComputeTransmissionCopy(uint3 dispatchThreadId : SV_DispatchThreadID)
 	gRWTextures[SHADER_TYPES_TRANSMISSION_RW_TEXTURE][pixel] = float4(TransmissionCompress(color.rgb, exposure), color.a);
 }
 
-// KHR_materials_transmission (and volume, dispersion): the light from behind a surface, along the ray refracted by ior:
-// the opaque scene (SHADER_TYPES_TRANSMISSION_TEXTURE) where the ray leaves the volume (thickness along it; at the
-// surface for thin walls), projected into the view, at a mip for the roughness (as the Khronos sample viewer: by the
-// texture's size and the ior), and the environment where nothing opaque is there. attenuated through the volume.
-float3 TransmittedLight(
-	float3 normal, float3 view, float3 position, float roughness, float ior, float thickness, float3 attenuationColor,
-	float attenuationDistance, uint viewId)
+// the ray refracted into a surface (along normal, by ior) from view: along the view where it reflects all of it
+float3 TransmittedRay(float3 normal, float3 view, float ior)
 {
 	float3 ray = refract(-view, normal, 1.0 / max(ior, 1e-4));
 	if (dot(ray, ray) == 0.0) // total internal reflection
 		ray = -view;
-	ray = normalize(ray);
+	return normalize(ray);
+}
+
+// how much of what is behind a surface the view shows where its ray leaves the volume (exit): beyond the view's edges the
+// scene wasn't drawn (clamping streaked the edge's texels), so towards them, over its last 5%, the environment along the
+// ray takes over: plausible rather than right, but steady. local: where in the view's viewport
+float TransmittedInView(float3 exit, ViewData viewData, out float2 local)
+{
+	float4 clip = mul(viewData.viewProjection, float4(exit, 1.0));
+	local = clip.w > 0.0 ? clip.xy / clip.w * 0.5 + 0.5 : float2(-1.0);
+	float2 edge = min(local, 1.0 - local);
+	return saturate(min(edge.x, edge.y) / 0.05);
+}
+
+// how much of the light from behind a surface its traced refraction gives (see TransmittedLight): sharp where the
+// transmission texture's mips wouldn't blur it much (the blur its lookup takes, by the roughness and the ior)
+float TransmittedTracedShare(float roughness, float ior)
+{
+	return TracedShare(roughness * saturate(ior * 2.0 - 2.0));
+}
+
+// whether a fragment traces its refraction (View > Ray Traced Refractions, where the device has ray queries; see
+// TransmittedLight), and along which direction: the refracted ray into a volume (thickness), the view's through a thin
+// wall (the screen space lookup's place is the surface's own, behind it)
+bool TransmittedTraced(
+	float3 normal, float3 view, float3 position, float roughness, float ior, float thickness, uint viewId, out float3 direction)
+{
+	float3 ray = TransmittedRay(normal, view, ior);
+	direction = thickness > 0.0 ? ray : -view;
+	float2 local;
+	return TracedRefractionsOn() && !TracedGlossyHere() &&
+		   (TransmittedTracedShare(roughness, ior) > 0.0 ||
+			TransmittedInView(position + ray * thickness, gViewData[gPushConstants.frameIndex][viewId], local) < 1.0);
+}
+
+// KHR_materials_transmission (and volume, dispersion): the light from behind a surface, along the ray refracted by ior:
+// the opaque scene (SHADER_TYPES_TRANSMISSION_TEXTURE) where the ray leaves the volume (thickness along it; at the
+// surface for thin walls), projected into the view, at a mip for the roughness (as the Khronos sample viewer: by the
+// texture's size and the ior), and the environment where nothing opaque is there. attenuated through the volume.
+// traced: what the refracted ray met, traced (TracedFragmentRays, where TransmittedTraced says: rgb, and in a 1 where it is
+// known), behind the surface or out of the view alike, by TransmittedTracedShare, and where the view doesn't show what is
+// behind (toward its edges) whatever the roughness, in place of the environment: rough glass, partly the texture's, faded
+// to the sky toward the view's edges as untraced glass does
+float3 TransmittedLight(
+	float3 normal, float3 view, float3 position, float roughness, float ior, float thickness, float3 attenuationColor,
+	float attenuationDistance, uint viewId, float4 traced)
+{
+	float3 ray = TransmittedRay(normal, view, ior);
 	float3 exit = position + ray * thickness;
 
 	ViewData viewData = gViewData[gPushConstants.frameIndex][viewId];
-	float4 clip = mul(viewData.viewProjection, float4(exit, 1.0));
-	// where the ray leaves the volume, in the view. beyond the view's edges the scene wasn't drawn (clamping streaked the
-	// edge's texels), so towards them, over its last 5%, the environment along the ray takes over: plausible rather than
-	// right, but steady
-	float2 local = clip.w > 0.0 ? clip.xy / clip.w * 0.5 + 0.5 : float2(-1.0);
-	float2 edge = min(local, 1.0 - local);
-	float inside = saturate(min(edge.x, edge.y) / 0.05);
+	float2 local;
+	float inside = TransmittedInView(exit, viewData, local);
 	Texture2D scene = gTextures[SHADER_TYPES_TRANSMISSION_TEXTURE];
 	uint width;
 	uint height;
@@ -72,21 +109,8 @@ float3 TransmittedLight(
 	float3 environment = EnvironmentRadiance(gEnvironment[0], ray, roughness);
 	float3 seen = TransmissionDecompress(behind.rgb, viewData.exposure) + (1.0 - behind.a) * environment;
 	float3 light = lerp(environment, seen, inside);
-	// where the device has ray queries (View > Ray Traced Refractions): what the refracted ray meets, traced, behind the
-	// surface or out of the view alike, sharp where the texture's mips wouldn't blur it much (see TracedShare), and where
-	// the view doesn't show what is behind (toward its edges) whatever the roughness, in place of the environment: rough
-	// glass, partly the texture's, faded to the sky toward the view's edges as untraced glass does
-#if BVH_RAY_QUERY
-	float blur = roughness * saturate(ior * 2.0 - 2.0);
-	float traced = TracedRefractionsOn() ? TracedShare(blur) : 0.0;
-	bool valid = false;
-	// a thin wall's light goes on as the view does (the screen space lookup's place is the surface's own, behind it)
-	bool volume = thickness > 0.0;
-	float3 tracedLight =
-		TracedRefractionsOn() && (traced > 0.0 || inside < 1.0) ? TracedRefraction(position, volume ? ray : -view, volume, valid) : 0.0;
-	if (valid)
-		light = lerp(lerp(tracedLight, seen, inside), tracedLight, traced);
-#endif
+	if (traced.a > 0.0)
+		light = lerp(lerp(traced.rgb, seen, inside), traced.rgb, TransmittedTracedShare(roughness, ior));
 
 	if (attenuationDistance > 0.0)
 		light *= pow(max(attenuationColor, 1e-6), thickness / attenuationDistance);

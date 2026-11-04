@@ -184,6 +184,13 @@ extern "C"
 #define SHADER_TYPES_REFLECTION_HISTORY_RW_TEXTURE 56u // and 57
 #define SHADER_TYPES_REFLECTION_SURFACE_TEXTURE 64u // and 65
 #define SHADER_TYPES_REFLECTION_SURFACE_RW_TEXTURE 58u // and 59
+// the visibility buffer's reflection rays, which its shading records and the Reflection Trace pass traces (see
+// ComputeReflectionTrace): the glossy ray's direction (octahedral) and roughness; and the clearcoat's direction
+// (octahedral), its roughness and the weight of the difference its trace makes (0 where none is traced)
+#define SHADER_TYPES_REFLECTION_RAY_TEXTURE 67u
+#define SHADER_TYPES_REFLECTION_RAY_RW_TEXTURE 61u
+#define SHADER_TYPES_REFLECTION_COAT_TEXTURE 68u
+#define SHADER_TYPES_REFLECTION_COAT_RW_TEXTURE 62u
 // the gTextures slot of the sky's view of itself (see atmosphere.h: the sky's radiance around the eye, by its angle above
 // the horizon and from the sun's azimuth), which the backdrop and mirror reflections sample (see SkyRadiance)
 #define SHADER_TYPES_SKY_VIEW_TEXTURE 37u
@@ -655,8 +662,9 @@ struct TextureView
 // layer groups a graphics pipeline can be specialized without (the shaders' specialization constant 0, kSkippedLayers):
 // their code compiles away. the extended layers: clearcoat, sheen, transmission (and volume and dispersion), anisotropy,
 // iridescence and diffuse transmission. the glass: what the traced reflections do where they meet a transmissive surface
-// (see TracedRadiance), which the visibility buffer's kernel is specialized without where the model has none (its code
-// alone, never run there, took MetalRoughSpheresNoTextures' Main Visibility from 0.382 ms to 0.416)
+// (see TracedRadiance), which the Reflection Trace pass's kernel is specialized without where the model has none (its
+// code alone, never run there, took MetalRoughSpheresNoTextures' Main Visibility from 0.382 ms to 0.416 when the
+// visibility buffer's kernel traced)
 #define SHADER_TYPES_LAYERS_EXTENDED 1u
 #define SHADER_TYPES_LAYERS_GLASS 2u
 

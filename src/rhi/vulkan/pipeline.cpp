@@ -7,12 +7,35 @@
 
 #include <core/file.h>
 
+#include <algorithm>
+#include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <print>
+#include <string_view>
 
 namespace rhi
 {
+
+namespace pipeline
+{
+
+// a pipeline's creation, timed: one that took a second or more is logged (KosmicKrisp compiles each in Metal, which took
+// minutes for a cold uber-kernel), and every one with SPEEDO_LOG_PIPELINES=1
+void LogCreation(std::string_view kind, std::string_view entryPoint, uint32_t specialization, std::chrono::steady_clock::time_point start)
+{
+	static const bool kAll = []
+	{
+		const char* setting = std::getenv("SPEEDO_LOG_PIPELINES");
+		return setting != nullptr && std::string_view(setting) == "1";
+	}();
+	double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+	if (kAll || seconds >= 1.0)
+		std::println(stderr, "pipeline: {} {} (specialization {}) took {:.2f} s to create", kind, entryPoint, specialization, seconds);
+}
+
+} // namespace pipeline
 
 IMPLEMENT_OBJECT_GETINSTANCE(Pipeline<kVk>);
 IMPLEMENT_DEVICEOBJECT_GETDEVICE(Pipeline<kVk>);
@@ -344,6 +367,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(
 	pipelineInfo.basePipelineIndex = -1;
 
 	VkPipeline pipelineHandle;
+	auto creationStart = std::chrono::steady_clock::now();
 	VK_CHECK(vkCreateGraphicsPipelines(
 		GetDevice(),
 		myCache,
@@ -351,6 +375,9 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(
 		&pipelineInfo,
 		&GetInstance().GetHostAllocationCallbacks(),
 		&pipelineHandle));
+	auto fragmentStage = std::ranges::find_if(stages, [](const auto& stage) { return stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT; });
+	pipeline::LogCreation(
+		"graphics", fragmentStage != stages.end() ? fragmentStage->pName : "(no fragment stage)", variant.specialization, creationStart);
 
 	Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE, pipelineHandle, std::format("{} Graphics Pipeline {}", snapshot.name, hashKey));
 
@@ -385,6 +412,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 	pipelineInfo.basePipelineIndex = -1;
 
 	VkPipeline pipelineHandle;
+	auto creationStart = std::chrono::steady_clock::now();
 	VK_CHECK(vkCreateComputePipelines(
 		GetDevice(),
 		myCache,
@@ -392,6 +420,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 		&pipelineInfo,
 		&GetInstance().GetHostAllocationCallbacks(),
 		&pipelineHandle));
+	pipeline::LogCreation("compute", pipelineInfo.stage.pName, variant.specialization, creationStart);
 
 	Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE, pipelineHandle, std::format("{} Compute Pipeline {}", GetName(), hashKey));
 

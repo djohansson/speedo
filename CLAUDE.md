@@ -631,7 +631,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Shadow Transmittance (with transmissive materials; Caustics Clear and Caustics where it redraws views and the device has ray queries), Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility Clear, Main Visibility Classify and Main Visibility (the visibility buffer), Reflection X and Y and Reflection Temporal (the traced glossy reflections), Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Shadow Transmittance (with transmissive materials; Caustics Clear and Caustics where it redraws views and the device has ray queries), Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility Clear, Main Visibility Classify and Main Visibility (the visibility buffer), Reflection Trace, Reflection X and Y and Reflection Temporal (the traced glossy reflections), Main,
 Transmission and Transmission Mips, Main Transmissive, Exposure Clear, ComputeMain (or, with temporal upscaling, Composite,
 the Upscale passes and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -940,7 +940,7 @@ Shader tiers: `GraphicsPipelineVariant::specialization` is the shaders' speciali
 draws of materials without any of them (`LayersOf`, counting animated layers), so a plain PBR material doesn't pay the
 uber-shader's register allocation for them: Sponza's main pass took 13 to 23% less (its time over the shadow pass's,
 across runs; single runs are noisy, one pair showed almost no difference). `SHADER_TYPES_LAYERS_GLASS` (what the traced
-reflections do at glass) is the visibility buffer kernel's alone, skipped where the model has no glass,
+reflections do at glass) is the Reflection Trace pass's kernel's alone, skipped where the model has no glass,
 whatever `SPEEDO_SHADER_TIERS` says. `SPEEDO_SHADER_TIERS=0` draws with the
 generic pipelines. Pipelines take 15 to 50 ms each to create cold on KosmicKrisp, so a specialized one is never waited
 for: `RecordDrawList` asks `Pipeline::RequestGraphicsPipeline`, which returns it if it exists, or the first time a job
@@ -1364,9 +1364,9 @@ which Copy Pose writes): `traced.slang`, by `PushConstants::traced` (`TRACED_*`,
 structures: the file browser's preview hasn't, and its reflections would all be the environment's). `Shade` takes what a
 traced ray meets in place of the probes' and the environment's radiance along the reflection (`environmentRadiance`, which
 the split sum's terms then weigh as before), two ways. A fragment's (Main's blended surfaces, the transmissive ones, the
-forward path): sharp, a ray along the reflection's dominant direction (`TracedReflection`), all of it below a roughness of
-0.15, none from 0.4 (`TracedShare`); the clearcoat's reflection so either way. The visibility buffer's (compute, the opaque
-surfaces): glossy, a ray a pixel along the view reflected about a normal of the GGX lobe (`TracedGlossyReflection`:
+forward path): sharp, a ray along the reflection's dominant direction (`SharpReflections`, traced before it is shaded, see
+below), all of it below a roughness of 0.15, none from 0.4 (`TracedShare`); the clearcoat's reflection so either way. The visibility buffer's (compute, the opaque
+surfaces): glossy, a ray a pixel along the view reflected about a normal of the GGX lobe (`TracedGlossyDirection`:
 Heitz's visible normals, `TracedVisibleNormal`, by Roberts' R2 over the frames offset per pixel by interleaved gradient
 noise, `TracedRandom`; the cone widened by the lobe, so its hit's textures blur as the reflection does), all of it up to a
 roughness of 0.45, none from 0.6 (`TracedGlossyShare`: rougher, the probes' glossy reflection is as good). Its sample is
@@ -1383,12 +1383,14 @@ the user's pose `-0.3403,1.1883,-2.8639,17.242,2.387`) came out as blurred blotc
 scooter and lamp posts lost the rims along their curves; the ratio's renders are the untraced ones where the rays meet
 the sky (MetalRoughSpheresNoTextures 0.17 of 255 from before, ABeautifulGame 0.08; Bistro's benchmark pose 3.8 from
 untraced, 4.1 before). Predicting with the environment unblurred, and misses so, so that the lobe's rays are the blur,
-cast the low sun's glow over Bistro in pink (6.0 from untraced). The ratio and the hit distance
-(`SHADER_TYPES_REFLECTION_RAW_TEXTURE`, the distance as -2 less it where what the ray met moves, `ReflectionPackDistance`:
-what moves' structure has no model instance) and the weight with the roughness (`..._WEIGHT_TEXTURE`; `kReflectionUnknown`
-in both where none, which `ShadeVisibility` writes first) go to images (`TracedReflectionStore`, in compute only: a
-fragment shader's storage writes turn its early depth test off), its share is left out of the shading, and three passes
-after Main Visibility take it: Reflection X and Y filter it along rows and columns (`ReflectionFilter`: a gaussian as wide
+cast the low sun's glow over Bistro in pink (6.0 from untraced). The shading records the ray (`TracedReflectionRecord`, in
+compute only: a fragment shader's storage writes turn its early depth test off): what is predicted along it
+(`SHADER_TYPES_REFLECTION_RAW_TEXTURE`), the weight with the roughness (`..._WEIGHT_TEXTURE`; `kReflectionUnknown` in both
+where none, which `ShadeVisibility` writes first) and its direction and the roughness (`..._RAY_TEXTURE`); its share is
+left out of the shading, and four passes after Main Visibility take it. Reflection Trace (`ComputeReflectionTrace`) traces
+it, and writes the ratio and the hit distance over the prediction (the distance as -2 less it where what the ray met moves,
+`ReflectionPackDistance`: what moves' structure has no model instance; the prediction alone where what it met isn't
+known), Reflection X and Y filter it along rows and columns (`ReflectionFilter`: a gaussian as wide
 as the blur the lobe makes where the ray met something, `ReflectionBlurPixels`, the hit distance by alpha over the pixel's
 width on the surface, at most 16 pixels, weighed by the surface, as the near field's, and by the roughness; moving where
 any tap met what moves), and Reflection Temporal blends it into the last frame's history where the point was
@@ -1437,7 +1439,7 @@ smooth (`sqrt(2 / (Ns + 2))`, 0.14 at 96) and their `Ks` their specular faint: t
 and changed nothing to see. Gated at 0.01 to 0.03, a faint lacquered door and pilasters in Bistro lost the dusk sky their
 reflections traced, and took back the probes' light along them, the lit interior's leaking through (orange). The ray starts
 off the geometry on the viewer's side by a pixel and a half, as the traced shadows' (a normal map turning it below the
-geometry has it skim the surface). `TransmittedLight` traces the light through the surface (`TracedRefraction`: into
+geometry has it skim the surface). `TransmittedLight` takes the light traced through the surface (`TracedFragmentRays`' refraction: into
 its volume along the refracted ray, or through a thin wall as the view goes, as the screen space lookup has it, then
 through the transmissive surfaces that don't move as the caustics' photons go, `GlassPath`: out of the volume where it
 meets its back, refracted, less its Fresnel reflection, or reflected back in where it can't leave, through or into the
@@ -1488,22 +1490,41 @@ USDShaderBallForGltf 0.71 to 1.54, GlassVaseFlowers 0.40 to 0.58, ABeautifulGame
 surface crossed, as at first, took the dragon's 1.31); Main Visibility, the glossy reflections' hits' lookups, 0.004 to
 0.03 more. A reflection's ray meets the glass too, that moves or not (`TracedRadiance`, with `BvhTraceSceneOrGlass`): its
 reflection of what is around it, as a hit's specular is taken (`TracedIndirect`: the environment as much as the probes
-see of it; not its own traced reflections), and the light through it (`TracedGlassPath`, as the refractions take it),
+see of it; not its own traced reflections), and the light through it (`TracedPath`, as the refractions take it),
 from inside its volume out of it (a reflection of what is in the glass, a mosquito in amber); the rays passed through
 it, and glass was missing from every reflection (CausticSpheres' amber sphere from its clear sphere's, a glass object
 from a mirror floor's). A reflection follows `kTracedReflectionGlassSurfaceCount` (2) surfaces through the glass, past
 which the shading keeps what it would have taken untraced: all 8, DragonAttenuation reflecting itself and its glossy
 cloth reflecting it took its Main Visibility from 0.41 ms to 0.95 and its Main Transmissive from 1.14 to 2.16, 0.65
-and 1.68 with 2 (its render within 0.09 of 255 of all 8's). Where the model has no glass, the visibility
-buffer's kernel is specialized without it (`SHADER_TYPES_LAYERS_GLASS`, `Renderer::myVisibilityNoGlass`): its code alone,
-never run, took MetalRoughSpheresNoTextures' Main Visibility from 0.382 ms to 0.416; specialized, it and DamagedHelmet's
-are as before. With glass (framed, 2560x1440, RTX 4070 Ti SUPER), Main Visibility and Main Transmissive: CausticSpheres
+and 1.68 with 2 (its render within 0.09 of 255 of all 8's). Where the model has no glass, the kernel tracing the visibility
+buffer's reflections is specialized without it (`SHADER_TYPES_LAYERS_GLASS`, `Renderer::myVisibilityNoGlass`; then Main
+Visibility's): its code alone, never run, took MetalRoughSpheresNoTextures' Main Visibility from 0.382 ms to 0.416;
+specialized, it and DamagedHelmet's are as before. With glass (framed, 2560x1440, RTX 4070 Ti SUPER), Main Visibility and Main Transmissive: CausticSpheres
 over a mirror floor 0.60 to 0.65 and 0.36 to 0.39 ms, ABeautifulGame 0.36 to 0.44 and 0.21 to 0.24, DragonAttenuation as
 above; the 16 glass sample models change by 0.02 to 0.13 of 255 (glass reflecting glass: TransmissionTest's spheres
 their neighbors, DispersionTest's blocks each other). Not yet (TODO.md):
 glossy refractions (the transmissive surfaces are drawn forward, after the visibility buffer: they keep the sharp trace,
 and the transmission texture's mips where rough), the emissive surfaces' light at a hit where they are lights, a hit's own
 reflections, and the glossy rays at a lower resolution (their cost, below).
+
+Each kernel traces from one call site, in a loop the compiler doesn't unroll (`[loop]`): every call is a copy of all that
+shades a hit (the glass's path, the hit's lights and their shadow rays, the probes, the near field's rays), since NIR
+inlines every function and KosmicKrisp gives every ray query state of its own. The visibility buffer's in the Reflection
+Trace pass (its glossy ray and the clearcoat's, which the shading records: `TracedCoatRecord`, the direction, the
+roughness and the weight of the difference the trace makes, which the pass adds to the main color); a fragment's in
+`TracedFragmentRays` before it is shaded (the base's and the clearcoat's reflections, `SharpReflections`, and the
+refraction, a ray for each color under dispersion, `TransmittedTraced`, whose light `Shade` and `TransmittedLight` take);
+and the way through the glass in one loop with what it ends on shaded once after it (`TracedPath`). Traced where each was
+taken, the visibility buffer's generic kernel was 31.5 MB of Metal source on KosmicKrisp and took 127 s to compile cold
+(19.1 MB and 58 s without glass), and the main pass's fragment shader 22.5 MB and 30 to 37 s (a copy of `Shade` in each of
+`ShadeFragment`'s two returns, and of the refraction in each of dispersion's channels); now 6.0 MB and 6 s, 6.0 MB and 9 s,
+and the Reflection Trace pass's 1.9 MB and 2 s, and a client's cold start with ray queries (IridescenceLamp) takes 40 s.
+Renders are as before to the runs' noise (11 scenes of traced reflections, refractions, glass and clearcoat, the visibility
+buffer's and the forward path's: 0.015 of 255 at most, two runs of the same client 0.022), and frames no slower: settled
+on KosmicKrisp at the benchmark poses (2560x1440, interleaved), Sponza 27.6 to 28.0 ms before and 26.3 to 26.4 after,
+Bistro's evening 48.5 to 51.3 and 48.1 to 50.7, ABeautifulGame 19.1 to 20.0 either way. Not measured on NVIDIA yet.
+Pipelines that take a second or more to create are printed (`pipeline: <kind> <entry point> (specialization <n>) took
+<s> s to create`; `SPEEDO_LOG_PIPELINES=1` prints every one).
 
 Measured on NVIDIA (RTX 4070 Ti SUPER; the benchmark poses at 2560x1440, balanced, interleaved runs), on against off. Sharp
 alone (the first version): Bistro 6.2 and 6.4 ms against 5.9 and 6.0, San Miguel 7.4 and 7.6 against 6.8 and 7.1, Sponza the
@@ -1551,8 +1572,7 @@ has, so rhi declares that instead there (`shader::DeviceCode`).
 
 **Tiers.** The kernel is specialized without the extended layers where none of the frame's triangles needs them
 (`ComputePipelineVariant::specialization`, a compute pipeline's specialization constant 0, as a graphics pipeline's):
-generic, it cost Sponza 2.4 ms more. (And without what its reflections do at glass where the model has none,
-`SHADER_TYPES_LAYERS_GLASS`, in either tier: see "Traced reflections and refractions".) Where some do, the tiles (`SHADER_TYPES_VISIBILITY_TILE_SIZE`, 8 pixels a side, a
+generic, it cost Sponza 2.4 ms more. Where some do, the tiles (`SHADER_TYPES_VISIBILITY_TILE_SIZE`, 8 pixels a side, a
 thread group's) can be sorted (Main Visibility Classify, `ComputeMainVisibilityClassify`, entry point 43: the pre-pass
 marks a record whose material has one, `VISIBILITY_EXTENDED`, its top bit; a tile with a pixel so marked goes to one
 list of `gVisibilityTiles`, the others to the other, each counted in its list's indirect dispatch,
@@ -3036,8 +3056,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 67
-(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces, 58 to 65 the traced glossy reflections', 66 the shadow transmittance). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 69
+(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces, 58 to 65 the traced glossy reflections', 66 the shadow transmittance, 67 and 68 the reflection rays the visibility buffer's shading records). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

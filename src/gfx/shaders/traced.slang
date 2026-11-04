@@ -1,12 +1,13 @@
 // the traced reflections and refractions (PushConstants::traced, TRACED_*; View > Ray Traced Reflections and
 // Refractions): where the device has ray queries (BVH_RAY_QUERY), the radiance along a smooth surface's reflection
-// (TracedReflection, see Shade) and the light through a transmissive one (TracedRefraction, see TransmittedLight), traced
+// (TracedReflection, see Shade) and the light through a transmissive one (see TransmittedLight), traced
 // through the model's acceleration structures (gBvhScene[frame], BvhTraceScene) and shaded where the ray meets something
 // (TracedHitRadiance), the environment where it meets nothing. a fragment's (Main's blended surfaces, the transmissive
 // ones, the forward path) sharp: a ray along the reflection's dominant direction (or the refracted ray), all of the
 // reflection below kTracedRoughnessFull, faded into the glossy one the probes and the environment give (or the
 // transmission texture's mips) by kTracedRoughnessEnd. the visibility buffer's glossy: a ray a pixel of the GGX lobe
-// (TracedGlossyReflection), up to kTracedGlossyRoughnessEnd, filtered over the surface and over frames by the Reflection
+// (TracedGlossyDirection), up to kTracedGlossyRoughnessEnd, which its shading records and the Reflection Trace pass
+// traces (ComputeReflectionTrace, with the clearcoat's), filtered over the surface and over frames by the Reflection
 // passes (ComputeReflectionX, Y and Temporal), which add it to the main color. a part of shaders.slang, which includes it
 // after capi.h and sky.h
 
@@ -16,6 +17,13 @@ static const float kTracedRoughnessFull = 0.15;
 static const float kTracedRoughnessEnd = 0.4;
 // how far the rays go, in the scene's units (any scene's: what they meet is nearer)
 static const float kTracedFar = 1.0e30;
+// the forward path's sharp rays (Main's blended and transmissive surfaces, every surface without the visibility buffer),
+// traced in one loop (TracedFragmentRays): a fragment's base and clearcoat reflections (see Shade), then its refraction
+// (see TransmittedLight), a ray for each color where dispersion refracts each by its own ior
+static const uint kTracedFragmentBase = 0u;
+static const uint kTracedFragmentCoat = 1u;
+static const uint kTracedFragmentRefraction = 2u;
+static const uint kTracedFragmentRayCount = 5u;
 // how many transmissive surfaces a reflection's ray goes through (see TracedRadiance), the one it met first among them:
 // past them the caller keeps what it would have taken untraced
 static const uint kTracedReflectionGlassSurfaceCount = 2u;
@@ -39,7 +47,7 @@ float TracedShare(float roughness, float strength)
 }
 
 // the roughness up to which the visibility buffer's reflections are all traced (glossy: a ray a pixel sampled from the
-// GGX lobe, filtered over the surface and over frames, see TracedGlossyReflection), and from which none of them: rougher,
+// GGX lobe, filtered over the surface and over frames, see TracedGlossyDirection), and from which none of them: rougher,
 // the probes' glossy reflection is as good, and the rays' noise more than the filter takes out
 static const float kTracedGlossyRoughnessFull = 0.45;
 static const float kTracedGlossyRoughnessEnd = 0.6;
@@ -99,7 +107,7 @@ bool ReflectionBumpy(float packed)
 	return packed >= 1.5;
 }
 // the brightest a glossy ray's sample is taken as, in multiples of white at the view's exposure (see
-// TracedGlossyReflection)
+// ComputeReflectionTrace)
 static const float kReflectionMostWhite = 8.0;
 // what the glossy reflections take a sample as a share of (see Shade) is what the probes and the environment predict
 // along the ray and this much of white at the view's exposure: below it the prediction is too dark for its detail to show,
@@ -129,7 +137,7 @@ uint TracedFrame()
 }
 
 // whether the shading here is the visibility buffer's (compute), whose reflections are glossy and left to the Reflection
-// passes, rather than a fragment's (sharp, traced in place: see TracedReflection)
+// passes, rather than a fragment's (sharp: see TracedFragmentRays)
 bool TracedGlossyHere()
 {
 	__stage_switch
@@ -141,18 +149,35 @@ bool TracedGlossyHere()
 	}
 }
 
-// the visibility buffer's shading's glossy reflection at a pixel: the ray's radiance as a share of what was predicted
-// along it and its hit distance, and the specular's weight of the pixel's own prediction with the surface's roughness
-// (see Shade; ComputeReflectionTemporal adds their product to the main color); kReflectionUnknown in both where none is
-// traced. in compute only: a fragment shader's storage writes turn its early depth test off, even on a path never taken
-// (see GiMarch's cap)
-void TracedReflectionStore(uint2 pixel, float4 sample, float4 weight)
+// the visibility buffer's shading's glossy reflection at a pixel, which the Reflection Trace pass traces (see
+// ComputeReflectionTrace): the ray's direction and the surface's roughness, and what the probes and the environment
+// predict along it (expected, where the trace writes the ray's radiance as a share of it and its hit distance), and the
+// specular's weight of the pixel's own prediction with the surface's roughness (see Shade; ComputeReflectionTemporal adds
+// the filtered share's product with it to the main color); kReflectionUnknown in both where none is traced. in compute
+// only: a fragment shader's storage writes turn its early depth test off, even on a path never taken (see GiMarch's cap)
+void TracedReflectionRecord(uint2 pixel, float3 direction, float roughness, float4 expected, float4 weight)
 {
 	__stage_switch
 	{
 	case compute:
-		gRWTextures[SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE][pixel] = sample;
+		gRWTextures[SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE][pixel] = expected;
 		gRWTextures[SHADER_TYPES_REFLECTION_WEIGHT_RW_TEXTURE][pixel] = weight;
+		gRWTextures[SHADER_TYPES_REFLECTION_RAY_RW_TEXTURE][pixel] = float4(GiOctahedral(direction), roughness, 0.0);
+		return;
+	case fragment:
+		return;
+	}
+}
+
+// and its clearcoat's reflection, which the pass traces sharp, as a fragment's (see Shade): the coat's dominant direction
+// and roughness (the environment's prefiltering, which the trace stands in for), and the weight of the difference the
+// trace makes to the coat's light (0 where none is traced)
+void TracedCoatRecord(uint2 pixel, float3 direction, float roughness, float weight)
+{
+	__stage_switch
+	{
+	case compute:
+		gRWTextures[SHADER_TYPES_REFLECTION_COAT_RW_TEXTURE][pixel] = float4(GiOctahedral(direction), roughness, weight);
 		return;
 	case fragment:
 		return;
@@ -432,86 +457,95 @@ float3 TracedNearLight(GiData gi, float3 position, float3 normal, float bias, fl
 // probes see nothing): USDShaderBallForGltf's glass shell, its refraction leaving at its thickness inside the core.
 // moving: whether what it met moves (what moves' structure: no model instance).
 //
-// a transmissive surface that doesn't move gives its reflection of what is around it, as a hit's specular is taken
-// (TracedIndirect: the environment as much as the probes see of it; not its own traced reflections), and the light
-// through it (TracedGlassPath, as the traced refractions take it), from inside its volume out of it (what is in the glass,
-// a mosquito in amber, reflecting); valid as the path's. the opaque scene's structures hold no glass, and the rays passed
-// through it: glass was missing from every reflection, CausticSpheres' amber sphere from its clear sphere's
+// a transmissive surface gives its reflection of what is around it, as a hit's specular is taken (TracedIndirect: the
+// environment as much as the probes see of it; not its own traced reflections), and the light through it (TracedPath, as
+// the traced refractions take it), from inside its volume out of it (what is in the glass, a mosquito in amber,
+// reflecting); valid as the path's. the opaque scene's structures hold no glass, and the rays passed through it: glass was
+// missing from every reflection, CausticSpheres' amber sphere from its clear sphere's
 float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float roughness, out float t, out bool valid, out bool moving)
 {
-	bool glass = false;
-	BvhHit hit;
-	if ((kSkippedLayers & SHADER_TYPES_LAYERS_GLASS) != 0u)
-		hit = BvhTraceScene(origin, direction, kTracedFar, false, true, GiAlphaMask());
-	else
-		hit = BvhTraceSceneOrGlass(origin, direction, kTracedFar, GiAlphaMask(), glass);
-	if (!glass)
-		return TracedShade(hit, origin, direction, cone, roughness, t, valid, moving);
-	t = hit.t;
-	uint frameIndex = gPushConstants.frameIndex;
-	GlassSurface surface = GlassSurfaceAt(origin, direction, hit, frameIndex);
 	GlassPath path;
 	path.origin = origin;
 	path.direction = direction;
 	path.throughput = 1.0;
-	path.inside = surface.material.transmission.y > 0.0 && !hit.frontFace;
-	float3 reflection = 0.0;
-	if (!path.inside)
-	{
-		float glassRoughness = surface.material.roughness;
-		if ((surface.material.flags & MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE) != 0u)
-		{
-			TextureView textureView = gTextureViews[surface.material.metallicRoughnessView];
-			glassRoughness *= SampleViewLevel(textureView, ViewTexCoord(textureView, surface.texCoord01), 0.0).r;
-		}
-		float3 indirect;
-		float3 specularRadiance;
-		TracedIndirect(surface.position, surface.normal, direction, glassRoughness, surface.normal, 0.0, indirect, specularRadiance);
-		float nDotV = max(dot(surface.normal, -direction), 1e-4);
-		reflection = EnvironmentBrdfApprox(float3(surface.f0), 1.0, glassRoughness, nDotV) * specularRadiance;
-	}
-	bool glassMoves = hit.modelInstance == ~0u;
-	moving = glassMoves;
-	valid = true;
-	if (!GlassPathStep(path, hit, frameIndex))
-		return reflection;
-	float3 through = TracedGlassPath(path, cone, hit.t, roughness, kTracedReflectionGlassSurfaceCount, frameIndex, valid, moving);
-	moving = moving || glassMoves;
-	return reflection + through;
+	path.inside = false;
+	return TracedPath(path, cone, 0.0, roughness, 1u + kTracedReflectionGlassSurfaceCount, true, t, valid, moving);
 }
 
-// the light along a path through the glass (see GlassPath) from where it is, through the transmissive surfaces that don't
-// move, to what it meets of the opaque scene (TracedShade) or the environment (prefiltered for roughness), less what the
-// surfaces keep. cone: the ray's where it started, traveled along the path to its origin. valid: as TracedRadiance's, and
-// false where its last of surfaceCount queries met glass still. moving: as TracedRadiance's
-float3 TracedGlassPath(
-	GlassPath path, TracedCone cone, float traveled, float roughness, uint surfaceCount, uint frameIndex, out bool valid, out bool moving)
+// the light along a path (see GlassPath) from where it is, through the transmissive surfaces (GlassPathStep), to what it
+// meets of the opaque scene (TracedShade) or the environment (prefiltered for roughness), less what the surfaces keep, in
+// at most queryCount queries. cone: the ray's where it started, traveled along the path to its origin. reflection: a
+// reflection's ray (TracedRadiance), which may start inside a volume (where it meets its back), and takes the first
+// surface's reflection; else the path's inside says. t: as TracedRadiance's, of its first query. valid: as TracedRadiance's,
+// and false where its last query met glass still. moving: as TracedRadiance's, or the glass crossed moves.
+//
+// one loop the compiler doesn't unroll, with what shades a hit (TracedShade: the hit's lights and their shadow rays, the
+// probes, the near field's rays) once after it: a reflection's first query and the path through the glass after it each
+// had a copy, which made the kernels tracing them megabytes of Metal source on KosmicKrisp (see ComputeReflectionTrace)
+float3 TracedPath(
+	GlassPath path, TracedCone cone, float traveled, float roughness, uint queryCount, bool reflection, out float t, out bool valid,
+	out bool moving)
 {
+	uint frameIndex = gPushConstants.frameIndex;
+	float3 light = 0.0;
+	t = kTracedMissDistance;
 	valid = false;
 	moving = false;
-	bool crossedMoving = false; // glass that moves (what moves' structure: no model instance)
-	for (uint surfaceIt = 0; surfaceIt < surfaceCount; surfaceIt++)
+	bool reached = false; // whether the last query met the opaque scene or nothing (hit), which is shaded after the loop
+	bool going = true;
+	BvhHit hit = BvhNothing(kTracedFar);
+	[loop]
+	for (uint queryIt = 0; queryIt < queryCount && going; queryIt++)
 	{
-		bool glass;
-		BvhHit hit = BvhTraceSceneOrGlass(path.origin, path.direction, kTracedFar, GiAlphaMask(), glass);
-		if (!glass)
+		bool glass = false;
+		if ((kSkippedLayers & SHADER_TYPES_LAYERS_GLASS) != 0u)
+			hit = BvhTraceScene(path.origin, path.direction, kTracedFar, false, true, GiAlphaMask());
+		else
+			hit = BvhTraceSceneOrGlass(path.origin, path.direction, kTracedFar, GiAlphaMask(), glass);
+		if (queryIt == 0u && BvhHitSomething(hit))
+			t = hit.t;
+		reached = !glass;
+		going = glass;
+		if (glass)
 		{
-			TracedCone at = cone;
-			at.width += cone.spread * traveled;
-			float t;
-			float3 radiance = TracedShade(hit, path.origin, path.direction, at, roughness, t, valid, moving);
-			moving = moving || crossedMoving;
-			return path.throughput * radiance;
-		}
-		crossedMoving = crossedMoving || hit.modelInstance == ~0u;
-		traveled += hit.t;
-		if (!GlassPathStep(path, hit, frameIndex))
-		{
-			valid = true;
-			return 0.0;
+			moving = moving || hit.modelInstance == ~0u;
+			GlassSurface surface = GlassSurfaceAt(path.origin, path.direction, hit, frameIndex);
+			if (reflection && queryIt == 0u)
+			{
+				path.inside = surface.material.transmission.y > 0.0 && !hit.frontFace;
+				if (!path.inside)
+				{
+					float glassRoughness = surface.material.roughness;
+					if ((surface.material.flags & MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE) != 0u)
+					{
+						TextureView textureView = gTextureViews[surface.material.metallicRoughnessView];
+						glassRoughness *= SampleViewLevel(textureView, ViewTexCoord(textureView, surface.texCoord01), 0.0).r;
+					}
+					float3 indirect;
+					float3 specularRadiance;
+					TracedIndirect(surface.position, surface.normal, path.direction, glassRoughness, surface.normal, 0.0, indirect, specularRadiance);
+					float nDotV = max(dot(surface.normal, -path.direction), 1e-4);
+					light += EnvironmentBrdfApprox(float3(surface.f0), 1.0, glassRoughness, nDotV) * specularRadiance;
+				}
+			}
+			traveled += hit.t;
+			if (!GlassPathStep(path, surface, frameIndex))
+			{
+				valid = true;
+				going = false;
+			}
 		}
 	}
-	return 0.0;
+	if (reached)
+	{
+		cone.width += cone.spread * traveled;
+		float shadedT;
+		bool shadedMoving;
+		float3 radiance = TracedShade(hit, path.origin, path.direction, cone, roughness, shadedT, valid, shadedMoving);
+		moving = moving || shadedMoving;
+		light += path.throughput * radiance;
+	}
+	return light;
 }
 
 // what TracedRadiance gives of a ray's hit (or of nothing met)
@@ -542,7 +576,7 @@ float3 TracedAboveGeometry(float3 direction, float3 geometryNormal)
 }
 
 // the radiance a surface at position reflects along direction from (its reflection's dominant direction, see Shade, or
-// a direction of its lobe, see TracedGlossyReflection, whose width widens the cone: spread). the ray starts off the
+// a direction of its lobe, see TracedGlossyDirection, whose width widens the cone: spread). the ray starts off the
 // surface on the side it goes to (the geometry's, facing the viewer), by a pixel and a half and a ten thousandth of the
 // distance from the eye (the depth's and the structures' rounding), as the traced shadows' rays do; a normal map that
 // turns it below the geometry has it skim the surface instead, which it would otherwise meet at once. roughness, t,
@@ -556,13 +590,6 @@ float3 TracedReflection(
 	float3 eye = gViewData[gPushConstants.frameIndex][gShadingViewId].eyePosition.xyz;
 	float push = max(1.5 * cone.width, 1e-4 * distance(eye, position));
 	return TracedRadiance(position + geometryNormal * push, direction, cone, roughness, t, valid, moving);
-}
-
-float3 TracedReflection(float3 position, float3 geometryNormal, float3 direction, out bool valid)
-{
-	float t;
-	bool moving;
-	return TracedReflection(position, geometryNormal, direction, 0.0, 0.0, t, valid, moving);
 }
 
 // a pixel's point of the unit square for the frame: Roberts' R2 sequence over the frames, offset per pixel by interleaved
@@ -594,64 +621,145 @@ float3 TracedVisibleNormal(float3 view, float alpha, float2 u)
 	return normalize(float3(alpha * normal.x, alpha * normal.y, max(normal.z, 1e-6)));
 }
 
-// the visibility buffer's glossy reflection at its pixel (see Shade): a ray along view reflected about a normal of the
-// GGX lobe of the roughness (TracedVisibleNormal; the mirror direction where that falls below the surface), its radiance
-// and how far it met something: one sample, which the Reflection passes filter over the surface and over frames, and the
-// average of which is the lobe's (what the split sum's first term prefilters the environment by), its distance packed
-// with whether what it met moves (ReflectionPackDistance). valid: as TracedRadiance's. direction: the ray's
-float4 TracedGlossyReflection(
-	float3 position, float3 geometryNormal, float3 normal, float3 view, float roughness, uint2 pixel, out float3 direction, out bool valid)
+// the visibility buffer's glossy reflection's direction at its pixel (see Shade): view reflected about a normal of the GGX
+// lobe of the roughness (TracedVisibleNormal; the mirror direction where that falls below the surface), whose ray the
+// Reflection Trace pass traces: one sample, which the Reflection passes filter over the surface and over frames, and the
+// average of which is the lobe's (what the split sum's first term prefilters the environment by)
+float3 TracedGlossyDirection(float3 geometryNormal, float3 normal, float3 view, float roughness, uint2 pixel)
 {
 	float alpha = max(roughness * roughness, 1e-3);
 	float3 tangent = normalize(abs(normal.z) < 0.999 ? cross(float3(0.0, 0.0, 1.0), normal) : cross(float3(1.0, 0.0, 0.0), normal));
 	float3 bitangent = cross(normal, tangent);
 	float3 local = normalize(float3(dot(view, tangent), dot(view, bitangent), max(dot(view, normal), 1e-4)));
 	float3 h = TracedVisibleNormal(local, alpha, TracedRandom(pixel));
-	direction = reflect(-view, h.x * tangent + h.y * bitangent + h.z * normal);
+	float3 direction = reflect(-view, h.x * tangent + h.y * bitangent + h.z * normal);
 	if (dot(direction, normal) <= 0.0)
 		direction = reflect(-view, normal);
 	// as traced, for what is predicted along it (see Shade): along the direction below the geometry, the prediction saw
 	// the ground where the ray skimming it saw the sky, and the edges of Bistro's lamp posts and scooter came out bright
-	direction = TracedAboveGeometry(direction, geometryNormal);
-	float t;
-	bool moving;
-	float3 radiance = TracedReflection(position, geometryNormal, direction, alpha, roughness, t, valid, moving);
-	// a sample far brighter than white at the view's exposure is taken as a few times that: one that met what is very
-	// bright (a lamp's bulb, the sun's glint off a mirror), which the filter spread into a square, alone among its
-	// neighbors'; tonemapped, they look the same
-	float exposure = gViewData[gPushConstants.frameIndex][gShadingViewId].exposure;
-	float luminance = dot(radiance, float3(0.2126, 0.7152, 0.0722));
-	float most = kReflectionMostWhite / max(exposure, 1e-6);
-	if (luminance > most)
-		radiance *= most / luminance;
-	return float4(radiance, ReflectionPackDistance(min(t, kTracedMissDistance), moving));
+	return TracedAboveGeometry(direction, geometryNormal);
 }
 
-// the light through a transmissive surface at position, from the surface along direction (into its volume, refracted:
-// volume; through a thin wall, as the view goes), through the transmissive surfaces that don't move as the caustics'
-// photons go (TracedGlassPath, GlassPathStep: out of the volume where it meets its back, refracted, or reflected back in
-// where it can't leave; into or through the glass beyond), to what it meets of the opaque scene, less what the surfaces
-// past this one keep (this one's own attenuation and Fresnel are the caller's). the opaque scene's structures hold no
-// glass, and the ray used to pass through its own volume without leaving it: a ball showed what is behind it shifted
-// rather than turned upside down, CausticSpheres' clear sphere the ground beyond its shadow, lit. the glass that moves is
-// in a structure of its own, refit each frame (see AccelerationStructures). from the surface, not from where the screen space lookup has
-// the ray leave the volume (at the material's thickness along the ray, see TransmittedLight): USDShaderBallForGltf's
-// glass shell has a thickness of up to 8.9 in a model a tenth of a unit across, which put the exit inside the core (its
-// back met: black) or past everything (the environment's), a wavy border between the two. valid: as TracedGlassPath's
-float3 TracedRefraction(float3 position, float3 direction, bool volume, out bool valid)
+// a fragment's sharp rays from its point at position (see kTracedFragmentBase), those traced says (none in compute):
+// light their light (rgb, and in a 1 where what it met is known, see TracedRadiance's valid; 0 where none is traced).
+// the reflections leave the surface as TracedReflection's ray does. the refractions from the surface along their
+// directions (into its volume, refracted: volume; through a thin wall, as the view goes), through the transmissive
+// surfaces as the caustics' photons go (TracedPath, GlassPathStep: out of the volume where it meets its back, refracted,
+// or reflected back in where it can't leave; into or through the glass beyond), to what they meet of the opaque scene,
+// less what the surfaces past this one keep (this one's own attenuation and Fresnel are TransmittedLight's). the opaque
+// scene's structures hold no glass, and the ray used to pass through its own volume without leaving it: a ball showed what
+// is behind it shifted rather than turned upside down, CausticSpheres' clear sphere the ground beyond its shadow, lit. the
+// glass that moves is in a structure of its own, refit each frame (see AccelerationStructures). from the surface, not from
+// where the screen space lookup has the ray leave the volume (at the material's thickness along the ray, see
+// TransmittedLight): USDShaderBallForGltf's glass shell has a thickness of up to 8.9 in a model a tenth of a unit
+// across, which put the exit inside the core (its back met: black) or past everything (the environment's), a wavy border
+// between the two.
+//
+// all through one loop the compiler doesn't unroll, so that what shades a hit (TracedPath) is in the fragment shader
+// once: traced where each was taken, every ray (the base's and the clearcoat's reflections, the refraction, a refraction
+// of each color in dispersion's loop) had a copy, and the main pass's fragment shader was 22.5 MB of Metal source on
+// KosmicKrisp, its pipeline half a minute to make cold
+void TracedFragmentRays(
+	float3 position, float3 geometryNormal, float3 directions[kTracedFragmentRayCount], bool traced[kTracedFragmentRayCount],
+	bool volume, out float4 light[kTracedFragmentRayCount])
 {
 	TracedCone cone = TracedPixelCone(position);
 	float3 eye = gViewData[gPushConstants.frameIndex][gShadingViewId].eyePosition.xyz;
-	float push = max(cone.width, 1e-4 * distance(eye, position));
-	GlassPath path;
-	path.origin = position + direction * push;
-	path.direction = direction;
-	path.throughput = 1.0;
-	path.inside = volume;
-	bool moving;
-	return TracedGlassPath(path, cone, push, 0.0, SHADER_TYPES_CAUSTIC_SURFACE_COUNT, gPushConstants.frameIndex, valid, moving);
+	float rounding = 1e-4 * distance(eye, position);
+	[loop]
+	for (uint rayIt = 0; rayIt < kTracedFragmentRayCount; rayIt++)
+	{
+		light[rayIt] = 0.0;
+		if (traced[rayIt])
+		{
+			bool refraction = rayIt >= kTracedFragmentRefraction;
+			GlassPath path;
+			path.direction = refraction ? directions[rayIt] : TracedAboveGeometry(directions[rayIt], geometryNormal);
+			float push = max((refraction ? 1.0 : 1.5) * cone.width, rounding);
+			path.origin = position + (refraction ? path.direction : geometryNormal) * push;
+			path.throughput = 1.0;
+			path.inside = refraction && volume;
+			float t;
+			bool valid;
+			bool moving;
+			float3 radiance = TracedPath(
+				path, cone, refraction ? push : 0.0, 0.0,
+				refraction ? SHADER_TYPES_CAUSTIC_SURFACE_COUNT : 1u + kTracedReflectionGlassSurfaceCount, !refraction, t, valid, moving);
+			light[rayIt] = float4(radiance, valid ? 1.0 : 0.0);
+		}
+	}
 }
 #endif
+
+// the visibility buffer's reflections, traced (the Reflection Trace pass, after Main Visibility, whose shading records
+// their rays: see TracedReflectionRecord, TracedCoatRecord), from each pixel's point (its depth) off its geometry (the
+// pre-pass's normal): the glossy ray's radiance as a share of what was predicted along it (the prediction itself where
+// what it met isn't known), and its hit distance, which the Reflection passes filter; and the clearcoat's sharp
+// reflection's difference from the environment prefiltered along it, by its weight, added to the main color. both rays go
+// through one call in a loop the compiler doesn't unroll, so that what shades a hit (TracedPath: the glass, the hit's
+// lights and their shadow rays, the probes, the near field's rays) is in the kernel once: traced in the shading itself, a
+// copy for each ray made the visibility buffer's generic kernel 31.5 MB of Metal source on KosmicKrisp, which took two
+// minutes to compile
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void ComputeReflectionTrace(uint3 dispatchThreadId: SV_DispatchThreadID)
+{
+#if BVH_RAY_QUERY
+	uint2 extent;
+	gRWTextures[SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE].GetDimensions(extent.x, extent.y);
+	int2 pixel = int2(dispatchThreadId.xy);
+	if (any(pixel >= int2(extent)))
+		return;
+	bool glossy = gTextures[SHADER_TYPES_REFLECTION_WEIGHT_TEXTURE].Load(int3(pixel, 0)).a >= 0.0;
+	float4 coat = gTextures[SHADER_TYPES_REFLECTION_COAT_TEXTURE].Load(int3(pixel, 0));
+	ViewData view;
+	uint viewId;
+	ShadowSurface surface;
+	if ((!glossy && coat.w <= 0.0) || !ViewAt(pixel, view, viewId) || !ShadowSurfaceAt(pixel, view, surface))
+		return;
+	gShadingViewId = viewId;
+	gFragmentPixel = uint2(pixel);
+	float4 ray = gTextures[SHADER_TYPES_REFLECTION_RAY_TEXTURE].Load(int3(pixel, 0));
+	uint rayEnd = coat.w > 0.0 ? 2u : 1u;
+	[loop]
+	for (uint rayIt = glossy ? 0u : 1u; rayIt < rayEnd; rayIt++)
+	{
+		bool isCoat = rayIt == 1u;
+		float3 direction = GiFromOctahedral(isCoat ? coat.xy : ray.xy);
+		// the glossy ray's cone widens by its lobe (as its alpha); the coat's is a mirror's, as a fragment's sharp one
+		float roughness = isCoat ? 0.0 : ray.z;
+		float spread = isCoat ? 0.0 : max(roughness * roughness, 1e-3);
+		float t;
+		bool valid;
+		bool moving;
+		float3 radiance = TracedReflection(surface.position, surface.normal, direction, spread, roughness, t, valid, moving);
+		if (isCoat)
+		{
+			if (valid)
+				gMainColor[pixel] += float4(coat.w * (radiance - EnvironmentRadiance(gEnvironment[0], direction, coat.z)), 0.0);
+		}
+		else
+		{
+			float3 expected = gRWTextures[SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE][pixel].rgb;
+			// where what the ray met isn't known (see TracedRadiance), what they predict, unblurred. a sample far brighter
+			// than white at the view's exposure is taken as a few times that: one that met what is very bright (a lamp's
+			// bulb, the sun's glint off a mirror), which the filter spread into a square, alone among its neighbors';
+			// tonemapped, they look the same
+			float4 sample = float4(expected, 0.0);
+			if (valid)
+			{
+				float luminance = dot(radiance, float3(0.2126, 0.7152, 0.0722));
+				float most = kReflectionMostWhite / max(view.exposure, 1e-6);
+				if (luminance > most)
+					radiance *= most / luminance;
+				sample = float4(radiance, ReflectionPackDistance(min(t, kTracedMissDistance), moving));
+			}
+			sample.rgb /= expected + kReflectionPredictionLeast / max(view.exposure, 1e-6);
+			gRWTextures[SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE][pixel] = sample;
+		}
+	}
+#endif
+}
 
 // the blur a glossy reflection's lobe makes at a pixel, in pixels: its width where the rays meet something (the hit
 // distance by the lobe's angle, about alpha) over the pixel's width on the surface, at most 16 (the filter's reach)

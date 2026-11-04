@@ -78,27 +78,62 @@ float ClearcoatFresnel(Surface surface, float3 view)
 	return surface.clearcoat * FresnelSchlick(float3(0.04), 1.0, max(dot(surface.clearcoatNormal, view), 1e-4)).r;
 }
 
-// the light a surface reflects towards view: from gLights, and the environment (by occlusion). linear, before exposure
-float3 Shade(Surface surface, float3 view, float3 position)
+// the specular's share of the environment's light, seen from view: the split sum's terms (n.v of the surface's normal),
+// the iridescent film's Fresnel mixed in
+float3 EnvironmentSpecular(Surface surface, float3 view)
+{
+	float nDotV = max(dot(surface.normal, view), 1e-4);
+	return lerp(EnvironmentBrdfApprox(surface.f0, surface.f90, surface.roughness, nDotV), surface.iridescenceFresnel, surface.iridescence);
+}
+
+// the normal the environment is reflected about, seen from view: anisotropy bends it toward the direction across the
+// stretch (as the Khronos sample viewer)
+float3 ReflectionNormal(Surface surface, float3 view)
+{
+	if (surface.anisotropy <= 0.0)
+		return surface.normal;
+	float3 anisotropicTangent = cross(surface.anisotropyB, view);
+	float3 anisotropicNormal = cross(anisotropicTangent, surface.anisotropyB);
+	float bend = 1.0 - surface.anisotropy * (1.0 - surface.roughness);
+	return normalize(lerp(anisotropicNormal, surface.normal, bend * bend * bend * bend));
+}
+
+// the clearcoat's reflection along its dominant direction, seen from view, and its specular's share of the light along it
+// (strength: by the layer's strength and the occlusion)
+float3 ClearcoatReflected(Surface surface, float3 view, out float strength)
+{
+	float coatNDotV = max(dot(surface.clearcoatNormal, view), 1e-4);
+	strength = surface.occlusion * surface.clearcoat * EnvironmentBrdfApprox(float3(0.04), 1.0, surface.clearcoatRoughness, coatNDotV).g;
+	return DominantDirection(surface.clearcoatNormal, reflect(-view, surface.clearcoatNormal), surface.clearcoatRoughness);
+}
+
+// the sharp reflections a fragment traces (see Shade, TracedFragmentRays): the base's and the clearcoat's, along their
+// dominant directions, each by its share of the light it stands in for (0: not traced; none in compute, whose glossy
+// reflections the Reflection Trace pass traces)
+void SharpReflections(Surface surface, float3 view, out float3 base, out float baseShare, out float3 coat, out float coatShare)
+{
+	float3 reflectionNormal = ReflectionNormal(surface, view);
+	base = DominantDirection(reflectionNormal, reflect(-view, reflectionNormal), surface.roughness);
+	float coatStrength;
+	coat = ClearcoatReflected(surface, view, coatStrength);
+	bool traced = TracedReflectionsOn() && !TracedGlossyHere();
+	baseShare = traced ? TracedShare(surface.roughness, dot(EnvironmentSpecular(surface, view), float3(0.2126, 0.7152, 0.0722)) * surface.occlusion) : 0.0;
+	coatShare = traced && surface.clearcoat > 0.0 ? TracedShare(surface.clearcoatRoughness, coatStrength) : 0.0;
+}
+
+// the light a surface reflects towards view: from gLights, and the environment (by occlusion). linear, before exposure.
+// tracedBase, tracedCoat: a fragment's sharp reflections, traced (TracedFragmentRays, where SharpReflections says: rgb,
+// and in a 1 where what they met is known)
+float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, float4 tracedCoat)
 {
 	float3 normal = surface.normal;
 	float roughness = surface.roughness;
 	float alpha = max(roughness * roughness, 1e-3);
 	float nDotV = max(dot(normal, view), 1e-4);
 
-	float3 environmentSpecular = lerp(
-		EnvironmentBrdfApprox(surface.f0, surface.f90, roughness, nDotV), surface.iridescenceFresnel, surface.iridescence);
+	float3 environmentSpecular = EnvironmentSpecular(surface, view);
 	EnvironmentData environment = gEnvironment[0];
-	// anisotropy bends the normal the environment is reflected about toward the direction across the stretch (as the
-	// Khronos sample viewer)
-	float3 reflectionNormal = normal;
-	if (surface.anisotropy > 0.0)
-	{
-		float3 anisotropicTangent = cross(surface.anisotropyB, view);
-		float3 anisotropicNormal = cross(anisotropicTangent, surface.anisotropyB);
-		float bend = 1.0 - surface.anisotropy * (1.0 - roughness);
-		reflectionNormal = normalize(lerp(anisotropicNormal, normal, bend * bend * bend * bend));
-	}
+	float3 reflectionNormal = ReflectionNormal(surface, view);
 	float3 reflected = DominantDirection(reflectionNormal, reflect(-view, reflectionNormal), roughness);
 	// KHR_materials_retroreflection: the view mirrored about the normal, whose reflection is the view itself, so the
 	// retroreflective lobe sees the environment behind the viewer (the split sum's terms are the same: n.v is)
@@ -154,15 +189,15 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	// where the device has ray queries (View > Ray Traced Reflections): what the reflection meets, traced, where the
 	// specular takes enough of it to show. the visibility buffer's (compute): glossy, a ray of the lobe whose sample the
 	// Reflection passes filter and add to the main color by the weight stored here, its share left out of this
-	// (TracedGlossyReflection); only in the views that show the reflection. the sample is stored as a share of what the
+	// (TracedGlossyDirection: the Reflection Trace pass traces it); only in the views that show the reflection. the sample is stored as a share of what the
 	// probes and the environment give along the ray (as environmentRadiance along the reflection, above), and the weight
 	// takes this pixel's environmentRadiance: where the ray sees what they predict (the sky) the share is 1 and the pixel is
 	// shaded as untraced, its normal map's detail and all, and what the ray met that they don't predict (a surface, a
 	// shadow) comes in at the scale the filter keeps, without noise where it doesn't (a ratio estimator, as Heitz et al.'s
 	// for shadows). the radiance itself was filtered and taken by every pixel alike: ChronographWatch's carbon fiber, a
 	// gold metal of roughness 0.4 under a fine normal map, came out a blur of blotches where its rays met the strap, its
-	// fibers gone, and its frames changed 0.258 of 255 at the user's pose, 0.021 untraced. a fragment's: sharp, in place
-	// (TracedReflection)
+	// fibers gone, and its frames changed 0.258 of 255 at the user's pose, 0.021 untraced. a fragment's: sharp, traced
+	// before (tracedBase)
 	float tracedShare = 0.0;
 #if BVH_RAY_QUERY
 	if (TracedReflectionsOn())
@@ -175,31 +210,25 @@ float3 Shade(Surface surface, float3 view, float3 position)
 			tracedShare = shown ? TracedGlossyShare(roughness, strength) : 0.0;
 			if (tracedShare > 0.0)
 			{
-				bool valid;
-				float3 direction;
-				float4 sample =
-					TracedGlossyReflection(position, surface.geometryNormal, normal, view, roughness, gFragmentPixel, direction, valid);
+				// the ray, which the Reflection Trace pass traces (ComputeReflectionTrace), and what is predicted along it
+				float3 direction = TracedGlossyDirection(surface.geometryNormal, normal, view, roughness, gFragmentPixel);
 				float3 expected = EnvironmentRadiance(environment, direction, roughness);
 				if (indirect.x >= 0.0)
 					expected = lerp(expected * seen, lerp(indirect, GiEvaluate(gi, direction), giTrust), rough);
-				// where what the ray met isn't known (see TracedRadiance), what they predict, unblurred
-				if (!valid)
-					sample = float4(expected, 0.0);
 				float least = kReflectionPredictionLeast / max(gViewData[gPushConstants.frameIndex][gShadingViewId].exposure, 1e-6);
-				sample.rgb /= expected + least;
 				float3 weight = (debugView == DEBUG_VIEW_TRACED_REFLECTIONS ? float3(tracedShare) : surface.occlusion * environmentSpecular * tracedShare) *
 								(environmentRadiance + least);
-				TracedReflectionStore(gFragmentPixel, sample, float4(weight, ReflectionPackRoughness(roughness, dot(normal, surface.geometryNormal) < 0.995)));
+				TracedReflectionRecord(
+					gFragmentPixel, direction, roughness, float4(expected, 0.0),
+					float4(weight, ReflectionPackRoughness(roughness, dot(normal, surface.geometryNormal) < 0.995)));
 				environmentRadiance *= 1.0 - tracedShare;
 			}
 		}
 		else
 		{
 			tracedShare = TracedShare(roughness, strength);
-			bool valid = false;
-			float3 traced = tracedShare > 0.0 ? TracedReflection(position, surface.geometryNormal, reflected, valid) : 0.0;
-			if (valid)
-				environmentRadiance = lerp(environmentRadiance, traced, tracedShare);
+			if (tracedBase.a > 0.0)
+				environmentRadiance = lerp(environmentRadiance, tracedBase.rgb, tracedShare);
 			else
 				tracedShare = 0.0;
 		}
@@ -236,17 +265,23 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	float coatAlpha = max(surface.clearcoatRoughness * surface.clearcoatRoughness, 1e-3);
 	if (surface.clearcoat > 0.0)
 	{
-		float3 coatReflected = DominantDirection(surface.clearcoatNormal, reflect(-view, surface.clearcoatNormal), surface.clearcoatRoughness);
+		float coatStrength;
+		float3 coatReflected = ClearcoatReflected(surface, view, coatStrength);
 		float3 coatRadiance = EnvironmentRadiance(environment, coatReflected, surface.clearcoatRoughness);
 		// traced as the base's reflection is (a car's paint: a smooth coat over a rougher base)
 #if BVH_RAY_QUERY
-		float coatStrength = surface.occlusion * surface.clearcoat *
-							 EnvironmentBrdfApprox(float3(0.04), 1.0, surface.clearcoatRoughness, coatNDotV).g;
 		float coatTraced = TracedReflectionsOn() ? TracedShare(surface.clearcoatRoughness, coatStrength) : 0.0;
-		bool coatValid = false;
-		float3 coatTracedRadiance = coatTraced > 0.0 ? TracedReflection(position, surface.geometryNormal, coatReflected, coatValid) : 0.0;
-		if (coatValid)
-			coatRadiance = lerp(coatRadiance, coatTracedRadiance, coatTraced);
+		if (TracedGlossyHere())
+		{
+			// the visibility buffer's: recorded, and the Reflection Trace pass adds the difference the trace makes to the
+			// main color (ComputeReflectionTrace), in the views whose result has the coat's light
+			if (coatTraced > 0.0 && (debugView == DEBUG_VIEW_NONE || debugView == DEBUG_VIEW_INDIRECT))
+				TracedCoatRecord(gFragmentPixel, coatReflected, surface.clearcoatRoughness, coatTraced * coatStrength);
+		}
+		else if (tracedCoat.a > 0.0)
+		{
+			coatRadiance = lerp(coatRadiance, tracedCoat.rgb, coatTraced);
+		}
 #endif
 		result = result * (1.0 - coatFresnel) +
 				 surface.occlusion * surface.clearcoat * EnvironmentBrdfApprox(float3(0.04), 1.0, surface.clearcoatRoughness, coatNDotV) *

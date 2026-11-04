@@ -288,8 +288,8 @@ private:
 	std::vector<Buffer> myVisibilityStatisticsBuffers;
 	FrameGraph::BufferId myVisibilityStatisticsId;
 	float myVisibilityPlainShare = 1.0F;
-	// the layer groups the visibility buffer's kernel skips this frame (ComputePipelineVariant::specialization), of them
-	// SHADER_TYPES_LAYERS_GLASS where the model has no glass
+	// the layer groups the visibility buffer's kernel skips this frame (ComputePipelineVariant::specialization), and the
+	// Reflection Trace pass's kernel (SHADER_TYPES_LAYERS_GLASS where the model has no glass)
 	uint16_t myVisibilitySpecialization = 0;
 	uint16_t myVisibilityNoGlass = 0;
 	// the traced shadows' (see SHADER_TYPES_SHADOW_RAW_TEXTURE): the rays' visibility and blockers' distances, the
@@ -712,6 +712,11 @@ private:
 	FrameGraph::ImageId myReflectionWeight;
 	FrameGraph::ImageId myReflectionRows;
 	FrameGraph::ImageId myReflectionFiltered;
+	// the rays the visibility buffer's shading records and the Reflection Trace pass traces (see ComputeReflectionTrace):
+	// the glossy one's, and the clearcoat's
+	FrameGraph::ImageId myReflectionRay;
+	FrameGraph::ImageId myReflectionCoat;
+	FrameGraph::PassId myReflectionTracePass;
 	std::array<FrameGraph::ImageId, 2> myReflectionHistory{};
 	std::array<FrameGraph::ImageId, 2> myReflectionSurface{};
 	std::array<ScreenImage, 2> myReflectionHistoryImages;
