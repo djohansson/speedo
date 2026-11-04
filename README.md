@@ -87,8 +87,7 @@ Run the bootstrap script for your platform from the repository root:
 
 The bootstrap script installs PowerShell 7.5+ if it's missing, then hands over to `setup.ps1`, which:
 
-- installs the system packages: Homebrew, apt or winget, plus Visual Studio on Windows, and on macOS the Vulkan drivers
-  (`mesa` for KosmicKrisp and `molten-vk`)
+- installs the system packages: Homebrew (`cmake` and `pkg-config`), apt or winget, plus Visual Studio on Windows
 - bootstraps the `vcpkg` submodule
 - generates `CMakeUserPresets.json` and the VS Code launch and task configurations
 
@@ -133,11 +132,15 @@ Run the programs from the repository root:
 | `-r <dir>`: the resource directory (fonts, shaders, test assets) | `resources/` |
 | `-u <dir>`: the user profile directory (settings, the asset and pipeline caches, logs) | `.speedo/` |
 
-On macOS, point the Vulkan loader at a driver, for example KosmicKrisp:
+On macOS, point the Vulkan loader at a driver, for example KosmicKrisp, which vcpkg builds from the djohansson/mesa fork
+(the `mesa` port, a host dependency on arm64 macOS):
 
 ```sh
-export VK_DRIVER_FILES=$(brew --prefix mesa)/share/vulkan/icd.d/kosmickrisp_mesa_icd.aarch64.json
+export VK_DRIVER_FILES=$(ls $PWD/install/*/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json | head -1)
 ```
+
+Other drivers aren't installed by setup: MoltenVK (`brew install molten-vk`), and mesa's cpu driver, lavapipe, which isn't
+in the port (`brew install mesa`, then `$(brew --prefix mesa)/share/vulkan/icd.d/lvp_icd.aarch64.json`).
 
 For a debug build from a shell, also set `VK_LAYER_PATH=$PWD/install/<triplet>/share/vulkan/explicit_layer.d` so the
 validation layers are found. The VS Code launch configurations set both.

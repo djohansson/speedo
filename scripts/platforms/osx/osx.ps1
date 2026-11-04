@@ -5,15 +5,9 @@ Write-Host "Installing MacOS dependencies..."
 
 $(xcode-select --install) 2>&1
 
-Install-HomebrewPackage coreutils
+# what the build runs from Homebrew: cmake itself, and pkg-config, which vcpkg finds there for its meson ports (mesa: the
+# Vulkan driver, KosmicKrisp, is a vcpkg port) and its .pc fixups
 Install-HomebrewPackage pkg-config
-Install-HomebrewPackage libxinerama
-Install-HomebrewPackage libxxf86vm
-Install-HomebrewPackage libxcursor
-Install-HomebrewPackage mesa
-Install-HomebrewPackage mesa-glu
-Install-HomebrewPackage patchelf
-Install-HomebrewPackage molten-vk
 Install-HomebrewPackage cmake
 
 # resolve the MacOSX.sdk symlink so SDKROOT names the SDK version (e.g. MacOSX27.0.sdk) and changes when the SDK is updated

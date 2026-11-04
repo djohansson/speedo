@@ -8,11 +8,6 @@ function Get-HostArchitecture
 		$ArchInfo = [Environment]::GetEnvironmentVariable("PROCESSOR_ARCHITECTURE", "Machine")
 		$Env:PROCESSOR_ARCHITECTURE = $ArchInfo
 	}
-	elseif ($IsMacOS)
-	{
-		$ArchInfo = Invoke-Expression "$(brew --prefix)/opt/coreutils/libexec/gnubin/uname -m"
-		$Env:PROCESSOR_ARCHITECTURE = $ArchInfo
-	}
 	else
 	{
 		$ArchInfo = uname -m

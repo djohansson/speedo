@@ -2194,6 +2194,7 @@ without any (the file browser's preview) has the scene's default bound, top leve
 (reflected from slang's `RaytracingAccelerationStructure`, bound by their handle; a pool without ray queries leaves the
 type out); VMA allocates with device addresses only where there are ray queries.
 Checked on lavapipe (mesa's cpu driver, which has ray queries: `VK_DRIVER_FILES=<mesa>/share/vulkan/icd.d/lvp_icd.aarch64.json`,
+from Homebrew's `mesa`, which setup no longer installs: the `mesa` port builds KosmicKrisp alone;
 a frame in seconds at `SPEEDO_WINDOW_SIZE=320x180`, with `SPEEDO_GPU_HANG_TIMEOUT=0` and a user profile of its own: its
 pipeline cache isn't the mac's), against the BVHs on the same driver (`SPEEDO_RAY_QUERY=0`), frame by frame
 (`SPEEDO_GI_TIME_BASED=0`, a fixed exposure, upscaling off, `SPEEDO_ANIMATION_TIME`: an animated model's pose by the

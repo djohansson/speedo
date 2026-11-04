@@ -218,16 +218,11 @@ $PlatformSettings = @(
 		}
 		ProfilerLaunchOptions = [ordered] @{}
 		Tasks = @(
-			[ordered] @{
-				label = "export-molten-vk-driver-path"
-				type = "shell"
-				command = "pwsh -c '& { if (-not (Test-Path `${userHome}/.speedo)) { New-Item -Force -ItemType Directory -Path `${userHome}/.speedo | Out-Null }; `"VK_DRIVER_FILES=`$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json`" > `${userHome}/.speedo/.env }' 2>&1"
-				group = "none"
-			},
+			# the mesa port's KosmicKrisp (in the host triplet's install tree), for the launch configurations
 			[ordered] @{
 				label = "export-kosmickrisp-driver-path"
 				type = "shell"
-				command = "pwsh -c '& { if (-not (Test-Path `${userHome}/.speedo)) { New-Item -Force -ItemType Directory -Path `${userHome}/.speedo | Out-Null }; `"VK_DRIVER_FILES=`$(brew --prefix mesa)/share/vulkan/icd.d/kosmickrisp_mesa_icd.aarch64.json`" > `${userHome}/.speedo/.env }' 2>&1"
+				command = "pwsh -c '& { if (-not (Test-Path `${userHome}/.speedo)) { New-Item -Force -ItemType Directory -Path `${userHome}/.speedo | Out-Null }; `"VK_DRIVER_FILES=`$((Get-ChildItem `${workspaceFolder}/install/*/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json | Select-Object -First 1).FullName)`" > `${userHome}/.speedo/.env }' 2>&1"
 				group = "none"
 			}
 		)
