@@ -50,7 +50,8 @@ public:
 	// an image the caller owns, shown in imgui (ImGui::Image) through the texture id returned: view must be in
 	// kShaderReadOnly whenever a frame drawing it runs, and outlive the frames that do. RemoveTexture releases the id: the
 	// ui frame being built must not draw it, and the frames before may still be drawn (it is released once the gpu is done
-	// with them, see PrepareFrame). ui thread
+	// with them, see PrepareFrame). an id is a slot and a generation of it, so a draw of one released (or not the
+	// renderer's) fails rather than drawing what the slot holds since. ui thread
 	[[nodiscard]] ImTextureID AddTexture(ImageViewHandle view);
 	void RemoveTexture(ImTextureID id);
 

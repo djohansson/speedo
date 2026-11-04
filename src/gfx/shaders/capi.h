@@ -481,6 +481,18 @@ struct EnvironmentFilterConstants
 // translate), the frame slot whose vertices are drawn, the draw's texture (its slot of gImGuiTextures) and its first vertex
 // (added to the indices: the draws' vertex offset is 0, so that SV_VertexID is the index on every backend)
 #define SHADER_TYPES_IMGUI_TEXTURE_COUNT 256u
+// imgui's vertex (ImDrawVert) as gImGuiVertices holds it, in 32 bit words: the position (2 floats), the texture
+// coordinates (2 floats) and the color (8 bits a channel, each at its shift), checked against imgui's at compile time
+// (see imguirenderer.cpp), so that a change of imgui's layout (IMGUI_OVERRIDE_DRAWVERT_STRUCT_LAYOUT, or
+// IMGUI_USE_BGRA_PACKED_COLOR's channels) fails the build rather than drawing garbage
+#define SHADER_TYPES_IMGUI_VERTEX_WORD_COUNT 5u
+#define SHADER_TYPES_IMGUI_VERTEX_POSITION_WORD 0u
+#define SHADER_TYPES_IMGUI_VERTEX_UV_WORD 2u
+#define SHADER_TYPES_IMGUI_VERTEX_COLOR_WORD 4u
+#define SHADER_TYPES_IMGUI_COLOR_R_SHIFT 0u
+#define SHADER_TYPES_IMGUI_COLOR_G_SHIFT 8u
+#define SHADER_TYPES_IMGUI_COLOR_B_SHIFT 16u
+#define SHADER_TYPES_IMGUI_COLOR_A_SHIFT 24u
 struct ImGuiConstants
 {
 	alignas(8) FLOAT2(scale);

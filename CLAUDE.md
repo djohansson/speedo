@@ -238,6 +238,22 @@ Notes for working in this codebase, distilled from real build failures.
   bound to the default, the texture destroyed and the slot freed once the gpu is done). A change of the slots takes a
   new descriptor set, and the ones before go once the gpu is done with them (`Pipeline::TakeDescriptorSets`). Its
   platform side is `platform::imgui` (`Init`, `NewFrame`, `Shutdown`), and the rest of imgui `platform::ImGuiLayer`.
+  What it takes of imgui is checked where it can be, so that a change of imgui (a version, or its configuration in
+  `imconfig.h`) or of the code around it fails rather than drawing garbage. At compile time (`imguirenderer.cpp`): the
+  vertex's layout, as `capi.h` gives it to the shader (`SHADER_TYPES_IMGUI_VERTEX_*`: its size, each member's offset and
+  type), the color's channels (`SHADER_TYPES_IMGUI_COLOR_*_SHIFT` against `IM_COL32_*_SHIFT`), the index (16 or 32 bits,
+  bound as it is), the texture id (an integer of 64 bits, invalid 0), imgui 1.92's textures and the push constants'
+  layout; checked by compiling it with BGRA colors, a reordered `ImDrawVert` and a 32 bit `ImTextureID` (each fails,
+  naming what) and 32 bit indices (fine). At run time: a texture id is its slot and a generation of it (`TextureId`), so a
+  draw of a texture released (`RemoveTexture`) or not the renderer's fails, naming it (a removed preview drawn on: "the ui
+  draws texture 0x100000005, which isn't one of the renderer's"), where it drew what the slot held since, or past the
+  array (a lost device); a release of an id not held fails too; `Draw` must be given the draw data `PrepareFrame` copied
+  into the frame slot (the UI Uploads pass before the UI pass), each draw within its list's indices and vertices, and the
+  lists' counts imgui's; imgui gets the device's largest texture (`DeviceLimits::maxImageDimension2d`) for its atlas, and
+  a texture other than rgba fails, naming its format. The constants are pushed again after a user callback, which may
+  change the render state. Not checked: what a render target's format is (an srgb one would encode imgui's srgb colors
+  twice: the swapchain's is unorm, being a storage image), and the indices' values (read past their list's vertices,
+  which the counts don't cover).
 - Shaders are gfx's: the slang sources and the C header they share with the C++ code (`gfx/shaders/`), and
   `gfx::ShaderLoader`, which compiles them for `rhi::kShaderFormat` and reflects their bindings into a neutral
   `rhi::ShaderSet` (`rhi/shaderset.h`: binaries, entry points, and per set the bindings and push constants). rhi

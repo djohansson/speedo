@@ -102,6 +102,7 @@ DeviceLimits Device<kVk>::GetLimits() const
 		.maxStorageBufferRange = limits.maxStorageBufferRange,
 		.maxPerStageSampledImages = limits.maxPerStageDescriptorSampledImages,
 		.maxDrawIndirectCount = info.deviceFeatures.features.multiDrawIndirect == VK_TRUE ? limits.maxDrawIndirectCount : 1U,
+		.maxImageDimension2d = limits.maxImageDimension2D,
 		.maxImageDimension3d = limits.maxImageDimension3D,
 		.timestampPeriod = limits.timestampPeriod,
 		.drawIndirectCount = info.deviceFeatures12Ex.drawIndirectCount == VK_TRUE,

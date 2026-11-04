@@ -11,10 +11,12 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <format>
 #include <span>
+#include <type_traits>
 #include <utility>
 
 namespace gfx
@@ -33,6 +35,56 @@ constexpr uint32_t kSetCount = 128;
 // the vertex and index buffers grow to the next power of two at least this big
 constexpr size_t kLeastBufferByteCount = size_t{64} * 1024;
 
+// what the renderer takes imgui's types to be: a change of them (a newer imgui, or its configuration in imconfig.h) fails
+// the build here, rather than drawing garbage
+static_assert(IMGUI_VERSION_NUM >= 19200, "the renderer handles imgui's textures as 1.92 asks (ImGuiBackendFlags_RendererHasTextures)");
+// its vertices, as capi.h lays them out for the shader (SHADER_TYPES_IMGUI_VERTEX_*: 32 bit words)
+static_assert(
+	std::is_same_v<decltype(ImVec2::x), float> && std::is_same_v<decltype(ImVec2::y), float> && sizeof(ImVec2) == 2 * sizeof(float),
+	"ImVec2 isn't two floats");
+static_assert(
+	std::is_same_v<decltype(ImDrawVert::pos), ImVec2> && offsetof(ImDrawVert, pos) == SHADER_TYPES_IMGUI_VERTEX_POSITION_WORD * sizeof(uint32_t),
+	"ImDrawVert's position isn't an ImVec2 where SHADER_TYPES_IMGUI_VERTEX_POSITION_WORD says");
+static_assert(
+	std::is_same_v<decltype(ImDrawVert::uv), ImVec2> && offsetof(ImDrawVert, uv) == SHADER_TYPES_IMGUI_VERTEX_UV_WORD * sizeof(uint32_t),
+	"ImDrawVert's texture coordinates aren't an ImVec2 where SHADER_TYPES_IMGUI_VERTEX_UV_WORD says");
+static_assert(
+	std::is_same_v<decltype(ImDrawVert::col), ImU32> && std::is_same_v<ImU32, uint32_t> &&
+		offsetof(ImDrawVert, col) == SHADER_TYPES_IMGUI_VERTEX_COLOR_WORD * sizeof(uint32_t),
+	"ImDrawVert's color isn't a 32 bit word where SHADER_TYPES_IMGUI_VERTEX_COLOR_WORD says");
+static_assert(sizeof(ImDrawVert) == SHADER_TYPES_IMGUI_VERTEX_WORD_COUNT * sizeof(uint32_t), "ImDrawVert isn't SHADER_TYPES_IMGUI_VERTEX_WORD_COUNT words");
+// its colors' channels (IM_COL32, other with IMGUI_USE_BGRA_PACKED_COLOR), where the shader unpacks them
+static_assert(
+	IM_COL32_R_SHIFT == SHADER_TYPES_IMGUI_COLOR_R_SHIFT && IM_COL32_G_SHIFT == SHADER_TYPES_IMGUI_COLOR_G_SHIFT &&
+		IM_COL32_B_SHIFT == SHADER_TYPES_IMGUI_COLOR_B_SHIFT && IM_COL32_A_SHIFT == SHADER_TYPES_IMGUI_COLOR_A_SHIFT,
+	"imgui packs its colors' channels elsewhere than SHADER_TYPES_IMGUI_COLOR_*_SHIFT");
+// its indices, bound as 16 or 32 bit ones (see Draw)
+static_assert(std::is_unsigned_v<ImDrawIdx> && (sizeof(ImDrawIdx) == 2 || sizeof(ImDrawIdx) == 4), "ImDrawIdx isn't a 16 or 32 bit index");
+// its texture ids, a slot and its generation (see TextureId), none 0
+static_assert(std::is_integral_v<ImTextureID> && sizeof(ImTextureID) >= sizeof(uint64_t), "ImTextureID can't hold a slot and a generation");
+static_assert(ImTextureID_Invalid == 0, "slot 0's id, generation 0, must be imgui's invalid one");
+// the push constants as the shader lays them out (float2s 8 bytes aligned, then the words)
+static_assert(
+	offsetof(ImGuiConstants, scale) == 0 && offsetof(ImGuiConstants, translate) == 8 && offsetof(ImGuiConstants, frame) == 16 &&
+		offsetof(ImGuiConstants, texture) == 20 && offsetof(ImGuiConstants, vertexBase) == 24 && sizeof(ImGuiConstants) == 32,
+	"ImGuiConstants isn't laid out as the shader's push constants");
+
+// a texture's id (ImTextureID): its slot in the low 32 bits, and its generation in the high ones, a new one for each
+// texture a slot holds, so that a draw of an id its slot no longer holds (released, or held by another texture since)
+// fails rather than drawing another texture (see Draw). generation 0 is none's
+[[nodiscard]] constexpr ImTextureID TextureId(uint32_t slot, uint32_t generation) noexcept
+{
+	return static_cast<ImTextureID>((uint64_t{generation} << 32U) | slot);
+}
+[[nodiscard]] constexpr uint32_t SlotOf(ImTextureID id) noexcept
+{
+	return static_cast<uint32_t>(static_cast<uint64_t>(id));
+}
+[[nodiscard]] constexpr uint32_t GenerationOf(ImTextureID id) noexcept
+{
+	return static_cast<uint32_t>(static_cast<uint64_t>(id) >> 32U);
+}
+
 [[nodiscard]] std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 {
 	return {
@@ -44,12 +96,12 @@ constexpr size_t kLeastBufferByteCount = size_t{64} * 1024;
 	};
 }
 
-// a texture of imgui's (its ImTextureData::BackendUserData), or the default, in a slot
+// a texture of imgui's (its ImTextureData::BackendUserData), or the default, in a slot (of the id, see TextureId)
 struct Texture
 {
 	Image image;
 	ImageView view;
-	uint32_t slot = 0;
+	ImTextureID id = ImTextureID_Invalid;
 };
 
 // what the ui thread asks of the draw thread (see PrepareFrame)
@@ -57,12 +109,12 @@ struct Operation
 {
 	enum class Kind : uint8_t
 	{
-		kBind, // binds view to slot
+		kBind, // binds view to id's slot
 		kUpload, // copies staging into region of texture
-		kRelease, // binds slot to the default once no frame from sequence on draws it, and releases it (and texture, if any)
+		kRelease, // binds id's slot to the default once no frame from sequence on draws it, and frees it (and texture, if any)
 	};
 	Kind kind = Kind::kBind;
-	uint32_t slot = 0;
+	ImTextureID id = ImTextureID_Invalid;
 	ImageViewHandle view{};
 	Texture* texture = nullptr; // owned by a release
 	Buffer staging;
@@ -71,7 +123,7 @@ struct Operation
 };
 
 // a texture's image and view: 8 bits a channel, sampled, uploaded to
-[[nodiscard]] std::unique_ptr<Texture> CreateTexture(Device& device, uint32_t width, uint32_t height, uint32_t slot, std::string_view name)
+[[nodiscard]] std::unique_ptr<Texture> CreateTexture(Device& device, uint32_t width, uint32_t height, ImTextureID id, std::string_view name)
 {
 	auto texture = std::make_unique<Texture>(Texture{
 		.image = Image(ImageCreateDesc{
@@ -84,7 +136,7 @@ struct Operation
 			ImageAspect::kColor,
 			ImageLayout::kUndefined}),
 		.view = {},
-		.slot = slot});
+		.id = id});
 	texture->view = ImageView(ImageViewCreateDesc{
 		device.CreateDeviceObjectCreateDesc(std::format("{} View", name)), texture->image, texture->image.GetDesc().format, ImageAspect::kColor});
 	return texture;
@@ -109,6 +161,11 @@ struct ImGuiRenderer::State
 	// the free slots (ui thread only), and those released, once the gpu is done with the frames that drew them
 	std::vector<uint32_t> freeSlots;
 	core::ConcurrentQueue<uint32_t> retiredSlots;
+	// per slot, the generation of the texture that holds it (0: none) and of the last one that did, as the ui thread hands
+	// them out and as the draw thread has bound them (see TextureId)
+	std::array<uint32_t, SHADER_TYPES_IMGUI_TEXTURE_COUNT> heldGenerations{}; // ui thread only
+	std::array<uint32_t, SHADER_TYPES_IMGUI_TEXTURE_COUNT> lastGenerations{}; // ui thread only
+	std::array<uint32_t, SHADER_TYPES_IMGUI_TEXTURE_COUNT> boundGenerations{}; // draw thread only
 	uint64_t sequence = 0; // the last ui frame's, see UpdateTextures (ui thread only)
 
 	// per frame slot, the vertices (gImGuiVertices) and indices drawn (draw thread only)
@@ -118,6 +175,15 @@ struct ImGuiRenderer::State
 		Buffer indices;
 	};
 	std::array<FrameBuffers, SHADER_TYPES_FRAME_COUNT> frames;
+	// per frame slot, the draw data PrepareFrame copied into its buffers, and how many vertices and indices: what Draw must
+	// be given (draw thread only)
+	struct Prepared
+	{
+		const ImDrawData* drawData = nullptr;
+		uint32_t vertexCount = 0;
+		uint32_t indexCount = 0;
+	};
+	std::array<Prepared, SHADER_TYPES_FRAME_COUNT> prepared;
 	bool descriptorsChanged = false; // since the last PrepareFrame handed the sets over (draw thread only)
 
 	explicit State(Device& device)
@@ -141,8 +207,8 @@ struct ImGuiRenderer::State
 			freeSlots.push_back(slot);
 	}
 
-	// ui thread
-	[[nodiscard]] uint32_t AcquireSlot()
+	// a free slot, held by a new generation: the id of the texture it is taken for. ui thread
+	[[nodiscard]] ImTextureID AcquireId()
 	{
 		uint32_t retired = 0;
 		while (retiredSlots.try_dequeue(retired))
@@ -150,7 +216,26 @@ struct ImGuiRenderer::State
 		ENSUREF(!freeSlots.empty(), "the ui's {} texture slots are all taken (SHADER_TYPES_IMGUI_TEXTURE_COUNT)", SHADER_TYPES_IMGUI_TEXTURE_COUNT);
 		auto slot = freeSlots.back();
 		freeSlots.pop_back();
-		return slot;
+		auto generation = ++lastGenerations[slot];
+		if (generation == 0) // past 2^32 textures in the slot, around again
+			generation = ++lastGenerations[slot];
+		heldGenerations[slot] = generation;
+		return imguirenderer::TextureId(slot, generation);
+	}
+
+	// the release of id, which must hold its slot: once no frame from sequence on draws it (and texture, if given). ui
+	// thread
+	void Release(ImTextureID id, imguirenderer::Texture* texture, uint64_t releaseSequence)
+	{
+		using namespace imguirenderer;
+
+		auto slot = SlotOf(id);
+		ENSUREF(
+			slot < SHADER_TYPES_IMGUI_TEXTURE_COUNT && GenerationOf(id) != 0 && heldGenerations[slot] == GenerationOf(id),
+			"the ui releases texture {:#x}, which isn't one of the renderer's (or was released already)",
+			static_cast<uint64_t>(id));
+		heldGenerations[slot] = 0;
+		Enqueue(Operation{.kind = Operation::Kind::kRelease, .id = id, .texture = texture, .sequence = releaseSequence});
 	}
 
 	void Enqueue(imguirenderer::Operation&& operation) { operations.enqueue(operationsProducer, std::move(operation)); }
@@ -168,7 +253,7 @@ struct ImGuiRenderer::State
 		{
 			// imgui no longer draws it, but earlier frames may still be drawn: see PrepareFrame
 			if (texture != nullptr)
-				Enqueue(Operation{.kind = Operation::Kind::kRelease, .slot = texture->slot, .texture = texture, .sequence = frameSequence});
+				Release(texture->id, texture, frameSequence);
 			tex.SetTexID(ImTextureID_Invalid);
 			tex.BackendUserData = nullptr;
 			tex.SetStatus(ImTextureStatus_Destroyed);
@@ -177,17 +262,23 @@ struct ImGuiRenderer::State
 
 		if (tex.Status == ImTextureStatus_WantCreate)
 		{
-			ENSURE(texture == nullptr && tex.Format == ImTextureFormat_RGBA32);
+			ENSURE(texture == nullptr);
+			// the textures are 8 bits a channel, rgba (the font atlas's, unless imgui is configured otherwise)
+			ENSUREF(
+				tex.Format == ImTextureFormat_RGBA32 && tex.BytesPerPixel == 4,
+				"imgui asks for a texture of format {} ({} bytes a texel), the renderer has rgba ones alone",
+				static_cast<int>(tex.Format),
+				tex.BytesPerPixel);
 
 			texture = CreateTexture(
 						  device,
 						  static_cast<uint32_t>(tex.Width),
 						  static_cast<uint32_t>(tex.Height),
-						  AcquireSlot(),
+						  AcquireId(),
 						  std::format("ImGui Texture {}", tex.UniqueID))
 						  .release(); // owned by tex.BackendUserData, then by its release
-			Enqueue(Operation{.kind = Operation::Kind::kBind, .slot = texture->slot, .view = texture->view});
-			tex.SetTexID(static_cast<ImTextureID>(texture->slot));
+			Enqueue(Operation{.kind = Operation::Kind::kBind, .id = texture->id, .view = texture->view});
+			tex.SetTexID(texture->id);
 			tex.BackendUserData = texture;
 		}
 
@@ -244,11 +335,11 @@ ImGuiRenderer::ImGuiRenderer(Device& device)
 	state.pipeline.SetDescriptorData("gImGuiSampler", ImageBinding{.sampler = state.sampler[0]}, kSet);
 
 	// the default, white, in slot 0: bound and uploaded by the first PrepareFrame
-	state.defaultTexture = CreateTexture(device, 1, 1, 0, "ImGui Default Texture");
+	state.defaultTexture = CreateTexture(device, 1, 1, TextureId(0, 0), "ImGui Default Texture");
 	auto staging = Buffer::CreateStaging(device.CreateDeviceObjectCreateDesc("ImGui Default Texture Staging"), 4);
 	std::ranges::fill(staging.Map(), std::byte{0xff});
 	staging.Unmap();
-	state.Enqueue(Operation{.kind = Operation::Kind::kBind, .slot = 0, .view = state.defaultTexture->view});
+	state.Enqueue(Operation{.kind = Operation::Kind::kBind, .id = state.defaultTexture->id, .view = state.defaultTexture->view});
 	state.Enqueue(Operation{
 		.kind = Operation::Kind::kUpload,
 		.texture = state.defaultTexture.get(),
@@ -259,6 +350,10 @@ ImGuiRenderer::ImGuiRenderer(Device& device)
 	io.BackendRendererName = "gfx::ImGuiRenderer";
 	io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset; // ImDrawCmd::VtxOffset is honored: large meshes
 	io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures; // ImGuiPlatformIO::Textures' requests are (see UpdateTextures)
+	// no texture bigger than the device takes (imgui's font atlas grows as glyphs are drawn)
+	auto& platformIo = ImGui::GetPlatformIO();
+	platformIo.Renderer_TextureMaxWidth = static_cast<int>(device.GetLimits().maxImageDimension2d);
+	platformIo.Renderer_TextureMaxHeight = static_cast<int>(device.GetLimits().maxImageDimension2d);
 }
 
 ImGuiRenderer::~ImGuiRenderer()
@@ -315,9 +410,14 @@ void ImGuiRenderer::PrepareFrame(
 	CommandEncoder encoder(cmd);
 	pipeline.BindLayoutAuto(state.layout, PipelineBindPoint::kGraphics);
 
-	auto bind = [&pipeline, &state](uint32_t slot, ImageViewHandle view)
+	ENSUREF(frameIndex < SHADER_TYPES_FRAME_COUNT, "frame slot {} of {}", frameIndex, SHADER_TYPES_FRAME_COUNT);
+
+	// binds id's view to its slot, which draws of it may name from then on (see Draw)
+	auto bind = [&pipeline, &state](ImTextureID id, ImageViewHandle view)
 	{
-		pipeline.SetDescriptorData("gImGuiTextures", ImageBinding{.sampler = {}, .imageView = view, .layout = ImageLayout::kShaderReadOnly}, kSet, slot);
+		pipeline.SetDescriptorData(
+			"gImGuiTextures", ImageBinding{.sampler = {}, .imageView = view, .layout = ImageLayout::kShaderReadOnly}, kSet, SlotOf(id));
+		state.boundGenerations[SlotOf(id)] = GenerationOf(id);
 		state.descriptorsChanged = true;
 	};
 
@@ -329,7 +429,7 @@ void ImGuiRenderer::PrepareFrame(
 		switch (operation.kind)
 		{
 		case Operation::Kind::kBind:
-			bind(operation.slot, operation.view);
+			bind(operation.id, operation.view);
 			break;
 		case Operation::Kind::kUpload:
 		{
@@ -359,20 +459,47 @@ void ImGuiRenderer::PrepareFrame(
 			if (release.sequence > drawnSequence)
 				return false;
 
-			bind(release.slot, state.defaultTexture->view);
+			ENSURE(state.boundGenerations[SlotOf(release.id)] == GenerationOf(release.id));
+			// bound to the default's view, and held by none: a draw naming it fails (see Draw)
+			pipeline.SetDescriptorData(
+				"gImGuiTextures",
+				ImageBinding{.sampler = {}, .imageView = state.defaultTexture->view, .layout = ImageLayout::kShaderReadOnly},
+				kSet,
+				SlotOf(release.id));
+			state.boundGenerations[SlotOf(release.id)] = 0;
+			state.descriptorsChanged = true;
 			textures.emplace_back(release.texture);
-			slots.push_back(release.slot);
+			slots.push_back(SlotOf(release.id));
 			return true;
 		});
 
 	// the frame's vertices and indices, into the frame slot's buffers (its last frame is done), grown to hold them: the old
 	// ones go once this submission completes (other frame slots' frames in flight bound sets naming them)
+	// counted from the lists, which are copied, and checked against imgui's counts (the snapshot keeps them, see
+	// platform::ImGuiLayer): a frame of other counts than its lists' wrote past its buffers
+	size_t vertexCount = 0;
+	size_t indexCount = 0;
+	for (const ImDrawList* drawList : drawData.CmdLists)
+	{
+		vertexCount += static_cast<size_t>(drawList->VtxBuffer.Size);
+		indexCount += static_cast<size_t>(drawList->IdxBuffer.Size);
+	}
+	ENSUREF(
+		vertexCount == static_cast<size_t>(drawData.TotalVtxCount) && indexCount == static_cast<size_t>(drawData.TotalIdxCount),
+		"the ui frame's lists hold {} vertices and {} indices, its counts say {} and {}",
+		vertexCount,
+		indexCount,
+		drawData.TotalVtxCount,
+		drawData.TotalIdxCount);
+	state.prepared[frameIndex] = State::Prepared{
+		.drawData = &drawData, .vertexCount = static_cast<uint32_t>(vertexCount), .indexCount = static_cast<uint32_t>(indexCount)};
+
 	std::vector<Buffer> retiredBuffers;
 	auto& frame = state.frames[frameIndex];
-	if (drawData.TotalVtxCount > 0)
+	if (vertexCount > 0)
 	{
-		auto vertexByteCount = static_cast<size_t>(drawData.TotalVtxCount) * sizeof(ImDrawVert);
-		auto indexByteCount = static_cast<size_t>(drawData.TotalIdxCount) * sizeof(ImDrawIdx);
+		auto vertexByteCount = vertexCount * sizeof(ImDrawVert);
+		auto indexByteCount = indexCount * sizeof(ImDrawIdx);
 		auto grow = [&](Buffer& buffer, size_t byteCount, BufferUsage usage, std::string_view what)
 		{
 			if (buffer.IsValid() && buffer.GetDesc().size >= byteCount)
@@ -441,7 +568,21 @@ void ImGuiRenderer::PrepareFrame(
 
 void ImGuiRenderer::Draw(CommandBufferHandle cmd, const ImDrawData& drawData, uint32_t frameIndex, IRenderTarget& target)
 {
+	using namespace imguirenderer;
+
 	ZoneScopedN("ImGuiRenderer::Draw");
+
+	auto& state = *myState;
+
+	// what PrepareFrame copied into the frame slot's buffers, before (the UI Uploads pass): else its vertices are another
+	// frame's, or none
+	ENSUREF(frameIndex < SHADER_TYPES_FRAME_COUNT, "frame slot {} of {}", frameIndex, SHADER_TYPES_FRAME_COUNT);
+	const auto& prepared = state.prepared[frameIndex];
+	ENSUREF(
+		prepared.drawData == &drawData && prepared.vertexCount == static_cast<uint32_t>(drawData.TotalVtxCount) &&
+			prepared.indexCount == static_cast<uint32_t>(drawData.TotalIdxCount),
+		"the ui draws a frame PrepareFrame didn't prepare in frame slot {}",
+		frameIndex);
 
 	// in the framebuffer's pixels
 	auto framebufferWidth = static_cast<int>(drawData.DisplaySize.x * drawData.FramebufferScale.x);
@@ -449,7 +590,6 @@ void ImGuiRenderer::Draw(CommandBufferHandle cmd, const ImDrawData& drawData, ui
 	if (framebufferWidth <= 0 || framebufferHeight <= 0 || drawData.TotalVtxCount == 0)
 		return;
 
-	auto& state = *myState;
 	auto& pipeline = state.pipeline;
 	auto& frame = state.frames[frameIndex];
 	CommandEncoder encoder(cmd);
@@ -460,18 +600,20 @@ void ImGuiRenderer::Draw(CommandBufferHandle cmd, const ImDrawData& drawData, ui
 	constants.translate[0] = -1.0F - (drawData.DisplayPos.x * constants.scale[0]);
 	constants.translate[1] = -1.0F - (drawData.DisplayPos.y * constants.scale[1]);
 	constants.frame = frameIndex;
+	bool pushed = false; // the constants, since the render state was set up or a callback ran
 	auto setup = [&]
 	{
 		pipeline.SetRenderTarget(target);
 		pipeline.BindLayoutAuto(state.layout, PipelineBindPoint::kGraphics);
-		pipeline.BindDescriptorSetAuto(cmd, imguirenderer::kSet);
+		pipeline.BindDescriptorSetAuto(cmd, kSet);
 		pipeline.BindPipelineAuto(cmd, GraphicsPipelineVariant{.blend = {BlendMode::kAlpha}});
+		// every dynamic state rhi's graphics pipelines have
 		encoder.SetViewport(Viewport{.width = static_cast<float>(framebufferWidth), .height = static_cast<float>(framebufferHeight)});
 		encoder.SetCullMode(CullMode::kNone);
 		encoder.SetFrontFace(FrontFace::kCounterClockwise);
 		encoder.SetStencilReference(0);
 		encoder.BindIndexBuffer(frame.indices, 0, sizeof(ImDrawIdx) == 2 ? IndexType::kUint16 : IndexType::kUint32);
-		constants.texture = ~0U; // pushed with the first draw's
+		pushed = false;
 	};
 	setup();
 
@@ -482,16 +624,33 @@ void ImGuiRenderer::Draw(CommandBufferHandle cmd, const ImDrawData& drawData, ui
 	uint32_t indexBase = 0;
 	for (const ImDrawList* drawList : drawData.CmdLists)
 	{
+		auto listVertexCount = static_cast<uint32_t>(drawList->VtxBuffer.Size);
+		auto listIndexCount = static_cast<uint32_t>(drawList->IdxBuffer.Size);
 		for (const ImDrawCmd& command : drawList->CmdBuffer)
 		{
 			if (command.UserCallback != nullptr)
 			{
+				// a callback of the application's may change the render state (imgui's own backends assume it leaves the
+				// pipeline as it was): the constants are pushed again, or all of it set up again where it asks
 				if (command.UserCallback == ImDrawCallback_ResetRenderState)
 					setup();
 				else
 					command.UserCallback(drawList, &command);
+				pushed = false;
 				continue;
 			}
+			if (command.ElemCount == 0)
+				continue;
+
+			// within its list's vertices and indices: out of them, the gpu reads past the frame's buffers
+			ENSUREF(
+				command.IdxOffset + command.ElemCount <= listIndexCount && command.VtxOffset < listVertexCount,
+				"a ui draw of {} indices from {} and vertices from {} past its list's {} indices and {} vertices",
+				command.ElemCount,
+				command.IdxOffset,
+				command.VtxOffset,
+				listIndexCount,
+				listVertexCount);
 
 			float left = std::max((command.ClipRect.x - clipOffset.x) * clipScale.x, 0.0F);
 			float top = std::max((command.ClipRect.y - clipOffset.y) * clipScale.y, 0.0F);
@@ -505,35 +664,43 @@ void ImGuiRenderer::Draw(CommandBufferHandle cmd, const ImDrawData& drawData, ui
 				.width = static_cast<uint32_t>(right - left),
 				.height = static_cast<uint32_t>(bottom - top)});
 
+			// a texture of the renderer's that its slot still holds (bound by PrepareFrame, not released since): another id
+			// would draw whatever the slot holds, or past the textures (a lost device)
+			auto id = command.GetTexID();
+			auto slot = SlotOf(id);
+			ENSUREF(
+				slot < SHADER_TYPES_IMGUI_TEXTURE_COUNT && GenerationOf(id) != 0 && state.boundGenerations[slot] == GenerationOf(id),
+				"the ui draws texture {:#x}, which isn't one of the renderer's (or no longer is: released, see RemoveTexture)",
+				static_cast<uint64_t>(id));
+
 			// the draw's texture and first vertex, pushed where they change (a draw list's draws share their vertices)
-			auto texture = static_cast<uint32_t>(command.GetTexID());
 			auto firstVertex = command.VtxOffset + vertexBase;
-			if (texture != constants.texture || firstVertex != constants.vertexBase)
+			if (!pushed || slot != constants.texture || firstVertex != constants.vertexBase)
 			{
-				constants.texture = texture;
+				constants.texture = slot;
 				constants.vertexBase = firstVertex;
 				pipeline.PushConstants(cmd, std::as_bytes(std::span(&constants, 1)));
+				pushed = true;
 			}
 
 			encoder.DrawIndexed(command.ElemCount, 1, command.IdxOffset + indexBase, 0, 0);
 		}
-		vertexBase += static_cast<uint32_t>(drawList->VtxBuffer.Size);
-		indexBase += static_cast<uint32_t>(drawList->IdxBuffer.Size);
+		vertexBase += listVertexCount;
+		indexBase += listIndexCount;
 	}
 }
 
 ImTextureID ImGuiRenderer::AddTexture(ImageViewHandle view)
 {
-	auto slot = myState->AcquireSlot();
-	myState->Enqueue(imguirenderer::Operation{.kind = imguirenderer::Operation::Kind::kBind, .slot = slot, .view = view});
-	return static_cast<ImTextureID>(slot);
+	auto id = myState->AcquireId();
+	myState->Enqueue(imguirenderer::Operation{.kind = imguirenderer::Operation::Kind::kBind, .id = id, .view = view});
+	return id;
 }
 
 void ImGuiRenderer::RemoveTexture(ImTextureID id)
 {
 	// the frame being built is published as the next sequence, and doesn't draw it
-	myState->Enqueue(imguirenderer::Operation{
-		.kind = imguirenderer::Operation::Kind::kRelease, .slot = static_cast<uint32_t>(id), .sequence = myState->sequence + 1});
+	myState->Release(id, nullptr, myState->sequence + 1);
 }
 
 } // namespace gfx
