@@ -135,11 +135,11 @@ void Views::OnResizeGrid(glm::uvec2 grid)
 	InternalLayout();
 }
 
-void Views::FrameBounds(const Bounds3f& bounds, const Bounds3f& reach)
+void Views::FrameBounds(const Bounds3f& bounds, const Bounds3f& reach, float pitch)
 {
-	// far enough back for a sphere around the bounds to fit the (75 degree) field of view
+	// far enough back for a sphere around the bounds to fit the (75 degree) field of view, from pitch above
 	auto radius = std::max(bounds.Radius(), 1e-3F);
-	auto eye = bounds.Center() + glm::vec3(0.0F, 0.0F, 1.4F * radius);
+	auto eye = bounds.Center() + (1.4F * radius * glm::vec3(0.0F, std::sin(pitch), std::cos(pitch)));
 	// and seeing as far as the farthest corner of reach
 	auto farPlane = 4.0F * radius;
 	for (uint32_t corner = 0; corner < 8; corner++)
@@ -157,7 +157,7 @@ void Views::FrameBounds(const Bounds3f& bounds, const Bounds3f& reach)
 		{
 			auto& desc = camera.GetDesc();
 			desc.position = -eye;
-			desc.cameraRotation = glm::vec3(0.0F);
+			desc.cameraRotation = glm::vec3(pitch, 0.0F, 0.0F);
 			desc.viewport.type = ViewType::Perspective;
 			desc.fovY = CameraCreateDesc{}.fovY;
 			desc.aspectRatio = 0.0F;
@@ -237,12 +237,12 @@ void Views::Orbit(float yaw, float pitch, std::optional<size_t> view)
 	}
 }
 
-void Views::SetScene(const Bounds3f& bounds, const Bounds3f& framed, std::vector<SceneCamera> cameras)
+void Views::SetScene(const Bounds3f& bounds, const Bounds3f& framed, std::vector<SceneCamera> cameras, float framePitch)
 {
 	bool hasCameras = !cameras.empty();
 	{
 		auto scene = myScene.Write();
-		scene.Get() = Scene{.bounds = bounds, .framed = framed, .cameras = std::move(cameras)};
+		scene.Get() = Scene{.bounds = bounds, .framed = framed, .framePitch = framePitch, .cameras = std::move(cameras)};
 	}
 	UseSceneCamera(hasCameras ? std::optional<size_t>(0) : std::nullopt);
 }
@@ -253,6 +253,7 @@ void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
 
 	Bounds3f bounds;
 	Bounds3f framed;
+	float framePitch = 0.0F;
 	std::optional<SceneCamera> sceneCamera;
 	{
 		auto scene = myScene.Write();
@@ -261,13 +262,14 @@ void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
 		scene.Get().current = cameraIndex;
 		bounds = scene.Get().bounds;
 		framed = scene.Get().framed;
+		framePitch = scene.Get().framePitch;
 		if (cameraIndex)
 			sceneCamera = scene.Get().cameras[*cameraIndex];
 	}
 
 	if (!sceneCamera)
 	{
-		FrameBounds(framed, bounds);
+		FrameBounds(framed, bounds, framePitch);
 		return;
 	}
 

@@ -173,6 +173,35 @@ enum class MaterialTexture : uint16_t
 	kDiffuseTransmissionColor,
 };
 
+// a material's texture of these (mesh::Material's and ModelMaterial's, which name them alike)
+template <typename Material>
+[[nodiscard]] constexpr auto& MaterialTextureRef(Material& m, MaterialTexture texture) noexcept
+{
+	switch (texture)
+	{
+	case MaterialTexture::kBaseColor: return m.diffuseTexture;
+	case MaterialTexture::kMetallicRoughness: return m.metallicRoughnessTexture;
+	case MaterialTexture::kNormal: return m.normalTexture;
+	case MaterialTexture::kOcclusion: return m.occlusionTexture;
+	case MaterialTexture::kEmissive: return m.emissiveTexture;
+	case MaterialTexture::kSpecular: return m.specularTexture;
+	case MaterialTexture::kSpecularColor: return m.specularColorTexture;
+	case MaterialTexture::kClearcoat: return m.clearcoatTexture;
+	case MaterialTexture::kClearcoatRoughness: return m.clearcoatRoughnessTexture;
+	case MaterialTexture::kClearcoatNormal: return m.clearcoatNormalTexture;
+	case MaterialTexture::kSheenColor: return m.sheenColorTexture;
+	case MaterialTexture::kSheenRoughness: return m.sheenRoughnessTexture;
+	case MaterialTexture::kTransmission: return m.transmissionTexture;
+	case MaterialTexture::kThickness: return m.thicknessTexture;
+	case MaterialTexture::kAnisotropy: return m.anisotropyTexture;
+	case MaterialTexture::kIridescence: return m.iridescenceTexture;
+	case MaterialTexture::kIridescenceThickness: return m.iridescenceThicknessTexture;
+	case MaterialTexture::kDiffuseTransmission: return m.diffuseTransmissionTexture;
+	case MaterialTexture::kDiffuseTransmissionColor: return m.diffuseTransmissionColorTexture;
+	}
+	return m.normalTexture;
+}
+
 // a light's values a KHR_animation_pointer channel may set (KHR_lights_punctual's, by its light index)
 enum class LightProperty : uint16_t
 {

@@ -773,11 +773,118 @@ struct BvhCacheHeader
 		.bvh = bvh == ModelBvh::kBuild ? std::move(bvhData) : bvh::Data{}};
 }
 
-// the models as one: their indices and vertices in new staging buffers, and their materials and instances. side by
-// side (ModelArrangement::kSideBySide), in a grid in the xy plane (facing +z, the cameras' default view), each scaled
-// (uniformly, so its normals stay) to the same size and centered in its cell: the files of a set needn't share a scale
-// (sphere.zip's spheres have radius 1 and 115). or as authored, each where it is
-[[nodiscard]] static std::optional<Staged> Merge(Device& device, std::vector<Staged>&& models, std::string name, ModelArrangement arrangement)
+// what offsets a model's indices by in a set (see MergeAnimation): what the set held before it
+struct MergeBases
+{
+	uint32_t instance = 0;
+	uint32_t material = 0;
+	uint32_t weight = 0;
+	uint32_t skin = 0;
+};
+
+// a model's animation data (see SceneAnimationData) into a set's, its nodes under one placing them (placement: what its
+// instances were premultiplied by, see Merge), and its indices (nodes, skins and their joints, instances, materials,
+// morph weights, pointer targets and values) offset by what the set held before it. a set's k-th animation plays every
+// model's k-th. a set has no lights or cameras (see ModelDesc::lights): their links, pointer targets and the channels
+// setting them go. the textures whose transforms animate (TextureRef::animatedTransform, by their offset's target) are
+// renamed in materials, the set's
+static void MergeAnimation(
+	SceneAnimationData& merged, const SceneAnimationData& model, const SceneMatrix& placement, const MergeBases& bases, std::span<ModelMaterial> materials)
+{
+	if (model.nodes.empty()) // nothing moves, nor is skinned
+		return;
+
+	auto nodeBase = static_cast<uint32_t>(merged.nodes.size());
+	auto placementNode = static_cast<int32_t>(nodeBase + model.nodes.size());
+	for (auto node : model.nodes)
+	{
+		node.parent = node.parent < 0 ? placementNode : node.parent + static_cast<int32_t>(nodeBase);
+		merged.nodes.push_back(node);
+	}
+	merged.nodes.push_back(SceneNode{.hasMatrix = true, .matrix = placement});
+
+	for (auto skin : model.skins)
+	{
+		for (auto& joint : skin.joints)
+			joint += nodeBase;
+		skin.jointBase += merged.jointCount;
+		merged.skins.push_back(std::move(skin));
+	}
+	merged.jointCount += model.jointCount;
+
+	for (auto link : model.instanceLinks)
+	{
+		link.instance += bases.instance;
+		link.node += nodeBase;
+		merged.instanceLinks.push_back(link);
+	}
+	for (auto morph : model.morphs)
+	{
+		morph.node += nodeBase;
+		morph.weightBase += bases.weight;
+		merged.morphs.push_back(morph);
+	}
+
+	// its pointer values whole (the targets' valueBase into them), and the targets the set keeps, by their new index
+	auto valueBase = static_cast<uint32_t>(merged.pointerDefaults.size());
+	merged.pointerDefaults.insert(merged.pointerDefaults.end(), model.pointerDefaults.begin(), model.pointerDefaults.end());
+	std::vector<int64_t> targets(model.pointerTargets.size(), -1);
+	for (size_t targetIt = 0; targetIt < model.pointerTargets.size(); targetIt++)
+	{
+		auto target = model.pointerTargets[targetIt];
+		switch (target.kind)
+		{
+		case ScenePointerTarget::Kind::kLight:
+		case ScenePointerTarget::Kind::kCamera:
+			continue;
+		case ScenePointerTarget::Kind::kNodeVisibility:
+			target.index += nodeBase;
+			break;
+		case ScenePointerTarget::Kind::kMaterial:
+		case ScenePointerTarget::Kind::kTextureOffset:
+		case ScenePointerTarget::Kind::kTextureRotation:
+		case ScenePointerTarget::Kind::kTextureScale:
+			target.index += bases.material;
+			break;
+		}
+		target.valueBase += valueBase;
+		targets[targetIt] = static_cast<int64_t>(merged.pointerTargets.size());
+		if (target.kind == ScenePointerTarget::Kind::kTextureOffset)
+			MaterialTextureRef(materials[target.index], MaterialTexture{target.property}).animatedTransform =
+				static_cast<int32_t>(merged.pointerTargets.size());
+		merged.pointerTargets.push_back(target);
+	}
+
+	for (size_t animationIt = 0; animationIt < model.animations.size(); animationIt++)
+	{
+		const auto& animation = model.animations[animationIt];
+		if (merged.animations.size() <= animationIt)
+			merged.animations.push_back(SceneAnimation{.name = animation.name});
+		auto& into = merged.animations[animationIt];
+		into.duration = std::max(into.duration, animation.duration);
+		for (auto channel : animation.channels)
+		{
+			if (channel.path == SceneAnimationChannel::Path::kPointer)
+			{
+				if (targets[channel.node] < 0)
+					continue;
+				channel.node = static_cast<uint32_t>(targets[channel.node]);
+			}
+			else
+				channel.node += nodeBase;
+			into.channels.push_back(std::move(channel));
+		}
+	}
+}
+
+// the models as one: their indices and vertices in new staging buffers, and their materials, instances and animation
+// (see MergeAnimation: what moves keeps moving, skinned or by its nodes). side by side (ModelArrangement::kSideBySide),
+// in a grid, each scaled (uniformly, so its normals stay) to the same size and centered in its cell: in the xy plane
+// (facing +z, the cameras' default view), or on the ground (ModelGround::kPlane), in the xz plane with each model's
+// lowest point on it, rows going back from the first; the files of a set needn't share a scale (sphere.zip's spheres have
+// radius 1 and 115). or as authored, each where it is
+[[nodiscard]] static std::optional<Staged> Merge(
+	Device& device, std::vector<Staged>&& models, std::string name, ModelArrangement arrangement, ModelGround ground)
 {
 	ZoneScopedN("gfx::Model::Merge");
 
@@ -789,41 +896,55 @@ struct BvhCacheHeader
 	merged.desc.name = std::move(name);
 
 	// placed by their instance transforms, which the vertices are drawn with: each model's become the placement times
-	// its own, and its submeshes' instances move along
+	// its own, and its submeshes' instances move along. but a skinned submesh's, whose vertices its joints place (in the
+	// world, through their nodes, which the placement is a parent of): its instances are its own (unplaced, after the
+	// model's)
 	auto columns = static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(models.size()))));
 	for (size_t modelIt = 0; modelIt < models.size(); modelIt++)
 	{
 		const auto& desc = models[modelIt].desc;
 
-		// left to right, top to bottom
+		// left to right, then down (or back, on the ground)
 		auto column = static_cast<float>(modelIt % columns);
 		auto row = static_cast<float>(modelIt / columns);
 		auto center = desc.bounds.Center();
 		auto size = desc.bounds.Size();
 		auto extent = std::max({size.x, size.y, size.z});
 		auto scale = extent > 0.0F ? 1.0F / extent : 1.0F;
-		glm::vec3 offset{(column * kCell) - (center.x * scale), (-row * kCell) - (center.y * scale), -center.z * scale};
+		glm::vec3 offset{0.0F};
 		if (arrangement == ModelArrangement::kAsAuthored)
-		{
 			scale = 1.0F;
-			offset = glm::vec3(0.0F);
-		}
+		else if (ground == ModelGround::kPlane)
+			offset = glm::vec3((column * kCell) - (center.x * scale), -desc.bounds.GetMin().y * scale, (-row * kCell) - (center.z * scale));
+		else
+			offset = glm::vec3((column * kCell) - (center.x * scale), (-row * kCell) - (center.y * scale), -center.z * scale);
 		auto place = [&](const glm::vec3& point) { return (point * scale) + offset; };
 		// the placement, a uniform scale and an offset
 		auto placement = glm::translate(glm::mat4(1.0F), offset) * glm::scale(glm::mat4(1.0F), glm::vec3(scale));
 
-		auto materialBase = static_cast<int32_t>(merged.desc.materials.size());
-		auto instanceBase = static_cast<uint32_t>(merged.desc.instances.size());
-		auto weightBase = static_cast<uint32_t>(merged.desc.morphWeights.size());
+		MergeBases bases{
+			.instance = static_cast<uint32_t>(merged.desc.instances.size()),
+			.material = static_cast<uint32_t>(merged.desc.materials.size()),
+			.weight = static_cast<uint32_t>(merged.desc.morphWeights.size()),
+			.skin = static_cast<uint32_t>(merged.desc.animation.skins.size())};
 		merged.desc.morphWeights.insert(merged.desc.morphWeights.end(), desc.morphWeights.begin(), desc.morphWeights.end());
 		merged.desc.materials.insert(merged.desc.materials.end(), desc.materials.begin(), desc.materials.end());
+		for (const auto& transform : desc.instances)
+			merged.desc.instances.push_back(placement * transform);
 		for (auto submesh : desc.submeshes)
 		{
 			submesh.firstIndex += merged.desc.indexCount;
 			if (submesh.material >= 0)
-				submesh.material += materialBase;
-			submesh.firstInstance += instanceBase;
-			submesh.skin = -1; // a set is drawn at rest (see ModelDesc::animation), its morph targets at their default weights
+				submesh.material += static_cast<int32_t>(bases.material);
+			if (submesh.skin >= 0)
+			{
+				submesh.skin += static_cast<int32_t>(bases.skin);
+				auto first = desc.instances.begin() + submesh.firstInstance;
+				submesh.firstInstance = static_cast<uint32_t>(merged.desc.instances.size());
+				merged.desc.instances.insert(merged.desc.instances.end(), first, first + submesh.instanceCount);
+			}
+			else
+				submesh.firstInstance += bases.instance;
 			// placed as its instances are (see place, below)
 			submesh.bounds.SetMin(place(submesh.bounds.GetMin()));
 			submesh.bounds.SetMax(place(submesh.bounds.GetMax()));
@@ -831,12 +952,12 @@ struct BvhCacheHeader
 			{
 				submesh.morphDeltaBase += merged.desc.morphDeltaCount;
 				submesh.morphFirstVertex += merged.desc.vertexCount;
-				submesh.morphWeightBase += weightBase;
+				submesh.morphWeightBase += bases.weight;
 			}
 			merged.desc.submeshes.push_back(submesh);
 		}
-		for (const auto& transform : desc.instances)
-			merged.desc.instances.push_back(placement * transform);
+		MergeAnimation(merged.desc.animation, desc.animation, placement, bases, merged.desc.materials);
+		merged.desc.skinned |= desc.skinned;
 
 		auto placedMin = place(desc.bounds.GetMin());
 		auto placedMax = place(desc.bounds.GetMax());
@@ -869,7 +990,13 @@ struct BvhCacheHeader
 		merged.morphStaging = Buffer::CreateStaging(
 			device.CreateDeviceObjectCreateDesc(std::format("{} (morph staging)", merged.desc.name)),
 			merged.desc.morphDeltaCount * sizeof(MorphDelta));
+	// a skin vertex for every vertex, of no joints where its model has none (its submeshes aren't skinned)
+	if (merged.desc.skinned)
+		merged.skinStaging = Buffer::CreateStaging(
+			device.CreateDeviceObjectCreateDesc(std::format("{} (skin staging)", merged.desc.name)),
+			merged.desc.vertexCount * sizeof(SkinVertex));
 	auto morphDeltas = merged.morphStaging.IsValid() ? merged.morphStaging.Map() : std::span<std::byte>{};
+	auto skinVertices = merged.skinStaging.IsValid() ? merged.skinStaging.Map() : std::span<std::byte>{};
 
 	auto indices = merged.indexStaging.Map();
 	auto vertices = merged.vertexStaging.Map();
@@ -901,6 +1028,19 @@ struct BvhCacheHeader
 			morphOffset += desc.morphDeltaCount * sizeof(MorphDelta);
 		}
 
+		if (!skinVertices.empty())
+		{
+			auto skinOut = skinVertices.subspan(vertexBase * sizeof(SkinVertex), desc.vertexCount * sizeof(SkinVertex));
+			if (model.skinStaging.IsValid())
+			{
+				auto sourceSkin = model.skinStaging.Map();
+				std::memcpy(skinOut.data(), sourceSkin.data(), skinOut.size());
+				model.skinStaging.Unmap();
+			}
+			else
+				std::ranges::fill(skinOut, std::byte{0});
+		}
+
 		vertexBase += desc.vertexCount;
 		indexBase += desc.indexCount;
 
@@ -912,6 +1052,8 @@ struct BvhCacheHeader
 	merged.vertexStaging.Unmap();
 	if (merged.morphStaging.IsValid())
 		merged.morphStaging.Unmap();
+	if (merged.skinStaging.IsValid())
+		merged.skinStaging.Unmap();
 
 	return merged;
 }
@@ -1539,7 +1681,7 @@ std::shared_ptr<Model> Model::Load(
 	auto name = filePaths.size() == 1
 					? std::string(filePaths.front())
 					: std::format("{} ({} models)", std::filesystem::path(filePaths.front()).parent_path().string(), filePaths.size());
-	auto merged = model::Merge(device, std::move(models), std::move(name), arrangement);
+	auto merged = model::Merge(device, std::move(models), std::move(name), arrangement, ground);
 	if (!merged)
 		return {};
 	// its BVH built from the staged triangles once placed (by UploadStaged), unless none is wanted

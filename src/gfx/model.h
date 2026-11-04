@@ -140,7 +140,7 @@ struct ModelDesc
 	std::vector<SceneCamera> cameras;
 	// the file's lights (see mesh::Mesh::lights). none for a set of several files, which get the default light
 	std::vector<SceneLight> lights;
-	// what moves (see mesh::Mesh::animation). empty for a set of several files, which are drawn at rest
+	// what moves (see mesh::Mesh::animation). a set of several files', each under a node placing it (see Model::Load)
 	SceneAnimationData animation;
 	bool skinned = false; // whether it has skin vertices (SkinVertex, vertexCount of them, in their own buffer)
 	uint32_t morphDeltaCount = 0; // MorphDelta in their own buffer (see mesh::Mesh::morphDeltas)

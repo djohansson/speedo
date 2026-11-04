@@ -1106,34 +1106,6 @@ constexpr std::array<std::pair<std::string_view, MaterialTexture>, 19> kTextureP
 	return m.normal_texture;
 }
 
-// the imported material's reference to that texture
-[[nodiscard]] TextureRef& MaterialTextureRef(mesh::Material& m, MaterialTexture texture)
-{
-	switch (texture)
-	{
-	case MaterialTexture::kBaseColor: return m.diffuseTexture;
-	case MaterialTexture::kMetallicRoughness: return m.metallicRoughnessTexture;
-	case MaterialTexture::kNormal: return m.normalTexture;
-	case MaterialTexture::kOcclusion: return m.occlusionTexture;
-	case MaterialTexture::kEmissive: return m.emissiveTexture;
-	case MaterialTexture::kSpecular: return m.specularTexture;
-	case MaterialTexture::kSpecularColor: return m.specularColorTexture;
-	case MaterialTexture::kClearcoat: return m.clearcoatTexture;
-	case MaterialTexture::kClearcoatRoughness: return m.clearcoatRoughnessTexture;
-	case MaterialTexture::kClearcoatNormal: return m.clearcoatNormalTexture;
-	case MaterialTexture::kSheenColor: return m.sheenColorTexture;
-	case MaterialTexture::kSheenRoughness: return m.sheenRoughnessTexture;
-	case MaterialTexture::kTransmission: return m.transmissionTexture;
-	case MaterialTexture::kThickness: return m.thicknessTexture;
-	case MaterialTexture::kAnisotropy: return m.anisotropyTexture;
-	case MaterialTexture::kIridescence: return m.iridescenceTexture;
-	case MaterialTexture::kIridescenceThickness: return m.iridescenceThicknessTexture;
-	case MaterialTexture::kDiffuseTransmission: return m.diffuseTransmissionTexture;
-	case MaterialTexture::kDiffuseTransmissionColor: return m.diffuseTransmissionColorTexture;
-	}
-	return m.normalTexture;
-}
-
 } // namespace detail
 
 std::expected<Mesh, std::string> Import(

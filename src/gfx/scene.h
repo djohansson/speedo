@@ -164,6 +164,10 @@ public:
 	struct SceneState
 	{
 		std::string filePath;
+		// the files it was loaded from (one, or several as one, see Model::Load) and how several are arranged: what loads
+		// it again (Copy Pose writes them)
+		std::vector<std::string> filePaths;
+		ModelArrangement arrangement = ModelArrangement::kSideBySide;
 		std::vector<std::string> names;
 		uint32_t current = 0;
 		std::vector<std::string> variants;

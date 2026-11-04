@@ -326,6 +326,43 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 static std::mutex gPastedPoseMutex;
 static std::optional<std::string> gPastedPose;
 
+// SPEEDO_AUTOLOAD_MODEL's: a file, folder or zip archive, or several files (separated by ;) loaded as one, as Copy Pose
+// writes a set's (its name isn't a file), each absolute or relative to the resource dir
+[[nodiscard]] std::vector<std::string> AutoLoadPaths(std::string_view value, const std::filesystem::path& resourcePath)
+{
+	std::vector<std::string> paths;
+	for (auto path : value | std::views::split(';'))
+		if (!path.empty())
+			paths.push_back((resourcePath / std::string_view(path.begin(), path.end())).string());
+	return paths;
+}
+
+// SPEEDO_AUTOLOAD_ARRANGEMENT's: how several files are arranged (as-authored, else side by side)
+[[nodiscard]] ModelArrangement AutoLoadArrangement(const char* value)
+{
+	return value != nullptr && std::string_view(value) == "as-authored" ? ModelArrangement::kAsAuthored : ModelArrangement::kSideBySide;
+}
+
+// loads what SPEEDO_AUTOLOAD_MODEL names (see AutoLoadPaths): several files as one, a model file of a scene or variant
+// (options), else by its type (a folder's or a zip archive's models all, side by side). call from a load
+void LoadAutoModel(
+	RHI& rhi,
+	const std::vector<std::string>& paths,
+	const mesh::ImportOptions& options,
+	ModelArrangement arrangement,
+	ModelGround ground,
+	std::atomic_uint8_t& progress)
+{
+	using namespace windowedapplication;
+
+	if (paths.size() > 1)
+		App().GetScene().LoadModels(paths, progress, {}, arrangement, ground);
+	else if ((options.scene || options.variant) && mesh::IsModelFile(paths.front()))
+		App().GetScene().LoadModels(paths, progress, options, ModelArrangement::kSideBySide, ground);
+	else if (!paths.empty())
+		LoadAndInstallFile(rhi, paths.front(), progress, ArchiveModels::kAll, ground);
+}
+
 } // namespace ui
 
 void WindowedApplication::InternalCopyPose()
@@ -362,7 +399,17 @@ void WindowedApplication::InternalCopyPose()
 	}
 	{
 		auto scenes = scene.GetScenes().Read();
-		if (!scenes.Get().filePath.empty())
+		// a set's files, each (its name isn't one), and how they are arranged where not side by side
+		if (scenes.Get().filePaths.size() > 1)
+		{
+			std::string paths;
+			for (const auto& path : scenes.Get().filePaths)
+				paths += (paths.empty() ? "" : ";") + path;
+			text += std::format(" SPEEDO_AUTOLOAD_MODEL='{}'", paths);
+			if (scenes.Get().arrangement == ModelArrangement::kAsAuthored)
+				text += " SPEEDO_AUTOLOAD_ARRANGEMENT=as-authored";
+		}
+		else if (!scenes.Get().filePath.empty())
 			text += std::format(" SPEEDO_AUTOLOAD_MODEL='{}'", scenes.Get().filePath);
 		if (scenes.Get().current != 0)
 			text += std::format(" SPEEDO_AUTOLOAD_SCENE={}", scenes.Get().current);
@@ -1192,13 +1239,12 @@ void WindowedApplication::PrepareDraw()
 		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"); autoLoadModel != nullptr && *autoLoadModel != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadModel,
-				[&rhi, path = (resourcePath / autoLoadModel).string(), autoLoadOptions, autoLoadGround](std::atomic_uint8_t& progress)
-				{
-					if ((autoLoadOptions.scene || autoLoadOptions.variant) && mesh::IsModelFile(path))
-						App().GetScene().LoadModels({path}, progress, autoLoadOptions, ModelArrangement::kSideBySide, autoLoadGround);
-					else
-						LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll, autoLoadGround);
-				}));
+				[&rhi,
+				 paths = ui::AutoLoadPaths(autoLoadModel, resourcePath),
+				 arrangement = ui::AutoLoadArrangement(std::getenv("SPEEDO_AUTOLOAD_ARRANGEMENT")),
+				 autoLoadOptions,
+				 autoLoadGround](std::atomic_uint8_t& progress)
+				{ ui::LoadAutoModel(rhi, paths, autoLoadOptions, arrangement, autoLoadGround, progress); }));
 		// the settings a pose names (see ui::ApplyPoseSettings: the tonemapper, the exposure, the shadows, the emissive
 		// lights, the indirect lighting, temporal upscaling, the debug view, the environment's rotation and intensity and the
 		// sky's sun), as View sets them; SPEEDO_GI_DEBUG=<n> first, the indirect lighting's n-th debug view, as GiData::debug
@@ -1317,7 +1363,8 @@ void WindowedApplication::PrepareDraw()
 	// camera waits for; at startup, any
 	struct AutoModel
 	{
-		std::string filePath;
+		std::vector<std::string> filePaths; // a file, folder or archive, or several files as one
+		ModelArrangement arrangement = ModelArrangement::kSideBySide;
 		uint32_t scene = 0;
 		std::optional<uint32_t> variant;
 		ModelGround ground = ModelGround::kNone;
@@ -1329,8 +1376,9 @@ void WindowedApplication::PrepareDraw()
 	auto modelIs = [](const AutoModel& model)
 	{
 		auto scenes = App().GetScene().GetScenes().Read();
-		return scenes.Get().filePath == model.filePath && scenes.Get().current == model.scene && scenes.Get().variant == model.variant &&
-			   scenes.Get().ground == model.ground;
+		bool files = model.filePaths.size() > 1 ? scenes.Get().filePaths == model.filePaths && scenes.Get().arrangement == model.arrangement
+												: scenes.Get().filePath == model.filePaths.front();
+		return files && scenes.Get().current == model.scene && scenes.Get().variant == model.variant && scenes.Get().ground == model.ground;
 	};
 
 	// a pose pasted (View > Camera > Paste Pose, ctrl/cmd+shift+v): its settings (those it doesn't name back to their
@@ -1354,7 +1402,8 @@ void WindowedApplication::PrepareDraw()
 				if (const char* variant = pose->Get("SPEEDO_AUTOLOAD_VARIANT"))
 					options.variant = std::strtoull(variant, nullptr, 10);
 				AutoModel wanted{
-					.filePath = (resourcePath / model).string(),
+					.filePaths = ui::AutoLoadPaths(model, resourcePath),
+					.arrangement = ui::AutoLoadArrangement(pose->Get("SPEEDO_AUTOLOAD_ARRANGEMENT")),
 					.scene = static_cast<uint32_t>(options.scene.value_or(0)),
 					.variant = options.variant ? std::optional<uint32_t>(static_cast<uint32_t>(*options.variant)) : std::nullopt,
 					.ground = pose->Get("SPEEDO_GROUND_PLANE") != nullptr && std::string_view(pose->Get("SPEEDO_GROUND_PLANE")) == "1"
@@ -1364,13 +1413,8 @@ void WindowedApplication::PrepareDraw()
 				{
 					gAutoLoads.emplace_back(gLoads.Enqueue(
 						model,
-						[&rhi, path = wanted.filePath, options, ground = wanted.ground](std::atomic_uint8_t& progress)
-						{
-							if ((options.scene || options.variant) && mesh::IsModelFile(path))
-								App().GetScene().LoadModels({path}, progress, options, ModelArrangement::kSideBySide, ground);
-							else
-								LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll, ground);
-						}));
+						[&rhi, paths = wanted.filePaths, arrangement = wanted.arrangement, options, ground = wanted.ground](std::atomic_uint8_t& progress)
+						{ ui::LoadAutoModel(rhi, paths, options, arrangement, ground, progress); }));
 					gAutoModel = std::move(wanted);
 					gAutoCameraAfterModel = true;
 					gAutoLoadsReadyFrame.reset();

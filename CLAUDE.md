@@ -2901,8 +2901,8 @@ its cosine and sine. A layer whose factor animates up from 0 is on (`LayersOf`: 
 and transmission draws in the second phase). `AnimatedBounds` grows a model's bounds by its animations' poses (each
 sampled 30 times a second, at most 600: the linked instances' vertex bounds and the per joint bounds of skinned
 vertices), so the views frame all of it. `resources/test-models/gltf/AnimatedCameraLight.gltf` animates a camera's node
-and yfov, a light's color and intensity, and an emissive strength. A set of files is drawn at rest (morph
-targets at their default weights). Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
+and yfov, a light's color and intensity, and an emissive strength. A set of files moves as its files do (see "Archives
+of several models", below). Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
 perspective field of view or orthographic height, near and far; none for a set of files) and the views use the first
 (`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). A camera's roll is
 `cameraRotation.z` (applied before pitch and yaw), and its aspect ratio (gltf `aspectRatio`, or `xmag / ymag`)
@@ -3255,13 +3255,24 @@ cascades reach as far as the bounds, the indirect lighting's clipmap covers them
 coarsens the indirect lighting's voxels by the ground's share of the bounds (2.5 times for a model as wide as tall);
 `Model::GetFramedBounds` leaves it out, which the views frame and orbit (`Views::SetScene`'s `framed`, `FrameBounds`'
 reach for the far plane). `Scene::SceneState::ground` says what the installed model stands on, which View > Scene and
-Variant keep when they load it again. A set side by side is a grid in the xy plane: its upper rows stand above it.
+Variant keep when they load it again. A set side by side stands on it (see "Archives of several models"), and a model on a
+ground plane is framed from 30 degrees above (`Views::FrameBounds`' pitch), so that a set's back rows show over its front
+ones and the shadows are in view.
 
 Archives of several models are sets of variants (geodesic's 86 polyhedra, sphere's tessellations and texture mappings,
 the CornellBox variants, ...), not scenes: each file stands alone at the origin, and the files of a set needn't share a
-scale. `Model::Load(filePaths)` loads them as one model, side by side in a grid facing the camera, each scaled to the
-same size and centered in its cell by its instance transforms (premultiplied by the placement; vertices are copied as
-they are), each file still through its own cache entry, merged as staging data before the one upload. Autoloading a zip or a directory loads all of its models that way, opening a zip offers it next to choosing one,
+scale. `Model::Load(filePaths)` loads them as one model, side by side in a grid facing the camera (the xy plane), or on a
+ground plane (`ModelGround::kPlane`) laid on it (the xz plane, each file's lowest point on the ground, rows going back),
+each scaled to the same size and centered in its cell by its instance transforms (premultiplied by the placement;
+vertices are copied as they are), each file still through its own cache entry, merged as staging data before the one
+upload (`model::Merge`). What moves keeps moving (`MergeAnimation`): each file's nodes go under a node of its own
+placing them, its skins, joints, instance links, morphs, pointer targets and animation channels offset into the set's,
+and the set's k-th animation plays every file's k-th; a skinned submesh's instances aren't placed (its joints, under the
+placement, place its vertices, which the instance would place again), and the skin vertices are merged as
+well. A set has no lights or cameras, nor what animates them. It used to be drawn at rest: a skinned file in its bind
+space (CesiumMan lying on its back) and nothing moving. Copy Pose writes a set's files for `SPEEDO_AUTOLOAD_MODEL`,
+separated by `;` (its name, a folder's and a count, is no file), and `SPEEDO_AUTOLOAD_ARRANGEMENT=as-authored` where
+so, which the autoloads and Paste Pose take. Autoloading a zip or a directory loads all of its models that way, opening a zip offers it next to choosing one,
 the browser's Open loads several selected models so (or as authored), and `assettest.ps1` runs the client once per such archive (with the archive's first
 image on the default material: sphere.zip's models name materials its mtl file doesn't have), and once per
 subdirectory with several models of a directory it is given, rather than once per file: 38 client runs instead of 145

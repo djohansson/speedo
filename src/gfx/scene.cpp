@@ -945,7 +945,9 @@ struct Scene::Impl
 		RHI& rhi,
 		QueueTimelineContextData& graphics,
 		const std::shared_ptr<Model>& model,
-		std::vector<MaterialTextures> textures)
+		std::vector<MaterialTextures> textures,
+		std::vector<std::string> filePaths,
+		ModelArrangement arrangement)
 	{
 		ZoneScopedN("WindowedApplication::InstallModel");
 
@@ -968,7 +970,7 @@ struct Scene::Impl
 
 		// everything is switched at once, after the textures are readable: one descriptor set update, and no frame draws
 		// the new model with the old materials or the other way around
-		TransitionThenBind(rhi, graphics, uploads, [this, &rhi, model, textures = std::move(textures)](QueueTimelineContextData& graphics)
+		TransitionThenBind(rhi, graphics, uploads, [this, &rhi, model, textures = std::move(textures), filePaths = std::move(filePaths), arrangement](QueueTimelineContextData& graphics) mutable
 		{
 			auto& device = rhi.GetPrimaryDevice();
 			auto& pipeline = myPipeline;
@@ -1372,6 +1374,8 @@ struct Scene::Impl
 				auto scenes = myScenes.Write();
 				scenes.Get() = SceneState{
 					.filePath = model->GetDesc().name,
+					.filePaths = std::move(filePaths),
+					.arrangement = arrangement,
 					.names = model->GetDesc().scenes,
 					.current = model->GetDesc().scene,
 					.variants = model->GetDesc().variants,
@@ -1401,7 +1405,14 @@ struct Scene::Impl
 
 			RetireAfterGraphicsWork(graphics, std::exchange(myModel, model));
 
-			myViews.SetScene(model->GetDesc().bounds, model->GetFramedBounds(), model->GetDesc().cameras);
+			// on a ground plane, framed from above, so that a set's back rows show over its front ones (see model::Merge) and
+			// the shadows on the ground are in view
+			constexpr float kGroundFramePitch = glm::radians(30.0F);
+			myViews.SetScene(
+				model->GetDesc().bounds,
+				model->GetFramedBounds(),
+				model->GetDesc().cameras,
+				model->GetGround() == ModelGround::kPlane ? kGroundFramePitch : 0.0F);
 		});
 	}
 
@@ -1606,8 +1617,8 @@ struct Scene::Impl
 			kModelTextureMaxCount);
 
 		auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData*>(
-			[this, &rhi, model, textures = std::move(textures)](QueueTimelineContextData* graphics) mutable
-			{ InstallModel(rhi, *graphics, model, std::move(textures)); });
+			[this, &rhi, model, textures = std::move(textures), filePaths, arrangement](QueueTimelineContextData* graphics) mutable
+			{ InstallModel(rhi, *graphics, model, std::move(textures), std::move(filePaths), arrangement); });
 		rhi.drawCalls.enqueue(installTask);
 		return filePath;
 	}
