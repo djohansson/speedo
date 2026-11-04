@@ -2524,6 +2524,15 @@ std::optional<std::string> UnsupportedRequiredExtension(const std::filesystem::p
 	return std::nullopt;
 }
 
+std::vector<std::string> VariantNames(const std::filesystem::path& path)
+{
+	std::vector<std::string> names;
+	if (auto parsed = detail::Parse(path))
+		for (cgltf_size variantIt = 0; variantIt < (**parsed).variants_count; variantIt++)
+			names.emplace_back((**parsed).variants[variantIt].name != nullptr ? (**parsed).variants[variantIt].name : std::format("Variant {}", variantIt));
+	return names;
+}
+
 std::vector<std::filesystem::path> BufferFiles(const std::filesystem::path& path)
 {
 	std::vector<std::filesystem::path> files;

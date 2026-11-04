@@ -170,7 +170,7 @@ public:
 	};
 
 	// the installed model's file, its scenes and its material variants (a gltf file's, see ModelDesc::scenes and
-	// variants), for View > Scene and View > Variant. the draw thread sets it, the ui thread reads it.
+	// variants), for View > Scene, Copy Pose and Paste Pose. the draw thread sets it, the ui thread reads it.
 	struct SceneState
 	{
 		std::string filePath;
@@ -183,6 +183,9 @@ public:
 		std::vector<std::string> variants;
 		std::optional<uint32_t> variant; // none: the default materials
 		ModelGround ground = ModelGround::kNone; // what it stands on (see Model::Load)
+		// where files' variants are laid out to compare (see LoadVariants): the variant of each of filePaths (none: the
+		// default materials), empty otherwise
+		std::vector<std::optional<uint32_t>> layout;
 	};
 
 	// one of the installed environment's dominant lights, for the ui: its irradiance (lux, luminance) and whether the
@@ -238,6 +241,19 @@ public:
 		std::atomic_uint8_t& progress,
 		const mesh::ImportOptions& options = {},
 		ModelArrangement arrangement = ModelArrangement::kSideBySide,
+		ModelGround ground = ModelGround::kNone,
+		core::CancelledFn cancelled = core::NeverCancelled);
+	// files' material variants (KHR_materials_variants) laid out to compare: copies of files (filePaths, a file's
+	// together), each with its variant (variants, as many: none, the default materials), in scene (none: each file's
+	// default, see mesh::ImportOptions::scene), arranged as arrangement says (one behind the other by default, the user's
+	// call: each file's copies in a column, see ModelArrangement::kBehindEachOther), standing on ground; one copy alone
+	// loads its file with its variant. as LoadModels otherwise
+	std::optional<std::string> LoadVariants(
+		std::span<const std::string> filePaths,
+		std::span<const std::optional<uint32_t>> variants,
+		std::optional<size_t> scene,
+		std::atomic_uint8_t& progress,
+		ModelArrangement arrangement = ModelArrangement::kBehindEachOther,
 		ModelGround ground = ModelGround::kNone,
 		core::CancelledFn cancelled = core::NeverCancelled);
 	// an image, on the default material (material 0)

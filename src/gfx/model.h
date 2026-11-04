@@ -186,12 +186,15 @@ struct ModelRayQueries
 };
 
 // how several model files loaded as one (Model::Load of several) are placed: side by side in a grid in the xy plane,
-// each scaled to the same size and centered in its cell (sets of variants, whose files needn't share a scale), or as
-// authored, each at its own coordinates (the parts of one scene)
+// each scaled to the same size and centered in its cell (sets of variants, whose files needn't share a scale), as
+// authored, each at its own coordinates (the parts of one scene), or one behind the other, going back from the camera
+// (-z) as side by side's rows do: files' material variants laid out to compare (the user's call, see
+// Scene::LoadVariants), each file's copies in a column, the files' columns side by side
 enum class ModelArrangement : uint8_t
 {
 	kSideBySide,
 	kAsAuthored,
+	kBehindEachOther,
 };
 
 // what a model is loaded standing on (see Model::Load): nothing, or a plane of light gray squares, checkered, under
@@ -323,14 +326,17 @@ public:
 
 	// loads several model files (each through its own cache entry) as one, arranged (see ModelArrangement): side by side
 	// for sets of variants, such as an archive's models, or the encodings of a gltf model. files the importers don't
-	// support (see mesh::Unsupported) are skipped. null if any load is cancelled or fails.
+	// support (see mesh::Unsupported) are skipped. options: each file's (a gltf file's scene and material variant), else
+	// their defaults; given, they lay the files' variants out (copies of files, each with its variant, a file's copies
+	// together: see GetLayout). null if any load is cancelled or fails.
 	[[nodiscard]] static std::shared_ptr<Model> Load(
 		std::span<const std::string_view> filePaths,
 		std::atomic_uint8_t& progress,
 		ModelArrangement arrangement = ModelArrangement::kSideBySide,
 		ModelBvh bvh = ModelBvh::kBuild,
 		ModelGround ground = ModelGround::kNone,
-		core::CancelledFn cancelled = core::NeverCancelled);
+		core::CancelledFn cancelled = core::NeverCancelled,
+		std::span<const mesh::ImportOptions> options = {});
 
 	// what it was loaded standing on (see ModelGround), and its bounds without it: what the views frame and orbit
 	// (ModelDesc::bounds has the ground's patch around it too, which the shadows and the indirect lighting take in, not
@@ -349,11 +355,15 @@ public:
 		return myGround == ModelGround::kPlane && myDesc.materials.size() >= 2 ? std::optional<size_t>(myDesc.materials.size() - 1) : std::nullopt;
 	}
 	[[nodiscard]] const Bounds3f& GetFramedBounds() const noexcept { return myFramedBounds; }
+	// where it lays files' material variants out (see Load of several): the variant each of its files was loaded with, in
+	// their order (none: its default materials; a file skipped too, see mesh::Unsupported), empty otherwise
+	[[nodiscard]] std::span<const std::optional<uint32_t>> GetLayout() const noexcept { return myLayout; }
 
 private:
 	ModelDesc myDesc;
 	ModelGround myGround = ModelGround::kNone;
 	Bounds3f myFramedBounds;
+	std::vector<std::optional<uint32_t>> myLayout;
 	ModelBuffers myBuffers;
 	Upload myUpload;
 	std::unique_ptr<bvh::Moving> myMovingBvh; // placed by Animate, null if nothing moves (or the rays walk the voxels)

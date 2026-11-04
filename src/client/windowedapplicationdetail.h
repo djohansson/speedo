@@ -105,11 +105,24 @@ struct ArchiveChoice
 inline std::mutex gArchiveChoiceMutex;
 inline std::optional<ArchiveChoice> gArchiveChoice; // guarded by gArchiveChoiceMutex
 
-// what LoadAndInstallArchive does with an archive of several models (sets of variants, such as the geodesic spheres)
-enum class ArchiveModels : uint8_t
+// the material variants of a model file opened, for the user to choose which to lay out (see PrepareDraw)
+struct VariantChoice
 {
-	kChoose, // the user chooses one, or all of them
-	kAll, // all of them, side by side
+	std::string filePath;
+	std::vector<std::string> variants;
+	ModelGround ground = ModelGround::kNone;
+};
+inline std::mutex gVariantChoiceMutex;
+inline std::optional<VariantChoice> gVariantChoice; // guarded by gVariantChoiceMutex
+
+// whether a load asks the user what it holds several of (see LoadAndInstallFile): which of an archive's models to load
+// (sets of variants, such as the geodesic spheres), and which of a model's material variants to lay out (see
+// Scene::LoadVariants), as File > Open and Open Recent do; or loads the default, an archive's models all side by side and
+// a model with its default materials, as the autoloads do (what they load, their variables say)
+enum class LoadChoice : uint8_t
+{
+	kAsk,
+	kDefault,
 };
 
 // escape closes the window being built (called between its Begin and End) while it, or a child of it, has the focus:
@@ -138,8 +151,10 @@ inline constexpr const char* kEnvironmentExtensions = "hdr";
 // the image files gfx::Scene::LoadImage takes, as a file dialog filter spec (see image::Import)
 inline constexpr const char* kImageExtensions = "jpg,jpeg,png,bmp,tga,gif,psd,pic,pnm,webp,ktx2";
 
-// loads a model standing on ground (see ModelGround). call from a load (see gLoads).
-void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ModelGround ground = ModelGround::kNone);
+// loads a model standing on ground (see ModelGround), or with choice kAsk where it has material variants, offers them to
+// lay out (see VariantChoice). call from a load (see gLoads).
+void LoadAndInstallModel(
+	RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ModelGround ground = ModelGround::kNone, LoadChoice choice = LoadChoice::kDefault);
 
 // extracts a zip archive into the user profile directory, once: later loads of the same file (by path, size and time)
 // reuse it. returns the directory it was extracted to, or nothing if it failed (the reason is printed to stderr) or was
@@ -149,9 +164,9 @@ std::optional<std::filesystem::path> ExtractArchive(const std::filesystem::path&
 // the model files (.obj, .gltf, .glb) below a directory, sorted
 std::vector<std::filesystem::path> FindModels(const std::filesystem::path& directory);
 
-// extracts a zip archive and loads the model in it. with several, see ArchiveModels. call from a load (see gLoads).
+// extracts a zip archive and loads the model in it. with several, see LoadChoice. call from a load (see gLoads).
 void LoadAndInstallArchive(
-	RHI& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, ArchiveModels several, ModelGround ground = ModelGround::kNone);
+	RHI& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, LoadChoice choice, ModelGround ground = ModelGround::kNone);
 
 // loads the models below a directory (e.g. the encodings of a gltf sample model) as one, side by side (see Model::Load).
 // call from a load (see gLoads).
@@ -159,11 +174,11 @@ void LoadAndInstallFolder(RHI& rhi, std::string_view directoryPath, std::atomic_
 
 [[nodiscard]] bool IsImageFile(const std::filesystem::path& path);
 
-// loads whatever path is, by its type: a directory's models or a zip archive's (see ArchiveModels), a model, an
-// environment panorama (.hdr), or an image (on the default material). the models stand on ground (see ModelGround).
-// call from a load (see gLoads).
+// loads whatever path is, by its type: a directory's models or a zip archive's, a model (choice: what of either it asks
+// the user, see LoadChoice), an environment panorama (.hdr), or an image (on the default material). the models stand on
+// ground (see ModelGround). call from a load (see gLoads).
 void LoadAndInstallFile(
-	RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ArchiveModels several, ModelGround ground = ModelGround::kNone);
+	RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, LoadChoice choice, ModelGround ground = ModelGround::kNone);
 
 // what was opened (File > Open... or Open Recent): a file of any kind the client loads (see LoadAndInstallFile), or
 // several models as one (see Scene::LoadModels), arranged and standing on a ground as the browser said

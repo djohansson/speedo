@@ -314,7 +314,7 @@ void WindowedApplication::InternalOpen(const windowedapplication::RecentFile& fi
 		(void)gLoads.Enqueue(
 			file.paths.front(),
 			[&rhi, path = file.paths.front(), ground = file.ground](std::atomic_uint8_t& progress)
-			{ LoadAndInstallFile(rhi, path, progress, ArchiveModels::kChoose, ground); });
+			{ LoadAndInstallFile(rhi, path, progress, LoadChoice::kAsk, ground); });
 	else if (file.paths.size() > 1)
 		(void)gLoads.Enqueue(
 			std::format("{} models", file.paths.size()),
@@ -460,7 +460,8 @@ void WindowedApplication::InternalDrawBrowser()
 	}
 
 	// opens the selection: one model as it is, several as one (side by side, or as authored), and the rest each by its
-	// type (archives offer their models, see ArchiveModels::kChoose); what holds models on a ground plane, if asked for
+	// type; what holds several asks which (an archive's models, a model's material variants: see LoadChoice::kAsk), and
+	// what holds models stands on a ground plane, if asked for
 	auto open = [this, &state]
 	{
 		auto ground = state.ground ? ModelGround::kPlane : ModelGround::kNone;

@@ -8,8 +8,16 @@
 namespace client::windowedapplication
 {
 
-void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ModelGround ground)
+void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ModelGround ground, LoadChoice choice)
 {
+	if (choice == LoadChoice::kAsk)
+		if (auto variants = mesh::VariantNames(filePath); !variants.empty())
+		{
+			std::scoped_lock lock(gVariantChoiceMutex);
+			gVariantChoice = VariantChoice{.filePath = std::string(filePath), .variants = std::move(variants), .ground = ground};
+			return;
+		}
+
 	App().GetScene().LoadModels({std::string(filePath)}, progress, {}, ModelArrangement::kSideBySide, ground);
 }
 
@@ -79,8 +87,8 @@ std::vector<std::filesystem::path> FindModels(const std::filesystem::path& direc
 	return models;
 }
 
-// extracts a zip archive and loads the model in it. with several, see ArchiveModels. call from a load (see gLoads).
-void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, ArchiveModels several, ModelGround ground)
+// extracts a zip archive and loads the model in it. with several, see LoadChoice. call from a load (see gLoads).
+void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, LoadChoice choice, ModelGround ground)
 {
 	auto directory = ExtractArchive(archivePath, progress);
 	if (!directory) // failed or cancelled
@@ -93,7 +101,14 @@ void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::atomic_u
 		return;
 	}
 
-	if (models.size() == 1 || several == ArchiveModels::kAll)
+	if (models.size() == 1)
+	{
+		progress = 0;
+		LoadAndInstallModel(rhi, models.front().string(), progress, ground, choice);
+		return;
+	}
+
+	if (choice == LoadChoice::kDefault)
 	{
 		progress = 0;
 		std::vector<std::string> paths;
@@ -146,9 +161,10 @@ void LoadAndInstallFolder(RHI& rhi, std::string_view directoryPath, std::atomic_
 	return false;
 }
 
-// loads whatever path is, by its type: a directory's models or a zip archive's (see ArchiveModels), a model, an
-// environment panorama (.hdr), or an image (on the default material). call from a load (see gLoads).
-void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ArchiveModels several, ModelGround ground)
+// loads whatever path is, by its type: a directory's models or a zip archive's, a model (choice: what of either it asks
+// the user, see LoadChoice), an environment panorama (.hdr), or an image (on the default material). call from a load
+// (see gLoads).
+void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, LoadChoice choice, ModelGround ground)
 {
 	std::filesystem::path path(filePath);
 	auto extension = path.extension().string();
@@ -157,9 +173,9 @@ void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_uint8_t
 	if (std::error_code error; std::filesystem::is_directory(path, error))
 		LoadAndInstallFolder(rhi, filePath, progress, ground);
 	else if (extension == ".zip")
-		LoadAndInstallArchive(rhi, filePath, progress, several, ground);
+		LoadAndInstallArchive(rhi, filePath, progress, choice, ground);
 	else if (mesh::IsModelFile(path))
-		LoadAndInstallModel(rhi, filePath, progress, ground);
+		LoadAndInstallModel(rhi, filePath, progress, ground, choice);
 	else if (extension == ".hdr")
 		App().GetScene().LoadEnvironment(std::string(filePath), progress);
 	else if (IsImageFile(path))

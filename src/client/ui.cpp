@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -23,6 +24,7 @@
 #include <optional>
 #include <print>
 #include <ranges>
+#include <span>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -346,30 +348,130 @@ static std::optional<std::string> gPastedPose;
 	return paths;
 }
 
-// SPEEDO_AUTOLOAD_ARRANGEMENT's: how several files are arranged (as-authored, else side by side)
-[[nodiscard]] ModelArrangement AutoLoadArrangement(const char* value)
+// SPEEDO_AUTOLOAD_ARRANGEMENT's: how several files are arranged (as-authored, side-by-side or behind-each-other), else
+// none: the default (a set side by side, variants laid out one behind the other, see LoadAutoModel)
+[[nodiscard]] std::optional<ModelArrangement> AutoLoadArrangement(const char* value)
 {
-	return value != nullptr && std::string_view(value) == "as-authored" ? ModelArrangement::kAsAuthored : ModelArrangement::kSideBySide;
+	std::string_view name = value != nullptr ? value : "";
+	if (name == "as-authored")
+		return ModelArrangement::kAsAuthored;
+	if (name == "side-by-side")
+		return ModelArrangement::kSideBySide;
+	if (name == "behind-each-other")
+		return ModelArrangement::kBehindEachOther;
+	return std::nullopt;
 }
 
-// loads what SPEEDO_AUTOLOAD_MODEL names (see AutoLoadPaths): several files as one, a model file of a scene or variant
-// (options), else by its type (a folder's or a zip archive's models all, side by side). call from a load
-void LoadAutoModel(
-	RHI& rhi,
-	const std::vector<std::string>& paths,
-	const mesh::ImportOptions& options,
-	ModelArrangement arrangement,
-	ModelGround ground,
-	std::atomic_uint8_t& progress)
+// SPEEDO_AUTOLOAD_VARIANTS' variants (see Scene::LoadVariants), of a file of variantCount: "all" of them, else indices and
+// "default" (the default materials) separated by commas, as Copy Pose writes them (VariantsText)
+[[nodiscard]] std::vector<std::optional<uint32_t>> ParseVariants(std::string_view value, size_t variantCount)
+{
+	std::vector<std::optional<uint32_t>> variants;
+	if (value == "all")
+	{
+		for (uint32_t variantIt = 0; variantIt < variantCount; variantIt++)
+			variants.emplace_back(variantIt);
+		return variants;
+	}
+	for (auto part : std::views::split(value, ','))
+	{
+		std::string_view item(part.begin(), part.end());
+		uint32_t index = 0;
+		if (item == "default")
+			variants.emplace_back(std::nullopt);
+		else if (auto [end, error] = std::from_chars(item.data(), item.data() + item.size(), index); error == std::errc{} && index < variantCount)
+			variants.emplace_back(index);
+	}
+	return variants;
+}
+
+[[nodiscard]] std::string VariantsText(std::span<const std::optional<uint32_t>> variants)
+{
+	std::string text;
+	for (auto variant : variants)
+		text += std::format("{}{}", text.empty() ? "" : ",", variant ? std::to_string(*variant) : std::string("default"));
+	return text;
+}
+
+// a variants layout's copies (see Scene::LoadVariants) of model files: each file's variants SPEEDO_AUTOLOAD_VARIANTS'
+// value names (see ParseVariants), a file without any of them once, with its default materials (a gltf sample model's
+// encoding without them, as StainedGlassLamp's JPG-PNG); none where no file has any
+struct VariantCopies
+{
+	std::vector<std::string> filePaths;
+	std::vector<std::optional<uint32_t>> variants;
+};
+[[nodiscard]] VariantCopies LayOutVariants(std::span<const std::string> files, std::string_view value)
+{
+	VariantCopies copies;
+	bool any = false;
+	for (const auto& file : files)
+	{
+		auto variants = ParseVariants(value, mesh::VariantNames(file).size());
+		any = any || std::ranges::any_of(variants, [](std::optional<uint32_t> variant) { return variant.has_value(); });
+		if (variants.empty())
+			variants.emplace_back(std::nullopt);
+		for (auto variant : variants)
+		{
+			copies.filePaths.push_back(file);
+			copies.variants.push_back(variant);
+		}
+	}
+	return any ? copies : VariantCopies{};
+}
+
+// what SPEEDO_AUTOLOAD_MODEL (or a pose pasted) loads, and how (see LoadAutoModel): its files (see AutoLoadPaths), a gltf
+// file's scene and variant, how several are arranged (none: the default), what it stands on, and its variants laid out
+// (SPEEDO_AUTOLOAD_VARIANTS' text, see ParseVariants). held by a shared pointer in the load (a load's callable holds 96
+// bytes at most)
+struct AutoModelLoad
+{
+	std::vector<std::string> paths;
+	mesh::ImportOptions options;
+	std::optional<ModelArrangement> arrangement;
+	ModelGround ground = ModelGround::kPlane;
+	std::string variants;
+};
+
+// loads it: its models' variants laid out (see LayOutVariants: a model file's, several files', or a folder's or a zip
+// archive's models'), one behind the other unless arranged otherwise, else several files as one, a model file of a scene
+// or variant, else by its type (a folder's or a zip archive's models all, side by side). call from a load
+void LoadAutoModel(RHI& rhi, const AutoModelLoad& load, std::atomic_uint8_t& progress)
 {
 	using namespace windowedapplication;
 
+	const auto& [paths, options, arrangement, ground, variants] = load;
+	if (!variants.empty() && !paths.empty())
+	{
+		// the model files: those named, or a folder's or a zip archive's (extracted, see ExtractArchive)
+		std::vector<std::string> files = paths;
+		if (std::filesystem::path path(paths.front()); paths.size() == 1 && !mesh::IsModelFile(path))
+		{
+			auto extension = path.extension().string();
+			std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			std::error_code error;
+			auto directory = std::filesystem::is_directory(path, error) ? std::optional(path)
+							 : extension == ".zip"						 ? ExtractArchive(path, progress)
+																		 : std::nullopt;
+			files.clear();
+			if (directory)
+				for (const auto& model : FindModels(*directory))
+					files.push_back(model.string());
+		}
+		if (auto copies = LayOutVariants(files, variants); !copies.filePaths.empty())
+		{
+			progress = 0;
+			App().GetScene().LoadVariants(
+				copies.filePaths, copies.variants, options.scene, progress, arrangement.value_or(ModelArrangement::kBehindEachOther), ground);
+			return;
+		}
+	}
 	if (paths.size() > 1)
-		App().GetScene().LoadModels(paths, progress, {}, arrangement, ground);
+		App().GetScene().LoadModels(paths, progress, {}, arrangement.value_or(ModelArrangement::kSideBySide), ground);
 	else if ((options.scene || options.variant) && mesh::IsModelFile(paths.front()))
 		App().GetScene().LoadModels(paths, progress, options, ModelArrangement::kSideBySide, ground);
 	else if (!paths.empty())
-		LoadAndInstallFile(rhi, paths.front(), progress, ArchiveModels::kAll, ground);
+		LoadAndInstallFile(rhi, paths.front(), progress, LoadChoice::kDefault, ground);
 }
 
 } // namespace ui
@@ -408,8 +510,35 @@ void WindowedApplication::InternalCopyPose()
 	}
 	{
 		auto scenes = scene.GetScenes().Read();
+		// files' variants laid out: the files, each once, and which variants (see ui::ParseVariants: those of the files
+		// with any, which a file without takes as its default materials once, see ui::LayOutVariants) and how where not one
+		// behind the other
+		if (const auto& state = scenes.Get(); !state.layout.empty() && state.layout.size() == state.filePaths.size())
+		{
+			std::string paths;
+			std::vector<std::optional<uint32_t>> variants;
+			for (size_t first = 0; first < state.filePaths.size();)
+			{
+				// a file's copies
+				auto end = first + 1;
+				while (end < state.filePaths.size() && state.filePaths[end] == state.filePaths[first])
+					end++;
+				paths += (paths.empty() ? "" : ";") + state.filePaths[first];
+				std::span copies(state.layout.begin() + static_cast<ptrdiff_t>(first), state.layout.begin() + static_cast<ptrdiff_t>(end));
+				if (std::ranges::any_of(copies, [](std::optional<uint32_t> variant) { return variant.has_value(); }))
+					for (auto variant : copies)
+						if (std::ranges::find(variants, variant) == variants.end())
+							variants.push_back(variant);
+				first = end;
+			}
+			text += std::format(" SPEEDO_AUTOLOAD_MODEL='{}' SPEEDO_AUTOLOAD_VARIANTS={}", paths, ui::VariantsText(variants));
+			if (state.arrangement == ModelArrangement::kSideBySide)
+				text += " SPEEDO_AUTOLOAD_ARRANGEMENT=side-by-side";
+			else if (state.arrangement == ModelArrangement::kAsAuthored)
+				text += " SPEEDO_AUTOLOAD_ARRANGEMENT=as-authored";
+		}
 		// a set's files, each (its name isn't one), and how they are arranged where not side by side
-		if (scenes.Get().filePaths.size() > 1)
+		else if (scenes.Get().filePaths.size() > 1)
 		{
 			std::string paths;
 			for (const auto& path : scenes.Get().filePaths)
@@ -417,6 +546,8 @@ void WindowedApplication::InternalCopyPose()
 			text += std::format(" SPEEDO_AUTOLOAD_MODEL='{}'", paths);
 			if (scenes.Get().arrangement == ModelArrangement::kAsAuthored)
 				text += " SPEEDO_AUTOLOAD_ARRANGEMENT=as-authored";
+			else if (scenes.Get().arrangement == ModelArrangement::kBehindEachOther)
+				text += " SPEEDO_AUTOLOAD_ARRANGEMENT=behind-each-other";
 		}
 		else if (!scenes.Get().filePath.empty())
 			text += std::format(" SPEEDO_AUTOLOAD_MODEL='{}'", scenes.Get().filePath);
@@ -1115,7 +1246,7 @@ void WindowedApplication::PrepareDraw()
 			(void)gLoads.Enqueue(
 				chosen->filename().string(),
 				[&rhi, path = chosen->string(), ground = choice.ground](std::atomic_uint8_t& progress)
-				{ LoadAndInstallModel(rhi, path, progress, ground); });
+				{ LoadAndInstallModel(rhi, path, progress, ground, LoadChoice::kAsk); });
 
 		bool all = Button("All, side by side");
 		if (all)
@@ -1134,6 +1265,82 @@ void WindowedApplication::PrepareDraw()
 		if (chosen || all || Button("Cancel") || Shortcut(ImGuiKey_Escape))
 		{
 			gShownArchiveChoice.reset();
+			CloseCurrentPopup();
+		}
+		EndPopup();
+	}
+
+	// the material variants of a model opened (see LoadAndInstallModel): which to open it with, a copy of it for each laid
+	// out to compare (see Scene::LoadVariants), and how: all of its variants by default, one behind the other (the user's
+	// call), not its default materials (often one of them); one alone opens the file with it
+	static std::optional<VariantChoice> gShownVariantChoice;
+	static std::vector<bool> gChosenVariants; // the default materials, then the file's variants
+	static bool gVariantsBehind = true;
+	if (!gShownVariantChoice)
+	{
+		std::scoped_lock lock(gVariantChoiceMutex);
+		if (gVariantChoice)
+		{
+			gShownVariantChoice = std::move(gVariantChoice);
+			gVariantChoice.reset();
+			gChosenVariants.assign(gShownVariantChoice->variants.size() + 1, true);
+			gChosenVariants.front() = false;
+			gVariantsBehind = true;
+			OpenPopup("Variants");
+		}
+	}
+	if (BeginPopupModal("Variants", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		const auto& choice = *gShownVariantChoice;
+		auto file = std::filesystem::path(choice.filePath).filename().string();
+		Text("%s has %zu material variants. Open it with:", file.c_str(), choice.variants.size());
+		for (size_t slot = 0; slot < gChosenVariants.size(); slot++)
+		{
+			PushID(static_cast<int>(slot));
+			bool chosen = gChosenVariants[slot];
+			if (Checkbox(slot == 0 ? "Default materials" : choice.variants[slot - 1].c_str(), &chosen))
+				gChosenVariants[slot] = chosen;
+			PopID();
+		}
+		if (SmallButton("All"))
+			std::ranges::fill(gChosenVariants, true);
+		SameLine();
+		if (SmallButton("None"))
+			std::ranges::fill(gChosenVariants, false);
+
+		std::vector<std::optional<uint32_t>> variants;
+		for (size_t slot = 0; slot < gChosenVariants.size(); slot++)
+			if (gChosenVariants[slot])
+				variants.push_back(slot == 0 ? std::nullopt : std::optional<uint32_t>(static_cast<uint32_t>(slot - 1)));
+		Separator();
+		// how several are laid out, a copy each
+		BeginDisabled(variants.size() < 2);
+		if (RadioButton("Behind each other", gVariantsBehind))
+			gVariantsBehind = true;
+		SameLine();
+		if (RadioButton("Side by side", !gVariantsBehind))
+			gVariantsBehind = false;
+		EndDisabled();
+
+		BeginDisabled(variants.empty());
+		bool open = Button("Open");
+		EndDisabled();
+		if (open)
+			(void)gLoads.Enqueue(
+				variants.size() > 1	  ? std::format("{} ({} variants)", file, variants.size())
+				: variants.front() ? std::format("{} ({})", file, choice.variants[*variants.front()])
+									  : std::format("{} (default materials)", file),
+				[path = choice.filePath,
+				 variants,
+				 arrangement = gVariantsBehind ? ModelArrangement::kBehindEachOther : ModelArrangement::kSideBySide,
+				 ground = choice.ground](std::atomic_uint8_t& progress)
+				{ App().GetScene().LoadVariants(std::vector(variants.size(), path), variants, std::nullopt, progress, arrangement, ground); });
+		SameLine();
+
+		// escape cancels too (see CloseOnEscape)
+		if (open || Button("Cancel") || Shortcut(ImGuiKey_Escape))
+		{
+			gShownVariantChoice.reset();
 			CloseCurrentPopup();
 		}
 		EndPopup();
@@ -1254,15 +1461,21 @@ void WindowedApplication::PrepareDraw()
 		auto autoLoadGround = ModelGround::kPlane;
 		if (const char* ground = std::getenv("SPEEDO_GROUND_PLANE"); ground != nullptr && std::string_view(ground) == "0")
 			autoLoadGround = ModelGround::kNone;
+		// SPEEDO_AUTOLOAD_VARIANTS=<all|indices and default, comma separated>: its models' variants laid out (see
+		// ui::LoadAutoModel and ui::ParseVariants: a model file's, several files', or a folder's or a zip archive's), one
+		// behind the other unless SPEEDO_AUTOLOAD_ARRANGEMENT says
+		const char* autoLoadVariants = std::getenv("SPEEDO_AUTOLOAD_VARIANTS");
+		std::string variants = autoLoadVariants != nullptr ? autoLoadVariants : "";
 		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"); autoLoadModel != nullptr && *autoLoadModel != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadModel,
 				[&rhi,
-				 paths = ui::AutoLoadPaths(autoLoadModel, resourcePath),
-				 arrangement = ui::AutoLoadArrangement(std::getenv("SPEEDO_AUTOLOAD_ARRANGEMENT")),
-				 autoLoadOptions,
-				 autoLoadGround](std::atomic_uint8_t& progress)
-				{ ui::LoadAutoModel(rhi, paths, autoLoadOptions, arrangement, autoLoadGround, progress); }));
+				 load = std::make_shared<ui::AutoModelLoad>(ui::AutoModelLoad{
+					 .paths = ui::AutoLoadPaths(autoLoadModel, resourcePath),
+					 .options = autoLoadOptions,
+					 .arrangement = ui::AutoLoadArrangement(std::getenv("SPEEDO_AUTOLOAD_ARRANGEMENT")),
+					 .ground = autoLoadGround,
+					 .variants = variants})](std::atomic_uint8_t& progress) { ui::LoadAutoModel(rhi, *load, progress); }));
 		// the settings a pose names (see ui::ApplyPoseSettings: the tonemapper, the exposure, the shadows, the emissive
 		// lights, the indirect lighting, temporal upscaling, the debug view, the environment's rotation and intensity and the
 		// sky's sun), as View sets them; SPEEDO_GI_DEBUG=<n> first, the indirect lighting's n-th debug view, as GiData::debug
@@ -1381,11 +1594,12 @@ void WindowedApplication::PrepareDraw()
 	// camera waits for; at startup, any
 	struct AutoModel
 	{
-		std::vector<std::string> filePaths; // a file, folder or archive, or several files as one
+		std::vector<std::string> filePaths; // a file, folder or archive, or several files as one (a layout's, its copies')
 		ModelArrangement arrangement = ModelArrangement::kSideBySide;
 		uint32_t scene = 0;
 		std::optional<uint32_t> variant;
 		ModelGround ground = ModelGround::kNone;
+		std::vector<std::optional<uint32_t>> layout; // its variants laid out (see Scene::SceneState::layout)
 	};
 	static std::optional<AutoModel> gAutoModel;
 	static std::optional<uint64_t> gAutoLoadsReadyFrame;
@@ -1394,9 +1608,13 @@ void WindowedApplication::PrepareDraw()
 	auto modelIs = [](const AutoModel& model)
 	{
 		auto scenes = App().GetScene().GetScenes().Read();
+		if (!model.layout.empty())
+			return scenes.Get().layout == model.layout && scenes.Get().filePaths == model.filePaths && scenes.Get().arrangement == model.arrangement &&
+				   scenes.Get().current == model.scene && scenes.Get().ground == model.ground;
 		bool files = model.filePaths.size() > 1 ? scenes.Get().filePaths == model.filePaths && scenes.Get().arrangement == model.arrangement
 												: scenes.Get().filePath == model.filePaths.front();
-		return files && scenes.Get().current == model.scene && scenes.Get().variant == model.variant && scenes.Get().ground == model.ground;
+		return files && scenes.Get().layout.empty() && scenes.Get().current == model.scene && scenes.Get().variant == model.variant &&
+			   scenes.Get().ground == model.ground;
 	};
 
 	// a pose pasted (View > Camera > Paste Pose, ctrl/cmd+shift+v): its settings (those it doesn't name back to their
@@ -1419,20 +1637,38 @@ void WindowedApplication::PrepareDraw()
 					options.scene = std::strtoull(index, nullptr, 10);
 				if (const char* variant = pose->Get("SPEEDO_AUTOLOAD_VARIANT"))
 					options.variant = std::strtoull(variant, nullptr, 10);
+				std::string variants = pose->Get("SPEEDO_AUTOLOAD_VARIANTS") != nullptr ? pose->Get("SPEEDO_AUTOLOAD_VARIANTS") : "";
+				auto paths = ui::AutoLoadPaths(model, resourcePath);
+				auto arrangement = ui::AutoLoadArrangement(pose->Get("SPEEDO_AUTOLOAD_ARRANGEMENT"));
 				AutoModel wanted{
-					.filePaths = ui::AutoLoadPaths(model, resourcePath),
-					.arrangement = ui::AutoLoadArrangement(pose->Get("SPEEDO_AUTOLOAD_ARRANGEMENT")),
+					.filePaths = paths,
+					.arrangement = arrangement.value_or(ModelArrangement::kSideBySide),
 					.scene = static_cast<uint32_t>(options.scene.value_or(0)),
 					.variant = options.variant ? std::optional<uint32_t>(static_cast<uint32_t>(*options.variant)) : std::nullopt,
 					.ground = pose->Get("SPEEDO_GROUND_PLANE") != nullptr && std::string_view(pose->Get("SPEEDO_GROUND_PLANE")) == "0"
 								  ? ModelGround::kNone
 								  : ModelGround::kPlane};
+				// its models' variants laid out, which a pose names by their files (see InternalCopyPose: a folder's or an
+				// archive's are loaded again, their names being no file)
+				if (!variants.empty() && std::ranges::all_of(paths, [](const std::string& path) { return mesh::IsModelFile(path); }))
+				{
+					if (auto copies = ui::LayOutVariants(paths, variants); copies.filePaths.size() == 1)
+						wanted.variant = copies.variants.front();
+					else if (!copies.filePaths.empty())
+					{
+						wanted.filePaths = std::move(copies.filePaths);
+						wanted.arrangement = arrangement.value_or(ModelArrangement::kBehindEachOther);
+						wanted.layout = std::move(copies.variants);
+					}
+				}
 				if (!modelIs(wanted))
 				{
 					gAutoLoads.emplace_back(gLoads.Enqueue(
 						model,
-						[&rhi, paths = wanted.filePaths, arrangement = wanted.arrangement, options, ground = wanted.ground](std::atomic_uint8_t& progress)
-						{ ui::LoadAutoModel(rhi, paths, options, arrangement, ground, progress); }));
+						[&rhi,
+						 load = std::make_shared<ui::AutoModelLoad>(ui::AutoModelLoad{
+							 .paths = paths, .options = options, .arrangement = arrangement, .ground = wanted.ground, .variants = variants})](
+							std::atomic_uint8_t& progress) { ui::LoadAutoModel(rhi, *load, progress); }));
 					gAutoModel = std::move(wanted);
 					gAutoCameraAfterModel = true;
 					gAutoLoadsReadyFrame.reset();
@@ -2052,8 +2288,10 @@ void WindowedApplication::PrepareDraw()
 			}
 			if (ui::BeginMenu("Scene"))
 			{
-				// the installed gltf file's scenes: choosing one loads the file again with it
+				// the installed gltf file's scenes: choosing one loads the file again with it (with its variant, or its
+				// variants laid out again in it, where they are: the layout's name is no file)
 				Scene::SceneState scenes = App().GetScene().GetScenes().Read().Get();
+				std::string file = scenes.layout.empty() || scenes.filePaths.empty() ? scenes.filePath : scenes.filePaths.front();
 				if (scenes.names.size() < 2)
 					TextDisabled(scenes.names.empty() ? "No scenes" : "One scene");
 				for (size_t sceneIt = 0; sceneIt < scenes.names.size(); sceneIt++)
@@ -2061,42 +2299,24 @@ void WindowedApplication::PrepareDraw()
 					PushID(static_cast<int>(sceneIt));
 					if (MenuItem(scenes.names[sceneIt].c_str(), nullptr, scenes.current == sceneIt) && scenes.current != sceneIt)
 						(void)gLoads.Enqueue(
-							std::format("{} ({})", std::filesystem::path(scenes.filePath).filename().string(), scenes.names[sceneIt]),
-							[path = scenes.filePath, sceneIt, variant = scenes.variant, ground = scenes.ground](std::atomic_uint8_t& progress)
+							std::format("{} ({})", std::filesystem::path(file).filename().string(), scenes.names[sceneIt]),
+							[files = scenes.layout.empty() ? std::vector{file} : scenes.filePaths,
+							 layout = scenes.layout,
+							 sceneIt,
+							 variant = scenes.variant,
+							 arrangement = scenes.arrangement,
+							 ground = scenes.ground](std::atomic_uint8_t& progress)
 							{
-								App().GetScene().LoadModels(
-									{path},
-									progress,
-									{.scene = sceneIt, .variant = variant ? std::optional<size_t>(*variant) : std::nullopt},
-									ModelArrangement::kSideBySide,
-									ground);
+								if (!layout.empty())
+									App().GetScene().LoadVariants(files, layout, sceneIt, progress, arrangement, ground);
+								else
+									App().GetScene().LoadModels(
+										files,
+										progress,
+										{.scene = sceneIt, .variant = variant ? std::optional<size_t>(*variant) : std::nullopt},
+										ModelArrangement::kSideBySide,
+										ground);
 							});
-					PopID();
-				}
-				ImGui::EndMenu();
-			}
-			if (ui::BeginMenu("Variant"))
-			{
-				// the installed gltf file's material variants (KHR_materials_variants): choosing one loads the file again
-				// with its materials, in the scene shown
-				Scene::SceneState scenes = App().GetScene().GetScenes().Read().Get();
-				if (scenes.variants.empty())
-					TextDisabled("No variants");
-				auto load = [&scenes](std::optional<size_t> variant, std::string_view name)
-				{
-					(void)gLoads.Enqueue(
-						std::format("{} ({})", std::filesystem::path(scenes.filePath).filename().string(), name),
-						[path = scenes.filePath, scene = scenes.current, variant, ground = scenes.ground](std::atomic_uint8_t& progress)
-						{ App().GetScene().LoadModels({path}, progress, {.scene = scene, .variant = variant}, ModelArrangement::kSideBySide, ground); });
-				};
-				if (!scenes.variants.empty() && MenuItem("Default", nullptr, !scenes.variant) && scenes.variant)
-					load(std::nullopt, "default materials");
-				for (size_t variantIt = 0; variantIt < scenes.variants.size(); variantIt++)
-				{
-					PushID(static_cast<int>(variantIt));
-					bool current = scenes.variant == variantIt;
-					if (MenuItem(scenes.variants[variantIt].c_str(), nullptr, current) && !current)
-						load(variantIt, scenes.variants[variantIt]);
 					PopID();
 				}
 				ImGui::EndMenu();

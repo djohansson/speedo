@@ -100,6 +100,11 @@ std::optional<std::string> Unsupported(const std::filesystem::path& path)
 	return std::nullopt;
 }
 
+std::vector<std::string> VariantNames(const std::filesystem::path& path)
+{
+	return detail::FormatOf(path) == detail::Format::kGltf ? gltf::VariantNames(path) : std::vector<std::string>{};
+}
+
 std::vector<std::filesystem::path> Dependencies(const std::filesystem::path& path)
 {
 	switch (detail::FormatOf(path))

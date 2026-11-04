@@ -340,6 +340,11 @@ if ($Client)
 	{
 		$env:SPEEDO_PRESENT_MODE = 'fifo'
 	}
+	# a model's material variants all laid out, a copy of it for each (each file's, of a set: see SPEEDO_AUTOLOAD_VARIANTS)
+	if (-not $env:SPEEDO_AUTOLOAD_VARIANTS)
+	{
+		$env:SPEEDO_AUTOLOAD_VARIANTS = 'all'
+	}
 	$timeout = if ($env:ASSETTEST_CLIENT_TIMEOUT) { [int]$env:ASSETTEST_CLIENT_TIMEOUT } else { 600 }
 	$caffeinate = if ($IsMacOS) { Get-Command caffeinate -ErrorAction SilentlyContinue } else { $null }
 

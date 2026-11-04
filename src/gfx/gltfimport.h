@@ -29,6 +29,10 @@ namespace gfx::gltf
 // the json, so it is cheap.
 [[nodiscard]] std::optional<std::string> UnsupportedRequiredExtension(const std::filesystem::path& path);
 
+// a gltf file's material variants' names (KHR_materials_variants: see mesh::ImportOptions::variant), from its json alone,
+// none if it can't be parsed
+[[nodiscard]] std::vector<std::string> VariantNames(const std::filesystem::path& path);
+
 // the bytes of an image a gltf file embeds (in a buffer, or as a data uri) by its index (see TextureRef::embeddedImage),
 // or why they can't be read
 [[nodiscard]] std::expected<std::vector<std::byte>, std::string> EmbeddedImage(const std::filesystem::path& path, uint32_t index);

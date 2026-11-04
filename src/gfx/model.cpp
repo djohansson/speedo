@@ -889,9 +889,11 @@ static void MergeAnimation(
 // in a grid, each scaled (uniformly, so its normals stay) to the same size and centered in its cell: in the xy plane
 // (facing +z, the cameras' default view), or on the ground (ModelGround::kPlane), in the xz plane with each model's
 // lowest point on it, rows going back from the first; the files of a set needn't share a scale (sphere.zip's spheres have
-// radius 1 and 115). or as authored, each where it is
+// radius 1 and 115). or as authored, each where it is. or behind each other (ModelArrangement::kBehindEachOther): each
+// group's models one behind the other in a column of its own (groups, a model's: a layout's file's copies, see Load of
+// several; a set is one group)
 [[nodiscard]] static std::optional<Staged> Merge(
-	Device& device, std::vector<Staged>&& models, std::string name, ModelArrangement arrangement, ModelGround ground)
+	Device& device, std::vector<Staged>&& models, std::span<const size_t> groups, std::string name, ModelArrangement arrangement, ModelGround ground)
 {
 	ZoneScopedN("gfx::Model::Merge");
 
@@ -906,14 +908,19 @@ static void MergeAnimation(
 	// its own, and its submeshes' instances move along. but a skinned submesh's, whose vertices its joints place (in the
 	// world, through their nodes, which the placement is a parent of): its instances are its own (unplaced, after the
 	// model's)
+	// a column a group, behind each other (ModelArrangement::kBehindEachOther), else as square a grid as fits them
+	bool behind = arrangement == ModelArrangement::kBehindEachOther;
 	auto columns = static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(models.size()))));
+	size_t groupFirst = 0; // the first model of modelIt's group
 	for (size_t modelIt = 0; modelIt < models.size(); modelIt++)
 	{
 		const auto& desc = models[modelIt].desc;
 
 		// left to right, then down (or back, on the ground)
-		auto column = static_cast<float>(modelIt % columns);
-		auto row = static_cast<float>(modelIt / columns);
+		if (modelIt > 0 && groups[modelIt] != groups[modelIt - 1])
+			groupFirst = modelIt;
+		auto column = static_cast<float>(behind ? groups[modelIt] : modelIt % columns);
+		auto row = static_cast<float>(behind ? modelIt - groupFirst : modelIt / columns);
 		auto center = desc.bounds.Center();
 		auto size = desc.bounds.Size();
 		auto extent = std::max({size.x, size.y, size.z});
@@ -1703,11 +1710,13 @@ std::shared_ptr<Model> Model::Load(
 	ModelArrangement arrangement,
 	ModelBvh bvh,
 	ModelGround ground,
-	core::CancelledFn cancelled)
+	core::CancelledFn cancelled,
+	std::span<const mesh::ImportOptions> options)
 {
 	ZoneScopedN("gfx::Model::Load");
 
 	ENSURE(!filePaths.empty());
+	ENSURE(options.empty() || options.size() == filePaths.size());
 
 	auto* rhi = rhi::GetRHI<rhi::kGraphicsApi>();
 	ENSURE(rhi);
@@ -1736,7 +1745,8 @@ std::shared_ptr<Model> Model::Load(
 		}
 
 		std::atomic_uint8_t fileProgress = 0;
-		auto staged = model::LoadStaged(device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress, {}, bvh, cancelled);
+		auto staged = model::LoadStaged(
+			device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress, options.empty() ? mesh::ImportOptions{} : options[fileIt], bvh, cancelled);
 		if (!staged) // cancelled or failed
 		{
 			failed = true;
@@ -1753,22 +1763,42 @@ std::shared_ptr<Model> Model::Load(
 		return {};
 
 	std::vector<model::Staged> models;
+	std::vector<size_t> modelFiles; // each model's file, its index in filePaths
 	models.reserve(filePaths.size());
-	for (auto& staged : loaded)
-		if (staged)
-			models.push_back(std::move(*staged));
+	for (size_t fileIt = 0; fileIt < loaded.size(); fileIt++)
+		if (loaded[fileIt])
+		{
+			models.push_back(std::move(*loaded[fileIt]));
+			modelFiles.push_back(fileIt);
+		}
 	if (models.empty())
 	{
 		std::println(stderr, "Failed to load model {}: none of its files are supported", filePaths.front());
 		return {};
 	}
 
-	auto name = filePaths.size() == 1
-					? std::string(filePaths.front())
-					: std::format("{} ({} models)", std::filesystem::path(filePaths.front()).parent_path().string(), filePaths.size());
-	auto merged = model::Merge(device, std::move(models), std::move(name), arrangement, ground);
+	// copies of files, each with its variant (options given): their variants laid out, which keep the first file's scenes
+	// and variants to choose from (a set has none), each file's copies in a group of their own (see Merge)
+	bool variants = filePaths.size() > 1 && !options.empty();
+	std::vector<size_t> groups(models.size(), 0);
+	for (size_t modelIt = 1; variants && modelIt < models.size(); modelIt++)
+		groups[modelIt] = groups[modelIt - 1] + (filePaths[modelFiles[modelIt]] == filePaths[modelFiles[modelIt - 1]] ? 0 : 1);
+	auto scenes = models.front().desc.scenes;
+	auto scene = models.front().desc.scene;
+	auto variantNames = models.front().desc.variants;
+	auto directory = std::filesystem::path(filePaths.front()).parent_path().string();
+	auto name = filePaths.size() == 1 ? std::string(filePaths.front())
+				: variants			  ? std::format("{} ({} variants)", groups.back() == 0 ? std::string(filePaths.front()) : directory, models.size())
+									  : std::format("{} ({} models)", directory, filePaths.size());
+	auto merged = model::Merge(device, std::move(models), groups, std::move(name), arrangement, ground);
 	if (!merged)
 		return {};
+	if (variants)
+	{
+		merged->desc.scenes = std::move(scenes);
+		merged->desc.scene = scene;
+		merged->desc.variants = std::move(variantNames);
+	}
 	// its BVH built from the staged triangles once placed (by UploadStaged), unless none is wanted
 	if (bvh == ModelBvh::kNone)
 		merged->bvh = bvh::Data{};
@@ -1781,6 +1811,9 @@ std::shared_ptr<Model> Model::Load(
 	{
 		model->myGround = ground;
 		model->myFramedBounds = framed;
+		if (variants)
+			for (const auto& option : options)
+				model->myLayout.push_back(option.variant ? std::optional<uint32_t>(static_cast<uint32_t>(*option.variant)) : std::nullopt);
 	}
 	return model;
 }

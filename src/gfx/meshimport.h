@@ -259,6 +259,10 @@ struct ImportOptions
 // why Import can't load path at all, before trying (a gltf file requiring an unsupported extension), if it can't
 [[nodiscard]] std::optional<std::string> Unsupported(const std::filesystem::path& path);
 
+// a model file's material variants' names (a gltf file's KHR_materials_variants, see ImportOptions::variant), cheaply: what
+// the client offers to lay out as it opens the file, and SPEEDO_AUTOLOAD_VARIANTS=all takes (see Scene::LoadVariants)
+[[nodiscard]] std::vector<std::string> VariantNames(const std::filesystem::path& path);
+
 // the other files an import of path reads, which a change to must reimport it: an obj file's material files, a gltf
 // file's external buffers (images are loaded separately)
 [[nodiscard]] std::vector<std::filesystem::path> Dependencies(const std::filesystem::path& path);

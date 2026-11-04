@@ -1436,7 +1436,8 @@ struct Scene::Impl
 					.current = model->GetDesc().scene,
 					.variants = model->GetDesc().variants,
 					.variant = model->GetDesc().variant,
-					.ground = model->GetGround()};
+					.ground = model->GetGround(),
+					.layout = std::vector(model->GetLayout().begin(), model->GetLayout().end())};
 			}
 
 			// its first animation plays, from the start (SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests)
@@ -1464,12 +1465,14 @@ struct Scene::Impl
 			// on a ground plane, framed from above, so that a set's back rows show over its front ones (see model::Merge) and
 			// the shadows on the ground are in view, and seen without a far plane: the ground reaches the horizon
 			constexpr float kGroundFramePitch = glm::radians(30.0F);
+			// and a file's variants laid out, whole (a row of copies fills its bounding sphere: the nearest was cut off)
 			myViews.SetScene(
 				model->GetDesc().bounds,
 				model->GetFramedBounds(),
 				model->GetDesc().cameras,
 				model->GetGround() == ModelGround::kPlane ? kGroundFramePitch : 0.0F,
-				model->GetGround() == ModelGround::kPlane);
+				model->GetGround() == ModelGround::kPlane,
+				!model->GetLayout().empty());
 		});
 	}
 
@@ -1526,13 +1529,14 @@ struct Scene::Impl
 		const mesh::ImportOptions& options = {},
 		ModelArrangement arrangement = ModelArrangement::kSideBySide,
 		ModelGround ground = ModelGround::kNone,
-		core::CancelledFn cancelled = core::NeverCancelled)
+		core::CancelledFn cancelled = core::NeverCancelled,
+		std::span<const mesh::ImportOptions> fileOptions = {}) // several files' each (see Model::Load of several)
 	{
 		auto bvh = mySettings.modelBvhs.load(std::memory_order_relaxed) ? ModelBvh::kBuild : ModelBvh::kNone;
 		auto model = (options.scene || options.variant) && filePaths.size() == 1
 						 ? Model::Load(filePaths.front(), progress, options, bvh, ground, cancelled)
 						 : Model::Load(
-							   std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress, arrangement, bvh, ground, cancelled);
+							   std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress, arrangement, bvh, ground, cancelled, fileOptions);
 		if (!model) // cancelled or failed
 			return std::nullopt;
 
@@ -2599,6 +2603,28 @@ std::optional<std::string> Scene::LoadModels(
 	core::CancelledFn cancelled)
 {
 	return myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, options, arrangement, ground, cancelled);
+}
+
+std::optional<std::string> Scene::LoadVariants(
+	std::span<const std::string> filePaths,
+	std::span<const std::optional<uint32_t>> variants,
+	std::optional<size_t> scene,
+	std::atomic_uint8_t& progress,
+	ModelArrangement arrangement,
+	ModelGround ground,
+	core::CancelledFn cancelled)
+{
+	ENSURE(!filePaths.empty() && filePaths.size() == variants.size());
+
+	auto optionsOf = [scene](std::optional<uint32_t> variant)
+	{ return mesh::ImportOptions{.scene = scene, .variant = variant ? std::optional<size_t>(*variant) : std::nullopt}; };
+	if (filePaths.size() == 1)
+		return myImpl->LoadAndInstallModels(myImpl->myRHI, {filePaths.front()}, progress, optionsOf(variants.front()), arrangement, ground, cancelled);
+	std::vector<mesh::ImportOptions> fileOptions;
+	for (auto variant : variants)
+		fileOptions.push_back(optionsOf(variant));
+	return myImpl->LoadAndInstallModels(
+		myImpl->myRHI, std::vector(filePaths.begin(), filePaths.end()), progress, {}, arrangement, ground, cancelled, fileOptions);
 }
 
 void Scene::LoadImage(std::string_view filePath, std::atomic_uint8_t& progress)

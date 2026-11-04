@@ -2845,8 +2845,9 @@ Assets outside `RootPath` are cached under `<user profile>/external/<absolute pa
 glTF: a scene (`mesh::ImportOptions::scene`, else the default one, or the first; the file's scenes are
 `ModelDesc::scenes`, and View > Scene, or `SPEEDO_AUTOLOAD_SCENE=<index>`, loads the file again with another, as a
 cache entry of its own; so does a `KHR_materials_variants` variant, `mesh::ImportOptions::variant`, which gives each
-primitive its variant's material when it maps one: `ModelDesc::variants`, View > Variant or
-`SPEEDO_AUTOLOAD_VARIANT=<index>`, the default materials without) is flattened into one mesh with the node transforms applied (a mirroring one reverses the
+primitive its variant's material when it maps one: `ModelDesc::variants`, chosen as the file opens or by
+`SPEEDO_AUTOLOAD_VARIANT=<index>`, the default materials without; several laid out to compare: see "A file's material
+variants, chosen as it opens", below) is flattened into one mesh with the node transforms applied (a mirroring one reverses the
 winding *and* must flip the cofactor normal matrix back, which `NegativeScaleTest` catches). `EXT_mesh_gpu_instancing`
 is drawn instanced instead: the node's primitives once, in its space, and a transform per instance (the node's times
 the instance's translation * rotation * scale) in `Mesh::instances`/`ModelDesc::instances`, which each submesh names a
@@ -3212,7 +3213,11 @@ destroyed in use, `VUID-vkDestroySemaphore-semaphore-05149`: without present fen
 on load errors, asserts and validation messages. The runs `scripts/test-assets/splitscreen.txt` names (by label,
 `client-<label>.log`) go again in split screen (`<label>-splitscreen`: `SPEEDO_LAYOUT=2x2 SPEEDO_CAMERA_VIEWS=around`), each
 view with its own exposure, shadow cascades and indirect lighting clips: the quick tier's that are in it, the full sets'
-all. Debug clients load the validation layer themselves (in code, `instance.cpp`, with rhi's object names in their
+all. Every run lays out its models' material variants (the script sets `SPEEDO_AUTOLOAD_VARIANTS=all`, see "A file's
+material variants, chosen as it opens"): a gltf sample model's encodings side by side, each with its variants behind it,
+CarConcept's, DragonAttenuation's, MaterialsVariantsShoe's, SheenChair's and StainedGlassLamp's in the quick tier, and
+ChronographWatch's and GlamVelvetSofa's too in the full sets. Debug clients load the validation layer themselves (in
+code, `instance.cpp`, with rhi's object names in their
 messages); `-Validate` loads it into a profile or release preset's clients through the environment (`VK_INSTANCE_LAYERS`,
 and the settings the code gives it as `VK_KHRONOS_VALIDATION_*` variables), each client's messages to a file of its own,
 appended to its log (without a messenger of the client's the layer prints them itself, and only to a file once the crash
@@ -3355,6 +3360,29 @@ compares the encodings of each model (files named after the model's directory, i
 triangle, vertex, material, submesh and texture counts, and bounds within 1% (quantization rounds). It only warns, since
 some differ in the source files: ABeautifulGame's glb is another export (1152 fewer triangles), and StainedGlassLamp's
 JPG-PNG variant has 8 materials instead of 13.
+
+**A file's material variants, chosen as it opens** (the Variants popup): a gltf file with variants opened by the user (from
+the file browser, File > Open Recent or an archive's chooser: `LoadChoice::kAsk`) asks which to open it with before
+anything is loaded (the load posts `gVariantChoice`, as an archive's `gArchiveChoice`; `mesh::VariantNames` reads the
+file's json alone): its variants and its default materials, all the variants ticked by default and the default
+materials not, often one of them (the user's call); one alone opens the file with it, several lay it out to compare.
+The autoloads and Paste Pose never ask (`LoadChoice::kDefault`): `SPEEDO_AUTOLOAD_VARIANT=<index>` opens it with one, and
+`SPEEDO_AUTOLOAD_VARIANTS=all`, or a comma separated list of indices and `default` (`ui::ParseVariants`), lays several out:
+a model file's, several files', or a folder's or a zip archive's models' (`ui::LoadAutoModel`), each file's that list
+names, and a file without any of them once, with its default materials (`ui::LayOutVariants`: a gltf sample model's
+encoding without them, as StainedGlassLamp's JPG-PNG), and where no file has any, loads as without it (a set side by
+side). Laid out: copies of the files in their scene, each with its variant (`Scene::LoadVariants`, a file and a variant a
+copy: a file several times, through `Model::Load`'s per-file `options`, each its own cache entry as variants are), merged
+as a set is, one behind the other by default (`ModelArrangement::kBehindEachOther`: each file's copies in a column of side
+by side's grid, going back from the camera, the files' columns side by side, the user's call; Merge's groups), or side by
+side (the popup's choice, `SPEEDO_AUTOLOAD_ARRANGEMENT=side-by-side`), on the ground plane where the model was. The set
+keeps the first file's scenes and variants (View > Scene lays the same copies out in another scene) and records each
+copy's variant as asked (`Model::GetLayout`, `Scene::SceneState::layout`, as long as its `filePaths`), which Copy Pose
+writes: the files, each once, and the variants of those with any. The views frame a layout whole
+(`FrameBounds`' `whole`: its bounding sphere in the field of view; at 1.4 times its radius, a compact model's framing,
+the nearest copy was cut off). At first View > Variant chose a variant, its Compare... opened the popup over the model
+installed, and each copy was labelled with its variant's name over the views; the popup as the file opens took over
+from the menu, and the labels weren't needed (the user's calls).
 
 ## Sanitizers: the sanitize and tsan presets
 
