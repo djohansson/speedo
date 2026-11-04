@@ -493,6 +493,7 @@ float3 TracedPath(
 	moving = false;
 	bool reached = false; // whether the last query met the opaque scene or nothing (hit), which is shaded after the loop
 	bool going = true;
+	bool crossedGlass = false; // whether the path has met a transmissive surface (see TracedShade's fromGlass)
 	BvhHit hit = BvhNothing(kTracedFar);
 	[loop]
 	for (uint queryIt = 0; queryIt < queryCount && going; queryIt++)
@@ -508,6 +509,7 @@ float3 TracedPath(
 		going = glass;
 		if (glass)
 		{
+			crossedGlass = true;
 			moving = moving || hit.modelInstance == ~0u;
 			GlassSurface surface = GlassSurfaceAt(path.origin, path.direction, hit, frameIndex);
 			if (reflection && queryIt == 0u)
@@ -541,15 +543,25 @@ float3 TracedPath(
 		cone.width += cone.spread * traveled;
 		float shadedT;
 		bool shadedMoving;
-		float3 radiance = TracedShade(hit, path.origin, path.direction, cone, roughness, shadedT, valid, shadedMoving);
+		float3 radiance =
+			TracedShade(hit, path.origin, path.direction, cone, roughness, !reflection || crossedGlass, shadedT, valid, shadedMoving);
 		moving = moving || shadedMoving;
 		light += path.throughput * radiance;
 	}
 	return light;
 }
 
-// what TracedRadiance gives of a ray's hit (or of nothing met)
-float3 TracedShade(BvhHit hit, float3 origin, float3 direction, TracedCone cone, float roughness, out float t, out bool valid, out bool moving)
+// what TracedRadiance gives of a ray's hit (or of nothing met). fromGlass: the ray leaves a transmissive surface (a
+// refraction's, or a reflection's once it crossed glass), so a single sided triangle's back it meets is of something the
+// glass is set into, whose inside isn't modelled, and is shaded as its front: ABeautifulGame's glass balls are sunk into
+// their pawns and brass collars, modelled by their outsides alone. dropped as unknown, what the bottoms of the balls
+// refract took the screen space lookup, which fades to the environment toward the view's edges; passed, as the rasterizer
+// culls them, the pawns' tops showed through them in jagged holes (MosquitoInAmber's body, some of whose triangles face
+// inward, comes out in lit facets instead). a ray leaving an opaque surface keeps the rule: it may have started inside
+// something
+float3 TracedShade(
+	BvhHit hit, float3 origin, float3 direction, TracedCone cone, float roughness, bool fromGlass, out float t, out bool valid,
+	out bool moving)
 {
 	valid = true;
 	moving = false;
@@ -560,7 +572,7 @@ float3 TracedShade(BvhHit hit, float3 origin, float3 direction, TracedCone cone,
 	}
 	t = hit.t;
 	moving = hit.modelInstance == ~0u;
-	if (!hit.frontFace && (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) == 0u)
+	if (!fromGlass && !hit.frontFace && (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) == 0u)
 	{
 		valid = false;
 		return 0.0;

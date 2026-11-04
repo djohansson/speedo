@@ -1460,7 +1460,14 @@ between the two (the user's pose `0.0069,0.0526,0.0899,13.528,-7.460`); from the
 shell, and DragonAttenuation, with nothing inside its volume, is the same to 0.15 of 255 (what that left out, a thick
 slab's sideways shift, its exit gives now). A ray that meets a single sided triangle's back (`TracedRadiance`'s `valid`: it started inside
 something, or looks where the triangle isn't drawn from) is dropped, and the shading keeps what it would have taken
-without it. A hit is shaded in `TracedHitRadiance`: its material at its texcoords
+without it. Past the glass (a refraction's ray, or a reflection's once it crossed glass: `TracedShade`'s `fromGlass`)
+such a back is shaded as its front instead: it is of what the glass is set into, whose inside isn't modelled.
+ABeautifulGame's glass balls are sunk a quarter of their diameter into their pawns and brass collars, modelled by their
+outsides alone: dropped, what the bottoms of the balls refract took the screen space lookup, which faded to the
+environment toward the view's edges (the user's pose `-0.1076,0.0909,-0.1234,14.436,67.711`, turned right); passed, as
+the rasterizer culls them, the pawns' tops showed through them in jagged holes (the user's pose
+`-0.0363,0.0840,0.0848,47.406,151.416`). The user's choice, 2026-11-04, knowing its cost: MosquitoInAmber's body, some
+of whose triangles face inward, comes out in lit facets (passed, it was clean). A hit is shaded in `TracedHitRadiance`: its material at its texcoords
 (base color, metallic and roughness, emission; not the extensions' layers nor its normal map) at the mip level a ray cone
 picks (Akenine-Moller et al.: the pixel's width and angle where the ray starts, `TracedPixelCone`, against the triangle's
 texels per area; without one a reflected texture shimmers), the vertices' normal placed by its instance
