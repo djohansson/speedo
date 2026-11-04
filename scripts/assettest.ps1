@@ -12,11 +12,18 @@ results (see src/tools/assettest.cpp). With -Client, the client also loads each 
 through the full load + upload + draw path, and a zip archive of several models (a set of variants), or a subdirectory
 of a directory with several (e.g. a gltf sample model's encodings), as one, side by side (files the importers don't
 support are skipped there), with a user profile dir under <work>, and fails a model if the client crashes or prints
-load failures, failed asserts, validation errors (validation needs a debug preset) or sanitizer reports (a sanitize
-preset: asan and ubsan; a tsan preset: tsan). -ClientOnly skips the assettest
-run (which is slow with a debug preset). The client needs a vulkan driver: set VK_DRIVER_FILES etc. as for running it
-by hand (on macOS the mesa port's KosmicKrisp is the default, from the install tree). On macOS the display is woken and
-kept awake while the client runs (glfw finds no monitors while it sleeps).
+load failures, failed asserts, validation errors (a debug preset's clients load the validation layer themselves; with
+-Validate, any preset's, see below) or sanitizer reports (a sanitize preset: asan and ubsan; a tsan preset: tsan).
+-ClientOnly skips the assettest run (which is slow with a debug preset). The client needs a vulkan driver: set
+VK_DRIVER_FILES etc. as for running it by hand (on macOS the mesa port's KosmicKrisp is the default, from the install
+tree). On macOS the display is woken and kept awake while the clients run (glfw finds no monitors while it sleeps).
+
+-Validate loads the validation layer into a profile or release preset's clients through the environment
+(VK_INSTANCE_LAYERS, and its settings as VK_KHRONOS_VALIDATION_* variables, those a debug client gives it in code: see
+src/rhi/vulkan/instance.cpp), each client's messages written to a file of its own (<log>.validation, then appended to
+its log, which is checked as above): without a messenger of the client's the layer prints them itself, and only to a
+file once the crash reports make one (on NVIDIA). What a debug client checks besides (asserts, rhi's object tracking) it
+doesn't. The quick tier runs so, a profile preset with -Validate, rather than profile and then debug.
 
 Client runs go -Jobs at once (default 4; one with KosmicKrisp's ray queries, which the client asks for unless
 SPEEDO_RAY_QUERY=0, and which made the gpu restart and the machine panic when several clients traced at once), each worker with a user profile dir of its own under <work> (user-1 to
@@ -53,6 +60,7 @@ param(
 	[switch] $Client,
 	[switch] $ClientOnly,
 	[switch] $Presentation,
+	[switch] $Validate,
 	[string] $Preset,
 	[string] $Work,
 	[int] $Jobs = 4,
@@ -136,6 +144,36 @@ else
 if (-not $env:VK_LAYER_PATH)
 {
 	$env:VK_LAYER_PATH = if ($IsWindows) { $lib } else { Join-Path $installDir 'share/vulkan/explicit_layer.d' }
+}
+# -Validate: the layer loaded through the environment, with the settings a debug client gives it in code (see
+# src/rhi/vulkan/instance.cpp), unless set; each client's messages to a file of its own (see Start-ClientRun). a debug
+# client loads it itself
+$validating = $Validate -and $config -ne 'debug'
+if ($Validate -and -not $validating)
+{
+	[Console]::Error.WriteLine("-Validate: a debug preset's clients load the validation layer themselves")
+}
+if ($validating)
+{
+	$layer = 'VK_LAYER_KHRONOS_validation'
+	$env:VK_INSTANCE_LAYERS = if ($env:VK_INSTANCE_LAYERS) { "$layer$separator$env:VK_INSTANCE_LAYERS" } else { $layer }
+	$settings = [ordered]@{
+		VALIDATE_CORE = 'true'
+		VALIDATE_SYNC = if ($env:SPEEDO_VALIDATE_SYNC) { 'true' } else { 'false' }
+		THREAD_SAFETY = 'true'
+		DEBUG_ACTION = 'VK_DBG_LAYER_ACTION_LOG_MSG'
+		REPORT_FLAGS = 'info,warn,perf,error'
+		ENABLE_MESSAGE_LIMIT = 'true'
+		DUPLICATE_MESSAGE_LIMIT = '3'
+		MESSAGE_ID_FILTER = 'WARNING-CreateInstance-debug-warning'
+	}
+	foreach ($name in $settings.Keys)
+	{
+		if (-not [Environment]::GetEnvironmentVariable("VK_KHRONOS_VALIDATION_$name"))
+		{
+			[Environment]::SetEnvironmentVariable("VK_KHRONOS_VALIDATION_$name", $settings[$name])
+		}
+	}
 }
 # the vulkan driver, unless one is chosen: on macOS the mesa port's KosmicKrisp, a host dependency, so in the host
 # triplet's install tree
@@ -327,7 +365,7 @@ if ($Client)
 		$script:runs.Add([pscustomobject]@{
 			Model = $Model; Image = $Image; Label = $Label; Environment = $Environment; PresentationTest = $PresentationTest; Variables = $Variables
 			Worker = [int]($hash % [uint32]$Jobs) + 1
-			Process = $null; Awake = $null; Start = $null; Log = (Join-Path $logs "client-$Label.log"); Done = $false; Lines = @()
+			Process = $null; Start = $null; Log = (Join-Path $logs "client-$Label.log"); Done = $false; Lines = @()
 			Estimate = 0.0; Seconds = 0; TimedOut = $false
 		})
 	}
@@ -349,6 +387,12 @@ if ($Client)
 		{
 			[Environment]::SetEnvironmentVariable($name, $Run.Variables[$name])
 		}
+		# -Validate: the layer's messages, appended to the log once the client is done (see Complete-ClientRun)
+		if ($validating)
+		{
+			Remove-Item -LiteralPath "$($Run.Log).validation" -ErrorAction SilentlyContinue
+			$env:VK_KHRONOS_VALIDATION_LOG_FILENAME = "$($Run.Log).validation"
+		}
 		try
 		{
 			$user = Join-Path $Work "user-$($Run.Worker)"
@@ -357,7 +401,7 @@ if ($Client)
 		}
 		finally
 		{
-			Remove-Item Env:SPEEDO_AUTOLOAD_MODEL, Env:SPEEDO_AUTOLOAD_IMAGE, Env:SPEEDO_AUTOLOAD_ENVIRONMENT, Env:SPEEDO_PRESENTATION_TEST -ErrorAction SilentlyContinue
+			Remove-Item Env:SPEEDO_AUTOLOAD_MODEL, Env:SPEEDO_AUTOLOAD_IMAGE, Env:SPEEDO_AUTOLOAD_ENVIRONMENT, Env:SPEEDO_PRESENTATION_TEST, Env:VK_KHRONOS_VALIDATION_LOG_FILENAME -ErrorAction SilentlyContinue
 			foreach ($name in $Run.Variables.Keys)
 			{
 				[Environment]::SetEnvironmentVariable($name, $null)
@@ -365,9 +409,6 @@ if ($Client)
 			$env:SPEEDO_BACKGROUND = $background
 		}
 		$null = $Run.Process.Handle # keeps the exit code available after the process exits (windows)
-		# glfw finds no monitors while the display sleeps (on macos), and the client then fails to start: keep it awake
-		# while the client runs
-		$Run.Awake = if ($caffeinate) { Start-Process -FilePath $caffeinate.Source -ArgumentList '-d', '-i', '-w', $Run.Process.Id -PassThru } else { $null }
 	}
 
 	# collects a finished (or timed out) run's result into its lines
@@ -378,20 +419,18 @@ if ($Client)
 			$Run.Process.Kill($true)
 			$Run.Process.WaitForExit()
 		}
-		if ($Run.Awake -and -not $Run.Awake.HasExited)
-		{
-			$Run.Awake.Kill()
-		}
-
-		# one log: what the client printed to stdout, then to stderr
+		# one log: what the client printed to stdout, then to stderr, then the validation layer's messages (-Validate)
 		$log = $Run.Log
-		if (Test-Path -LiteralPath "$log.stderr")
+		foreach ($part in "$log.stderr", "$log.validation")
 		{
-			Get-Content -LiteralPath "$log.stderr" | Add-Content -LiteralPath $log
-			# on windows a client started meanwhile may hold it open (Start-Process's redirects are inherited by the
-			# processes started while they are open), which stopped the whole run: it is complete, and the next run of
-			# this model overwrites it
-			Remove-Item -LiteralPath "$log.stderr" -ErrorAction SilentlyContinue
+			if (Test-Path -LiteralPath $part)
+			{
+				Get-Content -LiteralPath $part | Add-Content -LiteralPath $log
+				# on windows a client started meanwhile may hold it open (Start-Process's redirects are inherited by the
+				# processes started while they are open), which stopped the whole run: it is complete, and the next run of
+				# this model overwrites it
+				Remove-Item -LiteralPath $part -ErrorAction SilentlyContinue
+			}
 		}
 		if ($TimedOut)
 		{
@@ -403,7 +442,7 @@ if ($Client)
 		$Run.TimedOut = $TimedOut
 		$name = if ($Run.PresentationTest) { $Run.Label } elseif ($Run.Variables.Count -gt 0) { "$($Run.Model) ($($Run.Label))" } elseif ($Run.Model) { $Run.Model } else { $Run.Environment }
 
-		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|timed out after|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer' |
+		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|Validation Error: |timed out after|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer' |
 			ForEach-Object Line | Group-Object | Sort-Object Name | Select-Object -First 5 |
 			ForEach-Object { '{0,7} {1}' -f $_.Count, $_.Name })
 		if ($status -ne 0 -or $problems.Count -gt 0)
@@ -459,10 +498,16 @@ if ($Client)
 			}
 		}
 
-		# wake the display once (each run then keeps it awake)
+		# wake the display, and keep it awake until the script exits: glfw finds no monitors while it sleeps (on macos), and
+		# the clients then fail to start. kept awake per client, as it was, nothing kept it awake between two, and once every
+		# client after the first failed so (57 of the quick tier's 58, 2026-11-04, the user away)
 		if ($caffeinate)
 		{
 			& $caffeinate -u -t 1
+			if (-not $script:awake)
+			{
+				$script:awake = Start-Process -FilePath $caffeinate.Source -ArgumentList '-d', '-i', '-w', $PID -PassThru
+			}
 		}
 		$durations = Read-Durations
 		$known = @($durations.Values | Sort-Object)

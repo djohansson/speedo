@@ -3123,8 +3123,16 @@ destroyed in use, `VUID-vkDestroySemaphore-semaphore-05149`: without present fen
 on load errors, asserts and validation messages. The runs `scripts/test-assets/splitscreen.txt` names (by label,
 `client-<label>.log`) go again in split screen (`<label>-splitscreen`: `SPEEDO_LAYOUT=2x2 SPEEDO_CAMERA_VIEWS=around`), each
 view with its own exposure, shadow cascades and indirect lighting clips: the quick tier's that are in it, the full sets'
-all. Only debug enables validation, but it imports slowly: run the
-profile preset first, then debug with `-ClientOnly` and the same `-Work` dir, whose caches it reuses. A debug client
+all. Debug clients load the validation layer themselves (in code, `instance.cpp`, with rhi's object names in their
+messages); `-Validate` loads it into a profile or release preset's clients through the environment (`VK_INSTANCE_LAYERS`,
+and the settings the code gives it as `VK_KHRONOS_VALIDATION_*` variables), each client's messages to a file of its own,
+appended to its log (without a messenger of the client's the layer prints them itself, and only to a file once the crash
+reports make one, on NVIDIA), which fails a run on `VUID-`, `UNASSIGNED-` or `Validation Error: ` as a debug client's
+log does. The quick tier runs once, on every platform: a profile preset with `-Validate` (the user's call, 2026-11-04:
+with ray query clients one at a time on the mac, its clients took 198 s, where profile's took 140 and then debug's
+1237). What only a debug client checks (`ASSERT`s, which `NDEBUG` compiles out, and rhi's object tracking and uuid
+checks, `SPEEDO_GRAPHICS_VALIDATION_LEVEL`) the full sets still check: the profile preset first, then debug with
+`-ClientOnly` and the same `-Work` dir, whose caches it reuses (debug imports slowly). A debug client
 compiling the shaders (a new profile, or a changed shader) took more than ten minutes a profile, with no window
 meanwhile: SPIRV-Tools' optimizer, which slang runs over every shader (`SLANG_OPTIMIZATION_LEVEL_MAXIMAL`), linked
 statically from the debug spirv-tools package at the toolchain's `-Og` without inlining. `ports/shader-slang` and the
@@ -3143,8 +3151,10 @@ workers that ran out waited for the one with the most, and the end of a run was 
 took 909 s for 2613 s of clients, of which 4 workers needed 653; with the stealing, on its first run without durations, 843 s for 3333 s, a fourth of which is 833: the stolen runs import again in the other profile, which the durations make the short ones); on macos a new worker profile is an APFS clone (`cp -c`) of
 `<work>/user`, the serial runs' profile. Results print in the serial order, and the logs are kept per preset (`<work>/logs/<preset>`: a debug run after a profile one overwrote its logs, so a profile failure couldn't be read). That took the full regression from about 30
 minutes to 5 or 6 (130 to 175 s profile, 180 s debug, warm). (Before each client, the script also used to wait a second in `caffeinate -u -t 1` to wake the
-display; it wakes it once now.) For iterating, `fetch-test-assets.ps1 -Quick` prints a quick tier instead
-(`scripts/test-assets/quick.txt`: a model or two per feature, plus the hand-made ones; about a minute); the full sets run
+display; it wakes it once now, and keeps it awake until it exits, `caffeinate -d -i -w` on itself: kept awake per client,
+nothing held it between two, and once every client after the first failed at window creation, `GLFW: No monitor
+connected?`, 57 of the quick tier's 58 with the user away.) For iterating, `fetch-test-assets.ps1 -Quick` prints a quick tier instead
+(`scripts/test-assets/quick.txt`: a model or two per feature, plus the hand-made ones; about a minute, three and a half with ray query clients one at a time on the mac, validated); the full sets run
 before committing. `assettest.ps1` takes `.hdr` panoramas as inputs too, and runs a directory of one model's encodings
 given directly (a glTF sample model: its files all named after it) as one set, as when its parent is given. The client's
 main loop sleeps in `glfwWaitEvents()`, so anything that must end it from another thread goes through
