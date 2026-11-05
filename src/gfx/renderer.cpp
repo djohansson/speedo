@@ -230,8 +230,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	}
 	myEmitterReservoirs = myGraph.ImportBuffer("Emitter Reservoirs");
 	// the aerial perspective's volume (see AerialPerspectiveData): its in-scattering and transmittance, every split view's
-	// slices (and the fog's toward the sky, see SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT) stacked along z, sampled
-	// where the storage views write them
+	// slices stacked along z, sampled where the storage views write them
 	for (uint32_t volumeIt = 0; volumeIt < myAerialPerspectiveImages.size(); volumeIt++)
 	{
 		auto name = std::format("Aerial Perspective {}", volumeIt == 0 ? "Light" : "Transmittance");
@@ -243,7 +242,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		desc.memoryFlags = MemoryProperty::kDeviceLocal;
 		desc.imageAspectFlags = ImageAspect::kColor;
 		desc.layout = ImageLayout::kUndefined;
-		desc.depth = SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT;
+		desc.depth = SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT;
 		auto& volume = myAerialPerspectiveImages[volumeIt];
 		volume.image = std::make_unique<Image>(std::move(desc));
 		ImageViewCreateDesc viewDesc{

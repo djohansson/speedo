@@ -388,8 +388,36 @@ bool DebugSurfaceValue(
 	}
 }
 
+// the ground plane's horizon haze (see MaterialData::checker): the plane runs to the horizon, which from eye height is a
+// line, as a plain's is: the air hazes the far ground within the pixel at the line (a pixel below it the ground is 500 m
+// off, through a tenth of the fog's depth along the horizon), and the sky's own ground is as sharp. so the plane is hazed
+// toward what the backdrop shows at the horizon in the pixel's azimuth (BackdropHorizon, which the sky's last row has
+// too, so the line goes) as the fog near the ground would haze it from the top of its layer: the layer above the eye
+// laid over the ground, exp of its vertical optical depth from the eye's altitude (FogDepthToSky straight up: the whole
+// layer from eye height, none from above it, where the air's own haze is in view) over the sine of the angle below the
+// horizon, a haze that thickens with the fog's (Fog Visibility and Height) and goes with it; a presentation of the plane
+// alone, which nothing of the scene takes (the user's call, 2026-11-05: a smooth transition rather than a line). at the
+// default fog, 0.026 deep, the plane is three quarters hazed a degree below the horizon, two fifths at 3 degrees, a
+// seventh at 10 and a twentieth at 30, where a model's patch is: its shadows lighten by a few thousandths
+float3 GroundHorizonHaze(float3 color, float3 position, uint viewId)
+{
+	uint frameIndex = gPushConstants.frameIndex;
+	AerialPerspectiveData aerial = gAerialPerspectiveData[frameIndex][0];
+	if (aerial.enabled == 0u || aerial.fog.x <= 0.0)
+		return color;
+	float3 eye = gViewData[frameIndex][viewId].eyePosition.xyz;
+	float3 ray = position - eye;
+	float distance = length(ray);
+	if (distance <= 0.0 || ray.y >= 0.0)
+		return color;
+	float below = -ray.y / distance; // the sine of the angle below the horizon
+	float haze = 1.0 - exp(-FogDepthToSky(aerial, AerialPerspectiveAltitude(aerial, eye.y), 1.0) / max(below, 1e-4));
+	return lerp(color, BackdropHorizon(gEnvironment[0], ray, eye.y), haze);
+}
+
 // the main pass's color of a surface at a pixel of a view (FragmentMain's, and the visibility buffer's shading's, see
-// ComputeMainVisibility): the traced shadows' debug views, else shaded, with alpha 1
+// ComputeMainVisibility): the traced shadows' debug views, else shaded, with alpha 1; the ground plane's hazed toward
+// the horizon (GroundHorizonHaze)
 float4 MainColor(VertexOutput input, bool isFrontFace, uint2 pixel, uint viewId)
 {
 	gShadingViewId = viewId;
@@ -410,6 +438,8 @@ float4 MainColor(VertexOutput input, bool isFrontFace, uint2 pixel, uint viewId)
 		return float4(pow(float3(visibility), 2.2), 1.0);
 	}
 	float4 color = ShadeFragment(input, isFrontFace);
+	if (gMaterialData[input.materialId].checker != 0.0 && debugView == DEBUG_VIEW_NONE)
+		color.rgb = GroundHorizonHaze(color.rgb, input.vertex.position, viewId);
 
 	// alpha 1: the color target is cleared to alpha 0, so ComputeMain draws the backdrop where nothing opaque is
 	// within a half float (the sun's disk in a sharp reflection is tens of thousands, times the environment's intensity)

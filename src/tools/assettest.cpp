@@ -1428,6 +1428,21 @@ Report CheckSky(core::TaskExecutor& executor)
 	report.Info("zenith at noon ({:.4f}, {:.4f}, {:.4f})", zenith.x / noon.panorama.width, zenith.y / noon.panorama.width, zenith.z / noon.panorama.width);
 	if (!(zenith.z > zenith.y && zenith.y > zenith.x))
 		report.Fail("the zenith at noon isn't blue");
+	// the horizon (the panorama's middle row): the sky's last row above it and the ground's first below, each its mean (the
+	// ground, albedo SHADER_TYPES_ATMOSPHERE_GROUND_ALBEDO lit by the sun, is a shade darker and warmer than the sky's horizon:
+	// a line, as a plain's horizon is from eye height)
+	auto rowMean = [&noon](uint32_t row)
+	{
+		glm::dvec3 mean(0.0);
+		for (uint32_t x = 0; x < noon.panorama.width; x++)
+			mean += glm::dvec3(glm::make_vec3(&noon.panorama.rgb[(static_cast<size_t>(row) * noon.panorama.width + x) * 3]));
+		return mean / static_cast<double>(noon.panorama.width);
+	};
+	auto skyHorizon = rowMean(noon.panorama.height / 2 - 1);
+	auto groundHorizon = rowMean(noon.panorama.height / 2);
+	report.Info(
+		"noon's horizon: the sky ({:.4f}, {:.4f}, {:.4f}), the ground ({:.4f}, {:.4f}, {:.4f})", skyHorizon.x, skyHorizon.y, skyHorizon.z, groundHorizon.x,
+		groundHorizon.y, groundHorizon.z);
 	auto skyLight = luminance(irradianceUp(noon.panorama));
 	auto sunLight = luminance(glm::dvec3(SkySun(noonSun).irradiance)) * noonSun.y;
 	auto share = skyLight / (skyLight + sunLight);

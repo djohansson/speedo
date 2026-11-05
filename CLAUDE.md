@@ -2817,7 +2817,12 @@ share. It replaced a stylized gradient whose sun was fixed.
   for the shafts, kilometres apart in the haze), each marched in 2 steps through the sky's medium as the sky's view is
   (`SkyScatteredLight`'s energy conserving step), the eye at its altitude over the planet's surface (the scene's lowest
   point, by `SPEEDO_METERS_PER_UNIT`, the scene's unit in meters, 1 by default: View > Environment > Meters per Unit, 0.01
-  for Bistro's centimetres). The sun's single scattering by each phase function through the transmittance table, shadowed
+  for Bistro's centimetres), as far as the surface where the ray meets it (`groundReach`, the step cut there, the slices
+  past it holding what reached the eye from the surface: marched on through the planet, a cell's ray below the horizon
+  crossed 200 km of air at the surface's density, denser by the exponential layers' negative altitudes, with no sun,
+  the planet in the way of every point under its surface, a saturated dark fog that the sky's last rows took bilinearly
+  from the cells below the horizon and the ground plane's last rows, farther than the surface, whole: a dark band over
+  the plane's horizon, 2026-11-05). The sun's single scattering by each phase function through the transmittance table, shadowed
   by the sun's cascades (its light among `gLights`, the sky's own or a model's merged with it: `AerialPerspectiveData::
   shaftLight`; a bilinear comparison in the finest cascade holding the point, lit where none does, only as far along the
   ray as the scene goes, `sceneDepths`) where the shafts are on, the steps offset per cell by interleaved gradient noise,
@@ -2857,14 +2862,18 @@ share. It replaced a stylized gradient whose sun was fixed.
   stay clear; 50 m drew the horizon a line a pixel thick). It is marched with the air (`ComputeAerialPerspective`: added to
   the extinction and the scattering, by a phase of its own, `SHADER_TYPES_FOG_G`, 0.6, haze's, broader than the aerosols'
   0.8; the sun's light reaching a point comes through the layer above it, `FogDepthToSky`, Chapman's at the horizon),
-  and lit, where the probes don't hold the air, by the environment's radiance along the ray, prefiltered to about the
-  phase's width, for three quarters and the sky's and the ground's mean for the rest (`skyAround`: by the clear air's
-  multiple scattering table, or by the mean alone, a fog along the ground darkened the horizon a tenth to a third below
-  the clear sky's, a gray line between the sky and the lit ground, the air's phase scattering a high sun sideways four
-  times as much as the fog's; now a tenth under it and grayer, away from the sun). The sky's tables don't have it (it is
-  far thinner than their rows): what it alone scatters and lets through along the whole ray goes in a slice of its own
-  at the end of each view's (`SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT`, `AerialPerspectiveSky`), which
-  ComputeMain applies to the backdrop, so the sky seen through it hazes and the sun dims. Glass and the traced rays see
+  and lit, where the probes don't hold the air, by the environment's radiance along the ray, its second prefiltered
+  level (roughness 0.2, which resolves the horizon's bright band), for three quarters and the sky's and the ground's
+  mean for the rest (`skyAround`: by the clear air's multiple scattering table, or by the mean alone, a fog along the
+  ground darkened the horizon a tenth to a third below the clear sky's, a gray line between the sky and the lit ground,
+  the air's phase scattering a high sun sideways four times as much as the fog's; prefiltered to about the phase's
+  width, roughness 0.5, the band was blurred into the darker sky above and the ground below, and the fog's horizon came
+  out at half the clear sky's; a thin layer's light scattered twice or more, which the single scattering leaves out, is
+  what makes a real haze's horizon as bright as the clear sky's or brighter). The sky's tables don't have it (it is far
+  thinner than their rows): the backdrop takes it in closed form per pixel (`FogToSky`, below; until 2026-11-05 the
+  volume's slice of the fog alone along the whole ray, whose cells, 16 pixels apart, straddle the horizon, so the sky's
+  last rows took half of the cells below it, through the planet then: with the dark band above, the ground plane's
+  horizon was a harsh edge, the user's words), so the sky seen through it hazes and the sun dims. Glass and the traced rays see
   through the air too (2026-11-05): the transmission copy has the air from the eye to the opaque scene at its depth
   (`ComputeTransmissionCopy`), of which the glass takes the eye's stretch to itself out again by its own distance
   (`TransmittedLight`: ComputeMain applies that stretch to the glass's fragment), leaving the air between the glass and
@@ -2872,9 +2881,13 @@ share. It replaced a stylized gradient whose sun was fixed.
   the eye's ray that much farther (`AerialPerspectiveBetween`: the volume's integrals from the eye, at the shading's
   pixel; the air is nearly the same within the scene's reach, the shadows and the probes aside); and what rays,
   refractions and the shading's environment reflection show of the sky comes through the fog toward it in closed form
-  (`FogToSky`: the depth through the layer that way, Chapman's at the horizon, and the fog's source over it, the sun's
-  light by the phase and the light around, `FogAround`; the volume's own slice toward the sky has the shadows, which
-  these don't). The Aerial Perspective pass runs before Reflection Trace and the main passes for it, and the Transmission
+  (`FogToSky`: the depth through the layer that way, Chapman's at the horizon, rising, and falling the layer below the
+  eye along the way to the surface, no longer than the surface's horizon from the eye, `FogDepthToGround`: the
+  environment's ground is the surface, and a ray toward it used to take the whole layer above the eye, as toward the
+  sky, so the sky's own ground just below the horizon, seen where there is no ground plane, hazed as through 200 m of
+  fog at 20 m off; and the fog's source over it, the sun's light by the phase and the light around, `FogAround`; the
+  shafts in the fog against the sky, which the volume's slice had, are 0.03 deep at the default fog and went with it).
+  The Aerial Perspective pass runs before Reflection Trace and the main passes for it, and the Transmission
   pass reads the depth. MetalRoughSpheresNoTextures' mirror spheres in dense fog reflect the fogged horizon as the sky
   behind them is (1.3% of the pixels off by more than 16 of 255 against before); the shading's fog toward the sky costs
   within the runs' noise (Sponza 32.9 and 33.2 ms against 32.3 with the pass off). The lights' light comes through
@@ -3466,7 +3479,20 @@ its own isn't fought), facing up, single sided, of tiles of a round size (1, 2 o
 from the center to a side) aligned to the world's origin; then out to the horizon (the user's call, 2026-11-04, to see the
 aerial perspective in the distance), 10 rings around it, each 4 times as far as the one inside, to a million times the
 patch: far enough that the sky's air hides its edge, and the views have no far plane where the model stands on it (see
-"Depth: reversed"). A ring's inner edge has the vertices of the edge it meets (the patch's tiles' corners, the ring
+"Depth: reversed"). Its horizon from eye height is a line, as a plain's is (the air hazes the far ground within the
+pixel at the line: a pixel below it the ground is 500 m off, through a tenth of the fog's depth along the horizon; the
+sky model's own ground is as sharp, a shade darker and warmer than the sky's horizon, which `assettest`'s sky check
+prints), which the user found harsh (2026-11-05, with the dark band the fog drew over it then, see "Fog near the
+ground"): so the plane is hazed toward what the backdrop shows at the horizon in the pixel's azimuth
+(`GroundHorizonHaze` in `fragment.slang`, at the end of `MainColor`, for the materials with a checker; `BackdropHorizon`:
+the sky's glow there, `SkyGlow`, the sky's views without the disks and the stars, or a file's panorama, through the fog
+along the horizon, `FogToSky`, so the sky's last row and the plane's first are one color) as the fog near the ground
+would haze it from the top of its layer: the layer above the eye laid over the ground, exp of its vertical optical
+depth from the eye's altitude over the sine of the angle below the horizon, thicker with the fog (Fog Visibility and
+Height), none with it off or from above the layer, where the air's own haze is in view; a presentation of the plane
+alone, nothing of the scene takes it. At the default fog, 0.026 deep, the plane is three quarters hazed a degree below
+the horizon, two fifths at 3 degrees, a seventh at 10 and a twentieth at 30, where a model's patch is (its shadows
+lighten by a few thousandths); DamagedHelmet's horizon fades over 6 degrees into the sky's gray blue. A ring's inner edge has the vertices of the edge it meets (the patch's tiles' corners, the ring
 inside's outer edge scaled from them), so that no pixel falls between. Light gray, checkered in squares of a unit (the
 user's call: they measure the model), drawn by the shading (`MaterialData::checker`, `kGroundChecker`: the mean gray
 0.45 times 1 plus or minus a ninth, 0.5 and 0.4, by the parity of the texcoords' squares, which are the place;

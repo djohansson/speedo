@@ -120,14 +120,12 @@ float3 SkyStars(EnvironmentData environment, float3 d)
 	return light;
 }
 
-// the sky's radiance in a direction (in the panorama's space), sun included (see EnvironmentData::skySun): its view of
-// itself (see sky.h), and the sun's disk through the atmosphere, its edge soft over a fifth of its radius (a pixel or two;
-// the angle as twice the asin of half the chord, which keeps its precision where acos of the cosine loses it); then the
-// night's: the moon's sky (from the ground), the night's glow, the moon's disk on its phase and the stars
-float3 SkyRadiance(EnvironmentData environment, float3 d)
+// the sky's glow along a direction (in the panorama's space): its view of itself (see sky.h) lit by the sun (from the
+// shading view's eye at its altitude, where the sky's views from the eyes are made, ComputeSkyEyeView, else from the
+// ground: the environment's own table, half a metre up, which lights the scene), by the moon where it is up (from the
+// ground), and the night's glow; without the sun's and the moon's disks and the stars, which SkyRadiance adds
+float3 SkyGlow(EnvironmentData environment, float3 d)
 {
-	// from the shading view's eye at its altitude, where the sky's views from the eyes are made (ComputeSkyEyeView), else
-	// from the ground (the environment's own table, half a metre up, which lights the scene)
 	uint frameIndex = gPushConstants.frameIndex;
 	AerialPerspectiveData aerial = gAerialPerspectiveData[frameIndex][0];
 	float3 color;
@@ -140,13 +138,45 @@ float3 SkyRadiance(EnvironmentData environment, float3 d)
 	}
 	else
 		color = SkyViewRadiance(gTextures[SHADER_TYPES_SKY_VIEW_TEXTURE], gSamplers[environment.samplerId], d, environment.skySun.xyz);
+	color += environment.skyNight.z;
+	if (environment.skyMoonRadiance.w > 0.0)
+		color += SkyViewRadiance(gTextures[SHADER_TYPES_SKY_MOON_VIEW_TEXTURE], gSamplers[environment.samplerId], d, environment.skyMoon.xyz);
+	return color;
+}
+
+// the sky's radiance in a direction, sun included (see EnvironmentData::skySun): its glow, and the sun's disk through the
+// atmosphere, its edge soft over a fifth of its radius (a pixel or two; the angle as twice the asin of half the chord,
+// which keeps its precision where acos of the cosine loses it); then the night's: the moon's disk on its phase and the
+// stars
+float3 SkyRadiance(EnvironmentData environment, float3 d)
+{
+	float3 color = SkyGlow(environment, d);
 	float radius = acos(environment.skySun.w);
 	float angle = 2.0 * asin(min(0.5 * length(d - environment.skySun.xyz), 1.0));
-	color += environment.skySunRadiance.rgb * (1.0 - smoothstep(radius * 0.9, radius * 1.1, angle)) + environment.skyNight.z;
+	color += environment.skySunRadiance.rgb * (1.0 - smoothstep(radius * 0.9, radius * 1.1, angle));
 	if (environment.skyMoonRadiance.w > 0.0)
-		color += SkyViewRadiance(gTextures[SHADER_TYPES_SKY_MOON_VIEW_TEXTURE], gSamplers[environment.samplerId], d, environment.skyMoon.xyz) +
-				 SkyMoonDisk(environment, d);
+		color += SkyMoonDisk(environment, d);
 	return color + SkyStars(environment, d);
+}
+
+// what the backdrop shows at the horizon in a direction's azimuth: the sky's glow there (the environment's panorama,
+// where the environment is a file's), through the fog near the ground along the horizon, from a height y in the scene
+// (FogToSky); the gray clear color without the backdrop. for the ground plane's horizon (see GroundHorizonHaze)
+float3 BackdropHorizon(EnvironmentData environment, float3 direction, float y)
+{
+	if (gPushConstants.environmentBackdrop == 0u)
+		return 0.2;
+	float across = length(direction.xz);
+	float3 horizon = across > 1e-6 ? float3(direction.x, 0.0, direction.z) / across : float3(0.0, 0.0, -1.0);
+	float3 d = EnvironmentDirection(horizon);
+	float3 glow = environment.skySunRadiance.w > 0.0
+					  ? SkyGlow(environment, d)
+					  : gTextures[environment.textureId].SampleLevel(gSamplers[environment.samplerId], EnvironmentCoordinates(d), 0.0).rgb;
+	glow *= gPushConstants.environmentIntensity;
+	float3 fogLight;
+	float3 fogTransmittance;
+	FogToSky(gAerialPerspectiveData[gPushConstants.frameIndex][0], horizon, y, fogLight, fogTransmittance);
+	return glow * fogTransmittance + fogLight;
 }
 
 // the radiance reflected along r, prefiltered for a roughness (the split sum's first term), scaled by the intensity.

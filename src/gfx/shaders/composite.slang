@@ -95,9 +95,11 @@ void ComputeMain(
 		}
 		else if (aerialOn && aerial.fog.x > 0.0 && gPushConstants.environmentBackdrop != 0u)
 		{
+			// the fog near the ground over the backdrop, per pixel's ray (FogToSky)
+			float2 local = (float2(xy) + 0.5 - pixelView.viewport.xy) / pixelView.viewport.zw;
 			float3 light;
 			float3 transmittance;
-			AerialPerspectiveSky((float2(xy) + 0.5 - pixelView.viewport.xy) / pixelView.viewport.zw, pixelViewIndex, light, transmittance);
+			FogToSky(aerial, ViewRay(pixelView, local * 2.0 - 1.0), pixelView.eyePosition.y, light, transmittance);
 			color.rgb = color.rgb * transmittance + light;
 		}
 

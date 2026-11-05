@@ -301,13 +301,11 @@ extern "C"
 // _SLICE_COUNT slices of distance along each cell's ray, the first at the eye, the second _NEAR meters from it and each after
 // a constant factor farther, the last _FAR meters (the light shafts are near the eye, the haze kilometres off), each marched
 // in _STEP_COUNT steps, their offsets turned every frame and the slices' light kept over frames (the first
-// _HISTORY_SLICE_COUNT slices, to 2 km: the scene's reach, where the shadows and the probes are); then one more,
-// _VIEW_SLICE_COUNT in all, of what the fog near the ground does to the sky seen through it (see AerialPerspectiveData::fog:
-// the sky has the rest of the air already)
+// _HISTORY_SLICE_COUNT slices, to 2 km: the scene's reach, where the shadows and the probes are), as far as the planet's
+// surface where the ray meets it (the backdrop takes the fog near the ground in closed form, see FogToSky)
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH 160u
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT 90u
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT 64u
-#define SHADER_TYPES_AERIAL_PERSPECTIVE_VIEW_SLICE_COUNT (SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT + 1u)
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_HISTORY_SLICE_COUNT 40u
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_STEP_COUNT 2u
 #define SHADER_TYPES_AERIAL_PERSPECTIVE_NEAR 1.0
