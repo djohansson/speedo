@@ -139,7 +139,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 81; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's and the depth of field's (SHADER_TYPES_DOF_TILES_DILATED_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 85; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's and the motion blur's (SHADER_TYPES_MOTION_TILES_DILATED_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -207,6 +207,10 @@ static_assert(
 	SHADER_TYPES_DOF_TEXTURE == SHADER_TYPES_FLARE_TEXTURE + 1 && SHADER_TYPES_DOF_TILES_DILATED_TEXTURE == SHADER_TYPES_DOF_TEXTURE + 4 &&
 	SHADER_TYPES_DOF_TILES_DILATED_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_DOF_RW_TEXTURE == SHADER_TYPES_LENSED_RW_TEXTURE + 1 &&
 	SHADER_TYPES_DOF_TILES_DILATED_RW_TEXTURE == SHADER_TYPES_DOF_RW_TEXTURE + 4 && SHADER_TYPES_DOF_TILES_DILATED_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
+static_assert(
+	SHADER_TYPES_MOTION_BLUR_TEXTURE == SHADER_TYPES_DOF_TILES_DILATED_TEXTURE + 1 && SHADER_TYPES_MOTION_TILES_DILATED_TEXTURE == SHADER_TYPES_MOTION_BLUR_TEXTURE + 3 &&
+	SHADER_TYPES_MOTION_TILES_DILATED_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_MOTION_BLUR_RW_TEXTURE == SHADER_TYPES_DOF_TILES_DILATED_RW_TEXTURE + 1 &&
+	SHADER_TYPES_MOTION_TILES_DILATED_RW_TEXTURE == SHADER_TYPES_MOTION_BLUR_RW_TEXTURE + 3 && SHADER_TYPES_MOTION_TILES_DILATED_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE > SHADER_TYPES_PREPASS_MOTION_TEXTURE && SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE > SHADER_TYPES_COMPOSITE_RW_TEXTURE &&
@@ -500,6 +504,10 @@ struct Scene::Impl
 		float starGain = 0.0F;
 	};
 	LensState myLensState;
+	// the frames' length (seconds, smoothed over about ten, see UpdateSky: SPEEDO_TIME_FRAME_SECONDS's where set), which
+	// the motion blur's shutter is a share of, and the frames the lens has appeared for (the grain's seed). the draw thread's
+	double myFrameSeconds = 1.0 / 60.0;
+	uint32_t myLensFrame = 0;
 
 
 	// the loaded model's textures, by slot (from kModelTextureFirstSlot). nil for slots it doesn't use.
@@ -655,6 +663,16 @@ struct Scene::Impl
 		data.apertureDiameter = appearance.focalLength / std::max(aperture, 0.1F);
 		data.focusShiftRed = appearance.focalLengthRed - appearance.focalLength;
 		data.focusShiftBlue = appearance.focalLengthBlue - appearance.focalLength;
+		// the motion blur over the shutter's share of the frame (a share of the frame's motion: at most a few frames'),
+		// and the grain: the shot noise of a white pixel, the square root of the photons a full well holds at ISO 100 (a
+		// sensor's twenty thousand electrons, kGrainFullWell) over the gain
+		auto exposure = ChosenExposure(0);
+		data.motionBlur = mySettings.motionBlur.load(std::memory_order_relaxed) ? 1U : 0U;
+		data.shutterShare = static_cast<float>(std::clamp(static_cast<double>(exposure.shutter) / std::max(myFrameSeconds, 1e-3), 0.0, 4.0));
+		constexpr float kGrainFullWell = 20000.0F;
+		data.grain = mySettings.grain.load(std::memory_order_relaxed) ? 1U : 0U;
+		data.grainNoise = std::sqrt(std::max(exposure.iso, 1.0F) / 100.0F / kGrainFullWell);
+		data.grainFrame = myLensFrame++;
 		return data;
 	}
 
@@ -919,6 +937,9 @@ struct Scene::Impl
 		}();
 		if (kFrameSeconds >= 0.0)
 			elapsed = myModel ? kFrameSeconds : 0.0;
+		// the frames' length, for the motion blur's shutter (smoothed; the fixed one as it is)
+		if (elapsed > 0.0)
+			myFrameSeconds = kFrameSeconds >= 0.0 ? elapsed : std::clamp(myFrameSeconds + 0.1 * (elapsed - myFrameSeconds), 1e-3, 1.0);
 		float speed = mySettings.timeSpeed.load(std::memory_order_relaxed);
 		if (mySettings.advanceTime.load(std::memory_order_relaxed) && speed != 0.0F)
 		{
@@ -2669,6 +2690,10 @@ struct Scene::Impl
 				{"ComputeDofPrepare", SLANG_STAGE_COMPUTE},
 				{"ComputeDofGather", SLANG_STAGE_COMPUTE},
 				{"ComputeDofComposite", SLANG_STAGE_COMPUTE},
+				{"ComputeMotionVelocity", SLANG_STAGE_COMPUTE}, // see the Motion passes
+				{"ComputeMotionTiles", SLANG_STAGE_COMPUTE},
+				{"ComputeMotionTilesDilate", SLANG_STAGE_COMPUTE},
+				{"ComputeMotionBlur", SLANG_STAGE_COMPUTE},
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

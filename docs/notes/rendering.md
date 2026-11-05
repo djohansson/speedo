@@ -504,6 +504,35 @@ and the prepare's pixels), about 4 wide open with everything blurred, the glare 
 under the validation layer. Not yet: a bokeh's shape by the lens's aberrations (a Gauss's onion rings, a mirror's
 rings), the focus pulling smoothly over time, each split screen view's own focus (the first's serves all).
 
+**The motion blur and the grain** (the fifth stage, 2026-11-05, the camera plan's last; View > Camera > Motion Blur
+and Grain, `Settings::motionBlur` and `grain`, `SPEEDO_MOTION_BLUR=0` and `SPEEDO_GRAIN=0` without, which Copy Pose
+writes; both a real lens's, the pinhole's frames as before). The **motion blur** (`motionblur.slang`, four passes after
+the depth of field, before the Lens pass, which takes the frame through it, `SHADER_TYPES_MOTION_BLUR_TEXTURE`): what
+moves across the sensor while the shutter is open smears along its way, the shutter's share of a frame's motion
+(`LensData::shutterShare`: the shutter the camera exposes with over the frames' length, `Scene::Impl::myFrameSeconds`,
+smoothed over about ten frames in `UpdateSky`, `SPEEDO_TIME_FRAME_SECONDS`'s where set; a 1/160 s shutter at 60 frames
+a second is 37% of the way a point moved since the last frame, 1/30 s 190%, at most 4 frames'), as McGuire et al. 2012
+reconstruct it: Motion Velocity takes each output pixel's velocity over the shutter from the render pixel under it
+(`UpscaleMotion`: what moves by the pre-pass's motion, the rest by the camera's reprojection of the main depth; in the
+output's pixels, at most `SHADER_TYPES_MOTION_BLUR_MAX`, 64) with its depth, Motion Tiles each 16 pixel tile's longest
+(of every other pixel's), Motion Tiles Dilate the longest among the neighbors within reach, and Motion Blur gathers
+each pixel along its tile's longest velocity (`kMotionBlurSampleCount`, 12, samples jittered per pixel and frame,
+each weighed by McGuire's cone and cylinder: a sample moving far enough to reach the pixel, or the pixel moving far
+enough to reach it, the one in front by depth, soft over a hundredth of the distance; the pixel itself whole). The
+helmet under a turn of 10 degrees a second at 1/30 s smears along the turn, the ground's checker under 60 degrees a
+second into bands. Cost on KosmicKrisp at 1440p by the draw thread's frame time, the Gauss turning: 1.0 ms (29.0
+against 28.1 with its passes skipped). The **grain** (`SharpenLens` in `upscale.slang`, with the glare, at each of
+Sharpen's taps): the sensor's shot noise at the ISO, a normal deviate per pixel, channel and frame (`SharpenGrainNoise`:
+the sum of three uniforms of an integer hash, pcg's permutation; interleaved gradient noise, tried first, drew the
+grain as a screen) times `LensData::grainNoise`, the relative noise of a white pixel (the square root of the ISO over
+100 over the photons a full well holds at ISO 100, `kGrainFullWell`, twenty thousand electrons: 0.7% at ISO 100, 11%
+at 25600, 14% at moonlight's 38000), times the square root of the color's share of white at the exposure, in white's
+units. Bistro's street at night at f/1.8, 1/30 s and ISO 25600 (`SPEEDO_EXPOSURE=-8.5` to hold the exposure) is grainy
+as a phone's night shot is; at ISO 100 the grain is 1.7 of 255 on the helmet (every real lens frame carries it: a
+capture compared against another takes `SPEEDO_GRAIN=0`, or the pinhole). Clean under the validation layer. Not yet:
+the blur of what the shutter's time hides across frames (a shutter longer than a frame only takes a frame's motion
+times its share), the grain's color (a Bayer sensor's chroma noise), read noise at the darkest.
+
 ## Depth: reversed
 
 Depth is reversed: 1 at the near plane, 0 at the far (or at infinity), the cameras' and the shadow views' projections

@@ -298,6 +298,9 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 		});
 	// and whether its glare is drawn (SPEEDO_LENS_GLARE=0 without: the bloom, the ghosts and the starbursts)
 	apply(settings.lensGlare, kDefaults.lensGlare, "SPEEDO_LENS_GLARE", unless("0"));
+	// its motion blur and its sensor's grain (SPEEDO_MOTION_BLUR=0 and SPEEDO_GRAIN=0 without)
+	apply(settings.motionBlur, kDefaults.motionBlur, "SPEEDO_MOTION_BLUR", unless("0"));
+	apply(settings.grain, kDefaults.grain, "SPEEDO_GRAIN", unless("0"));
 	// and what it focuses at (SPEEDO_FOCUS=auto, or a distance in meters)
 	apply(settings.focusAuto, kDefaults.focusAuto, "SPEEDO_FOCUS", [](const char* value) { return std::optional<bool>(std::string_view(value) == "auto"); });
 	apply(
@@ -857,6 +860,10 @@ void WindowedApplication::InternalCopyPose()
 			text += " SPEEDO_LENS_GLARE=0";
 		if (!settings.focusAuto.load(std::memory_order_relaxed))
 			text += std::format(" SPEEDO_FOCUS={:.4g}", static_cast<double>(settings.focusDistance.load(std::memory_order_relaxed)));
+		if (!settings.motionBlur.load(std::memory_order_relaxed))
+			text += " SPEEDO_MOTION_BLUR=0";
+		if (!settings.grain.load(std::memory_order_relaxed))
+			text += " SPEEDO_GRAIN=0";
 	}
 	else if (std::abs(myViews->GetFieldOfView() - CameraCreateDesc{}.fovY) > 1e-4F)
 		text += std::format(" SPEEDO_FOCAL_LENGTH={:.4g}", static_cast<double>(myViews->GetFocalLength()));
@@ -2765,6 +2772,17 @@ void WindowedApplication::PrepareDraw()
 						settings.focusDistance.store(focusDistance, std::memory_order_relaxed);
 					EndDisabled();
 					SetItemTooltip("The distance the lens focuses at, meters: what is nearer or farther blurs by the aperture (wider open, shallower). Drag, or double-click to type.");
+					// the motion blur and the grain (see motionblur.slang, SharpenLens)
+					bool motionBlur = settings.motionBlur.load(std::memory_order_relaxed);
+					bool grain = settings.grain.load(std::memory_order_relaxed);
+					BeginDisabled(!prime);
+					if (Checkbox("Motion Blur", &motionBlur))
+						settings.motionBlur.store(motionBlur, std::memory_order_relaxed);
+					SetItemTooltip("What moves while the shutter is open smears along its way: the shutter's share of a frame's motion (a slower shutter, a longer smear).");
+					if (Checkbox("Grain", &grain))
+						settings.grain.store(grain, std::memory_order_relaxed);
+					SetItemTooltip("The sensor's shot noise at the ISO: the photons a pixel counts, fewer the higher the ISO (a night at ISO 40000 is grainy, a day at ISO 100 isn't).");
+					EndDisabled();
 					auto first = myViews->GetCamera(0);
 					bool orthographic = first && first->GetDesc().viewport.type == ViewType::Orthographic;
 					BeginDisabled(orthographic || prime);

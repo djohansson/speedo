@@ -37,3 +37,4 @@ __include types;
 #include "upscale.slang"
 #include "lens.slang"
 #include "dof.slang"
+#include "motionblur.slang"

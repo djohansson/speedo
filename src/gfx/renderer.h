@@ -389,6 +389,16 @@ private:
 	FrameGraph::PassId myDofPreparePass;
 	FrameGraph::PassId myDofGatherPass;
 	FrameGraph::PassId myDofCompositePass;
+	// the motion blur (see motionblur.slang): each pixel's velocity over the shutter, the tiles' longest (and dilated),
+	// the frame through it at the output's size, and the passes
+	FrameGraph::ImageId myMotionVelocity;
+	FrameGraph::ImageId myMotionTiles;
+	FrameGraph::ImageId myMotionTilesDilated;
+	FrameGraph::ImageId myMotionBlur;
+	FrameGraph::PassId myMotionVelocityPass;
+	FrameGraph::PassId myMotionTilesPass;
+	FrameGraph::PassId myMotionTilesDilatePass;
+	FrameGraph::PassId myMotionBlurPass;
 	FrameGraph::BufferId myLensSourceCount;
 	FrameGraph::BufferId myLensSources;
 	FrameGraph::PassId myBloomPass;

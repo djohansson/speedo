@@ -614,10 +614,22 @@ struct LensData
 	alignas(4) FLOAT1(apertureDiameter);
 	alignas(4) FLOAT1(focusShiftRed);
 	alignas(4) FLOAT1(focusShiftBlue);
+	// the motion blur (see motionblur.slang): whether it is drawn, and the shutter's share of the frame's time (how far
+	// along a frame's motion the shutter was open); and the sensor's grain (see SharpenLens): whether it is drawn, the
+	// relative noise of a white pixel at the ISO (shot noise: the square root of the photons a full well holds at ISO
+	// 100 over the ISO's gain), and the frame the noise is drawn for
+	alignas(4) UINT1(motionBlur);
+	alignas(4) FLOAT1(shutterShare);
+	alignas(4) UINT1(grain);
+	alignas(4) FLOAT1(grainNoise);
+	alignas(4) UINT1(grainFrame);
 	alignas(4) UINT1(padding0);
 	alignas(4) UINT1(padding1);
 	alignas(4) UINT1(padding2);
 };
+// the motion blur's longest blur, in the output's pixels, and its tiles' size
+#define SHADER_TYPES_MOTION_BLUR_MAX 64.0
+#define SHADER_TYPES_MOTION_BLUR_TILE_SIZE 16u
 // the depth of field's circle of confusion at most, in the output's pixels, and its tiles' size (the gather's reach is
 // the tile's and its neighbors' largest circle)
 #define SHADER_TYPES_DOF_MAX_COC 48.0
@@ -676,6 +688,16 @@ struct FlareConstants
 #define SHADER_TYPES_DOF_BLUR_RW_TEXTURE 67u
 #define SHADER_TYPES_DOF_TILES_RW_TEXTURE 68u
 #define SHADER_TYPES_DOF_TILES_DILATED_RW_TEXTURE 69u
+// and the motion blur's (see motionblur.slang): the frame through it at the output's size, which the Lens pass takes;
+// each pixel's velocity over the shutter (output pixels); the tiles' longest velocity, and that dilated
+#define SHADER_TYPES_MOTION_BLUR_TEXTURE 81u
+#define SHADER_TYPES_MOTION_VELOCITY_TEXTURE 82u
+#define SHADER_TYPES_MOTION_TILES_TEXTURE 83u
+#define SHADER_TYPES_MOTION_TILES_DILATED_TEXTURE 84u
+#define SHADER_TYPES_MOTION_BLUR_RW_TEXTURE 70u
+#define SHADER_TYPES_MOTION_VELOCITY_RW_TEXTURE 71u
+#define SHADER_TYPES_MOTION_TILES_RW_TEXTURE 72u
+#define SHADER_TYPES_MOTION_TILES_DILATED_RW_TEXTURE 73u
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,
 // and the source's mip count (its pyramid, down to 8 texels wide)

@@ -106,6 +106,11 @@ public:
 		// (View > Camera > Autofocus and Focus Distance; SPEEDO_FOCUS=auto|<meters>, which Copy Pose writes)
 		std::atomic<bool> focusAuto = true;
 		std::atomic<float> focusDistance = 2.0F;
+		// and whether what moves while its shutter is open smears (the motion blur, see motionblur.slang; View > Camera >
+		// Motion Blur, SPEEDO_MOTION_BLUR=0 without) and whether its sensor's shot noise at the ISO shows (the grain, see
+		// SharpenLens; View > Camera > Grain, SPEEDO_GRAIN=0 without), each with a real lens, which Copy Pose writes
+		std::atomic<bool> motionBlur = true;
+		std::atomic<bool> grain = true;
 		// the tonemapper (TONEMAPPER_*)
 		std::atomic<uint32_t> tonemapper = TONEMAPPER_PBR_NEUTRAL;
 		// what the views show (DEBUG_VIEW_*: the light, or a debug view of the surfaces or the lighting; View > Debug

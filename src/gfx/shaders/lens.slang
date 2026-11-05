@@ -102,8 +102,9 @@ void ComputeLens(uint3 dispatchThreadId : SV_DispatchThreadID)
 	uint2 pixel = dispatchThreadId.xy;
 	if (any(pixel >= size))
 		return;
-	// the frame, through the depth of field where it is drawn (see ComputeDofComposite)
-	Texture2D source = gTextures[lens.dof != 0u ? SHADER_TYPES_DOF_TEXTURE : LensFrameTexture()];
+	// the frame, through the depth of field and the motion blur where they are drawn (see ComputeDofComposite,
+	// ComputeMotionBlur)
+	Texture2D source = gTextures[lens.motionBlur != 0u ? SHADER_TYPES_MOTION_BLUR_TEXTURE : lens.dof != 0u ? SHADER_TYPES_DOF_TEXTURE : LensFrameTexture()];
 	ViewData view;
 	if (!UpscaleViewAtUv((float2(pixel) + 0.5) / float2(size), view))
 	{

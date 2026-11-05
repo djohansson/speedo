@@ -108,6 +108,11 @@ constexpr uint8_t kDofTilesDilateEntryPoint = 58;
 constexpr uint8_t kDofPrepareEntryPoint = 59;
 constexpr uint8_t kDofGatherEntryPoint = 60;
 constexpr uint8_t kDofCompositeEntryPoint = 61;
+// the motion blur (see motionblur.slang)
+constexpr uint8_t kMotionVelocityEntryPoint = 62;
+constexpr uint8_t kMotionTilesEntryPoint = 63;
+constexpr uint8_t kMotionTilesDilateEntryPoint = 64;
+constexpr uint8_t kMotionBlurEntryPoint = 65;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -370,6 +375,13 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myDofTilesDilated =
 		myGraph.CreateImage({.name = "DOF Tiles Dilated", .format = Format::kR16Sfloat, .downscale = SHADER_TYPES_DOF_TILE_SIZE, .outputSized = true});
 	myDofOut = myGraph.CreateImage({.name = "DOF", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
+	// and the motion blur's (see motionblur.slang)
+	myMotionVelocity = myGraph.CreateImage({.name = "Motion Velocity", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
+	myMotionTiles =
+		myGraph.CreateImage({.name = "Motion Tiles", .format = Format::kR16G16Sfloat, .downscale = SHADER_TYPES_MOTION_BLUR_TILE_SIZE, .outputSized = true});
+	myMotionTilesDilated = myGraph.CreateImage(
+		{.name = "Motion Tiles Dilated", .format = Format::kR16G16Sfloat, .downscale = SHADER_TYPES_MOTION_BLUR_TILE_SIZE, .outputSized = true});
+	myMotionBlur = myGraph.CreateImage({.name = "Motion Blur", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
 	// the order independent transparency's per pixel lists (see OitNode): their heads (a node index per pixel of the
 	// render target), nodes and counter
 	myOitHeads = myGraph.CreateBuffer(
@@ -2062,8 +2074,48 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myDofOut, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this, dofKernel](FrameGraph::PassContext& context) { dofKernel(context, kDofCompositeEntryPoint, myDofOut); });
+	// the motion blur (see motionblur.slang): each pixel's velocity over the shutter from the main depth and the
+	// pre-pass's motion (the temporal upscaling's reprojection), the longest per tile and among its neighbors, and the
+	// frame (through the depth of field) gathered along it, which the Lens pass takes; where a real lens is on
+	myMotionVelocityPass = myGraph.AddPass(
+		"Motion Velocity",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassMotion, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myMotionVelocity, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, dofKernel](FrameGraph::PassContext& context) { dofKernel(context, kMotionVelocityEntryPoint, myMotionVelocity); });
+	myMotionTilesPass = myGraph.AddPass(
+		"Motion Tiles",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myMotionVelocity, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myMotionTiles, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, dofKernel](FrameGraph::PassContext& context) { dofKernel(context, kMotionTilesEntryPoint, myMotionTiles); });
+	myMotionTilesDilatePass = myGraph.AddPass(
+		"Motion Tiles Dilate",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myMotionTiles, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myMotionTilesDilated, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, dofKernel](FrameGraph::PassContext& context) { dofKernel(context, kMotionTilesDilateEntryPoint, myMotionTilesDilated); });
+	myMotionBlurPass = myGraph.AddPass(
+		"Motion Blur",
+		[this, dofFrame](FrameGraph::PassBuilder& builder)
+		{
+			dofFrame(builder);
+			builder.Use(myDofOut, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myMotionVelocity, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myMotionTilesDilated, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myMotionBlur, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, dofKernel](FrameGraph::PassContext& context) { dofKernel(context, kMotionBlurEntryPoint, myMotionBlur); });
 	// the camera's lens (see LensData, lens.slang): what it makes of the frame at the output's size, reconstructed (the
-	// parity's) or composited at it, or through the depth of field, for the final pass; where the lens is on
+	// parity's) or composited at it, or through the depth of field and the motion blur, for the final pass; where the
+	// lens is on
 	myLensPass = myGraph.AddPass(
 		"Lens",
 		[this](FrameGraph::PassBuilder& builder)
@@ -2072,6 +2124,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			for (auto image : myUpscaleColor)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myDofOut, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myMotionBlur, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myLensed, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this, outputKernel](FrameGraph::PassContext& context)
@@ -3090,7 +3143,11 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 				 std::tuple{myDofHalf, SHADER_TYPES_DOF_HALF_TEXTURE, SHADER_TYPES_DOF_HALF_RW_TEXTURE},
 				 std::tuple{myDofBlur, SHADER_TYPES_DOF_BLUR_TEXTURE, SHADER_TYPES_DOF_BLUR_RW_TEXTURE},
 				 std::tuple{myDofTiles, SHADER_TYPES_DOF_TILES_TEXTURE, SHADER_TYPES_DOF_TILES_RW_TEXTURE},
-				 std::tuple{myDofTilesDilated, SHADER_TYPES_DOF_TILES_DILATED_TEXTURE, SHADER_TYPES_DOF_TILES_DILATED_RW_TEXTURE}})
+				 std::tuple{myDofTilesDilated, SHADER_TYPES_DOF_TILES_DILATED_TEXTURE, SHADER_TYPES_DOF_TILES_DILATED_RW_TEXTURE},
+				 std::tuple{myMotionBlur, SHADER_TYPES_MOTION_BLUR_TEXTURE, SHADER_TYPES_MOTION_BLUR_RW_TEXTURE},
+				 std::tuple{myMotionVelocity, SHADER_TYPES_MOTION_VELOCITY_TEXTURE, SHADER_TYPES_MOTION_VELOCITY_RW_TEXTURE},
+				 std::tuple{myMotionTiles, SHADER_TYPES_MOTION_TILES_TEXTURE, SHADER_TYPES_MOTION_TILES_RW_TEXTURE},
+				 std::tuple{myMotionTilesDilated, SHADER_TYPES_MOTION_TILES_DILATED_TEXTURE, SHADER_TYPES_MOTION_TILES_DILATED_RW_TEXTURE}})
 		{
 			pipeline.SetDescriptorData(
 				"gTextures",
@@ -3760,6 +3817,10 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	bool dof = lens && frame.lens.dof != 0U;
 	for (auto pass : {myDofTilesPass, myDofTilesDilatePass, myDofPreparePass, myDofGatherPass, myDofCompositePass})
 		myGraph.SetEnabled(pass, dof);
+	// and the motion blur
+	bool motionBlur = lens && frame.lens.motionBlur != 0U;
+	for (auto pass : {myMotionVelocityPass, myMotionTilesPass, myMotionTilesDilatePass, myMotionBlurPass})
+		myGraph.SetEnabled(pass, motionBlur);
 	myGraph.SetEnabled(mySharpenPass, composite);
 	frame.pushConstants.lens = lens ? LENS_ACTIVE : 0U;
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
