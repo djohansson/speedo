@@ -42,7 +42,20 @@ float3 EnvironmentIrradiance(EnvironmentData environment, float3 n)
 // the angle as twice the asin of half the chord, which keeps its precision where acos of the cosine loses it)
 float3 SkyRadiance(EnvironmentData environment, float3 d)
 {
-	float3 color = SkyViewRadiance(gTextures[SHADER_TYPES_SKY_VIEW_TEXTURE], gSamplers[environment.samplerId], d, environment.skySun.xyz);
+	// from the shading view's eye at its altitude, where the sky's views from the eyes are made (ComputeSkyEyeView), else
+	// from the ground (the environment's own table, half a metre up, which lights the scene)
+	uint frameIndex = gPushConstants.frameIndex;
+	AerialPerspectiveData aerial = gAerialPerspectiveData[frameIndex][0];
+	float3 color;
+	if (aerial.skyEyeView != 0u && gShadingViewId < SHADER_TYPES_SPLIT_VIEW_COUNT)
+	{
+		float r = SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS + AerialPerspectiveAltitude(aerial, gViewData[frameIndex][gShadingViewId].eyePosition.y);
+		color = SkyViewRadianceFrom(
+			gTextures[SHADER_TYPES_SKY_EYE_VIEW_TEXTURE], gSamplers[environment.samplerId], d, environment.skySun.xyz, r, gShadingViewId,
+			SHADER_TYPES_SPLIT_VIEW_COUNT);
+	}
+	else
+		color = SkyViewRadiance(gTextures[SHADER_TYPES_SKY_VIEW_TEXTURE], gSamplers[environment.samplerId], d, environment.skySun.xyz);
 	float radius = acos(environment.skySun.w);
 	float angle = 2.0 * asin(min(0.5 * length(d - environment.skySun.xyz), 1.0));
 	return color + environment.skySunRadiance.rgb * (1.0 - smoothstep(radius * 0.9, radius * 1.1, angle));

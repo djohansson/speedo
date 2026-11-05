@@ -117,6 +117,8 @@ constexpr uint8_t kCausticsResolveEntryPoint = 49;
 constexpr uint8_t kReflectionTraceEntryPoint = 50;
 // the aerial perspective's volume (see ComputeAerialPerspective)
 constexpr uint8_t kAerialPerspectiveEntryPoint = 51;
+// the sky's views from the eyes (see ComputeSkyEyeView)
+constexpr uint8_t kSkyEyeViewEntryPoint = 52;
 // how much of its history a slice of the volume keeps each frame (see AerialPerspectiveData::historyBlend)
 constexpr float kAerialPerspectiveHistoryBlend = 0.9F;
 // the share of a frame's tiles with something drawn without a material with an extended layer from which sorting the
@@ -126,7 +128,7 @@ constexpr float kAerialPerspectiveHistoryBlend = 0.9F;
 constexpr float kVisibilityTieredShare = 0.125F;
 constexpr uint64_t kVisibilityRecountFrameCount = 16;
 // diagnostic: the ray query replay's (see gfx/rayquerywatch.h), after the others, where the shaders have the watch
-constexpr uint8_t kRayQueryReplayEntryPoint = 52;
+constexpr uint8_t kRayQueryReplayEntryPoint = 53;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -268,6 +270,21 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		viewDesc.volume = true;
 		volume.view = std::make_unique<ImageView>(std::move(viewDesc));
 		myAerialPerspectiveHistory[historyIt] = myGraph.ImportImage(name);
+	}
+	// the sky's views from the eyes (see ComputeSkyEyeView): a table per split view, stacked along y
+	{
+		ImageCreateDesc desc{device.CreateDeviceObjectCreateDesc("Sky Eye View")};
+		desc.mipLevels = {{.extent = {.width = SHADER_TYPES_SKY_VIEW_WIDTH, .height = SHADER_TYPES_SKY_VIEW_HEIGHT * SHADER_TYPES_SPLIT_VIEW_COUNT}}};
+		desc.format = Format::kR16G16B16A16Sfloat;
+		desc.tiling = ImageTiling::kOptimal;
+		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled;
+		desc.memoryFlags = MemoryProperty::kDeviceLocal;
+		desc.imageAspectFlags = ImageAspect::kColor;
+		desc.layout = ImageLayout::kUndefined;
+		mySkyEyeViewImage.image = std::make_unique<Image>(std::move(desc));
+		mySkyEyeViewImage.view = std::make_unique<ImageView>(ImageViewCreateDesc{
+			device.CreateDeviceObjectCreateDesc("Sky Eye View View"), *mySkyEyeViewImage.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor});
+		mySkyEyeView = myGraph.ImportImage("Sky Eye View");
 	}
 	// the pixels whose shadows the atlas isn't sure of, for the rays (gShadowTraceList: a count, then a pixel each)
 	myShadowTraceList = myGraph.CreateBuffer(
@@ -984,9 +1001,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				// sampled in the general layout the resolve writes them in (see gGiVolumes)
 				for (auto volume : myGiVolumes)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
-				// the air between a surface and what its rays and its glass show (see AerialPerspectiveBetween)
+				// the air between a surface and what its rays and its glass show (see AerialPerspectiveBetween), and the sky
+				// from the eye in mirrors (SkyRadiance)
 				for (auto volume : myAerialPerspective)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
+				builder.Use(mySkyEyeView, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.ColorAttachment(myColor, load, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 				builder.DepthAttachment(myDepth, LoadOp::kLoad);
 				useOitLists(builder, PipelineStage::kFragmentShader, kOitAccess);
@@ -1517,6 +1536,22 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kEmitterTemporalEntryPoint}, extent.width, extent.height);
 		});
 
+	// the sky's views from the eyes, at their altitudes (see ComputeSkyEyeView), for the backdrop and the mirrors
+	// (SkyRadiance): the views whose eye's altitude, sun or air changed since they were last made (see
+	// AerialPerspectiveData::skyEyeViewRedraw), before everything that shades
+	mySkyEyeViewPass = myGraph.AddPass(
+		"Sky Eye View",
+		[this](FrameGraph::PassBuilder& builder)
+		{ builder.Use(mySkyEyeView, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite)); },
+		[this, bindKernel](FrameGraph::PassContext& context)
+		{
+			ComputePipelineVariant variant{.entryPoint = kSkyEyeViewEntryPoint};
+			auto& pipeline = bindKernel(context.cmd, variant);
+			auto viewCount = std::min<uint32_t>(static_cast<uint32_t>(myFrame.inputs->viewports.size()), SHADER_TYPES_SPLIT_VIEW_COUNT);
+			CommandEncoder(context.cmd).DispatchThreads(
+				pipeline.GetComputeLaunchParameters(variant), SHADER_TYPES_SKY_VIEW_WIDTH, SHADER_TYPES_SKY_VIEW_HEIGHT, viewCount);
+		});
+
 	// the aerial perspective's volume, which ComputeMain applies (see ComputeAerialPerspective): a thread per cell and view,
 	// lit through the sun's shadow views where they cast its light shafts. before the reflections' rays and the main
 	// passes, whose rays and glass read it for the air between a surface and what they show (AerialPerspectiveBetween)
@@ -1651,10 +1686,12 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.Use(myReflectionCoat, ResourceUse::Sampled(PipelineStage::kComputeShader));
 				builder.Use(myReflectionRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 				builder.Use(myColor, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
-				// what a hit's shading reads (see TracedHitRadiance), and the air between the surface and the hit
+				// what a hit's shading reads (see TracedHitRadiance), the air between the surface and the hit, and the sky
+				// from the eye (SkyRadiance)
 				builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				for (auto volume : myAerialPerspective)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				builder.Use(mySkyEyeView, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				for (auto volume : myGiVolumes)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
@@ -1815,6 +1852,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		builder.Use(myExposureHistogram, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		for (auto volume : myAerialPerspective)
 			builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+		builder.Use(mySkyEyeView, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead)); // the backdrop's sky
 	};
 	myComputeMainPass = myGraph.AddPass(
 		"ComputeMain",
@@ -2424,6 +2462,11 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		ImageBinding binding{.sampler = {}, .imageView = *myAerialPerspectiveHistoryImages[historyIt].view, .layout = ImageLayout::kGeneral};
 		pipeline.SetDescriptorData("gAerialPerspectiveHistory", binding, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES, historyIt);
 		pipeline.SetDescriptorData("gAerialPerspectiveHistoryImages", binding, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES, historyIt);
+	}
+	{
+		ImageBinding binding{.sampler = {}, .imageView = *mySkyEyeViewImage.view, .layout = ImageLayout::kGeneral};
+		pipeline.SetDescriptorData("gTextures", binding, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES, SHADER_TYPES_SKY_EYE_VIEW_TEXTURE);
+		pipeline.SetDescriptorData("gRWTextures", binding, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES, SHADER_TYPES_SKY_EYE_VIEW_RW_TEXTURE);
 	}
 	myTransmissionLevelView = std::make_unique<ImageView>(ImageViewCreateDesc{
 		device.CreateDeviceObjectCreateDesc("Transmission Level 0"),
@@ -3115,6 +3158,27 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		data.historySlot = static_cast<uint32_t>(myFrameCount & 1);
 		data.historyBlend = renderer::kAerialPerspectiveHistoryBlend;
 		myAerialPerspectiveHistoryValid = frame.aerialPerspective;
+		// the sky's views from the eyes (see ComputeSkyEyeView): made again where an eye's altitude moved by more than a
+		// hundredth of it (or a meter), or the sun or the air changed; sampled where the sky is the environment
+		data.skyEyeView = frame.sky ? 1U : 0U;
+		data.skyEyeViewRedraw = 0;
+		bool skyChanged = frame.skySun != mySkyEyeViewSun || frame.skyAerosols != mySkyEyeViewAerosols;
+		for (uint32_t viewIt = 0; viewIt < data.viewCount && viewIt < frame.cameras.size(); viewIt++)
+		{
+			float eyeY = glm::inverse(frame.cameras[viewIt].view)[3].y;
+			float altitude = SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE + (std::max(eyeY - data.groundHeight, 0.0F) * data.metersPerUnit * 1e-3F);
+			if (frame.sky && (skyChanged || std::abs(altitude - mySkyEyeViewAltitudes[viewIt]) > std::max(0.01F * altitude, 1e-3F)))
+			{
+				data.skyEyeViewRedraw |= 1U << viewIt;
+				mySkyEyeViewAltitudes[viewIt] = altitude;
+			}
+		}
+		if (frame.sky)
+		{
+			mySkyEyeViewSun = frame.skySun;
+			mySkyEyeViewAerosols = frame.skyAerosols;
+		}
+		myGraph.SetEnabled(mySkyEyeViewPass, data.skyEyeViewRedraw != 0);
 		// as far along each view as the scene goes, as the cascades reach (see shadows::Plan)
 		for (size_t viewIt = 0; viewIt < std::min<size_t>(frame.cameras.size(), SHADER_TYPES_SPLIT_VIEW_COUNT); viewIt++)
 		{
@@ -3501,6 +3565,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myGraph.Bind(myAerialPerspective[volumeIt], *myAerialPerspectiveImages[volumeIt].image);
 	for (uint32_t historyIt = 0; historyIt < myAerialPerspectiveHistoryImages.size(); historyIt++)
 		myGraph.Bind(myAerialPerspectiveHistory[historyIt], *myAerialPerspectiveHistoryImages[historyIt].image);
+	myGraph.Bind(mySkyEyeView, *mySkyEyeViewImage.image);
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
 		myGraph.Bind(myGiNearHistory[historyIt], *myGiNearHistoryImages[historyIt].image);

@@ -138,7 +138,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 71; // after the sky's tables (SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 72; // after the sky's tables and its views from the eyes (SHADER_TYPES_SKY_EYE_VIEW_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -192,6 +192,9 @@ static_assert(
 	SHADER_TYPES_SKY_TRANSMITTANCE_TEXTURE > SHADER_TYPES_REFLECTION_COAT_TEXTURE &&
 	SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE == SHADER_TYPES_SKY_TRANSMITTANCE_TEXTURE + 1 &&
 	SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE < kModelTextureFirstSlot);
+static_assert(
+	SHADER_TYPES_SKY_EYE_VIEW_TEXTURE == SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE + 1 && SHADER_TYPES_SKY_EYE_VIEW_TEXTURE < kModelTextureFirstSlot &&
+	SHADER_TYPES_SKY_EYE_VIEW_RW_TEXTURE > SHADER_TYPES_REFLECTION_COAT_RW_TEXTURE && SHADER_TYPES_SKY_EYE_VIEW_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE > SHADER_TYPES_PREPASS_MOTION_TEXTURE && SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE > SHADER_TYPES_COMPOSITE_RW_TEXTURE &&
@@ -2271,6 +2274,7 @@ struct Scene::Impl
 				{"ComputeCausticsResolve", SLANG_STAGE_COMPUTE},
 				{"ComputeReflectionTrace", SLANG_STAGE_COMPUTE}, // see the Reflection Trace pass
 				{"ComputeAerialPerspective", SLANG_STAGE_COMPUTE}, // see the Aerial Perspective pass
+				{"ComputeSkyEyeView", SLANG_STAGE_COMPUTE}, // see the Sky Eye View pass
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -2570,6 +2574,8 @@ struct Scene::Impl
 				.shaftLight = mySettings.lightShafts.load(std::memory_order_relaxed) ? SkySunLight(skySun) : std::nullopt,
 				.fogVisibility = mySettings.fog.load(std::memory_order_relaxed) ? mySettings.fogVisibility.load(std::memory_order_relaxed) : 0.0F,
 				.fogHeight = mySettings.fogHeight.load(std::memory_order_relaxed),
+				.sky = mySkyInstalled.load(std::memory_order_relaxed),
+				.skyAerosols = mySkyAerosolsDrawn,
 				.cameras = std::move(shadowCameras),
 				.sceneBounds = myModel ? myModel->GetDesc().bounds : Bounds3f{},
 				.casterBounds = myModel ? myModel->GetFramedBounds() : Bounds3f{},

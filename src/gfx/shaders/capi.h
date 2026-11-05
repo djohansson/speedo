@@ -198,6 +198,11 @@ extern "C"
 // ComputeAerialPerspective): the transmittance to the top of the atmosphere, and the light scattered more than once
 #define SHADER_TYPES_SKY_TRANSMITTANCE_TEXTURE 69u
 #define SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE 70u
+// the gTextures slot of the sky's view of itself from each split view's eye, at its altitude (see ComputeSkyEyeView: the
+// views' tables stacked along y), which the backdrop and mirror reflections sample where the sky is the environment
+// (see SkyRadiance), and its storage slot
+#define SHADER_TYPES_SKY_EYE_VIEW_TEXTURE 71u
+#define SHADER_TYPES_SKY_EYE_VIEW_RW_TEXTURE 63u
 // the gTextures slot of the pre-pass's motion: where each pixel's point was in the last frame, in the render target's
 // pixels from it, unjittered (see FragmentPrepass), which temporal upscaling reprojects what moves by
 #define SHADER_TYPES_PREPASS_MOTION_TEXTURE 38u
@@ -527,6 +532,11 @@ struct AerialPerspectiveData
 	alignas(4) UINT1(history);
 	alignas(4) UINT1(historySlot);
 	alignas(4) FLOAT1(historyBlend);
+	// the sky's views from the eyes (SHADER_TYPES_SKY_EYE_VIEW_TEXTURE, see ComputeSkyEyeView): whether they are made (the
+	// sky is the environment: SkyRadiance samples them), and which views' the frame makes again (a bit each: the eye's
+	// altitude, the sun or the air changed)
+	alignas(4) UINT1(skyEyeView);
+	alignas(4) UINT1(skyEyeViewRedraw);
 };
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,

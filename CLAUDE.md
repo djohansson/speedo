@@ -2841,8 +2841,23 @@ share. It replaced a stylized gradient whose sun was fixed.
   and 31.66 without, interleaved). Not yet: the environment's irradiance on surfaces (the sky's light reaches them through
   no fog), the emitters' light through it, the fog's own multiple scattering (a thick bank should glow nearly as white as
   a sunlit wall), and the fog in the sky's tables.
-- **Not yet** (TODO.md): clouds, the moon and the stars, the time of day's redraw cost spread over frames; and the aerial
-  perspective's (its follow-ups): the sky's view from the camera's altitude.
+- **The sky from the camera's altitude** (2026-11-05): the backdrop and the mirrors sample the sky's view of itself from
+  each split view's eye at its altitude (`ComputeSkyEyeView`, the Sky Eye View pass: a table per view as the
+  environment's, `SkyViewUvFrom` and `SkyViewParametersFrom` mapping at the eye's radius, the views' stacked along y in
+  one image, `SHADER_TYPES_SKY_EYE_VIEW_TEXTURE`; `SkyRadiance` takes the shading view's, `gShadingViewId`, which
+  ComputeMain's backdrop sets), made again for a view when its eye's altitude moved by a hundredth of itself or a metre, or
+  the sun or the air changed (`AerialPerspectiveData::skyEyeViewRedraw`, `FrameInputs::sky` and `skyAerosols`), so a
+  still camera costs nothing; the environment's own table, from half a metre up, lights the scene as before, and the
+  sun's disk is its. From 5 km up the sky's horizon dips the 2.3 degrees the ground's does, with the air below it as the
+  aerial perspective has it over the ground. Found there: the backdrop's ray (and the volume's cells') was the normalized
+  difference of the near plane's point and one twice as far, each unprojected and divided, which the positions' float
+  error over their few centimetres turned by a thousandth of a radian with the eye 500 m from the origin (Bistro's camera
+  is 4000 cm out), stripes across the sky near the horizon by the row: `ViewRay` (common.slang) takes the homogeneous
+  difference of the near plane's and the far's (at infinity, w 0), whose baseline is the whole frustum (the 500 m and
+  5 km skies smooth, the ground's captures as before to 0.2 of 255). And the volume's march takes each step's medium as
+  its exponential layers' mean between the step's ends' altitudes (`SkyMediumAlong`, `FogDepthAlong`), where a point's
+  density missed the layers a far step kilometres long crosses.
+- **Not yet** (TODO.md): clouds, the moon and the stars, the time of day's redraw cost spread over frames.
 
 ## Descriptor sets: redundant updates consume the pool
 
@@ -3223,8 +3238,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 71
-(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces, 58 to 65 the traced glossy reflections', 66 the shadow transmittance, 67 and 68 the reflection rays the visibility buffer's shading records, 69 and 70 the sky's transmittance and multiple scattering tables). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 72
+(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces, 58 to 65 the traced glossy reflections', 66 the shadow transmittance, 67 and 68 the reflection rays the visibility buffer's shading records, 69 and 70 the sky's transmittance and multiple scattering tables, 71 the sky's views from the eyes). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

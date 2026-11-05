@@ -112,6 +112,10 @@ struct FrameInputs
 	std::optional<uint32_t> shaftLight;
 	float fogVisibility = 0.0F;
 	float fogHeight = 0.0F;
+	// whether the sky is the environment (its views from the eyes are made then, see ComputeSkyEyeView), and the aerosols
+	// its tables were made for (see environment::SkyAerosols: a change makes the views again)
+	bool sky = false;
+	float skyAerosols = 1.0F;
 	// each view's camera, as the frame draws it: what the shadows are fitted to (see shadows::Plan), and the indirect
 	// lighting's clips follow (the first view's)
 	std::vector<shadows::ShadowCamera> cameras;
@@ -772,6 +776,15 @@ private:
 	std::array<AerialPerspectiveVolume, 2> myAerialPerspectiveHistoryImages;
 	std::array<FrameGraph::ImageId, 2> myAerialPerspectiveHistory{};
 	bool myAerialPerspectiveHistoryValid = false;
+	// the sky's view of itself from each split view's eye (gTextures' SHADER_TYPES_SKY_EYE_VIEW_TEXTURE, see
+	// ComputeSkyEyeView): the views' tables stacked along y, each made again when its eye's altitude, the sun or the air
+	// changed, by what each was made for (the altitude, km, -1 never; the sun; the aerosols)
+	AerialPerspectiveVolume mySkyEyeViewImage;
+	FrameGraph::ImageId mySkyEyeView{};
+	FrameGraph::PassId mySkyEyeViewPass;
+	std::array<float, SHADER_TYPES_SPLIT_VIEW_COUNT> mySkyEyeViewAltitudes{-1.0F, -1.0F, -1.0F, -1.0F};
+	glm::vec3 mySkyEyeViewSun{0.0F};
+	float mySkyEyeViewAerosols = -1.0F;
 	Buffer myEmitterReservoirBuffer;
 	FrameGraph::BufferId myEmitterReservoirs;
 	FrameGraph::ImageId myEmitterRaw;

@@ -21,11 +21,8 @@ struct SkyMedium
 	float mie;
 };
 
-SkyMedium SkyMediumAt(float altitude, float aerosols)
+SkyMedium SkyMediumOf(float rayleighDensity, float mieDensity, float ozoneDensity)
 {
-	float rayleighDensity = exp(-altitude / SHADER_TYPES_ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT);
-	float mieDensity = exp(-altitude / SHADER_TYPES_ATMOSPHERE_MIE_SCALE_HEIGHT) * aerosols;
-	float ozoneDensity = max(0.0, 1.0 - abs(altitude - SHADER_TYPES_ATMOSPHERE_OZONE_CENTER) / SHADER_TYPES_ATMOSPHERE_OZONE_HALF_WIDTH);
 	SkyMedium medium;
 	medium.rayleigh = float3(SHADER_TYPES_ATMOSPHERE_RAYLEIGH_R, SHADER_TYPES_ATMOSPHERE_RAYLEIGH_G, SHADER_TYPES_ATMOSPHERE_RAYLEIGH_B) * rayleighDensity;
 	medium.mie = SHADER_TYPES_ATMOSPHERE_MIE_SCATTERING * mieDensity;
@@ -33,6 +30,38 @@ SkyMedium SkyMediumAt(float altitude, float aerosols)
 	medium.extinction = medium.rayleigh + SHADER_TYPES_ATMOSPHERE_MIE_EXTINCTION * mieDensity +
 						float3(SHADER_TYPES_ATMOSPHERE_OZONE_R, SHADER_TYPES_ATMOSPHERE_OZONE_G, SHADER_TYPES_ATMOSPHERE_OZONE_B) * ozoneDensity;
 	return medium;
+}
+
+float SkyOzoneDensity(float altitude)
+{
+	return max(0.0, 1.0 - abs(altitude - SHADER_TYPES_ATMOSPHERE_OZONE_CENTER) / SHADER_TYPES_ATMOSPHERE_OZONE_HALF_WIDTH);
+}
+
+SkyMedium SkyMediumAt(float altitude, float aerosols)
+{
+	return SkyMediumOf(
+		exp(-altitude / SHADER_TYPES_ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT), exp(-altitude / SHADER_TYPES_ATMOSPHERE_MIE_SCALE_HEIGHT) * aerosols,
+		SkyOzoneDensity(altitude));
+}
+
+// an exponential layer's mean density along a straight segment between two altitudes (km): its scale height times the
+// difference of its ends' densities over the altitudes' difference (the middle's where they are the same)
+float SkyExponentialMean(float altitude0, float altitude1, float scaleHeight)
+{
+	float low = min(altitude0, altitude1);
+	float high = max(altitude0, altitude1);
+	return high - low > 1e-4 * scaleHeight ? (exp(-low / scaleHeight) - exp(-high / scaleHeight)) * scaleHeight / (high - low)
+										   : exp(-0.5 * (low + high) / scaleHeight);
+}
+
+// the medium's mean along a straight segment between two altitudes (km): the exponential layers' exactly, the ozone's at
+// the middle. a step kilometres long taken at a point missed the layers it crossed (see ComputeAerialPerspective)
+SkyMedium SkyMediumAlong(float altitude0, float altitude1, float aerosols)
+{
+	return SkyMediumOf(
+		SkyExponentialMean(altitude0, altitude1, SHADER_TYPES_ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT),
+		SkyExponentialMean(altitude0, altitude1, SHADER_TYPES_ATMOSPHERE_MIE_SCALE_HEIGHT) * aerosols,
+		SkyOzoneDensity(0.5 * (altitude0 + altitude1)));
 }
 
 // the distance along a ray (from origin, a unit direction) to a sphere around the planet's center: where it crosses it
@@ -178,9 +207,8 @@ float3 SkyScatteredLight(
 // by the cosine of its angle from the zenith and of its azimuth from the sun's (the sky is symmetric about the sun's
 // vertical plane, so 0 to pi of it), the horizon in the middle row and the rows nearer it closer together (Hillaire's
 // mapping: the sky changes most there), and back
-float2 SkyViewUv(float viewZenithCos, float sunViewCos)
+float2 SkyViewUvFrom(float viewZenithCos, float sunViewCos, float r)
 {
-	float r = SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS + SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE;
 	float horizon = sqrt(max(r * r - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS * SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS, 0.0));
 	float beta = acos(horizon / r); // from the nadir to the horizon
 	float zenithHorizon = kSkyPi - beta;
@@ -191,11 +219,16 @@ float2 SkyViewUv(float viewZenithCos, float sunViewCos)
 	return float2(SkySubUv(u, float(SHADER_TYPES_SKY_VIEW_WIDTH)), SkySubUv(v, float(SHADER_TYPES_SKY_VIEW_HEIGHT)));
 }
 
-void SkyViewParameters(float2 uv, out float viewZenithCos, out float sunViewCos)
+// the same from the ground (SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE up): the environment's table, which lights the scene
+float2 SkyViewUv(float viewZenithCos, float sunViewCos)
+{
+	return SkyViewUvFrom(viewZenithCos, sunViewCos, SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS + SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE);
+}
+
+void SkyViewParametersFrom(float2 uv, float r, out float viewZenithCos, out float sunViewCos)
 {
 	float u = saturate(SkyUnit(uv.x, float(SHADER_TYPES_SKY_VIEW_WIDTH)));
 	float v = saturate(SkyUnit(uv.y, float(SHADER_TYPES_SKY_VIEW_HEIGHT)));
-	float r = SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS + SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE;
 	float horizon = sqrt(max(r * r - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS * SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS, 0.0));
 	float beta = acos(horizon / r);
 	float zenithHorizon = kSkyPi - beta;
@@ -212,13 +245,32 @@ void SkyViewParameters(float2 uv, out float viewZenithCos, out float sunViewCos)
 	sunViewCos = 1.0 - 2.0 * u * u;
 }
 
-// the sky's radiance in a direction (a unit vector, +y up), the sun toward sunDirection, from its view of itself, without
-// the sun's disk (per unit of the sun's illuminance)
-float3 SkyViewRadiance(Texture2D view, SamplerState linear, float3 direction, float3 sunDirection)
+void SkyViewParameters(float2 uv, out float viewZenithCos, out float sunViewCos)
+{
+	SkyViewParametersFrom(uv, SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS + SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE, viewZenithCos, sunViewCos);
+}
+
+// the cosine of a direction's azimuth from the sun's (the sky's views are symmetric about the sun's vertical plane)
+float SkySunViewCos(float3 direction, float3 sunDirection)
 {
 	float2 across = direction.xz;
 	float2 sunAcross = sunDirection.xz;
 	float lengths = length(across) * length(sunAcross);
-	float sunViewCos = lengths > 1e-6 ? dot(across, sunAcross) / lengths : 1.0;
-	return view.SampleLevel(linear, SkyViewUv(direction.y, sunViewCos), 0.0).rgb;
+	return lengths > 1e-6 ? dot(across, sunAcross) / lengths : 1.0;
+}
+
+// the sky's radiance in a direction (a unit vector, +y up), the sun toward sunDirection, from its view of itself, without
+// the sun's disk (per unit of the sun's illuminance): from the ground (the environment's table)
+float3 SkyViewRadiance(Texture2D view, SamplerState linear, float3 direction, float3 sunDirection)
+{
+	return view.SampleLevel(linear, SkyViewUv(direction.y, SkySunViewCos(direction, sunDirection)), 0.0).rgb;
+}
+
+// the same from a view at radius r, of views' tables stacked along y (slab of slabCount: the sky's views from the eyes,
+// see ComputeSkyEyeView)
+float3 SkyViewRadianceFrom(Texture2D views, SamplerState linear, float3 direction, float3 sunDirection, float r, uint slab, uint slabCount)
+{
+	float2 uv = SkyViewUvFrom(direction.y, SkySunViewCos(direction, sunDirection), r);
+	uv.y = (float(slab) + uv.y) / float(slabCount);
+	return views.SampleLevel(linear, uv, 0.0).rgb;
 }
