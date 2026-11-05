@@ -199,6 +199,9 @@ struct Pose
 
 // the least visibility through the sky's air View > Environment offers (km: mist, see environment::SkyAerosols)
 constexpr float kMinVisibility = 1.0F;
+// the years the moon's ephemeris is offered for (see environment::MoonAt)
+constexpr int kMinYear = 1900;
+constexpr int kMaxYear = 2200;
 // the fog near the ground's (see Scene::Settings::fog): its visibility, from thick fog (km) to as good as none, and its
 // scale height (m)
 constexpr float kMinFogVisibility = 0.05F;
@@ -325,6 +328,11 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 		});
 	apply(settings.latitude, kDefaults.latitude, "SPEEDO_LATITUDE", number(-90.0F, 90.0F));
 	apply(settings.dayOfYear, kDefaults.dayOfYear, "SPEEDO_DAY_OF_YEAR", number(1.0F, 365.0F));
+	apply(
+		settings.year,
+		kDefaults.year,
+		"SPEEDO_YEAR",
+		[](const char* value) { return std::optional<int>(std::clamp(static_cast<int>(std::strtol(value, nullptr, 10)), kMinYear, kMaxYear)); });
 	apply(settings.timeSpeed, kDefaults.timeSpeed, "SPEEDO_TIME_SPEED", number(-kAny, kAny));
 	apply(
 		settings.advanceTime,
@@ -581,6 +589,7 @@ void WindowedApplication::InternalCopyPose()
 			text += std::format(" SPEEDO_LATITUDE={:.2f}", static_cast<double>(latitude));
 		if (float day = settings.dayOfYear.load(std::memory_order_relaxed); day != gfx::environment::kSkyDefaultDayOfYear)
 			text += std::format(" SPEEDO_DAY_OF_YEAR={:.0f}", static_cast<double>(day));
+		text += std::format(" SPEEDO_YEAR={}", settings.year.load(std::memory_order_relaxed)); // always: the default is this year's
 		if (settings.advanceTime.load(std::memory_order_relaxed))
 			text += std::format(" SPEEDO_TIME_SPEED={:.4g}", static_cast<double>(settings.timeSpeed.load(std::memory_order_relaxed)));
 		if (float visibility = settings.visibility.load(std::memory_order_relaxed); visibility != gfx::environment::kSkyDefaultVisibility)
@@ -2239,6 +2248,10 @@ void WindowedApplication::PrepareDraw()
 						if (DragFloat("Day of Year", &day, 0.5F, 1.0F, 365.0F, "%.0f", ImGuiSliderFlags_AlwaysClamp))
 							settings.dayOfYear.store(day, std::memory_order_relaxed);
 						SetItemTooltip("1 the 1st of January, 172 the 21st of June (the longest day north of the equator).");
+						int year = settings.year.load(std::memory_order_relaxed);
+						if (DragInt("Year", &year, 0.2F, ui::kMinYear, ui::kMaxYear, "%d", ImGuiSliderFlags_AlwaysClamp))
+							settings.year.store(year, std::memory_order_relaxed);
+						SetItemTooltip("The moon's place and phase go by it (and the stars' a little).");
 						// how clear the air is (see environment::SkyAerosols), the air between the eye and what it sees (see
 						// AerialPerspectiveData), and the sun's shadows in it
 						float visibility = settings.visibility.load(std::memory_order_relaxed);

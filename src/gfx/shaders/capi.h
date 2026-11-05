@@ -203,6 +203,9 @@ extern "C"
 // (see SkyRadiance), and its storage slot
 #define SHADER_TYPES_SKY_EYE_VIEW_TEXTURE 71u
 #define SHADER_TYPES_SKY_EYE_VIEW_RW_TEXTURE 63u
+// the gTextures slot of the sky's view of itself lit by the moon (see EnvironmentSkyView: as the sun's, per unit of the
+// moon's illuminance, from the ground), which the backdrop and mirrors add to the sun's (SkyRadiance)
+#define SHADER_TYPES_SKY_MOON_VIEW_TEXTURE 72u
 // the gTextures slot of the pre-pass's motion: where each pixel's point was in the last frame, in the render target's
 // pixels from it, unjittered (see FragmentPrepass), which temporal upscaling reprojects what moves by
 #define SHADER_TYPES_PREPASS_MOTION_TEXTURE 38u
@@ -266,6 +269,15 @@ extern "C"
 // tenth of what Rayleigh's does sideways, a fog thick along the ground but not above it gave the horizon away from the sun
 // half the clear air's light: a dark line between the sky and the lit ground
 #define SHADER_TYPES_FOG_G 0.6
+// a real lux in the renderer's units: the sun's 128000 at the top of the atmosphere is SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE
+#define SHADER_TYPES_ATMOSPHERE_LUX (SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE / 128000.0)
+// the moon: its illuminance at the top of the atmosphere when full (0.26 lux), falling with its phase (see
+// environment::MoonAt), its disk the sun's size within a hundredth of a degree; and the night sky's radiance besides it,
+// airglow and starlight, uniform (a dark rural sky's, a quarter of a millicandela a square metre)
+#define SHADER_TYPES_ATMOSPHERE_MOON_ILLUMINANCE (0.26 * SHADER_TYPES_ATMOSPHERE_LUX)
+#define SHADER_TYPES_ATMOSPHERE_NIGHT_RADIANCE (2.5e-4 * SHADER_TYPES_ATMOSPHERE_LUX)
+// the stars: the celestial sphere's octahedral grid of cells, a side, each with a star or none (see SkyStars)
+#define SHADER_TYPES_SKY_STAR_CELL_COUNT 1024u
 // ozone: absorption per km at its densest, rgb, in a layer 30 km thick around 25 km up, densest in its middle
 #define SHADER_TYPES_ATMOSPHERE_OZONE_R 0.650e-3
 #define SHADER_TYPES_ATMOSPHERE_OZONE_G 1.881e-3
@@ -317,9 +329,10 @@ extern "C"
 // gExposureHistogram (per frame index and view: split screen's views see different light, a sunlit roof beside a dark
 // corridor, and each takes its own exposure, ViewData::exposure), from SHADER_TYPES_EXPOSURE_LOG2_MIN to
 // SHADER_TYPES_EXPOSURE_LOG2_MAX (the first and last bins also take what is below and above), which the cpu reads back to
-// adapt the exposures
-#define SHADER_TYPES_EXPOSURE_BINS 64u
-#define SHADER_TYPES_EXPOSURE_LOG2_MIN -12.0
+// adapt the exposures: 40 stops, from a starlit ground (2^-28, a fifth of a millicandela a square metre; the moonlit
+// ground is at 2^-21, and from -12 it read as -12, so the exposure never followed the moon down) to the sun's disk
+#define SHADER_TYPES_EXPOSURE_BINS 96u
+#define SHADER_TYPES_EXPOSURE_LOG2_MIN -28.0
 #define SHADER_TYPES_EXPOSURE_LOG2_MAX 12.0
 // and, after them, the drawn pixels by how far what they show is from the eye (the main depth unprojected), in this many
 // bins of log2 distance: their median is how far the view looks, toward which its indirect lighting's finer clips are
@@ -432,6 +445,9 @@ struct ViewData
 	// what its image is scaled by before tonemapping: the exposure in stops (View > Exposure) and its auto exposure's (by its
 	// own pixels, see SHADER_TYPES_EXPOSURE_BINS), as a factor
 	alignas(4) FLOAT1(exposure);
+	// how much its scene is seen by the eye's night vision (0 by a lit street's light, 1 by moonlight: see Scotopic), by
+	// its luminance, whether or not its exposure follows it
+	alignas(4) FLOAT1(scotopic);
 };
 
 // how many lights gLights holds: a model's, then the environment's dominant lights (ThousandsOfLights.gltf has 4000)
@@ -497,6 +513,15 @@ struct EnvironmentData
 	// x: how much of the aerosols the sky's air has (see SkyMediumAt), times Hillaire's (a very clear day: see
 	// gfx::environment::SkyAerosols, by the visibility through it)
 	alignas(16) FLOAT4(skyAtmosphere);
+	// the moon (see environment::MoonAt, SkyMoon): xyz toward it (in the panorama's space), w the cosine of its radius;
+	// skyMoonRadiance: rgb its disk's mean radiance through the atmosphere at its phase over the share of a lit sphere's
+	// light the phase shows (see SkyMoonDisk), w its illuminance at the top of the atmosphere at its phase (the renderer's
+	// units: its sky is drawn by it, EnvironmentSkyView; 0 where there is no moon, a test's); skyNight: x the local
+	// sidereal time and y the latitude (radians: the stars' frame, see SkyStars), z the night sky's radiance (airglow and
+	// starlight, uniform), w unused
+	alignas(16) FLOAT4(skyMoon);
+	alignas(16) FLOAT4(skyMoonRadiance);
+	alignas(16) FLOAT4(skyNight);
 };
 
 // the aerial perspective (see aerialperspective.slang, Hillaire 2020's): the light the sky's atmosphere scatters toward the
@@ -545,7 +570,7 @@ struct EnvironmentFilterConstants
 {
 	alignas(4) FLOAT1(roughness);
 	alignas(4) UINT1(sourceLevelCount);
-	alignas(4) UINT1(padding0);
+	alignas(4) UINT1(light); // which light the sky's view is drawn for (EnvironmentSkyView): 0 the sun, 1 the moon
 	alignas(4) UINT1(padding1);
 };
 

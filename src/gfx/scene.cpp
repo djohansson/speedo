@@ -138,7 +138,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 72; // after the sky's tables and its views from the eyes (SHADER_TYPES_SKY_EYE_VIEW_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 73; // after the sky's tables, its views from the eyes and its view by the moon (SHADER_TYPES_SKY_MOON_VIEW_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -195,6 +195,7 @@ static_assert(
 static_assert(
 	SHADER_TYPES_SKY_EYE_VIEW_TEXTURE == SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE + 1 && SHADER_TYPES_SKY_EYE_VIEW_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_SKY_EYE_VIEW_RW_TEXTURE > SHADER_TYPES_REFLECTION_COAT_RW_TEXTURE && SHADER_TYPES_SKY_EYE_VIEW_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
+static_assert(SHADER_TYPES_SKY_MOON_VIEW_TEXTURE == SHADER_TYPES_SKY_EYE_VIEW_TEXTURE + 1 && SHADER_TYPES_SKY_MOON_VIEW_TEXTURE < kModelTextureFirstSlot);
 static_assert(
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE > SHADER_TYPES_PREPASS_MOTION_TEXTURE && SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE > SHADER_TYPES_COMPOSITE_RW_TEXTURE &&
@@ -386,7 +387,15 @@ struct Scene::Impl
 	// (draw thread)
 	std::shared_ptr<const EnvironmentTexture> mySky;
 	glm::vec3 mySkySunDrawn{0.0F};
+	glm::vec3 mySkyMoonDrawn{0.0F};
 	float mySkyAerosolsDrawn = 1.0F;
+	// the moon's illuminance at the top of the atmosphere at its phase as the sky was last drawn, and whether the sun lit
+	// the ground then (above the horizon): the air's light is the sun's else the moon's (FrameInputs::airLight)
+	float mySkyMoonIlluminanceDrawn = 0.0F;
+	bool mySkySunUpDrawn = true;
+	// the sun and the moon gEnvironment's sky fields were last uploaded for (see kSkyUpdateAngle)
+	glm::vec3 mySkySunUploaded{0.0F};
+	glm::vec3 mySkyMoonUploaded{0.0F};
 	std::chrono::steady_clock::time_point myTimeLast = std::chrono::steady_clock::now();
 	std::atomic<bool> mySkyInstalled = false;
 
@@ -447,6 +456,10 @@ struct Scene::Impl
 	// the view has been measured yet (its first measure is taken as it is)
 	std::array<std::atomic<float>, SHADER_TYPES_SPLIT_VIEW_COUNT> myAutoExposureStops{};
 	std::array<bool, SHADER_TYPES_SPLIT_VIEW_COUNT> myAutoExposureMeasured{};
+	// how much each view's scene is seen by the eye's night vision (see ViewData::scotopic), by its luminance, adapted as
+	// the exposure is
+	std::array<std::atomic<float>, SHADER_TYPES_SPLIT_VIEW_COUNT> myScotopic{};
+	std::array<bool, SHADER_TYPES_SPLIT_VIEW_COUNT> myScotopicMeasured{};
 	// the upscaling the render targets were last sized for (Settings::upscaling, see CreateOutputDependentObjects). the
 	// draw thread's
 	Upscaling myUpscaling = Upscaling::kOff;
@@ -473,6 +486,7 @@ struct Scene::Impl
 						  : 0.0F;
 		return std::exp2(mySettings.exposureStops.load(std::memory_order_relaxed) + stops);
 	}
+	float ViewScotopic(size_t view) const { return view < myScotopic.size() ? myScotopic[view].load(std::memory_order_relaxed) : 0.0F; }
 
 	// the push constants every draw (and ComputeMain) of a frame shares
 	PushConstants FramePushConstants(uint16_t frameIndex, uint16_t outputIndex)
@@ -579,24 +593,68 @@ struct Scene::Impl
 	// how much of the aerosols the sky's air has, by the visibility through it (see environment::SkyAerosols)
 	float SkyAerosols() const { return environment::SkyAerosols(mySettings.visibility.load(std::memory_order_relaxed)); }
 
-	// the sky's dominant lights for its sun through its air: the sun as a directional light, none once it is below the horizon
-	static std::vector<environment::DominantLight> SkyLights(const glm::vec3& sun, float aerosols)
+	// the sky as the time, the place and the air put it: toward the sun (see SkySunDirection) and the moon, its phase and
+	// illuminance (environment::MoonAt), the local sidereal time and the latitude (radians, the stars' frame) and the
+	// aerosols: what gEnvironment's sky fields, the sky's lights and its redraws go by
+	struct SkyState
 	{
-		auto light = environment::SkySun(sun, aerosols);
-		return light ? std::vector<environment::DominantLight>{light} : std::vector<environment::DominantLight>{};
+		glm::vec3 sun{0.0F, 1.0F, 0.0F};
+		environment::Moon moon;
+		float sidereal = 0.0F;
+		float latitude = 0.0F;
+		float aerosols = 1.0F;
+	};
+	SkyState SkyNow() const
+	{
+		float latitude = mySettings.latitude.load(std::memory_order_relaxed);
+		float day = mySettings.dayOfYear.load(std::memory_order_relaxed);
+		float time = mySettings.timeOfDay.load(std::memory_order_relaxed);
+		int year = mySettings.year.load(std::memory_order_relaxed);
+		return {
+			.sun = environment::SunDirection(latitude, day, time),
+			.moon = environment::MoonAt(latitude, day, time, year),
+			.sidereal = environment::LocalSiderealTime(day, time, year),
+			.latitude = glm::radians(latitude),
+			.aerosols = SkyAerosols()};
 	}
 
-	// gEnvironment's sky fields for its sun and air (see EnvironmentData::skySun): its disk's radiance, its illuminance
-	// through the atmosphere over its solid angle, and the aerosols
-	static void FillSkyData(EnvironmentData& data, const glm::vec3& sun, float aerosols)
+	// the sky's dominant lights through its air: the sun as a directional light while it is above the horizon, else the
+	// moon while it is (by day its light is a millionth of the sun's, not worth its shadow views and traced rays)
+	static std::vector<environment::DominantLight> SkyLights(const SkyState& sky)
 	{
-		std::copy_n(glm::value_ptr(sun), 3, data.skySun);
+		if (auto sun = environment::SkySun(sky.sun, sky.aerosols))
+			return {sun};
+		if (auto moon = environment::SkyMoon(sky.moon, sky.aerosols))
+			return {moon};
+		return {};
+	}
+
+	// gEnvironment's sky fields (see EnvironmentData::skySun): the sun's and the moon's disks' radiance, their illuminance
+	// through the atmosphere over their solid angle (the moon's over the share of a lit sphere's light its phase shows, as
+	// SkyMoonDisk draws it: a Lambertian sphere's, 2/3 at full), the aerosols, and the stars' frame and the night's glow
+	static void FillSkyData(EnvironmentData& data, const SkyState& sky)
+	{
+		std::copy_n(glm::value_ptr(sky.sun), 3, data.skySun);
 		float cosRadius = std::cos(environment::kSkySunRadius);
+		float solidAngle = 2.0F * glm::pi<float>() * (1.0F - cosRadius);
 		data.skySun[3] = cosRadius;
-		auto radiance = environment::SkySun(sun, aerosols).irradiance / (2.0F * glm::pi<float>() * (1.0F - cosRadius));
+		auto radiance = environment::SkySun(sky.sun, sky.aerosols).irradiance / solidAngle;
 		std::copy_n(glm::value_ptr(radiance), 3, data.skySunRadiance);
 		data.skySunRadiance[3] = 1.0F;
-		data.skyAtmosphere[0] = aerosols;
+		data.skyAtmosphere[0] = sky.aerosols;
+		std::copy_n(glm::value_ptr(sky.moon.direction), 3, data.skyMoon);
+		data.skyMoon[3] = cosRadius;
+		// a Lambertian sphere's phase law: the share of its full light at an elongation e from the sun (a phase angle of pi
+		// less e) is (sin e - e cos e) / pi, and its full disk's mean cosine is 2/3
+		float elongation = sky.moon.elongation;
+		float litShare = std::max(2.0F / 3.0F * (std::sin(elongation) - (elongation * std::cos(elongation))) / glm::pi<float>(), 0.01F);
+		auto moonRadiance = environment::SkyMoon(sky.moon, sky.aerosols).irradiance / (solidAngle * litShare);
+		std::copy_n(glm::value_ptr(moonRadiance), 3, data.skyMoonRadiance);
+		data.skyMoonRadiance[3] = sky.moon.illuminance;
+		data.skyNight[0] = sky.sidereal;
+		data.skyNight[1] = sky.latitude;
+		data.skyNight[2] = static_cast<float>(SHADER_TYPES_ATMOSPHERE_NIGHT_RADIANCE);
+		data.skyNight[3] = 0.0F;
 	}
 
 	// a model's directional light within this (degrees) of a dominant light's direction is the same light (see SyncLights)
@@ -604,14 +662,7 @@ struct Scene::Impl
 
 	// toward the sky's sun as last drawn, in the world (turned back by the environment's rotation, as SyncLights turns the
 	// dominant lights), which the aerial perspective is lit by
-	glm::vec3 SkySunWorld() const
-	{
-		float angle = glm::radians(mySettings.environmentRotationDegrees.load(std::memory_order_relaxed));
-		float c = std::cos(angle);
-		float s = std::sin(angle);
-		const auto& d = mySkySunDrawn;
-		return {(c * d.x) + (s * d.z), d.y, (-s * d.x) + (c * d.z)};
-	}
+	glm::vec3 SkySunWorld() const { return SkyWorld(mySkySunDrawn); }
 
 	// which of the lights (gLights) is the sky's sun toward sun: its own dominant light, or a model's directional light
 	// merged with it (the nearest within kMergeAngle), if any (none below the horizon), for the light shafts' shadow views
@@ -634,9 +685,33 @@ struct Scene::Impl
 		return found;
 	}
 
-	// draws the sky again where the sun has moved more than this (degrees) since it was last drawn (see UpdateSky): a
-	// still sun's minute at real time, so that a time advancing slowly draws it every few seconds, and fast, every frame
+	// draws the sky again where the sun or the moon has moved more than this (degrees) since it was last drawn (see
+	// UpdateSky): a still sun's minute at real time, so that a time advancing slowly draws it every few seconds, and fast,
+	// every frame
 	static constexpr float kSkyRedrawAngle = 0.05F;
+	// and uploads gEnvironment's sky fields alone (the disks' places, the stars' frame) where either has moved more than
+	// this: a tenth of it, under a pixel, so that the sun, the moon and the stars move smoothly between the redraws (the
+	// stars stepped 3 pixels every 12 seconds at real time)
+	static constexpr float kSkyUpdateAngle = 0.005F;
+
+	// the sky's directions in the world: the panorama's space turned by the environment's rotation
+	glm::vec3 SkyWorld(const glm::vec3& d) const
+	{
+		float angle = glm::radians(mySettings.environmentRotationDegrees.load(std::memory_order_relaxed));
+		float c = std::cos(angle);
+		float s = std::sin(angle);
+		return {(c * d.x) + (s * d.z), d.y, (-s * d.x) + (c * d.z)};
+	}
+
+	// the light the sky's air is lit by, as the aerial perspective marches it (FrameInputs::airLight): toward it, in the
+	// world, and its illuminance at the top of the atmosphere; the sun while it is above the horizon, else the moon, whose
+	// light the sun's twilight outshines until the sun sets (the switch changes nothing to see)
+	glm::vec4 SkyAirLight() const
+	{
+		if (mySkySunUpDrawn)
+			return {SkyWorld(mySkySunDrawn), static_cast<float>(SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE)};
+		return {SkyWorld(mySkyMoonDrawn), mySkyMoonIlluminanceDrawn};
+	}
 
 	// the time of day advanced (Settings::advanceTime) by the real time since the last frame, and the sky drawn again for
 	// its sun when it has moved (see kSkyRedrawAngle): gEnvironment's sky fields, its view of itself, its panorama and the
@@ -664,30 +739,51 @@ struct Scene::Impl
 		}
 		if (!mySky)
 			return;
-		auto sun = SkySunDirection();
-		auto aerosols = SkyAerosols();
-		if (glm::dot(sun, mySkySunDrawn) >= std::cos(glm::radians(kSkyRedrawAngle)) && aerosols == mySkyAerosolsDrawn)
+		auto sky = SkyNow();
+		float redraw = std::cos(glm::radians(kSkyRedrawAngle));
+		float update = std::cos(glm::radians(kSkyUpdateAngle));
+		bool redrawTables = glm::dot(sky.sun, mySkySunDrawn) < redraw || glm::dot(sky.moon.direction, mySkyMoonDrawn) < redraw ||
+							sky.aerosols != mySkyAerosolsDrawn;
+		if (!redrawTables && glm::dot(sky.sun, mySkySunUploaded) >= update && glm::dot(sky.moon.direction, mySkyMoonUploaded) >= update)
 			return;
 
 		auto& device = rhi.GetPrimaryDevice();
 		auto& environmentBuffer = *device.GetResource<Buffer>(myEnvironmentUuid);
 		EnvironmentData data{};
-		FillSkyData(data, sun, aerosols);
+		FillSkyData(data, sky);
 		// the sky fields alone: the irradiance is the filter's to write
 		static_assert(offsetof(EnvironmentData, skySunRadiance) == offsetof(EnvironmentData, skySun) + sizeof(data.skySun));
 		static_assert(offsetof(EnvironmentData, skyAtmosphere) == offsetof(EnvironmentData, skySunRadiance) + sizeof(data.skySunRadiance));
+		static_assert(offsetof(EnvironmentData, skyMoon) == offsetof(EnvironmentData, skyAtmosphere) + sizeof(data.skyAtmosphere));
+		static_assert(offsetof(EnvironmentData, skyMoonRadiance) == offsetof(EnvironmentData, skyMoon) + sizeof(data.skyMoon));
+		static_assert(offsetof(EnvironmentData, skyNight) == offsetof(EnvironmentData, skyMoonRadiance) + sizeof(data.skyMoonRadiance));
 		auto first = reinterpret_cast<const std::byte*>(&data) + offsetof(EnvironmentData, skySun);
 		UpdateBufferOnGraphics(
 			graphics,
 			environmentBuffer,
 			offsetof(EnvironmentData, skySun),
-			std::span(first, sizeof(data.skySun) + sizeof(data.skySunRadiance) + sizeof(data.skyAtmosphere)));
-		RecordEnvironment(graphics, *mySky, environmentBuffer, aerosols);
-		myEnvironmentLights = SkyLights(sun, aerosols);
-		mySkySunDrawn = sun;
-		mySkyAerosolsDrawn = aerosols;
+			std::span(first, offsetof(EnvironmentData, skyNight) + sizeof(data.skyNight) - offsetof(EnvironmentData, skySun)));
+		mySkySunUploaded = sky.sun;
+		mySkyMoonUploaded = sky.moon.direction;
+		if (!redrawTables)
+			return;
+		RecordEnvironment(graphics, *mySky, environmentBuffer, sky.aerosols);
+		myEnvironmentLights = SkyLights(sky);
+		RememberSkyDrawn(sky);
 		// the frame binds what it draws with: the main layout, as before
 		myPipeline.BindLayoutAuto(myPipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+	}
+
+	// what the sky was drawn for (see UpdateSky)
+	void RememberSkyDrawn(const SkyState& sky)
+	{
+		mySkySunDrawn = sky.sun;
+		mySkyMoonDrawn = sky.moon.direction;
+		mySkyAerosolsDrawn = sky.aerosols;
+		mySkyMoonIlluminanceDrawn = sky.moon.illuminance;
+		mySkySunUpDrawn = static_cast<bool>(environment::SkySun(sky.sun, sky.aerosols));
+		mySkySunUploaded = sky.sun;
+		mySkyMoonUploaded = sky.moon.direction;
 	}
 
 	// prefilters an environment on the gpu (see EnvironmentFilter::Record), before the frames that sample it (the same
@@ -731,7 +827,7 @@ struct Scene::Impl
 				light.size = size;
 			}
 		}
-		std::vector<environment::DominantLight> dominants = myEnvironmentLights ? *myEnvironmentLights : SkyLights(SkySunDirection(), SkyAerosols());
+		std::vector<environment::DominantLight> dominants = myEnvironmentLights ? *myEnvironmentLights : SkyLights(SkyNow());
 
 		// the panorama's space to the world's (the inverse of the shader's EnvironmentDirection)
 		float angle = glm::radians(mySettings.environmentRotationDegrees.load(std::memory_order_relaxed));
@@ -851,6 +947,16 @@ struct Scene::Impl
 		constexpr double kDaylightLog2 = -4.0;
 		constexpr double kNightLog2 = -11.0;
 		constexpr double kNightStops = 2.0;
+		// and on down to moonlight, 2^-21 (a full moon's ground, 0.01 cd/m^2), by kMoonlightStops more: a moonlit night
+		// darker still, as the eye has it (the user's call, 2026-11-05), seen by its rods (ViewData::scotopic, see
+		// Scotopic): the moonlit ground about 0.02 linear, a dark gray the display still shows (3 stops more, 0.006, was
+		// black but for the highlights)
+		constexpr double kMoonlightLog2 = -21.0;
+		constexpr double kMoonlightStops = 1.3;
+		// the eye's night vision takes over as the scene darkens through the mesopic range, from 3 cd/m^2 (2^-14) to 0.003
+		// (2^-24): the rods alone under a quarter moon
+		constexpr double kPhotopicLog2 = -14.0;
+		constexpr double kScotopicLog2 = -24.0;
 		{
 			std::span<const uint32_t> distances(bins.data() + SHADER_TYPES_EXPOSURE_BINS, SHADER_TYPES_DISTANCE_BINS);
 			uint64_t drawn = std::accumulate(distances.begin(), distances.end(), uint64_t{0});
@@ -871,7 +977,7 @@ struct Scene::Impl
 		}
 
 		uint64_t total = std::accumulate(bins.begin(), bins.begin() + SHADER_TYPES_EXPOSURE_BINS, uint64_t{0});
-		if (total == 0 || !mySettings.autoExposure.load(std::memory_order_relaxed))
+		if (total == 0)
 			return;
 		auto low = static_cast<double>(total) * 0.5;
 		auto high = static_cast<double>(total) * 0.95;
@@ -895,7 +1001,16 @@ struct Scene::Impl
 			return;
 		double mean = sum / weight;
 		double darkness = std::clamp((kDaylightLog2 - mean) / (kDaylightLog2 - kNightLog2), 0.0, 1.0);
-		adapt(myAutoExposureStops[view], myAutoExposureMeasured[view], static_cast<float>(std::log2(kAutoExposureKey) - (kNightStops * darkness) - mean));
+		// the night vision's share by the scene's luminance, whether or not the exposure follows it
+		double night = std::clamp((kNightLog2 - mean) / (kNightLog2 - kMoonlightLog2), 0.0, 1.0);
+		double scotopic = std::clamp((kPhotopicLog2 - mean) / (kPhotopicLog2 - kScotopicLog2), 0.0, 1.0);
+		adapt(myScotopic[view], myScotopicMeasured[view], static_cast<float>(scotopic));
+		if (!mySettings.autoExposure.load(std::memory_order_relaxed))
+			return;
+		adapt(
+			myAutoExposureStops[view],
+			myAutoExposureMeasured[view],
+			static_cast<float>(std::log2(kAutoExposureKey) - (kNightStops * darkness) - (kMoonlightStops * night) - mean));
 	}
 
 
@@ -1735,11 +1850,12 @@ struct Scene::Impl
 					.samplerId = kDefaultSamplerId,
 					.levelCount = static_cast<float>(environment->levelCount),
 					.sheenLevelCount = static_cast<float>(environment->sheenLevelCount)};
-				// the sky for the sun where the time of day puts it now, through its air (UpdateSky draws it again as they change)
-				auto sun = SkySunDirection();
-				auto aerosols = SkyAerosols();
+				// the sky for the sun and the moon where the time puts them now, through its air (UpdateSky draws it again as they
+				// change)
+				auto sky = SkyNow();
+				auto aerosols = sky.aerosols;
 				if (environment->sky)
-					FillSkyData(data, sun, aerosols);
+					FillSkyData(data, sky);
 				// the irradiance is the filter's to write, after the rest
 				UpdateBufferOnGraphics(graphics, environmentBuffer, 0, std::as_bytes(std::span(&data, 1)));
 
@@ -1748,8 +1864,7 @@ struct Scene::Impl
 				RecordEnvironment(graphics, *environment, environmentBuffer, aerosols);
 				RetireAfterGraphicsWork(graphics, std::make_shared<std::shared_ptr<const EnvironmentTexture>>(environment));
 				mySky = environment->sky ? environment : nullptr;
-				mySkySunDrawn = sun;
-				mySkyAerosolsDrawn = aerosols;
+				RememberSkyDrawn(sky);
 				mySkyInstalled.store(environment->sky, std::memory_order_relaxed);
 
 				pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
@@ -1772,7 +1887,7 @@ struct Scene::Impl
 				myEnvironmentViewUuid = view->GetUuid();
 				myEnvironmentSheenImageUuid = sheenImage->GetUuid();
 				myEnvironmentSheenViewUuid = sheenView->GetUuid();
-				myEnvironmentLights = environment->sky ? SkyLights(sun, aerosols) : environment->dominantLights;
+				myEnvironmentLights = environment->sky ? SkyLights(sky) : environment->dominantLights;
 				myEnvironmentName.Write().Get() = std::move(name);
 				myEnvironmentPath.Write().Get() = std::move(path);
 			});
@@ -2295,7 +2410,8 @@ struct Scene::Impl
 		for (auto [view, slot] : std::array{
 				 std::pair{&myEnvironmentFilter->GetSkyView(), SHADER_TYPES_SKY_VIEW_TEXTURE},
 				 std::pair{&myEnvironmentFilter->GetSkyTransmittance(), SHADER_TYPES_SKY_TRANSMITTANCE_TEXTURE},
-				 std::pair{&myEnvironmentFilter->GetSkyMultipleScattering(), SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE}})
+				 std::pair{&myEnvironmentFilter->GetSkyMultipleScattering(), SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE},
+				 std::pair{&myEnvironmentFilter->GetSkyMoonView(), SHADER_TYPES_SKY_MOON_VIEW_TEXTURE}})
 			pipeline.SetDescriptorData(
 				"gTextures",
 				ImageBinding{.sampler = {}, .imageView = *view, .layout = ImageLayout::kGeneral},
@@ -2515,13 +2631,15 @@ struct Scene::Impl
 		auto& views = myViews;
 		auto viewportScale = RenderViewportScale();
 		std::array<float, SHADER_TYPES_SPLIT_VIEW_COUNT> exposures{};
+		std::array<float, SHADER_TYPES_SPLIT_VIEW_COUNT> scotopics{};
 		std::array<float, SHADER_TYPES_SPLIT_VIEW_COUNT> lookDistances{};
 		for (size_t viewIt = 0; viewIt < exposures.size(); viewIt++)
 		{
 			exposures[viewIt] = ViewExposure(viewIt);
+			scotopics[viewIt] = ViewScotopic(viewIt);
 			lookDistances[viewIt] = myLookDistances[viewIt].load(std::memory_order_relaxed);
 		}
-		auto cameras = views.Upload(target.frameIndex, viewportScale, myUpscaling != Upscaling::kOff, exposures);
+		auto cameras = views.Upload(target.frameIndex, viewportScale, myUpscaling != Upscaling::kOff, exposures, scotopics);
 		std::vector<glm::mat4> viewProjections;
 		for (const auto& camera : cameras)
 			viewProjections.push_back(camera.GetProjectionMatrix() * camera.GetViewMatrix());
@@ -2533,6 +2651,7 @@ struct Scene::Impl
 				 .nearPlane = cameras[cameraIt].GetDesc().nearPlane,
 				 .farPlane = cameras[cameraIt].GetDesc().farPlane});
 		auto skySun = SkySunWorld();
+		auto airLight = SkyAirLight();
 		myRenderer->Record(
 			cmd,
 			pipeline,
@@ -2570,8 +2689,9 @@ struct Scene::Impl
 				.emissiveLights = mySettings.emissiveLights.load(std::memory_order_relaxed),
 				.aerialPerspective = mySettings.aerialPerspective.load(std::memory_order_relaxed) && mySkyInstalled.load(std::memory_order_relaxed),
 				.skySun = skySun,
+				.airLight = airLight,
 				.metersPerUnit = mySettings.metersPerUnit.load(std::memory_order_relaxed),
-				.shaftLight = mySettings.lightShafts.load(std::memory_order_relaxed) ? SkySunLight(skySun) : std::nullopt,
+				.shaftLight = mySettings.lightShafts.load(std::memory_order_relaxed) ? SkySunLight(glm::vec3(airLight)) : std::nullopt,
 				.fogVisibility = mySettings.fog.load(std::memory_order_relaxed) ? mySettings.fogVisibility.load(std::memory_order_relaxed) : 0.0F,
 				.fogHeight = mySettings.fogHeight.load(std::memory_order_relaxed),
 				.sky = mySkyInstalled.load(std::memory_order_relaxed),

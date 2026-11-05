@@ -126,6 +126,9 @@ public:
 		std::atomic<float> timeOfDay = environment::kSkyDefaultTimeOfDay;
 		std::atomic<float> latitude = environment::kSkyDefaultLatitude;
 		std::atomic<float> dayOfYear = environment::kSkyDefaultDayOfYear;
+		// and the year, which the moon's place and phase go by (and the stars' a little): this one by default, the user's
+		// call (View > Environment > Year, SPEEDO_YEAR, which Copy Pose always writes)
+		std::atomic<int> year = environment::CurrentYear();
 		std::atomic<bool> advanceTime = false;
 		std::atomic<float> timeSpeed = 60.0F;
 		// how clear the sky's air is: how far one sees through it, km (see environment::SkyAerosols; View > Environment >

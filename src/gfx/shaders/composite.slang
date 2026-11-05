@@ -193,7 +193,7 @@ void ComputeMain(
 			dst.Store(xy, float4(max(color.rgb, 0.0), coverage));
 		else
 		{
-			float3 mapped = data ? max(color.rgb, 0.0) : Tonemap(max(color.rgb, 0.0) * exposure);
+			float3 mapped = data ? max(color.rgb, 0.0) : Tonemap(Scotopic(max(color.rgb, 0.0) * exposure, inView ? pixelView.scotopic : 0.0));
 			dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), 1.0));
 
 			// the ui's frosted panels' backdrop: under them and within the blur's reach, linear, for the UI Blur passes

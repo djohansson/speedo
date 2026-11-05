@@ -3138,14 +3138,16 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		for (auto pass : {myShadowTraceClearPass, myShadowClassifyPass, myShadowTracePass, myShadowDenoiseXPass, myShadowDenoiseYPass})
 			myGraph.SetEnabled(pass, myShadowsTraced);
 	}
-	// the aerial perspective (see AerialPerspectiveData): the sky's sun at the top of the atmosphere, as the sky is lit, the
-	// planet's surface at the scene's lowest point, and the light shafts where the sun's light has shadow views
+	// the aerial perspective (see AerialPerspectiveData): the light the air is lit by at the top of the atmosphere (the
+	// sky's sun, or the moon at night), as the sky is lit, the planet's surface at the scene's lowest point, and the light
+	// shafts where that light has shadow views
 	{
 		myGraph.SetEnabled(myAerialPerspectivePass, frame.aerialPerspective);
 		AerialPerspectiveData data{};
-		auto sun = glm::length(frame.skySun) > 0.0F ? glm::normalize(frame.skySun) : glm::vec3(0.0F, 1.0F, 0.0F);
+		glm::vec3 airLight(frame.airLight);
+		auto sun = glm::length(airLight) > 0.0F ? glm::normalize(airLight) : glm::vec3(0.0F, 1.0F, 0.0F);
 		std::copy_n(glm::value_ptr(sun), 3, data.sun);
-		data.sun[3] = SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE * frame.pushConstants.environmentIntensity;
+		data.sun[3] = frame.airLight.w * frame.pushConstants.environmentIntensity;
 		data.metersPerUnit = frame.metersPerUnit > 0.0F ? frame.metersPerUnit : 1.0F;
 		data.groundHeight = frame.sceneBounds.GetMin().y;
 		data.enabled = frame.aerialPerspective ? 1U : 0U;

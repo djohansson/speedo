@@ -36,6 +36,9 @@ Texture2D gSkyTransmittance;
 Texture2D gSkyMultipleScattering;
 [[vk::binding(7, 1)]]
 Texture2D gSkyView;
+// and lit by the moon (see EnvironmentSkyView), which the panorama adds to the sun's
+[[vk::binding(8, 1)]]
+Texture2D gSkyMoonView;
 
 #include "sky.h"
 
@@ -197,13 +200,17 @@ void EnvironmentSkyView(uint3 id : SV_DispatchThreadID)
 	float viewZenithCos;
 	float sunViewCos;
 	SkyViewParameters(uv, viewZenithCos, sunViewCos);
-	float muSun = clamp(gEnvironment[0].skySun.y, -1.0, 1.0);
+	// for the sun, or the moon (gFilter.light: the same atmosphere lit by it, by its illuminance at its phase)
+	bool moon = gFilter.light != 0u;
+	float4 lightDirection = moon ? gEnvironment[0].skyMoon : gEnvironment[0].skySun;
+	float illuminance = moon ? gEnvironment[0].skyMoonRadiance.w : SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE;
+	float muSun = clamp(lightDirection.y, -1.0, 1.0);
 	float3 sunDirection = float3(sqrt(max(1.0 - muSun * muSun, 0.0)), muSun, 0.0);
 	float sinZenith = sqrt(max(1.0 - viewZenithCos * viewZenithCos, 0.0));
 	float3 direction = float3(sinZenith * sunViewCos, viewZenithCos, sinZenith * sqrt(max(1.0 - sunViewCos * sunViewCos, 0.0)));
 	float3 origin = float3(0.0, SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS + SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE, 0.0);
 	float3 light = SkyScatteredLight(gSkyTransmittance, gSkyMultipleScattering, gSampler, origin, direction, sunDirection, 32, gEnvironment[0].skyAtmosphere.x);
-	gOutput[id.xy] = float4(light * SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE, 1.0);
+	gOutput[id.xy] = float4(light * illuminance, 1.0);
 }
 
 // the sky without its sun (a directional light, see gfx::environment::SunIrradiance): the source's level 0, from its view
@@ -214,7 +221,15 @@ void EnvironmentSky(uint3 id : SV_DispatchThreadID)
 {
 	float2 uv;
 	if (OutputTexel(id.xy, uv))
-		gOutput[id.xy] = float4(SkyViewRadiance(gSkyView, gSampler, Direction(uv), gEnvironment[0].skySun.xyz), 1.0);
+	{
+		// the sun's sky, the moon's (where there is one) and the night's glow (the disks and the stars are the backdrop's
+		// alone, see SkyRadiance)
+		float3 direction = Direction(uv);
+		float3 radiance = SkyViewRadiance(gSkyView, gSampler, direction, gEnvironment[0].skySun.xyz) + gEnvironment[0].skyNight.z;
+		if (gEnvironment[0].skyMoonRadiance.w > 0.0)
+			radiance += SkyViewRadiance(gSkyMoonView, gSampler, direction, gEnvironment[0].skyMoon.xyz);
+		gOutput[id.xy] = float4(radiance, 1.0);
+	}
 }
 
 // a mip of the source's pyramid: each texel the mean of the four above it by their solid angles (rows nearer the poles

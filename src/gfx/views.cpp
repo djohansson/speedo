@@ -403,7 +403,8 @@ bool Views::OnPath() const
 	return path.Get().next < path.Get().poses.size();
 }
 
-std::vector<Camera> Views::Upload(uint32_t frameIndex, glm::vec2 viewportScale, bool jitter, std::span<const float> exposures)
+std::vector<Camera> Views::Upload(
+	uint32_t frameIndex, glm::vec2 viewportScale, bool jitter, std::span<const float> exposures, std::span<const float> scotopics)
 {
 	ZoneScopedN("Views::Upload");
 
@@ -471,6 +472,7 @@ std::vector<Camera> Views::Upload(uint32_t frameIndex, glm::vec2 viewportScale, 
 		views[viewIt].jitter[3] = last.jitter.y;
 		views[viewIt].textureLodBias = jitter ? std::log2(std::min(viewportScale.x, viewportScale.y)) + views::kJitterTextureLodBias : 0.0F;
 		views[viewIt].exposure = viewIt < exposures.size() ? exposures[viewIt] : (exposures.empty() ? 1.0F : exposures.front());
+		views[viewIt].scotopic = viewIt < scotopics.size() ? scotopics[viewIt] : 0.0F;
 		if (myUploaded.size() <= viewIt)
 			myUploaded.resize(viewIt + 1);
 		myUploaded[viewIt] = uploaded;

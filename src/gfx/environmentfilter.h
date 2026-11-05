@@ -34,6 +34,8 @@ public:
 	// the sky's view of itself (SHADER_TYPES_SKY_VIEW_TEXTURE, see sky.h), in the general layout once the first
 	// environment is recorded
 	[[nodiscard]] const ImageView& GetSkyView() const { return *mySkyView.view; }
+	// and lit by the moon (SHADER_TYPES_SKY_MOON_VIEW_TEXTURE), per unit of its illuminance, made with the sun's
+	[[nodiscard]] const ImageView& GetSkyMoonView() const { return *mySkyMoonView.view; }
 	// and its other tables (SHADER_TYPES_SKY_TRANSMITTANCE_TEXTURE, SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE), which the
 	// aerial perspective is made from: the same, once the sky is
 	[[nodiscard]] const ImageView& GetSkyTransmittance() const { return *mySkyTransmittance.view; }
@@ -47,6 +49,7 @@ private:
 	Texture mySkyTransmittance;
 	Texture mySkyMultipleScattering;
 	Texture mySkyView;
+	Texture mySkyMoonView;
 	bool mySkyTablesMade = false;
 	float mySkyTablesAerosols = 1.0F;
 };

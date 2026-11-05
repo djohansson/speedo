@@ -1222,9 +1222,9 @@ void ComputeUpscaleAccumulate(uint3 dispatchThreadId : SV_DispatchThreadID)
 static const float kSharpenStops = 0.5;
 
 // the light as the output shows it, before the srgb curve (by the exposure of the view the pixel is in)
-float3 SharpenMapped(float3 color, bool data, float exposure)
+float3 SharpenMapped(float3 color, bool data, float exposure, float scotopic)
 {
-	return saturate(data ? max(color, 0.0) : Tonemap(max(color, 0.0) * exposure));
+	return saturate(data ? max(color, 0.0) : Tonemap(Scotopic(max(color, 0.0) * exposure, scotopic)));
 }
 
 [shader("compute")]
@@ -1243,11 +1243,11 @@ void ComputeSharpen(uint3 dispatchThreadId : SV_DispatchThreadID)
 	ViewData view;
 	UpscaleViewAtUv((float2(xy) + 0.5) / float2(size), view);
 	float exposure = view.exposure;
-	float3 e = SharpenMapped(resolved.Load(int3(xy, 0)).rgb, data, exposure);
-	float3 b = SharpenMapped(resolved.Load(int3(clamp(xy + int2(0, -1), int2(0), last), 0)).rgb, data, exposure);
-	float3 d = SharpenMapped(resolved.Load(int3(clamp(xy + int2(-1, 0), int2(0), last), 0)).rgb, data, exposure);
-	float3 f = SharpenMapped(resolved.Load(int3(clamp(xy + int2(1, 0), int2(0), last), 0)).rgb, data, exposure);
-	float3 h = SharpenMapped(resolved.Load(int3(clamp(xy + int2(0, 1), int2(0), last), 0)).rgb, data, exposure);
+	float3 e = SharpenMapped(resolved.Load(int3(xy, 0)).rgb, data, exposure, view.scotopic);
+	float3 b = SharpenMapped(resolved.Load(int3(clamp(xy + int2(0, -1), int2(0), last), 0)).rgb, data, exposure, view.scotopic);
+	float3 d = SharpenMapped(resolved.Load(int3(clamp(xy + int2(-1, 0), int2(0), last), 0)).rgb, data, exposure, view.scotopic);
+	float3 f = SharpenMapped(resolved.Load(int3(clamp(xy + int2(1, 0), int2(0), last), 0)).rgb, data, exposure, view.scotopic);
+	float3 h = SharpenMapped(resolved.Load(int3(clamp(xy + int2(0, 1), int2(0), last), 0)).rgb, data, exposure, view.scotopic);
 	float3 lowest = min(min(b, d), min(f, h));
 	float3 highest = max(max(b, d), max(f, h));
 	float3 toZero = lowest / max(4.0 * highest, 1e-5);

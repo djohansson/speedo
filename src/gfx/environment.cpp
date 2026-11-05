@@ -6,6 +6,7 @@
 #include <core/profiling.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <execution>
@@ -169,6 +170,100 @@ DominantLight SkySun(const glm::vec3& direction, float aerosols)
 	DominantLight sun{.direction = glm::normalize(direction), .angularRadius = kSkySunRadius};
 	sun.irradiance = static_cast<float>(SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE) * SunTransmittance(sun.direction, aerosols);
 	return sun;
+}
+
+namespace
+{
+
+// days since J2000.0 (2000 January 1st, noon): the calendar's years to the year's first day (a leap day every fourth year;
+// 2100's missing one is a day off past it), then the day and the time (local solar time standing in for universal time:
+// the longitude's hour or so moves the moon half a degree)
+[[nodiscard]] double DaysSinceJ2000(float dayOfYear, float timeOfDay, int year)
+{
+	auto floorDiv4 = [](int value) { return value >= 0 ? value / 4 : -((-value + 3) / 4); };
+	double yearDays = (365.0 * (year - 2000)) + floorDiv4(year - 1) - 499;
+	return yearDays + (static_cast<double>(dayOfYear) - 1.0) + (static_cast<double>(timeOfDay) / 24.0) - 0.5;
+}
+
+// the sun's ecliptic longitude (degrees) by the days since J2000.0: its mean longitude and the equation of the centre
+[[nodiscard]] double SunLongitude(double days)
+{
+	double meanAnomaly = glm::radians(357.528 + (0.9856003 * days));
+	return 280.460 + (0.9856474 * days) + (1.915 * std::sin(meanAnomaly)) + (0.020 * std::sin(2.0 * meanAnomaly));
+}
+
+[[nodiscard]] double Obliquity(double days)
+{
+	return glm::radians(23.439 - (0.0000004 * days));
+}
+
+// right ascension and declination (radians) of an ecliptic longitude and latitude (degrees)
+void Equatorial(double longitude, double latitude, double obliquity, double& ascension, double& declination)
+{
+	double lambda = glm::radians(longitude);
+	double beta = glm::radians(latitude);
+	double x = std::cos(beta) * std::cos(lambda);
+	double y = (std::cos(obliquity) * std::cos(beta) * std::sin(lambda)) - (std::sin(obliquity) * std::sin(beta));
+	double z = (std::sin(obliquity) * std::cos(beta) * std::sin(lambda)) + (std::cos(obliquity) * std::sin(beta));
+	ascension = std::atan2(y, x);
+	declination = std::asin(std::clamp(z, -1.0, 1.0));
+}
+
+// toward a body at an hour angle and declination from a latitude (radians), as SunDirection's frame
+[[nodiscard]] glm::vec3 TowardBody(double latitude, double hourAngle, double declination)
+{
+	double east = -std::cos(declination) * std::sin(hourAngle);
+	double north = (std::cos(latitude) * std::sin(declination)) - (std::sin(latitude) * std::cos(declination) * std::cos(hourAngle));
+	double up = (std::sin(latitude) * std::sin(declination)) + (std::cos(latitude) * std::cos(declination) * std::cos(hourAngle));
+	return glm::normalize(glm::vec3(east, up, -north));
+}
+
+} // namespace
+
+float LocalSiderealTime(float dayOfYear, float timeOfDay, int year)
+{
+	double days = DaysSinceJ2000(dayOfYear, timeOfDay, year);
+	double ascension = 0.0;
+	double declination = 0.0;
+	Equatorial(SunLongitude(days), 0.0, Obliquity(days), ascension, declination);
+	double hourAngle = glm::radians(15.0 * (static_cast<double>(timeOfDay) - 12.0));
+	return static_cast<float>(std::fmod((hourAngle + ascension) + (4.0 * glm::pi<double>()), 2.0 * glm::pi<double>()));
+}
+
+Moon MoonAt(float latitudeDegrees, float dayOfYear, float timeOfDay, int year)
+{
+	double days = DaysSinceJ2000(dayOfYear, timeOfDay, year);
+	double meanLongitude = 218.316 + (13.176396 * days);
+	double meanAnomaly = glm::radians(134.963 + (13.064993 * days));
+	double node = glm::radians(93.272 + (13.229350 * days));
+	double longitude = meanLongitude + (6.289 * std::sin(meanAnomaly));
+	double latitude = 5.128 * std::sin(node);
+	double ascension = 0.0;
+	double declination = 0.0;
+	Equatorial(longitude, latitude, Obliquity(days), ascension, declination);
+	double hourAngle = static_cast<double>(LocalSiderealTime(dayOfYear, timeOfDay, year)) - ascension;
+	Moon moon{.direction = TowardBody(glm::radians(static_cast<double>(latitudeDegrees)), hourAngle, declination)};
+	auto sun = SunDirection(latitudeDegrees, dayOfYear, timeOfDay);
+	moon.elongation = std::acos(std::clamp(glm::dot(moon.direction, sun), -1.0F, 1.0F));
+	// Allen's: by the phase angle (sun, moon, earth: 180 degrees less the elongation), 0 at full
+	double phaseAngle = 180.0 - glm::degrees(static_cast<double>(moon.elongation));
+	double magnitudes = (0.026 * phaseAngle) + (4e-9 * phaseAngle * phaseAngle * phaseAngle * phaseAngle);
+	moon.illuminance = static_cast<float>(SHADER_TYPES_ATMOSPHERE_MOON_ILLUMINANCE * std::pow(10.0, -0.4 * magnitudes));
+	return moon;
+}
+
+DominantLight SkyMoon(const Moon& moon, float aerosols)
+{
+	DominantLight light{.direction = glm::normalize(moon.direction), .angularRadius = kSkySunRadius};
+	light.irradiance = moon.illuminance * SunTransmittance(light.direction, aerosols);
+	return light;
+}
+
+int CurrentYear()
+{
+	auto now = std::chrono::system_clock::now();
+	auto days = std::chrono::floor<std::chrono::days>(now);
+	return static_cast<int>(std::chrono::year_month_day(days).year());
 }
 
 void AddSun(Panorama& panorama, const DominantLight& sun)

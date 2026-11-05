@@ -33,6 +33,8 @@ gfx::environment::Environment Prefilter(const Source& source, std::vector<std::b
 		environmentData.skySun[3] = std::cos(kSkySunRadius);
 		environmentData.skySunRadiance[3] = 1.0F;
 		environmentData.skyAtmosphere[0] = SkyAerosols(kSkyDefaultVisibility); // as the sun's gfx::environment::SkySun has it
+		environmentData.skyMoon[1] = -1.0F; // no moon (skyMoonRadiance's w 0), nor the night's glow: the sun's sky alone is checked
+		environmentData.skyMoon[3] = std::cos(kSkySunRadius);
 	}
 	auto output = bridge::Prefilter(
 		input,

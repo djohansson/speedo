@@ -92,3 +92,14 @@ float3 Tonemap(float3 color)
 	default: return TonemapPbrNeutral(color);
 	}
 }
+
+// the eye's night vision, by share (ViewData::scotopic: 0 by a lit street's light, 1 by moonlight): the rods', whose
+// sensitivity peaks at 507 nm where the cones' day vision peaks at 555 (the Purkinje shift: blues brighter and reds darker
+// than by day, colors gone), the light's rod luminance in a blue cast of the same luminance
+float3 Scotopic(float3 color, float share)
+{
+	if (share <= 0.0)
+		return color;
+	float rods = dot(color, float3(0.08, 0.57, 0.35));
+	return lerp(color, rods * float3(0.75, 0.95, 1.35), share);
+}

@@ -180,6 +180,7 @@ struct Globals
 	Texture2D<Texel> skyTransmittance;
 	Texture2D<Texel> skyMultipleScattering;
 	Texture2D<Texel> skyView;
+	Texture2D<Texel> skyMoonView;
 };
 
 using Kernel = void (*)(ComputeVaryingInput*, void*, void*);
@@ -250,9 +251,12 @@ Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& envir
 	CpuView skyTransmittanceView(skyTransmittance, 0, 1);
 	CpuView skyMultipleScatteringView(skyMultipleScattering, 0, 1);
 	CpuView skyViewView(skyView, 0, 1);
+	CpuImage skyMoonView(SHADER_TYPES_SKY_VIEW_WIDTH, SHADER_TYPES_SKY_VIEW_HEIGHT); // the moon's, left dark: the sun alone is checked
+	CpuView skyMoonViewView(skyMoonView, 0, 1);
 	globals.skyTransmittance.texture = &skyTransmittanceView;
 	globals.skyMultipleScattering.texture = &skyMultipleScatteringView;
 	globals.skyView.texture = &skyViewView;
+	globals.skyMoonView.texture = &skyMoonViewView;
 
 	// the source's level 0 and its pyramid
 	std::optional<CpuView> lightingView;

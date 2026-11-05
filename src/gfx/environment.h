@@ -103,6 +103,31 @@ struct DominantLight
 // horizon
 [[nodiscard]] DominantLight SkySun(const glm::vec3& direction, float aerosols = 1.0F);
 
+// the moon where the time puts it: toward it (in SunDirection's frame), its illuminance at the top of the atmosphere at its
+// phase (full SHADER_TYPES_ATMOSPHERE_MOON_ILLUMINANCE, a quarter about a twelfth of it: Allen's magnitudes, 0.026 a
+// degree of phase angle and 4e-9 its fourth power), and its elongation from the sun (radians: pi at full)
+struct Moon
+{
+	glm::vec3 direction{0.0F, 1.0F, 0.0F};
+	float illuminance = 0.0F;
+	float elongation = 0.0F;
+};
+
+// the moon at a latitude on a day of a year at a time of day (as SunDirection): a low precision ephemeris (Schlyter's,
+// Meeus's leading terms, within a degree or two: the moon's mean longitude, anomaly and node, the sun's, the obliquity),
+// the hour angle by the local sidereal time, so that the moon is where it is relative to the sun
+[[nodiscard]] Moon MoonAt(float latitudeDegrees, float dayOfYear, float timeOfDay, int year);
+
+// the local sidereal time (radians) at a day of a year and a local solar time (the sun's hour angle plus its right
+// ascension): the stars' frame (see SkyStars)
+[[nodiscard]] float LocalSiderealTime(float dayOfYear, float timeOfDay, int year);
+
+// the moon as a directional light (as SkySun): its illuminance through the atmosphere, none below the horizon
+[[nodiscard]] DominantLight SkyMoon(const Moon& moon, float aerosols = 1.0F);
+
+// the calendar year now, the year's default
+[[nodiscard]] int CurrentYear();
+
 // a sun's disk (kSkySunRadius) added to a panorama, its texels covered in part where its edge crosses them (4x4 samples
 // each), giving exactly its irradiance: for tests of the dominant lights' extraction
 void AddSun(Panorama& panorama, const DominantLight& sun);

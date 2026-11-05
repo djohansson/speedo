@@ -108,6 +108,9 @@ struct FrameInputs
 	// near the ground (see AerialPerspectiveData::fog): its visibility at the ground (km, 0 for none) and scale height (m)
 	bool aerialPerspective = false;
 	glm::vec3 skySun{0.0F, 1.0F, 0.0F};
+	// the light the air is lit by (AerialPerspectiveData::sun): toward it (the world's) and its illuminance at the top of
+	// the atmosphere; the sun while it is above the horizon, else the moon (its shafts then the moon's)
+	glm::vec4 airLight{0.0F, 1.0F, 0.0F, static_cast<float>(SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE)};
 	float metersPerUnit = 1.0F;
 	std::optional<uint32_t> shaftLight;
 	float fogVisibility = 0.0F;

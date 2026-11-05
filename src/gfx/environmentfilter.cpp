@@ -91,6 +91,7 @@ EnvironmentFilter::EnvironmentFilter(Device& device, Pipeline& pipeline, ShaderL
 	mySkyTransmittance = table("Sky Transmittance", SHADER_TYPES_SKY_TRANSMITTANCE_WIDTH, SHADER_TYPES_SKY_TRANSMITTANCE_HEIGHT);
 	mySkyMultipleScattering = table("Sky Multiple Scattering", SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE, SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE);
 	mySkyView = table("Sky View", SHADER_TYPES_SKY_VIEW_WIDTH, SHADER_TYPES_SKY_VIEW_HEIGHT);
+	mySkyMoonView = table("Sky Moon View", SHADER_TYPES_SKY_VIEW_WIDTH, SHADER_TYPES_SKY_VIEW_HEIGHT);
 }
 
 EnvironmentFilter::~EnvironmentFilter() = default;
@@ -129,7 +130,8 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	// what this writes waits for them
 	encoder.Barrier(PipelineStage::kFragmentShader | PipelineStage::kComputeShader, Access::kNone, PipelineStage::kComputeShader, Access::kNone);
 	// every image in kGeneral throughout: written as storage, read by texel or sampled
-	for (auto* image : {&source, &levels, &sheenLevels, mySkyTransmittance.image.get(), mySkyMultipleScattering.image.get(), mySkyView.image.get()})
+	for (auto* image :
+		 {&source, &levels, &sheenLevels, mySkyTransmittance.image.get(), mySkyMultipleScattering.image.get(), mySkyView.image.get(), mySkyMoonView.image.get()})
 		image->Transition(cmd, ImageLayout::kGeneral, ImageAspect::kColor);
 	if (environment.lighting)
 		for (const auto* texture : {&environment.lighting, &environment.original})
@@ -144,17 +146,18 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	pipeline.SetDescriptorData("gSkyTransmittance", sampled(mySkyTransmittance), kSet);
 	pipeline.SetDescriptorData("gSkyMultipleScattering", sampled(mySkyMultipleScattering), kSet);
 	pipeline.SetDescriptorData("gSkyView", sampled(mySkyView), kSet);
+	pipeline.SetDescriptorData("gSkyMoonView", sampled(mySkyMoonView), kSet);
 
 	auto general = [](const ImageView& view) { return ImageBinding{.sampler = {}, .imageView = view, .layout = ImageLayout::kGeneral}; };
-	// one kernel over an output level: what it reads (by texel), and the roughness it is for
-	auto dispatch = [&](ComputePipelineVariant kernel, const ImageView* input, const ImageView& output, Extent2d extent, float roughness)
+	// one kernel over an output level: what it reads (by texel), the roughness it is for, and the light (the sky's views)
+	auto dispatch = [&](ComputePipelineVariant kernel, const ImageView* input, const ImageView& output, Extent2d extent, float roughness, uint32_t light = 0)
 	{
 		if (input != nullptr)
 			pipeline.SetDescriptorData("gInput", general(*input), kSet);
 		pipeline.SetDescriptorData("gOutput", general(output), kSet);
 		pipeline.BindDescriptorSetAuto(cmd, kSet);
 		pipeline.BindPipelineAuto(cmd, kernel);
-		EnvironmentFilterConstants constants{.roughness = roughness, .sourceLevelCount = sourceLevelCount};
+		EnvironmentFilterConstants constants{.roughness = roughness, .sourceLevelCount = sourceLevelCount, .light = light};
 		pipeline.PushConstants(cmd, std::as_bytes(std::span(&constants, 1)));
 		encoder.DispatchThreads(pipeline.GetComputeLaunchParameters(kernel), extent.width, extent.height);
 		// what one kernel wrote, the next reads
@@ -188,6 +191,7 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 			mySkyTablesAerosols = skyAerosols;
 		}
 		dispatch(kSkyView, nullptr, *mySkyView.view, extentOfTable(mySkyView), 0.0F);
+		dispatch(kSkyView, nullptr, *mySkyMoonView.view, extentOfTable(mySkyMoonView), 0.0F, 1);
 		dispatch(kSky, nullptr, *sourceMips[0], extentOf(source, 0), 0.0F);
 	}
 	for (uint32_t level = 1; level < sourceLevelCount; level++)

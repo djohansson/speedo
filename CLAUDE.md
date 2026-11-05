@@ -2723,11 +2723,47 @@ share. It replaced a stylized gradient whose sun was fixed.
   declination by the day of the year, the hour angle by local solar time (15 degrees an hour from noon), +x east and -z
   north; the defaults Paris (Bistro's), the 21st of June, 10:30: 59 degrees up in the south east, where the fixed sun was.
   View > Environment (with the sky installed): Time of Day (shown as hours and minutes, typed as hours), Advance Time and
-  Time Speed (a multiple of real time, 60 an hour a minute), Latitude, Day of Year; `SPEEDO_TIME_OF_DAY` (hours or
-  hours:minutes), `SPEEDO_TIME_SPEED` (nonzero advances), `SPEEDO_LATITUDE`, `SPEEDO_DAY_OF_YEAR`; Copy Pose writes them.
+  Time Speed (a multiple of real time, 60 an hour a minute), Latitude, Day of Year and Year (the moon's place and phase go
+  by it; this year's by default, `environment::CurrentYear`, the user's call); `SPEEDO_TIME_OF_DAY` (hours or
+  hours:minutes), `SPEEDO_TIME_SPEED` (nonzero advances), `SPEEDO_LATITUDE`, `SPEEDO_DAY_OF_YEAR`, `SPEEDO_YEAR`; Copy
+  Pose writes them (the year always: its default moves).
+- **The moon, the stars and the night** (2026-11-05): the moon where a low precision ephemeris puts it
+  (`environment::MoonAt`: Schlyter's and Meeus's leading terms, the moon's mean longitude, anomaly and node and the sun's
+  longitude by the days since J2000 through the calendar's leap days, the hour angle by the local sidereal time
+  (`LocalSiderealTime`: the sun's hour angle plus its right ascension), within a degree or two: the full moon of
+  2026-11-24 comes out 3 hours late), its illuminance at the top of the atmosphere by its phase
+  (`SHADER_TYPES_ATMOSPHERE_MOON_ILLUMINANCE`, 0.26 lux full, in the renderer's units, `SHADER_TYPES_ATMOSPHERE_LUX` a
+  real lux; Allen's magnitudes by the phase angle), its elongation from the sun. It is a directional light through the
+  atmosphere (`environment::SkyMoon`, as the sun) while the sun is below the horizon (`SkyLights`: by day its light is a
+  millionth of the sun's, not worth its shadow views and traced rays), so a moonlit scene has the moon's shadows, traced,
+  and the voxels' kept light; the air is lit by it too (`FrameInputs::airLight`, `AerialPerspectiveData::sun`: the sun
+  while above the horizon, else the moon, and the shafts follow). Its sky: `EnvironmentSkyView` draws the sky's view of
+  itself a second time for the moon (`EnvironmentFilterConstants::light`, `gSkyMoonView`,
+  `SHADER_TYPES_SKY_MOON_VIEW_TEXTURE`, the Sky Moon View table), which the panorama adds to the sun's
+  (`EnvironmentSky`) with the night's glow (`SHADER_TYPES_ATMOSPHERE_NIGHT_RADIANCE`: airglow and starlight, a dark
+  rural sky's quarter of a millicandela, uniform; `EnvironmentData::skyMoon`, `skyMoonRadiance`, `skyNight`), and the
+  backdrop and mirrors (`SkyRadiance`) add the moon's disk on its phase (`SkyMoonDisk`: a Lambertian sphere lit by the
+  sun, its disk's mean radiance over the share of a full sphere's light the phase shows, `(sin e - e cos e) / pi` of
+  the elongation e, so the disk gives the moon's illuminance; the sun's size) and the stars (`SkyStars`: the celestial
+  sphere's octahedral grid of `SHADER_TYPES_SKY_STAR_CELL_COUNT` cells a side, a cell in eighty holding a star by its
+  hash, magnitudes drawn three times as many a magnitude from -1.5 to 6.5, some twelve thousand, each a Gaussian as wide
+  as a pixel of the shading view carrying its magnitude's illuminance, 2.5 microlux at 0; in the equatorial frame by the
+  latitude and the local sidereal time, so the sky turns through the night; the 3x3 cells about the direction, those past
+  the map's edge folded back onto it). `UpdateSky` draws the sky again when the moon has moved by `kSkyRedrawAngle` too,
+  and uploads the sky fields alone every `kSkyUpdateAngle` (0.005 degrees, a tenth of it) so the disks and the stars move
+  smoothly between redraws (they stepped 3 pixels every 12 s at real time). Auto exposure follows the moonlight down
+  (the user's call: see "Auto exposure" under "Asset import and testing", `kMoonlightStops`), and the eye's night vision
+  is the scene's look there (`ViewData::scotopic`, `Scotopic` in `tonemap.slang`: the rods' luminance in a blue cast, by
+  the scene's luminance through the mesopic range, 3 to 0.003 cd/m^2, whether or not the exposure follows; applied with
+  the exposure before the tonemapper, in the composite and in Sharpen). Checked at the full moon of 2026-11-24, 1 am
+  (`SPEEDO_DAY_OF_YEAR=328 SPEEDO_TIME_OF_DAY=1`): the moon's disk 52 degrees up in the south west, as the almanac has
+  it, stars about it, DamagedHelmet's ground lit by it alone at 2^20 (97 to 173 of 255), Sponza's floor patches a dim
+  blue gray at +20.8 EV, its interior black: the indirect lighting's half floats flush moonlight's bounce (TODO.md).
+  The cpu test kernels draw the sun's sky alone (no moon, `skyMoonRadiance`'s w 0, which skips its table).
 - **Redraws**: the draw thread advances the time (`Scene::UpdateSky`, by the real time between frames) and draws the sky
-  again where the sun has moved more than `kSkyRedrawAngle` (0.05 degrees: every 12 seconds at real time, every frame at
-  600x): the sky fields of `gEnvironment` alone (the irradiance is the filter's), the view, the panorama and the
+  again where the sun or the moon has moved more than `kSkyRedrawAngle` (0.05 degrees: every 12 seconds at real time,
+  every frame at 600x): the sky fields of `gEnvironment` alone (the irradiance is the filter's; they alone go up every
+  `kSkyUpdateAngle`, a tenth of it, see the moon's bullet), the view (the sun's and the moon's), the panorama and the
   prefiltering, into the installed environment, the filter's first barrier waiting for the frames still reading it, and
   its descriptor sets handed back once the gpu is done (`Pipeline::TakeDescriptorSets`, see "Descriptor sets": 3000
   frames at 3600x, a redraw each, where the pool would have run out of storage images within minutes). A redraw costs
@@ -2857,7 +2893,9 @@ share. It replaced a stylized gradient whose sun was fixed.
   5 km skies smooth, the ground's captures as before to 0.2 of 255). And the volume's march takes each step's medium as
   its exponential layers' mean between the step's ends' altitudes (`SkyMediumAlong`, `FogDepthAlong`), where a point's
   density missed the layers a far step kilometres long crosses.
-- **Not yet** (TODO.md): clouds, the moon and the stars, the time of day's redraw cost spread over frames.
+- **Not yet** (TODO.md): clouds, the time of day's redraw cost spread over frames, the moon's bounce in the indirect
+  lighting (its half floats), the moon's sky from the eye's altitude (the ground's table serves it), the earthshine and
+  the maria, a star catalogue and the Milky Way.
 
 ## Descriptor sets: redundant updates consume the pool
 
@@ -3071,12 +3109,16 @@ default, which leaves colors up to about 0.76 as they are; ACES, Hill's fit; AgX
 Reinhard on luminance; linear) and applies the srgb curve when it copies to the swapchain, which stays unorm since it is a
 storage image (and imgui's colors are srgb already). Auto exposure (View > Auto Exposure, on by default since 2026-10-26, the user's call with the sky's time of
 day; `SPEEDO_AUTO_EXPOSURE=0` without, which captures compared at a fixed exposure need) needs no pass of its own: ComputeMain counts the scene's pixels by their log2 luminance, before exposure,
-into 64 bins (`gExposureHistogram`, per frame index, host visible: shared memory per group, then atomics; emptied with
+into 96 bins of 40 stops (`gExposureHistogram`, `SHADER_TYPES_EXPOSURE_BINS`, from `SHADER_TYPES_EXPOSURE_LOG2_MIN`,
+-28, a starlit ground, to 12; 64 bins from -12 until 2026-11-05, where a moonlit ground at -21 read as -12 and the
+exposure never followed the moon down; per frame index, host visible: shared memory per group, then atomics; emptied with
 `FillBuffer` before, and a barrier to the host stage after), and `UpdateAutoExposure` reads a frame's histogram after
 its fence (where `Model::Animate` writes the frame's buffers), averages the log luminance between the 50th and 95th
 percentile, and moves the exposure toward `log2(0.2) - mean`, less up to 2 stops as the mean falls from daylight's
 (2^-4 in the renderer's units: 2900 cd/m^2 scaled as the sky's sun is, EV100 14, Bistro's street at noon -4.2) to a lit
-street's at night (2^-11, 22 cd/m^2, EV100 7; Bistro's -10.5): a night darker than a day, as the eye and a photographer
+street's at night (2^-11, 22 cd/m^2, EV100 7; Bistro's -10.5), and `kMoonlightStops` (1.3) more on down to moonlight
+(2^-21, a full moon's ground: about 0.02 linear then, a dark gray; 3 more stops left it black but for the highlights):
+a night darker than a day, as the eye and a photographer
 have it (one key of 0.3 lifted Bistro's night 8.7 stops, to look as bright as noon at 2.5), by an exponential
 decay of 2 per second, of the time elapsed whatever it is, so it settles in the same time at any frame rate (fifo at 120
 Hz and mailbox at 220 followed the decay from the same targets to 2%; a frame over a second used to take the target at
@@ -3238,8 +3280,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 72
-(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces, 58 to 65 the traced glossy reflections', 66 the shadow transmittance, 67 and 68 the reflection rays the visibility buffer's shading records, 69 and 70 the sky's transmittance and multiple scattering tables, 71 the sky's views from the eyes). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 73
+(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces, 58 to 65 the traced glossy reflections', 66 the shadow transmittance, 67 and 68 the reflection rays the visibility buffer's shading records, 69 and 70 the sky's transmittance and multiple scattering tables, 71 the sky's views from the eyes, 72 the sky's view by the moon). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the
