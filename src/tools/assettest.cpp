@@ -5,6 +5,7 @@
 // asset failed.
 
 #include <gfx/environment.h>
+#include <gfx/lens.h>
 #include <gfx/shaders/capi.h>
 #include "environmentkernels.h"
 #include "bvhkernelsbridge.h"
@@ -1343,6 +1344,43 @@ Report CheckEnvironment(
 // it was put), and the atmosphere: the transmittance table against gfx::environment::SunTransmittance (which the sun's
 // light is), the zenith bluer than red at noon, the sun red near the horizon, the sky's share of the light at noon as a
 // clear sky's, and the night dark
+// the lenses (gfx/lens.h): each traced at the d line, its effective focal length its nominal (Scale), its focus behind
+// its last surface, its widest aperture and its vignetting at a full frame's corner wide open, its red and blue images'
+// scale against the green's, and its ghosts' count and the brightest's share
+Report CheckLenses()
+{
+	using namespace gfx::lens;
+	Report report;
+	float halfDiagonal = 0.5F * std::sqrt(36.0F * 36.0F + 24.0F * 24.0F);
+	for (const auto& lens : Lenses())
+	{
+		if (IsPinhole(lens))
+			continue;
+		auto traced = Trace(lens, 587.6F);
+		auto appearance = Appear(lens, lens.widestAperture, halfDiagonal);
+		auto ghosts = Ghosts(lens, lens.widestAperture);
+		float brightest = 0.0F;
+		for (const auto& ghost : ghosts)
+			brightest = std::max(brightest, std::max(ghost.reflectance.x, std::max(ghost.reflectance.y, ghost.reflectance.z)));
+		report.Info(
+			"{} ({}): {} surfaces, f {:.2f} mm, back focus {:.2f} mm, pupil {:.2f} mm, f/{:.2f} wide open, corner {:.3f} of the axis at {:.1f} degrees, red "
+			"{:.5f} blue {:.5f} of green, {} ghosts, the brightest {:.2e}",
+			lens.name, lens.key, lens.surfaces.size(), traced.focalLength, traced.backFocalDistance, traced.entrancePupilRadius * 2.0F, lens.widestAperture,
+			appearance.vignetting.back(), glm::degrees(appearance.fieldAngle), appearance.redScale, appearance.blueScale, ghosts.size(), brightest);
+		if (std::abs(traced.focalLength - lens.focalLength) > 0.01F * lens.focalLength)
+			report.Fail("{}: traces to {:.2f} mm rather than {:.2f}", lens.name, traced.focalLength, lens.focalLength);
+		if (traced.backFocalDistance <= 0.0F)
+			report.Fail("{}: its focus is {:.2f} mm behind its last surface", lens.name, traced.backFocalDistance);
+		if (!(appearance.vignetting.front() > 0.999F && appearance.vignetting.back() > 0.05F && appearance.vignetting.back() < 1.0F))
+			report.Fail("{}: vignetting {:.3f} on the axis, {:.3f} at the corner", lens.name, appearance.vignetting.front(), appearance.vignetting.back());
+		if (std::abs(appearance.redScale - 1.0F) > 0.02F || std::abs(appearance.blueScale - 1.0F) > 0.02F)
+			report.Fail("{}: a lateral chromatic aberration of {:.4f} and {:.4f}", lens.name, appearance.redScale, appearance.blueScale);
+		if (ghosts.empty() || brightest <= 0.0F || brightest > 0.1F)
+			report.Fail("{}: {} ghosts, the brightest {:.2e}", lens.name, ghosts.size(), brightest);
+	}
+	return report;
+}
+
 Report CheckSky(core::TaskExecutor& executor)
 {
 	using namespace gfx::environment;
@@ -1716,6 +1754,10 @@ int main(int argc, char* argv[])
 		auto report = CheckSky(executor);
 		Print("sky", report, std::chrono::steady_clock::now() - start);
 		Count(environmentResults, report.result)++;
+		start = std::chrono::steady_clock::now();
+		auto lensReport = CheckLenses();
+		Print("lenses", lensReport, std::chrono::steady_clock::now() - start);
+		Count(environmentResults, lensReport.result)++;
 
 		std::ranges::sort(environmentFiles);
 		for (const auto& path : environmentFiles)

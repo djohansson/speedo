@@ -66,7 +66,7 @@ extern "C"
 
 #define SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS 10u
 #define SHADER_TYPES_GLOBAL_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS)
-#define SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS 6u
+#define SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS 7u
 #define SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS)
 #define SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS 6u
 #define SHADER_TYPES_GLOBAL_SAMPLER_COUNT (1u << SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS)
@@ -206,6 +206,9 @@ extern "C"
 // the gTextures slot of the sky's view of itself lit by the moon (see EnvironmentSkyView: as the sun's, per unit of the
 // moon's illuminance, from the ground), which the backdrop and mirrors add to the sun's (SkyRadiance)
 #define SHADER_TYPES_SKY_MOON_VIEW_TEXTURE 72u
+// the lens pass's image (see LensData): what the camera's lens makes of the frame at the output's size, which the final pass takes
+#define SHADER_TYPES_LENSED_TEXTURE 73u
+#define SHADER_TYPES_LENSED_RW_TEXTURE 64u
 // the gTextures slot of the pre-pass's motion: where each pixel's point was in the last frame, in the render target's
 // pixels from it, unjittered (see FragmentPrepass), which temporal upscaling reprojects what moves by
 #define SHADER_TYPES_PREPASS_MOTION_TEXTURE 38u
@@ -560,6 +563,33 @@ struct AerialPerspectiveData
 	// altitude, the sun or the air changed)
 	alignas(4) UINT1(skyEyeView);
 	alignas(4) UINT1(skyEyeViewRedraw);
+};
+
+// the camera's lens (View > Camera > Lens, see gfx/lens.h: a prescription, from which the cpu derives this each frame
+// for the aperture the camera exposes with): what the Lens pass (ComputeLens, lens.slang) makes of the frame at the
+// output's size, between the frame's reconstruction and the final pass. gLensData[frame][0]
+#define SHADER_TYPES_LENS_VIGNETTING_COUNT 32u
+struct LensData
+{
+	// the vignetting over the field: the light a point gets as a share of the axis's, at SHADER_TYPES_LENS_VIGNETTING_COUNT
+	// field angles from the axis to fieldAngle (the view's corner's), 4 a float4
+	alignas(16) FLOAT4(vignetting[SHADER_TYPES_LENS_VIGNETTING_COUNT / 4]);
+	alignas(4) FLOAT1(fieldAngle); // radians
+	alignas(4) FLOAT1(focalLength); // mm
+	alignas(4) FLOAT1(halfDiagonal); // mm: the sensor's, what the view's corner is from its center
+	// the lateral chromatic aberration: the red and the blue images' heights over the green's
+	alignas(4) FLOAT1(redScale);
+	alignas(4) FLOAT1(blueScale);
+	// the distortion: the third order coefficient in the image's radius over the half diagonal (negative: barrel), and the
+	// margin the frame is rendered wider by so that nothing the lens's image reads is outside it (1 - the coefficient where
+	// negative, over the least of the color scales; see Views::SetLens)
+	alignas(4) FLOAT1(distortion);
+	alignas(4) FLOAT1(margin);
+	alignas(4) FLOAT1(transmittance); // on the axis
+	alignas(4) FLOAT1(squeeze); // anamorphic: the horizontal squeeze (the flares' streaks), 1 spherical
+	alignas(4) UINT1(enabled); // 0: the pinhole, the Lens pass doesn't run
+	alignas(4) UINT1(bladeCount);
+	alignas(4) UINT1(padding0);
 };
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,
@@ -1476,7 +1506,10 @@ struct PushConstants
 	// per frame: the scene's unit in meters (View > Units, see gfx::SceneUnit): the lights' inverse square falloff and the
 	// ground plane's checker, squares of a meter, go by it, as the air does (AerialPerspectiveData::metersPerUnit)
 	alignas(4) FLOAT1(metersPerUnit);
+	// per frame: the camera's lens (LENS_*, see LensData): whether the Lens pass ran, so the final pass takes its image
+	alignas(4) UINT1(lens);
 };
+#define LENS_ACTIVE 1u
 // PushConstants::visibilityTiles: the dispatch's, every tile; gVisibilityTiles' list of the tiles without a material with an
 // extended layer (the specialized kernel's); its list of those with (the generic kernel's)
 #define VISIBILITY_TILES_ALL 0u
@@ -1513,6 +1546,8 @@ struct PushConstants
 #define UPSCALE_COMPOSITE 1u
 #define UPSCALE_HISTORY 2u
 #define UPSCALE_PARITY 4u
+// and the final pass sharpens (RCAS: the frame was reconstructed), which a frame composited for the lens alone isn't
+#define UPSCALE_SHARPEN 8u
 
 #ifdef __cplusplus
 }

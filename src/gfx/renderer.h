@@ -146,6 +146,9 @@ struct FrameInputs
 	// temporal upscaling (see upscale.slang): the frame is rendered at the extent Resize was given and reconstructed at the
 	// output's, which Resize's extent must be RenderScale of, unless off
 	Upscaling upscaling = Upscaling::kOff;
+	// the camera's lens (see LensData, gfx/lens.h): what the Lens pass makes of the frame at the output's size where
+	// enabled (a frame without temporal upscaling is composited at the output's size for it, see Renderer::Record)
+	LensData lens{};
 	// runs tasks in the background (creating pipelines, see RecordDrawList), if given
 	core::TaskExecutor* executor = nullptr;
 };
@@ -363,6 +366,10 @@ private:
 	std::array<FrameGraph::ImageId, 2> myUpscaleLumaHistory{};
 	std::array<FrameGraph::ImageId, 2> myUpscaleColor{};
 	FrameGraph::ImageId myUpscaleNewLocks;
+	// the lens pass's image (see LensData): the frame at the output's size as the lens makes it, which the final pass
+	// takes where the lens is on; imported, made with the upscaler's images (myLensedImage)
+	FrameGraph::ImageId myLensed;
+	FrameGraph::PassId myLensPass;
 	RenderOutput& myRenderOutput;
 	FrameGraph::ImageId myOutput;
 	FrameGraph::ImageId myShadowAtlas;
@@ -728,6 +735,7 @@ private:
 		std::array<ScreenImage, 2> color;
 		ScreenImage newLocks;
 	} myUpscaleImages;
+	ScreenImage myLensedImage; // the lens pass's, at the output's size (see myLensed)
 	bool myUpscaleHistoryValid = false;
 	uint32_t myUpscaleFrame = 0;
 	Upscaling myUpscaling = Upscaling::kOff; // the frame's (FrameInputs::upscaling)
@@ -778,6 +786,8 @@ private:
 	// visible), and its volume (gAerialPerspective: the light the air scatters toward the eye, and what it lets through),
 	// room for every split view's, written every frame it is on, always in the general layout
 	std::vector<Buffer> myAerialPerspectiveDataBuffers;
+	// per frame index: the camera's lens (gLensData, see LensData), host visible, written every frame
+	std::vector<Buffer> myLensDataBuffers;
 	struct AerialPerspectiveVolume
 	{
 		std::unique_ptr<Image> image;

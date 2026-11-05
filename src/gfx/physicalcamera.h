@@ -117,7 +117,12 @@ struct ExposureLimits
 [[nodiscard]] inline Exposure Choose(ExposureMode mode, float stops, const Exposure& set, const ExposureLimits& limits) noexcept
 {
 	if (mode == ExposureMode::kManual)
-		return set;
+	{
+		// what is set, within the lens's aperture range (a lens chosen after the aperture was set may not open that wide)
+		Exposure manual = set;
+		manual.aperture = std::clamp(manual.aperture, limits.widestAperture, limits.narrowestAperture);
+		return manual;
+	}
 	Exposure chosen = set;
 	const Exposure pivot{}; // sunny sixteen
 	float below = pivot.Stops() - stops; // stops the scene is brighter than the pivot's exposure (negative: darker)

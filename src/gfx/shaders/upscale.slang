@@ -1237,13 +1237,25 @@ void ComputeSharpen(uint3 dispatchThreadId : SV_DispatchThreadID)
 	int2 xy = int2(dispatchThreadId.xy);
 	if (any(xy >= int2(size)))
 		return;
-	Texture2D resolved = gTextures[SHADER_TYPES_UPSCALE_COLOR_TEXTURE + UpscaleParity()];
+	// the frame: the lens's image of it (the Lens pass ran, see LensData), else reconstructed at the output's size (the
+	// parity's), or composited at it without temporal upscaling
+	bool lensed = (gPushConstants.lens & LENS_ACTIVE) != 0u;
+	bool upscaled = (gPushConstants.upscale & UPSCALE_SHARPEN) != 0u;
+	Texture2D resolved = gTextures[lensed ? SHADER_TYPES_LENSED_TEXTURE : upscaled ? SHADER_TYPES_UPSCALE_COLOR_TEXTURE + UpscaleParity() : SHADER_TYPES_COMPOSITE_TEXTURE];
 	bool data = DebugViewIsData(gPushConstants.debugView);
 	int2 last = int2(size) - 1;
 	ViewData view;
 	UpscaleViewAtUv((float2(xy) + 0.5) / float2(size), view);
 	float exposure = view.exposure;
 	float3 e = SharpenMapped(resolved.Load(int3(xy, 0)).rgb, data, exposure, view.scotopic);
+	// without a reconstruction there is nothing to sharpen (RCAS's lobe is the upscaler's)
+	if (!upscaled)
+	{
+		output.Store(uint2(xy), float4(ApplySRGBCurve(e), 1.0));
+		if (gPushConstants.uiBlurRectCount != 0u && UiBlurReaches(uint2(xy)))
+			gRWTextures[SHADER_TYPES_UI_BLUR_SOURCE_RW_TEXTURE][uint2(xy)] = float4(e, 1.0);
+		return;
+	}
 	float3 b = SharpenMapped(resolved.Load(int3(clamp(xy + int2(0, -1), int2(0), last), 0)).rgb, data, exposure, view.scotopic);
 	float3 d = SharpenMapped(resolved.Load(int3(clamp(xy + int2(-1, 0), int2(0), last), 0)).rgb, data, exposure, view.scotopic);
 	float3 f = SharpenMapped(resolved.Load(int3(clamp(xy + int2(1, 0), int2(0), last), 0)).rgb, data, exposure, view.scotopic);

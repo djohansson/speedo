@@ -295,3 +295,6 @@ RWStructuredBuffer<uint> gCausticPhotons;
 // the frame's aerial perspective (see AerialPerspectiveData), per frame index
 [[vk::binding(51, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<AerialPerspectiveData> gAerialPerspectiveData[SHADER_TYPES_FRAME_COUNT];
+// the camera's lens (see LensData): what the Lens pass and the flares take, per frame index. gLensData[frame][0]
+[[vk::binding(52, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<LensData> gLensData[SHADER_TYPES_FRAME_COUNT];

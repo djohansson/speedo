@@ -107,6 +107,20 @@ public:
 	[[nodiscard]] float GetFieldOfView() const;
 	void SetFieldOfView(float fieldOfView);
 
+	// the camera's lens (see gfx/lens.h, Scene::Settings::lens; the scene applies it as it records a frame, before the
+	// views upload): a prime's focal length, which pins the field of view (the framing and the scene cameras take it, and
+	// the field of view's setters keep it; none for the pinhole, whose focal length is any), and the margin the frame is
+	// rendered wider by (the tangent of half the field of view times it: the lens's image reads the ideal image beyond the
+	// sensor's corner under barrel distortion, and the red or the blue beyond the green's under lateral chromatic
+	// aberration, see LensSample in lens.slang), so that the cameras' fovY, the projections', is the field rendered, and
+	// GetFieldOfView the nominal one, the lens's; and an anamorphic lens's squeeze (lens::Prescription::squeeze, 1 for a
+	// spherical lens): its image, squeezed that much across onto the sensor, is shown unsqueezed, that much wider than the
+	// sensor (the views letterboxed to it, as to a scene camera's aspect ratio, see GetViewports), so the field across is
+	// the squeeze times a spherical lens's. any thread.
+	void SetLens(std::optional<float> focalLength, float margin, float squeeze = 1.0F);
+	[[nodiscard]] float GetLensMargin() const noexcept { return myLensMargin.load(std::memory_order_relaxed); }
+	[[nodiscard]] float GetLensSqueeze() const noexcept { return myLensSqueeze.load(std::memory_order_relaxed); }
+
 	// writes the views (ViewData: view projections, eyes, viewports) to frameIndex's buffer from the cameras as they are
 	// now, and returns those cameras: what the frame draws with, so what it culls by and fits its shadows and clusters
 	// to. the other frame indices' buffers may still be in use. call on the draw thread, recording that frame (after its
@@ -171,6 +185,14 @@ private:
 
 	std::atomic<float> myMoveSpeed{kDefaultMoveSpeed};
 	std::atomic<float> mySensorHeight{24.0F}; // full frame's (see SetSensorHeight)
+	std::atomic<float> myLensFocalLength{0.0F}; // a prime's, which pins the field of view; 0 none (see SetLens)
+	std::atomic<float> myLensMargin{1.0F}; // see SetLens
+	std::atomic<float> myLensSqueeze{1.0F}; // see SetLens
+	// the cameras' fovY, the field rendered, from the nominal field of view and back (see SetLens), and the nominal field
+	// a framing, a scene camera or a setter takes: the lens's where one pins it, else the one given
+	[[nodiscard]] float InternalRenderedFov(float nominal) const noexcept;
+	[[nodiscard]] float InternalNominalFov(float rendered) const noexcept;
+	[[nodiscard]] float InternalPinnedFov(float fieldOfView) const noexcept;
 	// see FollowPath: the poses, and the next to place
 	struct Path
 	{

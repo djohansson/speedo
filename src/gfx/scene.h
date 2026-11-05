@@ -93,6 +93,11 @@ public:
 		std::atomic<float> shutter = camera::Exposure{}.shutter;
 		std::atomic<float> iso = camera::Exposure{}.iso;
 		[[nodiscard]] bool AutoExposure() const noexcept { return exposureMode.load(std::memory_order_relaxed) != static_cast<uint8_t>(camera::ExposureMode::kManual); }
+		// the camera's lens (see gfx/lens.h: an index into lens::Lenses(), 0 the pinhole, which shows the frame as it is;
+		// View > Camera > Lens, SPEEDO_LENS=<key>): a prime pins the focal length (the views', see Views::SetLens) and the
+		// aperture's range (see GetExposureLimits), and the Lens pass draws what it does to the frame (its vignetting, its
+		// lateral chromatic aberration and its distortion, see LensData; the glare follows)
+		std::atomic<uint32_t> lens = 0;
 		// the tonemapper (TONEMAPPER_*)
 		std::atomic<uint32_t> tonemapper = TONEMAPPER_PBR_NEUTRAL;
 		// what the views show (DEBUG_VIEW_*: the light, or a debug view of the surfaces or the lighting; View > Debug
@@ -317,6 +322,9 @@ public:
 	// the exposure the camera exposes with (see Settings::exposureMode: what is set, or what it chose for auto exposure's
 	// stops, see camera::Choose): the first view's (each view has its own)
 	[[nodiscard]] camera::Exposure GetViewExposure() const noexcept;
+	// and the limits it exposes within (camera::ExposureLimits): the lens's aperture range (Settings::lens; the pinhole's
+	// any), the rest the defaults
+	[[nodiscard]] camera::ExposureLimits GetExposureLimits() const noexcept;
 	// the bytes of device memory the renderer's transients take, and would take without aliasing
 	[[nodiscard]] uint64_t GetTransientMemory() const noexcept;
 	[[nodiscard]] uint64_t GetUnaliasedTransientMemory() const noexcept;

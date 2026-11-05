@@ -35,3 +35,4 @@ __include types;
 #include "ginear.slang"
 #include "emitters.slang"
 #include "upscale.slang"
+#include "lens.slang"

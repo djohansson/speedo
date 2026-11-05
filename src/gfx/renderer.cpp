@@ -97,6 +97,7 @@ constexpr uint8_t kUpscalePrepareReactivityEntryPoint = 37;
 constexpr uint8_t kUpscaleLumaInstabilityEntryPoint = 38;
 constexpr uint8_t kUpscaleAccumulateEntryPoint = 39;
 constexpr uint8_t kSharpenEntryPoint = 40;
+constexpr uint8_t kLensEntryPoint = 53;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -345,6 +346,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myUpscaleColor[historyIt] = myGraph.ImportImage(std::format("Upscale Color {}", historyIt));
 	}
 	myUpscaleNewLocks = myGraph.ImportImage("Upscale New Locks");
+	myLensed = myGraph.ImportImage("Lensed");
 	// the order independent transparency's per pixel lists (see OitNode): their heads (a node index per pixel of the
 	// render target), nodes and counter
 	myOitHeads = myGraph.CreateBuffer(
@@ -395,6 +397,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			sizeof(AerialPerspectiveData),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
+		myLensDataBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Lens Data {}", frameIt)), sizeof(LensData), BufferUsage::kStorage, MemoryProperty::kHostVisible});
 		myClusterViewBuffers.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("Cluster Views {}", frameIt)),
 			SHADER_TYPES_VIEW_COUNT * sizeof(ClusterView),
@@ -1973,12 +1977,30 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[this, upscaleKernel](FrameGraph::PassContext& context)
 		{ upscaleKernel(context, kUpscaleAccumulateEntryPoint, myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent()); });
+	// the camera's lens (see LensData, lens.slang): what it makes of the frame at the output's size, reconstructed (the
+	// parity's) or composited at it, for the final pass; where the lens is on
+	myLensPass = myGraph.AddPass(
+		"Lens",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myComposite, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			for (auto image : myUpscaleColor)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myLensed, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, outputKernel](FrameGraph::PassContext& context)
+		{
+			outputKernel(
+				context.cmd, ComputePipelineVariant{.entryPoint = kLensEntryPoint}, myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent(), false);
+		});
 	mySharpenPass = myGraph.AddPass(
 		"Sharpen",
 		[this](FrameGraph::PassBuilder& builder)
 		{
+			builder.Use(myComposite, ResourceUse::Sampled(PipelineStage::kComputeShader)); // without a reconstruction
 			for (auto image : myUpscaleColor)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myLensed, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 			builder.Use(myUiBlurSource, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
@@ -2640,6 +2662,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			BufferBinding{.buffer = myAerialPerspectiveDataBuffers[frameIt], .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 			frameIt);
+		pipeline.SetDescriptorData(
+			"gLensData", BufferBinding{.buffer = myLensDataBuffers[frameIt], .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frameIt);
 		for (auto [name, buffers] : std::array{
 				 std::pair{"gClusterViews", &myClusterViewBuffers},
 				 std::pair{"gClusters", &myClusterBuffers},
@@ -2873,6 +2897,18 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		ImageBinding{.sampler = {}, .imageView = *myUpscaleImages.newLocks.view, .layout = ImageLayout::kGeneral},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
 		SHADER_TYPES_UPSCALE_NEW_LOCKS_RW_TEXTURE);
+	// the lens pass's image at the output's size (see LensData), sampled by the final pass, written by the Lens pass
+	myLensedImage = screenImage("Lensed", Format::kR16G16B16A16Sfloat, outputExtent);
+	pipeline.SetDescriptorData(
+		"gTextures",
+		ImageBinding{.sampler = {}, .imageView = *myLensedImage.view, .layout = ImageLayout::kGeneral},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+		SHADER_TYPES_LENSED_TEXTURE);
+	pipeline.SetDescriptorData(
+		"gRWTextures",
+		ImageBinding{.sampler = {}, .imageView = *myLensedImage.view, .layout = ImageLayout::kGeneral},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+		SHADER_TYPES_LENSED_RW_TEXTURE);
 	myUpscaleHistoryValid = false;
 	myGiNearHistoryValid = false;
 	myEmitterHistoryValid = false;
@@ -3489,13 +3525,19 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 
 	// temporal upscaling (see upscale.slang): the frame composited at the render size and reconstructed at the output's with
 	// what it keeps, the frame's by its parity; else composited into the output
+	// and the camera's lens (see LensData): the frame composited at the output's size for the Lens pass where there is
+	// no reconstruction, then the final pass takes the lens's image rather than ComputeMain tonemapping the composite
 	myUpscaling = frame.upscaling;
 	bool upscale = myUpscaling != Upscaling::kOff;
-	myGraph.SetEnabled(myComputeMainPass, !upscale);
-	myGraph.SetEnabled(myCompositePass, upscale);
+	bool lens = frame.lens.enabled != 0U;
+	bool composite = upscale || lens;
+	myGraph.SetEnabled(myComputeMainPass, !composite);
+	myGraph.SetEnabled(myCompositePass, composite);
 	for (auto pass : myUpscalePasses)
 		myGraph.SetEnabled(pass, upscale);
-	myGraph.SetEnabled(mySharpenPass, upscale);
+	myGraph.SetEnabled(myLensPass, lens);
+	myGraph.SetEnabled(mySharpenPass, composite);
+	frame.pushConstants.lens = lens ? LENS_ACTIVE : 0U;
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
 		myGraph.Bind(myUpscaleLuma[historyIt], *myUpscaleImages.luma[historyIt].image);
@@ -3504,13 +3546,22 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myGraph.Bind(myUpscaleColor[historyIt], *myUpscaleImages.color[historyIt].image);
 	}
 	myGraph.Bind(myUpscaleNewLocks, *myUpscaleImages.newLocks.image);
-	frame.pushConstants.upscale = 0;
+	myGraph.Bind(myLensed, *myLensedImage.image);
+	frame.pushConstants.upscale = composite ? UPSCALE_COMPOSITE : 0U;
 	if (upscale)
 	{
-		frame.pushConstants.upscale = UPSCALE_COMPOSITE | (myUpscaleHistoryValid ? UPSCALE_HISTORY : 0U) | ((myUpscaleFrame & 1U) != 0U ? UPSCALE_PARITY : 0U);
+		frame.pushConstants.upscale |= UPSCALE_SHARPEN | (myUpscaleHistoryValid ? UPSCALE_HISTORY : 0U) | ((myUpscaleFrame & 1U) != 0U ? UPSCALE_PARITY : 0U);
 		myUpscaleFrame++;
 	}
 	myUpscaleHistoryValid = upscale;
+	// the camera's lens, for the Lens pass and the flares
+	{
+		auto& buffer = myLensDataBuffers[frame.frameIndex];
+		auto memory = buffer.Map();
+		std::memcpy(memory.data(), &frame.lens, sizeof(frame.lens));
+		buffer.Flush(0, sizeof(frame.lens));
+		buffer.Unmap();
+	}
 
 	// the depth reprojection's: the frame's height and main views, and the last frame's extent (see InternalPlanCulling)
 	frame.pushConstants.framebufferHeight = myGraph.GetExtent().height;

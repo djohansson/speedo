@@ -2,6 +2,7 @@
 
 #include <core/file.h>
 #include <core/utils.h>
+#include <gfx/lens.h>
 #include <gfx/lightgizmos.h>
 #include <gfx/units.h>
 
@@ -279,6 +280,22 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 		});
 	apply(settings.iso, kDefaults.iso, "SPEEDO_ISO", number(gfx::camera::ExposureLimits{}.lowestIso, gfx::camera::ExposureLimits{}.highestIso));
 	apply(settings.exposureStops, kDefaults.exposureStops, "SPEEDO_EXPOSURE", number(-kAny, kAny));
+	// the camera's lens (SPEEDO_LENS=<key>, one of lens::Lenses()' keys; the pinhole without, which shows the frame as it
+	// is: a prime pins the focal length and draws its vignetting, aberration and distortion)
+	apply(
+		settings.lens,
+		kDefaults.lens,
+		"SPEEDO_LENS",
+		[](const char* value) -> std::optional<uint32_t>
+		{
+			if (auto index = gfx::lens::LensOf(value))
+				return static_cast<uint32_t>(*index);
+			std::string keys;
+			for (const auto& lens : gfx::lens::Lenses())
+				keys += (keys.empty() ? "" : ", ") + lens.key;
+			std::println(stderr, "SPEEDO_LENS={}: not a lens ({})", value, keys);
+			return std::nullopt;
+		});
 	// the shadows (SPEEDO_SHADOWS=0 without), and the ray traced ones (SPEEDO_TRACED_SHADOWS=0 for the atlas alone, all to
 	// trace every pixel)
 	apply(settings.shadows, kDefaults.shadows, "SPEEDO_SHADOWS", unless("0"));
@@ -812,11 +829,16 @@ void WindowedApplication::InternalCopyPose()
 	float stops = settings.exposureStops.load(std::memory_order_relaxed);
 	if (stops != 0.0F)
 		text += std::format(" SPEEDO_EXPOSURE={:.2f}", static_cast<double>(stops));
-	// the camera's sensor and focal length (see Views::GetFocalLength), where they aren't the defaults (full frame, and
-	// the 15.6 mm of the default 75 degree field of view)
+	// the camera's sensor, lens and focal length (see Views::GetFocalLength), where they aren't the defaults (full frame,
+	// the pinhole, and the 15.6 mm of the default 75 degree field of view; a prime's focal length is its own)
 	if (auto sensor = ui::SensorOfHeight(myViews->GetSensorHeight()); sensor && *sensor != gfx::camera::Sensor::kFullFrame)
 		text += std::format(" SPEEDO_SENSOR={}", gfx::camera::SensorKey(*sensor));
-	if (std::abs(myViews->GetFieldOfView() - CameraCreateDesc{}.fovY) > 1e-4F)
+	const auto& lenses = gfx::lens::Lenses();
+	auto lensIndex = settings.lens.load(std::memory_order_relaxed);
+	bool prime = lensIndex < lenses.size() && !gfx::lens::IsPinhole(lenses[lensIndex]);
+	if (prime)
+		text += std::format(" SPEEDO_LENS={}", lenses[lensIndex].key);
+	else if (std::abs(myViews->GetFieldOfView() - CameraCreateDesc{}.fovY) > 1e-4F)
 		text += std::format(" SPEEDO_FOCAL_LENGTH={:.4g}", static_cast<double>(myViews->GetFocalLength()));
 	if (uint32_t tonemapper = settings.tonemapper.load(std::memory_order_relaxed); tonemapper != TONEMAPPER_PBR_NEUTRAL)
 		for (auto [name, value] : ui::kTonemappers)
@@ -2685,14 +2707,31 @@ void WindowedApplication::PrepareDraw()
 						SetItemTooltip("The sensor's size: with the focal length it gives the field of view (a smaller sensor's is narrower, as a lens's is).");
 						ImGui::EndMenu();
 					}
+					// the lens (see gfx/lens.h): the pinhole shows the frame as it is at any focal length; a prime pins its
+					// own, and the Lens pass draws its vignetting, aberration and distortion
+					auto& settings = App().GetScene().GetSettings();
+					const auto& lenses = gfx::lens::Lenses();
+					auto lensIndex = settings.lens.load(std::memory_order_relaxed);
+					bool prime = lensIndex < lenses.size() && !gfx::lens::IsPinhole(lenses[lensIndex]);
+					if (ui::BeginMenu("Lens"))
+					{
+						for (size_t lensIt = 0; lensIt < lenses.size(); lensIt++)
+							if (MenuItem(lenses[lensIt].name.c_str(), nullptr, lensIndex == lensIt))
+								settings.lens.store(static_cast<uint32_t>(lensIt), std::memory_order_relaxed);
+						SetItemTooltip("The lens the camera takes the frame through. The pinhole shows it as it is, at any focal length. A real lens has its own focal length and aperture range, and shows the frame as it does: darker toward the corners (vignetting, most wide open), its red and blue images a little larger or smaller than its green (lateral chromatic aberration) and barrel or pincushion distorted.");
+						ImGui::EndMenu();
+					}
 					auto first = myViews->GetCamera(0);
 					bool orthographic = first && first->GetDesc().viewport.type == ViewType::Orthographic;
-					BeginDisabled(orthographic);
+					BeginDisabled(orthographic || prime);
 					float focalLength = myViews->GetFocalLength();
 					if (DragFloat("Focal Length", &focalLength, 0.5F, 4.0F, 1200.0F, "%.3g mm", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
 						myViews->SetFocalLength(focalLength);
 					EndDisabled();
-					SetItemTooltip("The lens's focal length on the sensor: the vertical field of view is %.1f degrees. Drag, or double-click to type.", static_cast<double>(glm::degrees(myViews->GetFieldOfView())));
+					if (prime)
+						SetItemTooltip("The lens's focal length on the sensor: the vertical field of view is %.1f degrees. A prime's is its own: choose the pinhole to change it.", static_cast<double>(glm::degrees(myViews->GetFieldOfView())));
+					else
+						SetItemTooltip("The lens's focal length on the sensor: the vertical field of view is %.1f degrees. Drag, or double-click to type.", static_cast<double>(glm::degrees(myViews->GetFieldOfView())));
 				}
 				if (ui::BeginMenu("Exposure"))
 				{
@@ -2715,7 +2754,8 @@ void WindowedApplication::PrepareDraw()
 							setMode(wanted);
 					SetItemTooltip("Program: the camera chooses its aperture, shutter and ISO for the scene's brightness, along a line from sunny sixteen (narrower and faster where it is brighter, wider and slower where darker, the ISO for the rest). A priority pins one of them. Manual pins all three.");
 					Separator();
-					const gfx::camera::ExposureLimits limits{};
+					// within the lens's aperture range (see Scene::GetExposureLimits)
+					const auto limits = App().GetScene().GetExposureLimits();
 					bool apertureSet = mode == gfx::camera::ExposureMode::kManual || mode == gfx::camera::ExposureMode::kAperturePriority;
 					bool shutterSet = mode == gfx::camera::ExposureMode::kManual || mode == gfx::camera::ExposureMode::kShutterPriority;
 					bool isoSet = mode == gfx::camera::ExposureMode::kManual;

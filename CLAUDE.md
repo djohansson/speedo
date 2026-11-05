@@ -677,8 +677,8 @@ Consequences:
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
 stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Shadow Transmittance (with transmissive materials; Caustics Clear and Caustics where it redraws views and the device has ray queries), Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility Clear, Main Visibility Classify and Main Visibility (the visibility buffer), Reflection Trace, Reflection X and Y and Reflection Temporal (the traced glossy reflections), Main,
-Transmission and Transmission Mips, Main Transmissive, Depth Save, Aerial Perspective (the sky's air, see "The sky"), Exposure Clear, ComputeMain (or, with temporal upscaling, Composite,
-the Upscale passes and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
+Transmission and Transmission Mips, Main Transmissive, Depth Save, Aerial Perspective (the sky's air, see "The sky"), Exposure Clear, ComputeMain (or, with temporal upscaling or a lens, Composite,
+the Upscale passes, Lens (the camera's lens, see "The physical camera") and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
 Where a scene's frames go is a `gfx::RenderOutput` (`gfx/renderoutput.h`), which the scene and its renderer are given
 rather than branching on: its extent, image count and per image storage views (ComputeMain's output, bound up front),
@@ -1008,8 +1008,8 @@ missing for a frame while the camera turned). Nothing else uploads the views: a 
 ## The physical camera
 
 `gfx/physicalcamera.h` (the user's call, 2026-11-05: a camera that behaves like a real one, and lenses whose artifacts
-arise from the lens; this is its first stage, the sensor and the exposure: the lenses, their vignetting, ghosts,
-starburst, aberration and distortion, then the glare, the depth of field, the motion blur and the grain follow, each a
+arise from the lens; its first stage, the sensor and the exposure, then the lenses (their vignetting, aberration and
+distortion, see "The lens" below), and the glare, the depth of field, the motion blur and the grain follow, each a
 commit). The renderer's units: a unit of radiance is `camera::kUnitLuminance`, 49230 cd/m^2 (the sky's sun gives
 `SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE` units for 128000 lux, and a white Lambertian surface under a unit of illuminance
 radiates a unit over pi), and a sensor saturates at 1.2 * 2^EV100 cd/m^2 (Lagarde and de Rousiers' physically based
@@ -1043,6 +1043,53 @@ square, +6.5, f/3.9 at 1/30 s, the shutter at its handheld limit and the apertur
 a fixed exposure 0.37 of 255 from before, the traced effects' noise). The client prints the
 choice at exit with the stops (`auto exposure: +x EV (f/n, 1/t s, ISO s, EV100 e)`), and the View menu shows it under
 Auto Exposure.
+
+**The lens** (`gfx/lens.h`, the second stage; View > Camera > Lens, `SPEEDO_LENS=<key>`, `Scene::Settings::lens`, which
+Copy Pose writes where it isn't the pinhole): a prescription (`lens::Prescription`: its glass surfaces from the front as a
+patent lists them, a radius, the distance to the next, the glass after it by its index at the d line and its Abbe number,
+its clear radius; one of them the aperture stop, with its blade count and whether its glass-air surfaces are coated; its
+nominal focal length, which `lens::Scale` scales it to, its aperture range, its third order distortion, an anamorphic
+squeeze and what it lets through on axis), and from it, by paraxial ray transfer matrices (height and angle through
+refractions and translations, Lee and Eisemann 2013 after Hullin et al. 2011, `lens::Trace`: the effective focal length
+is -1 over the entrance to sensor matrix's c, the back focal distance -a over it, the entrance pupil the stop seen
+through the elements before it), what the camera shows (`lens::Appear`, `lens::Appearance`): the vignetting over the
+field (`SHADER_TYPES_LENS_VIGNETTING_COUNT` samples from the axis to the sensor's corner: cos^4 of the field angle, and
+the mechanical one, the share of the stop's disk whose rays, traced back to the entrance and through, pass every clear
+radius, the cat's eye, strongest wide open and at the corner), the lateral chromatic aberration (the red and the blue
+images' heights over the green's, from the chief ray at 650, 550 and 450 nm through the glasses' dispersion, `IndexAt`,
+linear in the inverse square of the wavelength; a design's correctors' glasses are chosen for it by bisection,
+`Achromatize`), and each ghost (`lens::Ghosts`: every pair of glass-air surfaces, the ray reflected back at the later and
+forward again at the earlier, as an affine map of the entrance pupil onto the sensor per wavelength, with the two
+Fresnel reflectances' product through a quarter wave of magnesium fluoride where coated, `Reflectance`; for the glare,
+not drawn yet). The lenses (`lens::Lenses()`, their keys): the pinhole (`pinhole`, the default: no surfaces, the frame
+as it is, at any focal length), a 50 mm f/1.8 double Gauss (`gauss-50`, Kolb's 1995 prescription), a 28 mm f/2.8 wide
+angle (`wide-28`, barrel distortion of 6%), an 85 mm f/1.8 portrait (`portrait-85`), a 50 mm f/2.8 vintage Tessar
+(`vintage-50`, uncoated: its ghosts 25 times a coated lens's, and 85% transmittance) and a 50 mm 2x anamorphic
+(`anamorphic-50`, the Gauss squeezed). `assettest` checks each (`CheckLenses`: the focal length it scales to, a positive
+back focus, the vignetting within 0 and 1, the aberration under 2%, ghosts and their brightness): the Gauss's corner
+0.265 of the axis wide open at 23.4 degrees, the wide angle's 0.356 with red 1.0027 and blue 0.9953 of green, the
+portrait's 0.865, the vintage's 0.608. A prime pins the views' focal length (`Views::SetLens`: the framing and the
+scene cameras take its field of view, the Focal Length drag is disabled, and `SPEEDO_FOCAL_LENGTH` is ignored) and the
+aperture's range (`Scene::GetExposureLimits`, which `ChosenExposure` and the Exposure menu take: a manual f/0.7 is
+clamped to its widest); the anamorphic lens's image, squeezed across onto the sensor, is shown unsqueezed, the views
+letterboxed the squeeze wider than the sensor (as to a scene camera's aspect ratio) with the field across the squeeze
+times a spherical lens's. The scene appears the lens each frame it draws (`FrameLens` in `scene.cpp`, before the views
+upload: made again when the lens, the aperture to a sixth of a stop, the sensor's height or the first view's aspect
+changes, since the mechanical vignetting goes by the aperture; `LensData` in `gLensData[frame]`), and the frame is
+rendered wider by a margin (`LensData::margin`, `Views::SetLens`'s: the ideal image's radius at the lens's corner under
+barrel distortion, 1 - k, over the least of the red's and the blue's scales, so that nothing the lens's image reads is
+outside the frame; the cameras' `fovY` is the field rendered, `GetFieldOfView` the nominal). The **Lens pass**
+(`ComputeLens`, `lens.slang`, `kLensEntryPoint`; where `LensData::enabled`, `PushConstants::lens`' `LENS_ACTIVE`),
+between the frame's reconstruction and the final pass: a thread per output pixel finds its place in the lens's field
+(its offset from the view's center over the view's half diagonal, on the sensor: an anamorphic view's offset across
+over the squeeze), the point of the ideal image the distortion maps it to (r (1 - k r^2), the third order inverted
+once), reads the red and the blue there at their images' scales and the green at its own, each over the margin, within
+the view's viewport, and scales the three by the vignetting at its field angle times the transmittance, into the
+lensed image (`SHADER_TYPES_LENSED_TEXTURE`, 73, and its storage view, output sized), which Sharpen exposes and tonemaps
+in place of the reconstruction. The chain is one whatever the upscaling: with it off and a lens, the frame is composited
+at the output's size (the Composite pass, as with upscaling) and Sharpen takes the lensed image without its sharpening
+(`UPSCALE_SHARPEN`, the Upscale passes' alone), where ComputeMain did everything; the pinhole's frames are as before on
+both paths (the Lens pass disabled, Sharpen reading the reconstruction, ComputeMain without upscaling).
 
 ## Depth: reversed
 
@@ -1199,7 +1246,7 @@ Miguel 68.3, 46.3 and 39.1; Sponza 29.4, 24.4 and 21.6: a quarter to a third of 
 short of the pixels' 55% since the probes, the voxels and the surface cache don't scale with the pixels. FSR 3.1 costs
 0.8 ms more than the resolve did at Bistro's performance (37.1 against 36.3 ms, the history reprojected by its approximated
 Lanczos rather than the reference, FSR's option, which took 37.5). With upscaling off the images are as before (the frame graph's Composite, Upscale and Sharpen passes
-disabled, ComputeMain's as it was).
+disabled, ComputeMain's as it was; unless a lens is chosen, whose Lens pass takes the Composite and Sharpen passes without the Upscale passes, see "The physical camera").
 
 ## Culling: chunks, and frustums per view
 
@@ -3382,8 +3429,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 73
-(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces, 58 to 65 the traced glossy reflections', 66 the shadow transmittance, 67 and 68 the reflection rays the visibility buffer's shading records, 69 and 70 the sky's transmittance and multiple scattering tables, 71 the sky's views from the eyes, 72 the sky's view by the moon). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 74
+(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces, 58 to 65 the traced glossy reflections', 66 the shadow transmittance, 67 and 68 the reflection rays the visibility buffer's shading records, 69 and 70 the sky's transmittance and multiple scattering tables, 71 the sky's views from the eyes, 72 the sky's view by the moon, 73 the lens pass's image). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

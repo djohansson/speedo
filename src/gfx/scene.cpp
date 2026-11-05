@@ -8,6 +8,7 @@
 #include <gfx/accelerationstructures.h>
 #include <gfx/environment.h>
 #include <gfx/environmentfilter.h>
+#include <gfx/lens.h>
 #include <gfx/gpu.h>
 #include <gfx/graphicsqueue.h>
 #include <gfx/meshimport.h>
@@ -138,7 +139,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 73; // after the sky's tables, its views from the eyes and its view by the moon (SHADER_TYPES_SKY_MOON_VIEW_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 74; // after the sky's tables, its views, its view by the moon and the lens pass's image (SHADER_TYPES_LENSED_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -196,6 +197,9 @@ static_assert(
 	SHADER_TYPES_SKY_EYE_VIEW_TEXTURE == SHADER_TYPES_SKY_MULTIPLE_SCATTERING_TEXTURE + 1 && SHADER_TYPES_SKY_EYE_VIEW_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_SKY_EYE_VIEW_RW_TEXTURE > SHADER_TYPES_REFLECTION_COAT_RW_TEXTURE && SHADER_TYPES_SKY_EYE_VIEW_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(SHADER_TYPES_SKY_MOON_VIEW_TEXTURE == SHADER_TYPES_SKY_EYE_VIEW_TEXTURE + 1 && SHADER_TYPES_SKY_MOON_VIEW_TEXTURE < kModelTextureFirstSlot);
+static_assert(
+	SHADER_TYPES_LENSED_TEXTURE == SHADER_TYPES_SKY_MOON_VIEW_TEXTURE + 1 && SHADER_TYPES_LENSED_TEXTURE < kModelTextureFirstSlot &&
+	SHADER_TYPES_LENSED_RW_TEXTURE > SHADER_TYPES_SKY_EYE_VIEW_RW_TEXTURE && SHADER_TYPES_LENSED_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE > SHADER_TYPES_PREPASS_MOTION_TEXTURE && SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE > SHADER_TYPES_COMPOSITE_RW_TEXTURE &&
@@ -470,6 +474,21 @@ struct Scene::Impl
 	std::array<bool, SHADER_TYPES_SPLIT_VIEW_COUNT> myLookDistanceMeasured{};
 	uuids::uuid myExposureHistogramUuid; // gExposureHistogram: SHADER_TYPES_FRAME_HISTOGRAM_BINS per frame, host visible
 	size_t myModelSamplerCount = 0; // how many of kModelSamplerSlots the loaded model uses
+	// the camera's lens as last appeared (see lens::Appear, FrameLens) and what it appeared for (the lens, the aperture to a
+	// sixth of a stop, the sensor's height and the first view's aspect, which give the sensor's half diagonal: made again
+	// when any changes), and the margin the frame is rendered wider by for it (see Views::SetLens, LensData::margin). the
+	// draw thread's
+	struct LensState
+	{
+		uint32_t lens = std::numeric_limits<uint32_t>::max();
+		int apertureSixths = 0;
+		float sensorHeight = 0.0F;
+		float aspect = 0.0F;
+		float halfDiagonal = 0.0F;
+		lens::Appearance appearance;
+		float margin = 1.0F;
+	};
+	LensState myLensState;
 
 
 	// the loaded model's textures, by slot (from kModelTextureFirstSlot). nil for slots it doesn't use.
@@ -489,7 +508,84 @@ struct Scene::Impl
 			.shutter = mySettings.shutter.load(std::memory_order_relaxed),
 			.iso = mySettings.iso.load(std::memory_order_relaxed)};
 		float stops = view < myAutoExposureStops.size() ? myAutoExposureStops[view].load(std::memory_order_relaxed) : 0.0F;
-		return camera::Choose(mode, stops, set, camera::ExposureLimits{});
+		return camera::Choose(mode, stops, set, LensLimits());
+	}
+
+	// the limits the camera exposes within: the lens's aperture range (see lens::Prescription; the pinhole's any), the rest
+	// the defaults
+	[[nodiscard]] camera::ExposureLimits LensLimits() const noexcept
+	{
+		camera::ExposureLimits limits{};
+		const auto& lenses = lens::Lenses();
+		auto index = mySettings.lens.load(std::memory_order_relaxed);
+		if (index < lenses.size() && !lens::IsPinhole(lenses[index]))
+		{
+			limits.widestAperture = lenses[index].widestAperture;
+			limits.narrowestAperture = lenses[index].narrowestAperture;
+		}
+		return limits;
+	}
+
+	// the camera's lens this frame (see LensData, lens::Appear): the appearance made again where what it depends on changed
+	// (see LensState), and the views given the lens's focal length and margin then (see Views::SetLens: before they upload,
+	// so that the frame renders the field the lens shows); the pinhole's nothing, the Lens pass disabled. call on the draw
+	// thread, recording a frame, before views.Upload
+	[[nodiscard]] LensData FrameLens(Views& views)
+	{
+		const auto& lenses = lens::Lenses();
+		auto index = mySettings.lens.load(std::memory_order_relaxed);
+		if (index >= lenses.size() || lens::IsPinhole(lenses[index]))
+		{
+			if (myLensState.lens != index)
+			{
+				myLensState = LensState{.lens = index};
+				views.SetLens(std::nullopt, 1.0F);
+			}
+			return LensData{};
+		}
+		const auto& prescription = lenses[index];
+		// the aperture to a sixth of a stop (the vignetting changes smoothly with it, and the aperture every frame under
+		// auto exposure), and the sensor's half diagonal: its height and the first view's aspect (split screen's views
+		// share one), which an anamorphic lens's image is the squeeze wider than (see Views::SetLens)
+		auto aperture = ChosenExposure(0).aperture;
+		auto apertureSixths = static_cast<int>(std::lround(6.0 * std::log2(static_cast<double>(aperture) * static_cast<double>(aperture))));
+		auto viewports = views.GetViewports();
+		float aspect = viewports.empty() || viewports.front().height == 0 ? 1.0F : static_cast<float>(viewports.front().width) / static_cast<float>(viewports.front().height);
+		if (views.GetLensSqueeze() == prescription.squeeze)
+			aspect /= prescription.squeeze; // the sensor's, which the views are letterboxed the squeeze wider than
+		auto sensorHeight = views.GetSensorHeight();
+		if (myLensState.lens != index || myLensState.apertureSixths != apertureSixths || myLensState.sensorHeight != sensorHeight || myLensState.aspect != aspect)
+		{
+			myLensState.lens = index;
+			myLensState.apertureSixths = apertureSixths;
+			myLensState.sensorHeight = sensorHeight;
+			myLensState.aspect = aspect;
+			myLensState.halfDiagonal = 0.5F * sensorHeight * std::sqrt(1.0F + aspect * aspect);
+			auto quantized = static_cast<float>(std::exp2(static_cast<double>(apertureSixths) / 12.0));
+			myLensState.appearance = lens::Appear(prescription, quantized, myLensState.halfDiagonal);
+			// the frame rendered wider than the lens's image by what reads beyond it: the ideal image's radius at the lens's
+			// corner under barrel distortion, 1 - k, and the red or the blue beyond the green's (see LensSample)
+			const auto& appearance = myLensState.appearance;
+			auto leastScale = std::clamp(std::min({1.0F, appearance.redScale, appearance.blueScale}), 0.5F, 1.0F);
+			myLensState.margin = (1.0F - std::min(prescription.distortion, 0.0F)) / leastScale;
+			views.SetLens(prescription.focalLength, myLensState.margin, prescription.squeeze);
+		}
+		const auto& appearance = myLensState.appearance;
+		LensData data{};
+		for (size_t sampleIt = 0; sampleIt < lens::Appearance::kVignettingSamples; sampleIt++)
+			data.vignetting[sampleIt / 4][sampleIt % 4] = appearance.vignetting[sampleIt];
+		data.fieldAngle = appearance.fieldAngle;
+		data.focalLength = appearance.focalLength;
+		data.halfDiagonal = myLensState.halfDiagonal;
+		data.redScale = appearance.redScale;
+		data.blueScale = appearance.blueScale;
+		data.distortion = prescription.distortion;
+		data.margin = myLensState.margin;
+		data.transmittance = appearance.transmittance;
+		data.squeeze = prescription.squeeze;
+		data.enabled = 1U;
+		data.bladeCount = prescription.bladeCount;
+		return data;
 	}
 
 	// a view's exposure, as a factor: the camera's exposure in stops (see ChosenExposure) and the compensation (see
@@ -2484,6 +2580,7 @@ struct Scene::Impl
 				{"ComputeReflectionTrace", SLANG_STAGE_COMPUTE}, // see the Reflection Trace pass
 				{"ComputeAerialPerspective", SLANG_STAGE_COMPUTE}, // see the Aerial Perspective pass
 				{"ComputeSkyEyeView", SLANG_STAGE_COMPUTE}, // see the Sky Eye View pass
+				{"ComputeLens", SLANG_STAGE_COMPUTE}, // see the Lens pass
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -2733,6 +2830,8 @@ struct Scene::Impl
 			scotopics[viewIt] = ViewScotopic(viewIt);
 			lookDistances[viewIt] = myLookDistances[viewIt].load(std::memory_order_relaxed);
 		}
+		// the camera's lens, which sets the field the views render (see FrameLens), before they upload
+		auto lensData = FrameLens(views);
 		auto cameras = views.Upload(target.frameIndex, viewportScale, myUpscaling != Upscaling::kOff, exposures, scotopics);
 		std::vector<glm::mat4> viewProjections;
 		for (const auto& camera : cameras)
@@ -2801,6 +2900,7 @@ struct Scene::Impl
 				.drawUi = target.drawUi,
 				.uiBlurRects = target.uiBlurRects,
 				.upscaling = myUpscaling,
+				.lens = lensData,
 				.executor = target.executor});
 	}
 };
@@ -2889,6 +2989,8 @@ core::ConcurrentAccess<std::string>& Scene::GetEnvironmentPath() noexcept { retu
 core::ConcurrentAccess<std::vector<Scene::DominantLightInfo>>& Scene::GetEnvironmentLightInfo() noexcept { return myImpl->myEnvironmentLightInfo; }
 core::ConcurrentAccess<std::vector<float>>& Scene::GetLightSizes() noexcept { return myImpl->myLightSizes; }
 camera::Exposure Scene::GetViewExposure() const noexcept { return myImpl->ChosenExposure(0); }
+
+camera::ExposureLimits Scene::GetExposureLimits() const noexcept { return myImpl->LensLimits(); }
 uint64_t Scene::GetTransientMemory() const noexcept { return myImpl->myTransientMemory.load(std::memory_order_relaxed); }
 uint64_t Scene::GetUnaliasedTransientMemory() const noexcept { return myImpl->myUnaliasedTransientMemory.load(std::memory_order_relaxed); }
 const Renderer& Scene::GetRenderer() const noexcept { return *myImpl->myRenderer; }

@@ -77,7 +77,11 @@ void Views::InternalLayout()
 {
 	auto cameras = myCameras.Write();
 
+	// a view the grid adds takes the lens's field, as the others have it (see SetLens)
+	auto before = cameras.Get().size();
 	cameras.Get().resize(static_cast<size_t>(myGrid.x) * myGrid.y);
+	for (size_t cameraIt = before; cameraIt < cameras.Get().size(); cameraIt++)
+		cameras.Get()[cameraIt].GetDesc().fovY = InternalRenderedFov(InternalPinnedFov(CameraCreateDesc{}.fovY));
 
 	auto width = myFramebufferExtent.x / myGrid.x;
 	auto height = myFramebufferExtent.y / myGrid.y;
@@ -86,10 +90,14 @@ void Views::InternalLayout()
 	{
 		for (uint32_t i = 0; i < myGrid.x; i++)
 		{
-			// the cell, or the largest rectangle of the camera's aspect ratio centered in it
+			// the cell, or the largest rectangle of the camera's aspect ratio centered in it; an anamorphic lens's image is
+			// the squeeze wider than the sensor's (the cell's, or the camera's), see SetLens
 			auto& camera = cameras.Get()[(j * myGrid.x) + i];
 			auto& viewport = camera.GetDesc().viewport;
+			auto squeeze = myLensSqueeze.load(std::memory_order_relaxed);
 			auto aspectRatio = camera.GetDesc().aspectRatio;
+			if (squeeze != 1.0F && height > 0)
+				aspectRatio = (aspectRatio > 0.0F ? aspectRatio : static_cast<float>(width) / static_cast<float>(height)) * squeeze;
 			auto viewWidth = width;
 			auto viewHeight = height;
 			if (aspectRatio > 0.0F && height > 0)
@@ -139,11 +147,13 @@ void Views::OnResizeGrid(glm::uvec2 grid)
 
 void Views::FrameBounds(const Bounds3f& bounds, const Bounds3f& reach, float pitch, bool horizon, bool whole)
 {
-	// far enough back for a sphere around the bounds to fit the (75 degree) field of view, from pitch above: all of it where
-	// whole (its radius over the sine of half the field of view), else 1.4 times its radius, which a compact model doesn't
-	// fill (a row of copies does, and the nearest was cut off)
+	// far enough back for a sphere around the bounds to fit the field of view (the default's 75 degrees, or the lens's
+	// where one pins it, see SetLens), from pitch above: all of it where whole (its radius over the sine of half the field
+	// of view), else as 1.4 times its radius is in the default field, which a compact model doesn't fill (a row of copies
+	// does, and the nearest was cut off)
+	auto nominal = InternalPinnedFov(CameraCreateDesc{}.fovY);
 	auto radius = std::max(bounds.Radius(), 1e-3F);
-	auto distance = whole ? radius / std::sin(0.5F * CameraCreateDesc{}.fovY) : 1.4F * radius;
+	auto distance = (whole ? 1.0F : 1.4F * std::sin(0.5F * CameraCreateDesc{}.fovY)) * radius / std::sin(0.5F * nominal);
 	auto eye = bounds.Center() + (distance * glm::vec3(0.0F, std::sin(pitch), std::cos(pitch)));
 	// and seeing as far as the farthest corner of reach
 	auto farPlane = 4.0F * radius;
@@ -164,7 +174,7 @@ void Views::FrameBounds(const Bounds3f& bounds, const Bounds3f& reach, float pit
 			desc.position = -eye;
 			desc.cameraRotation = glm::vec3(pitch, 0.0F, 0.0F);
 			desc.viewport.type = ViewType::Perspective;
-			desc.fovY = CameraCreateDesc{}.fovY;
+			desc.fovY = InternalRenderedFov(nominal);
 			desc.aspectRatio = 0.0F;
 			desc.farPlane = horizon ? 0.0F : farPlane; // none (see CameraCreateDesc::farPlane)
 			desc.nearPlane = farPlane * 1e-4F;
@@ -347,7 +357,8 @@ void Views::InternalApplySceneCamera(const SceneCamera& camera, const Bounds3f& 
 			desc.cameraRotation = glm::vec3(pitch, yaw, roll);
 			desc.aspectRatio = sceneCamera->aspectRatio;
 			desc.viewport.type = sceneCamera->orthographic ? ViewType::Orthographic : ViewType::Perspective;
-			desc.fovY = sceneCamera->yfov > 0.0F ? sceneCamera->yfov : CameraCreateDesc{}.fovY;
+			// the file's field of view, unless a lens pins it (see SetLens)
+			desc.fovY = InternalRenderedFov(InternalPinnedFov(sceneCamera->yfov > 0.0F ? sceneCamera->yfov : CameraCreateDesc{}.fovY));
 			desc.orthoHalfHeight = sceneCamera->ymag > 0.0F ? sceneCamera->ymag : 1.0F;
 			desc.nearPlane = nearPlane;
 			desc.farPlane = farPlane;
@@ -385,17 +396,60 @@ void Views::SetSensorHeight(float height)
 float Views::GetFieldOfView() const
 {
 	auto cameras = myCameras.Read();
-	return cameras.Get().empty() ? CameraCreateDesc{}.fovY : cameras.Get().front().GetDesc().fovY;
+	return cameras.Get().empty() ? CameraCreateDesc{}.fovY : InternalNominalFov(cameras.Get().front().GetDesc().fovY);
 }
 
 void Views::SetFieldOfView(float fieldOfView)
 {
+	// the lens's where one pins it (see SetLens)
+	auto nominal = InternalPinnedFov(std::clamp(fieldOfView, glm::radians(1.0F), glm::radians(170.0F)));
 	auto cameras = myCameras.Write();
 	for (auto& camera : cameras.Get())
 	{
-		camera.GetDesc().fovY = std::clamp(fieldOfView, glm::radians(1.0F), glm::radians(170.0F));
+		camera.GetDesc().fovY = InternalRenderedFov(nominal);
 		camera.UpdateProjectionMatrix();
 	}
+}
+
+float Views::InternalRenderedFov(float nominal) const noexcept
+{
+	// wider by the margin, as the tangent: clamped short of the projection's limit
+	auto rendered = 2.0F * std::atan(myLensMargin.load(std::memory_order_relaxed) * std::tan(0.5F * nominal));
+	return std::clamp(rendered, glm::radians(1.0F), glm::radians(175.0F));
+}
+
+float Views::InternalNominalFov(float rendered) const noexcept
+{
+	return 2.0F * std::atan(std::tan(0.5F * rendered) / myLensMargin.load(std::memory_order_relaxed));
+}
+
+float Views::InternalPinnedFov(float fieldOfView) const noexcept
+{
+	auto focalLength = myLensFocalLength.load(std::memory_order_relaxed);
+	return focalLength > 0.0F ? camera::FieldOfView(GetSensorHeight(), focalLength) : fieldOfView;
+}
+
+void Views::SetLens(std::optional<float> focalLength, float margin, float squeeze)
+{
+	{
+		auto cameras = myCameras.Write();
+		// the nominal fields as they are, by the margin before
+		std::vector<float> nominals;
+		nominals.reserve(cameras.Get().size());
+		for (const auto& camera : cameras.Get())
+			nominals.push_back(InternalNominalFov(camera.GetDesc().fovY));
+		myLensFocalLength.store(focalLength.value_or(0.0F), std::memory_order_relaxed);
+		myLensMargin.store(std::clamp(margin, 1.0F, 2.0F), std::memory_order_relaxed);
+		myLensSqueeze.store(std::clamp(squeeze, 1.0F, 4.0F), std::memory_order_relaxed);
+		for (size_t cameraIt = 0; cameraIt < cameras.Get().size(); cameraIt++)
+		{
+			auto& camera = cameras.Get()[cameraIt];
+			camera.GetDesc().fovY = InternalRenderedFov(InternalPinnedFov(nominals[cameraIt]));
+			camera.UpdateProjectionMatrix();
+		}
+	}
+	// the viewports follow the squeeze (and the projections them)
+	InternalLayout();
 }
 
 float Views::GetFocalLength() const
