@@ -479,8 +479,8 @@ through it, `SHADER_TYPES_DOF_TEXTURE`, in place of the frame). The circle of co
 `UpscaleViewDepth` times the scene's unit; the aperture's diameter, the focal length over the f-number the camera
 exposes with, times how far the point's image falls from the sensor over the image's distance; signed, in the output's
 pixels by the sensor's mm per pixel, at most `SHADER_TYPES_DOF_MAX_COC`, 48), so the depth of field follows the
-exposure's aperture (wide open at night, shallow); the focus is the view's own measure of how far it looks
-(`FrameInputs::lookDistances`, the median distance, as a camera's autofocus of the scene) or the setting. The red's and
+exposure's aperture (wide open at night, shallow); the focus is what the autofocus mode picks (`gfx::FocusMode`, View > Camera > Focus, `SPEEDO_FOCUS=spot|zone|wide|<meters>`, as a system camera has them, the user's ask, 2026-11-05): the median distance of what is under the view's center spot (4% of the view each way, `SHADER_TYPES_FOCUS_SPOT`) or its center zone (20%, `SHADER_TYPES_FOCUS_ZONE`), binned by ComputeMain beside the distance bins (`SHADER_TYPES_FOCUS_BINS`), or the nearest tenth of the whole view (wide, an auto area's nearest subject), each read back and adapted as the look distance is, followed continuously (AF-C) or held as acquired (`Settings::focusContinuous`, Focus Now, `SPEEDO_FOCUS_CONTINUOUS=0`); the whole view's median at first, which focused on the board rather than the king under the center (the user's ABeautifulGame pose `-0.0303,0.2001,0.2945,29.066,0.046`): spot puts the king's cross sharp, zone the board behind it, wide the king's base
+(`myFocusDistances`, as a camera's single point autofocus) or the setting. The red's and
 the blue's circles are the green's less the aperture's diameter times their focal lengths' shift over the focal length
 (`lens::Appearance::focalLengthRed`, `focalLengthBlue`, from `Trace` at their wavelengths: the longitudinal chromatic
 aberration, fringes at the circles' edges, small for the achromatized designs). DOF Tiles finds each 16 pixel tile's

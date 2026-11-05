@@ -483,6 +483,15 @@ struct Scene::Impl
 	// how far each view looks (see FrameInputs::lookDistances), by the draw thread, and whether it has been measured yet
 	std::array<std::atomic<float>, SHADER_TYPES_SPLIT_VIEW_COUNT> myLookDistances{};
 	std::array<bool, SHADER_TYPES_SPLIT_VIEW_COUNT> myLookDistanceMeasured{};
+	// and how far what is under each view's center spot and center zone is (see SHADER_TYPES_FOCUS_BINS), and the
+	// nearest tenth of its pixels, the autofocus modes', likewise, and the focus held where it isn't continuous (meters)
+	std::array<std::atomic<float>, SHADER_TYPES_SPLIT_VIEW_COUNT> myFocusDistances{};
+	std::array<bool, SHADER_TYPES_SPLIT_VIEW_COUNT> myFocusMeasured{};
+	std::array<std::atomic<float>, SHADER_TYPES_SPLIT_VIEW_COUNT> myZoneDistances{};
+	std::array<bool, SHADER_TYPES_SPLIT_VIEW_COUNT> myZoneMeasured{};
+	std::array<std::atomic<float>, SHADER_TYPES_SPLIT_VIEW_COUNT> myNearDistances{};
+	std::array<bool, SHADER_TYPES_SPLIT_VIEW_COUNT> myNearMeasured{};
+	float myFocusHeld = 0.0F;
 	uuids::uuid myExposureHistogramUuid; // gExposureHistogram: SHADER_TYPES_FRAME_HISTOGRAM_BINS per frame, host visible
 	size_t myModelSamplerCount = 0; // how many of kModelSamplerSlots the loaded model uses
 	// the camera's lens as last appeared (see lens::Appear, FrameLens) and what it appeared for (the lens, the aperture to a
@@ -676,14 +685,41 @@ struct Scene::Impl
 		return data;
 	}
 
-	// what the camera focuses at, meters (see Settings::focusAuto): the first view's measure of how far it looks, in the
-	// scene's units, or the setting
-	[[nodiscard]] float FocusDistanceMeters() const
+	// what the first view's autofocus measures in its mode (see Settings::focusMode), in the scene's units: under the
+	// center spot, the center zone, or the nearest thing in view (until measured, how far the view looks)
+	[[nodiscard]] float MeasuredFocusUnits() const
 	{
-		if (!mySettings.focusAuto.load(std::memory_order_relaxed))
+		auto mode = static_cast<FocusMode>(mySettings.focusMode.load(std::memory_order_relaxed));
+		switch (mode)
+		{
+		case FocusMode::kSpot:
+			if (myFocusMeasured[0])
+				return myFocusDistances[0].load(std::memory_order_relaxed);
+			break;
+		case FocusMode::kZone:
+			if (myZoneMeasured[0])
+				return myZoneDistances[0].load(std::memory_order_relaxed);
+			break;
+		case FocusMode::kWide:
+			if (myNearMeasured[0])
+				return myNearDistances[0].load(std::memory_order_relaxed);
+			break;
+		default: break;
+		}
+		return myLookDistances[0].load(std::memory_order_relaxed);
+	}
+
+	// what the camera focuses at, meters: the setting in manual, else the autofocus's measure, followed continuously or
+	// held as last acquired (Settings::focusContinuous, focusAcquire). draw thread
+	[[nodiscard]] float FocusDistanceMeters()
+	{
+		auto mode = static_cast<FocusMode>(mySettings.focusMode.load(std::memory_order_relaxed));
+		if (mode == FocusMode::kManual)
 			return std::max(mySettings.focusDistance.load(std::memory_order_relaxed), 1e-3F);
-		auto units = myLookDistances[0].load(std::memory_order_relaxed);
-		return std::max(units * mySettings.metersPerUnit.load(std::memory_order_relaxed), 1e-3F);
+		auto measured = MeasuredFocusUnits() * mySettings.metersPerUnit.load(std::memory_order_relaxed);
+		if (mySettings.focusContinuous.load(std::memory_order_relaxed) || mySettings.focusAcquire.exchange(false, std::memory_order_relaxed) || myFocusHeld <= 0.0F)
+			myFocusHeld = measured;
+		return std::max(myFocusHeld, 1e-3F);
 	}
 
 	// a view's exposure, as a factor: the camera's exposure in stops (see ChosenExposure) and the compensation (see
@@ -1200,6 +1236,29 @@ struct Scene::Impl
 									((static_cast<double>(medianBin) + 0.5) / SHADER_TYPES_DISTANCE_BINS * (SHADER_TYPES_DISTANCE_LOG2_MAX - SHADER_TYPES_DISTANCE_LOG2_MIN));
 				adapt(myLookDistances[view], myLookDistanceMeasured[view], static_cast<float>(std::exp2(log2Distance)));
 			}
+			// and the autofocus modes' (see MeasuredFocusUnits): the median of what is under the view's center spot and
+			// its center zone, and the nearest tenth of the whole view; where nothing is drawn there (the sky), each stays
+			auto percentile = [&adapt](std::span<const uint32_t> counts, uint64_t numerator, uint64_t denominator, std::atomic<float>& distance, bool& measured)
+			{
+				uint64_t total = std::accumulate(counts.begin(), counts.end(), uint64_t{0});
+				if (total == 0)
+					return;
+				uint64_t counted = 0;
+				size_t bin = 0;
+				for (; bin + 1 < counts.size(); bin++)
+				{
+					counted += counts[bin];
+					if (counted * denominator >= total * numerator)
+						break;
+				}
+				auto log2Distance = SHADER_TYPES_DISTANCE_LOG2_MIN +
+									((static_cast<double>(bin) + 0.5) / static_cast<double>(counts.size()) * (SHADER_TYPES_DISTANCE_LOG2_MAX - SHADER_TYPES_DISTANCE_LOG2_MIN));
+				adapt(distance, measured, static_cast<float>(std::exp2(log2Distance)));
+			};
+			const auto* focusBins = bins.data() + SHADER_TYPES_EXPOSURE_BINS + SHADER_TYPES_DISTANCE_BINS;
+			percentile(std::span(focusBins, SHADER_TYPES_FOCUS_BINS), 1, 2, myFocusDistances[view], myFocusMeasured[view]);
+			percentile(std::span(focusBins + SHADER_TYPES_FOCUS_BINS, SHADER_TYPES_FOCUS_BINS), 1, 2, myZoneDistances[view], myZoneMeasured[view]);
+			percentile(distances, 1, 10, myNearDistances[view], myNearMeasured[view]);
 		}
 
 		// at night the lit parts of the view govern: each pixel weighs whole in the percentiles where it is in the eye's

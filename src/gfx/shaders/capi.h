@@ -341,7 +341,14 @@ extern "C"
 #define SHADER_TYPES_DISTANCE_BINS 64u
 #define SHADER_TYPES_DISTANCE_LOG2_MIN -6.0
 #define SHADER_TYPES_DISTANCE_LOG2_MAX 18.0
-#define SHADER_TYPES_HISTOGRAM_BINS (SHADER_TYPES_EXPOSURE_BINS + SHADER_TYPES_DISTANCE_BINS)
+// and, after them, the same bins of the pixels under the view's center spot (within SHADER_TYPES_FOCUS_SPOT of the
+// view's size each way of its center): their median is what the camera's autofocus focuses at (see
+// Scene::Settings::focusAuto), as a single point autofocus reads the center
+#define SHADER_TYPES_FOCUS_BINS 64u
+#define SHADER_TYPES_FOCUS_SPOT 0.04
+// and the same of the pixels under the view's center zone (SHADER_TYPES_FOCUS_ZONE each way), the zone autofocus's
+#define SHADER_TYPES_FOCUS_ZONE 0.2
+#define SHADER_TYPES_HISTOGRAM_BINS (SHADER_TYPES_EXPOSURE_BINS + SHADER_TYPES_DISTANCE_BINS + 2u * SHADER_TYPES_FOCUS_BINS)
 // a frame index's, every view's
 #define SHADER_TYPES_FRAME_HISTOGRAM_BINS (SHADER_TYPES_SPLIT_VIEW_COUNT * SHADER_TYPES_HISTOGRAM_BINS)
 

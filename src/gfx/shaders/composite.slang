@@ -188,6 +188,11 @@ void ComputeMain(
 				float at = (log2(max(distance, 1e-8)) - SHADER_TYPES_DISTANCE_LOG2_MIN) / (SHADER_TYPES_DISTANCE_LOG2_MAX - SHADER_TYPES_DISTANCE_LOG2_MIN);
 				uint distanceBin = uint(clamp(at * float(SHADER_TYPES_DISTANCE_BINS), 0.0, float(SHADER_TYPES_DISTANCE_BINS - 1)));
 				InterlockedAdd(gGroupHistogram[histogramFirst + SHADER_TYPES_EXPOSURE_BINS + distanceBin], 1u);
+				// and under the view's center spot and zone, for the autofocus (see SHADER_TYPES_FOCUS_BINS)
+				if (all(abs(local - 0.5) < SHADER_TYPES_FOCUS_SPOT))
+					InterlockedAdd(gGroupHistogram[histogramFirst + SHADER_TYPES_EXPOSURE_BINS + SHADER_TYPES_DISTANCE_BINS + distanceBin], 1u);
+				if (all(abs(local - 0.5) < SHADER_TYPES_FOCUS_ZONE))
+					InterlockedAdd(gGroupHistogram[histogramFirst + SHADER_TYPES_EXPOSURE_BINS + SHADER_TYPES_DISTANCE_BINS + SHADER_TYPES_FOCUS_BINS + distanceBin], 1u);
 			}
 		}
 

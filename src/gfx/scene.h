@@ -32,6 +32,36 @@ class TaskExecutor;
 namespace gfx
 {
 
+// how the camera's autofocus picks what to focus at (see Scene::Settings::focusMode), as a system camera's modes:
+// a single point at the view's center, a zone around it, the whole view (the nearest subject), or by hand
+enum class FocusMode : uint8_t
+{
+	kSpot,
+	kZone,
+	kWide,
+	kManual,
+};
+
+[[nodiscard]] constexpr std::string_view FocusModeName(FocusMode mode) noexcept
+{
+	switch (mode)
+	{
+	case FocusMode::kZone: return "zone";
+	case FocusMode::kWide: return "wide";
+	case FocusMode::kManual: return "manual";
+	case FocusMode::kSpot:
+	default: return "spot";
+	}
+}
+
+[[nodiscard]] constexpr std::optional<FocusMode> ParseFocusMode(std::string_view text) noexcept
+{
+	for (auto mode : {FocusMode::kSpot, FocusMode::kZone, FocusMode::kWide, FocusMode::kManual})
+		if (text == FocusModeName(mode))
+			return mode;
+	return std::nullopt;
+}
+
 class Renderer;
 class Views;
 
@@ -101,11 +131,17 @@ public:
 		// and whether its glare is drawn (the bloom it veils the frame with, and the ghosts and starbursts of the bright
 		// blobs the frame holds, see lens.slang and flare.slang; View > Camera > Lens Glare, SPEEDO_LENS_GLARE=0 without)
 		std::atomic<bool> lensGlare = true;
-		// and what it focuses at (the depth of field, see dof.slang; a real lens's, the pinhole's everything): the view's
-		// own measure of how far it looks (FrameInputs::lookDistances) where focusAuto, else focusDistance, meters
-		// (View > Camera > Autofocus and Focus Distance; SPEEDO_FOCUS=auto|<meters>, which Copy Pose writes)
-		std::atomic<bool> focusAuto = true;
+		// and what it focuses at (the depth of field, see dof.slang; a real lens's, the pinhole's everything), as a system
+		// camera's autofocus modes have it (FocusMode; View > Camera > Focus, SPEEDO_FOCUS=spot|zone|wide|<meters>, which
+		// Copy Pose writes): what is under the view's center spot (SHADER_TYPES_FOCUS_SPOT of the view each way, a single
+		// point's), its center zone (SHADER_TYPES_FOCUS_ZONE), the nearest thing anywhere in the view (wide: the nearest
+		// tenth of its pixels, as an auto area picks the nearest subject), or focusDistance, meters (manual); and whether
+		// the autofocus follows continuously (AF-C) or holds what it last acquired (AF-S: View > Camera > Focus > Focus
+		// Now acquires again, SPEEDO_FOCUS_CONTINUOUS=0 holds the first)
+		std::atomic<uint8_t> focusMode = static_cast<uint8_t>(FocusMode::kSpot);
 		std::atomic<float> focusDistance = 2.0F;
+		std::atomic<bool> focusContinuous = true;
+		std::atomic<bool> focusAcquire = false; // a request (Focus Now), taken by the draw thread
 		// and whether what moves while its shutter is open smears (the motion blur, see motionblur.slang; View > Camera >
 		// Motion Blur, SPEEDO_MOTION_BLUR=0 without) and whether its sensor's shot noise at the ISO shows (the grain, see
 		// SharpenLens; View > Camera > Grain, SPEEDO_GRAIN=0 without), each with a real lens, which Copy Pose writes

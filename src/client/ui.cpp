@@ -301,18 +301,31 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 	// its motion blur and its sensor's grain (SPEEDO_MOTION_BLUR=0 and SPEEDO_GRAIN=0 without)
 	apply(settings.motionBlur, kDefaults.motionBlur, "SPEEDO_MOTION_BLUR", unless("0"));
 	apply(settings.grain, kDefaults.grain, "SPEEDO_GRAIN", unless("0"));
-	// and what it focuses at (SPEEDO_FOCUS=auto, or a distance in meters)
-	apply(settings.focusAuto, kDefaults.focusAuto, "SPEEDO_FOCUS", [](const char* value) { return std::optional<bool>(std::string_view(value) == "auto"); });
+	// and what it focuses at (SPEEDO_FOCUS=spot|zone|wide, an autofocus mode, or a distance in meters, manual; "auto" is
+	// spot), continuously or held as first acquired (SPEEDO_FOCUS_CONTINUOUS=0)
+	apply(
+		settings.focusMode,
+		kDefaults.focusMode,
+		"SPEEDO_FOCUS",
+		[](const char* value) -> std::optional<uint8_t>
+		{
+			if (auto mode = gfx::ParseFocusMode(value))
+				return static_cast<uint8_t>(*mode);
+			if (std::string_view(value) == "auto")
+				return static_cast<uint8_t>(gfx::FocusMode::kSpot);
+			return static_cast<uint8_t>(gfx::FocusMode::kManual);
+		});
 	apply(
 		settings.focusDistance,
 		kDefaults.focusDistance,
 		"SPEEDO_FOCUS",
 		[](const char* value) -> std::optional<float>
 		{
-			if (std::string_view(value) == "auto")
+			if (gfx::ParseFocusMode(value) || std::string_view(value) == "auto")
 				return kDefaults.focusDistance.load(std::memory_order_relaxed);
 			return std::clamp(std::strtof(value, nullptr), 1e-3F, 1e6F);
 		});
+	apply(settings.focusContinuous, kDefaults.focusContinuous, "SPEEDO_FOCUS_CONTINUOUS", unless("0"));
 	// the shadows (SPEEDO_SHADOWS=0 without), and the ray traced ones (SPEEDO_TRACED_SHADOWS=0 for the atlas alone, all to
 	// trace every pixel)
 	apply(settings.shadows, kDefaults.shadows, "SPEEDO_SHADOWS", unless("0"));
@@ -858,8 +871,13 @@ void WindowedApplication::InternalCopyPose()
 		text += std::format(" SPEEDO_LENS={}", lenses[lensIndex].key);
 		if (!settings.lensGlare.load(std::memory_order_relaxed))
 			text += " SPEEDO_LENS_GLARE=0";
-		if (!settings.focusAuto.load(std::memory_order_relaxed))
+		auto focusMode = static_cast<gfx::FocusMode>(settings.focusMode.load(std::memory_order_relaxed));
+		if (focusMode == gfx::FocusMode::kManual)
 			text += std::format(" SPEEDO_FOCUS={:.4g}", static_cast<double>(settings.focusDistance.load(std::memory_order_relaxed)));
+		else if (focusMode != gfx::FocusMode::kSpot)
+			text += std::format(" SPEEDO_FOCUS={}", gfx::FocusModeName(focusMode));
+		if (!settings.focusContinuous.load(std::memory_order_relaxed))
+			text += " SPEEDO_FOCUS_CONTINUOUS=0";
 		if (!settings.motionBlur.load(std::memory_order_relaxed))
 			text += " SPEEDO_MOTION_BLUR=0";
 		if (!settings.grain.load(std::memory_order_relaxed))
@@ -2754,24 +2772,49 @@ void WindowedApplication::PrepareDraw()
 						settings.lensGlare.store(glare, std::memory_order_relaxed);
 					EndDisabled();
 					SetItemTooltip("The lens's glare: the light it veils the frame with, and the ghosts and starburst of the bright things in view (the sun, lamps): each pair of its surfaces reflects a ghost onto the sensor, and the aperture's blades diffract a starburst.");
-					// the focus (the depth of field, see dof.slang): the view's own measure, or a distance
-					bool focusAuto = settings.focusAuto.load(std::memory_order_relaxed);
+					// the focus (the depth of field, see dof.slang): a system camera's modes
+					auto focusMode = static_cast<gfx::FocusMode>(settings.focusMode.load(std::memory_order_relaxed));
 					BeginDisabled(!prime);
-					if (Checkbox("Autofocus", &focusAuto))
+					if (ui::BeginMenu("Focus"))
 					{
-						// turned off, the focus stays where it was
-						if (!focusAuto)
-							settings.focusDistance.store(App().GetScene().GetFocusDistance(), std::memory_order_relaxed);
-						settings.focusAuto.store(focusAuto, std::memory_order_relaxed);
+						for (auto [name, wanted, tip] : {
+								 std::tuple{"Spot", gfx::FocusMode::kSpot, "A single point: what is under the view's center."},
+								 std::tuple{"Zone", gfx::FocusMode::kZone, "A zone around the view's center (a fifth of the view)."},
+								 std::tuple{"Wide", gfx::FocusMode::kWide, "The whole view: the nearest thing in it, as an auto area picks the nearest subject."},
+								 std::tuple{"Manual", gfx::FocusMode::kManual, "The distance set below."}})
+						{
+							if (MenuItem(name, nullptr, focusMode == wanted))
+							{
+								// manual starts from the focus it had
+								if (wanted == gfx::FocusMode::kManual)
+									settings.focusDistance.store(App().GetScene().GetFocusDistance(), std::memory_order_relaxed);
+								settings.focusMode.store(static_cast<uint8_t>(wanted), std::memory_order_relaxed);
+							}
+							SetItemTooltip("%s", tip);
+						}
+						Separator();
+						bool continuous = settings.focusContinuous.load(std::memory_order_relaxed);
+						BeginDisabled(focusMode == gfx::FocusMode::kManual);
+						if (Checkbox("Continuous", &continuous))
+							settings.focusContinuous.store(continuous, std::memory_order_relaxed);
+						SetItemTooltip("Follows what the mode measures every frame (AF-C); off, holds the focus last acquired (AF-S), until Focus Now.");
+						BeginDisabled(continuous);
+						if (MenuItem("Focus Now"))
+							settings.focusAcquire.store(true, std::memory_order_relaxed);
+						SetItemTooltip("Acquires the focus once, as a half press of the shutter does.");
+						EndDisabled();
+						EndDisabled();
+						TextDisabled("%.3g m", static_cast<double>(App().GetScene().GetFocusDistance()));
+						ImGui::EndMenu();
 					}
+					SetItemTooltip("What the lens focuses at: a point or a zone at the view's center, the nearest thing in view, or a distance; what is nearer or farther blurs by the aperture (wider open, shallower).");
 					EndDisabled();
-					SetItemTooltip("Focuses on what the view looks at (how far most of it is), as a camera's autofocus does; off, at the distance below.");
-					BeginDisabled(!prime || focusAuto);
+					BeginDisabled(!prime || focusMode != gfx::FocusMode::kManual);
 					float focusDistance = App().GetScene().GetFocusDistance();
 					if (DragFloat("Focus Distance", &focusDistance, 0.01F, 0.01F, 10000.0F, "%.3g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
 						settings.focusDistance.store(focusDistance, std::memory_order_relaxed);
 					EndDisabled();
-					SetItemTooltip("The distance the lens focuses at, meters: what is nearer or farther blurs by the aperture (wider open, shallower). Drag, or double-click to type.");
+					SetItemTooltip("The distance the lens focuses at, meters (set by hand with Focus > Manual). Drag, or double-click to type.");
 					// the motion blur and the grain (see motionblur.slang, SharpenLens)
 					bool motionBlur = settings.motionBlur.load(std::memory_order_relaxed);
 					bool grain = settings.grain.load(std::memory_order_relaxed);
