@@ -113,6 +113,8 @@ constexpr uint8_t kMotionVelocityEntryPoint = 62;
 constexpr uint8_t kMotionTilesEntryPoint = 63;
 constexpr uint8_t kMotionTilesDilateEntryPoint = 64;
 constexpr uint8_t kMotionBlurEntryPoint = 65;
+// the glare's sources tracked from frame to frame (see ComputeFlareTrack)
+constexpr uint8_t kFlareTrackEntryPoint = 66;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -365,8 +367,19 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// the lens's glare (see lens.slang, flare.slang): the bloom's chain, at half the output's size and down, the glare's
 	// sources (how many, then the sources) and the flares drawn over black at the output's size
 	myBloom = myGraph.CreateImage({.name = "Bloom", .format = Format::kR16G16B16A16Sfloat, .mipChain = true, .downscale = 2, .outputSized = true});
-	myLensSourceCount = myGraph.CreateBuffer({.name = "Lens Source Count", .size = 4 * sizeof(uint32_t)});
-	myLensSources = myGraph.CreateBuffer({.name = "Lens Sources", .size = SHADER_TYPES_LENS_SOURCE_COUNT * sizeof(LensSource)});
+	// the sources' lists are kept from frame to frame (see ComputeFlareTrack): the renderer's own buffers, imported
+	myLensSourceCount = myGraph.ImportBuffer("Lens Source Count");
+	myLensSources = myGraph.ImportBuffer("Lens Sources");
+	myLensSourceCountBuffer = std::make_unique<Buffer>(BufferCreateDesc{
+		device.CreateDeviceObjectCreateDesc("Lens Source Count"),
+		4 * sizeof(uint32_t),
+		BufferUsage::kStorage | BufferUsage::kTransferDestination,
+		MemoryProperty::kDeviceLocal});
+	myLensSourceBuffer = std::make_unique<Buffer>(BufferCreateDesc{
+		device.CreateDeviceObjectCreateDesc("Lens Sources"),
+		SHADER_TYPES_LENS_SOURCE_LIST_COUNT * SHADER_TYPES_LENS_SOURCE_COUNT * sizeof(LensSource),
+		BufferUsage::kStorage | BufferUsage::kTransferDestination,
+		MemoryProperty::kDeviceLocal});
 	myFlare = myGraph.CreateImage({.name = "Flare", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
 	// and the depth of field's (see dof.slang)
 	myDofHalf = myGraph.CreateImage({.name = "DOF Half", .format = Format::kR16G16B16A16Sfloat, .downscale = 2, .outputSized = true});
@@ -2165,8 +2178,24 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		});
 	myFlareClearPass = myGraph.AddPass(
 		"Flare Clear",
-		[this](FrameGraph::PassBuilder& builder) { builder.Use(myLensSourceCount, ResourceUse::TransferDestination()); },
-		[this](FrameGraph::PassContext& context) { CommandEncoder(context.cmd).FillBuffer(context.graph.GetBuffer(myLensSourceCount), 0, 0, 0); });
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myLensSourceCount, ResourceUse::TransferDestination());
+			builder.Use(myLensSources, ResourceUse::TransferDestination());
+		},
+		[this](FrameGraph::PassContext& context)
+		{
+			// the candidates' count each frame; all of it once (the lists are kept from frame to frame)
+			CommandEncoder encoder(context.cmd);
+			if (!myLensSourcesCleared)
+			{
+				encoder.FillBuffer(*myLensSourceCountBuffer, 0, 0, 0);
+				encoder.FillBuffer(*myLensSourceBuffer, 0, 0, 0);
+				myLensSourcesCleared = true;
+			}
+			else
+				encoder.FillBuffer(*myLensSourceCountBuffer, SHADER_TYPES_LENS_SOURCE_CANDIDATES * sizeof(uint32_t), sizeof(uint32_t), 0);
+		});
 	myFlareSourcesPass = myGraph.AddPass(
 		"Flare Sources",
 		[this](FrameGraph::PassBuilder& builder)
@@ -2182,6 +2211,14 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			auto level = std::min<size_t>(2, levels.size() - 1);
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kFlareSourcesEntryPoint}, levels[level].extent.width, levels[level].extent.height);
 		});
+	myFlareTrackPass = myGraph.AddPass(
+		"Flare Track",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myLensSourceCount, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myLensSources, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context) { kernel(context.cmd, ComputePipelineVariant{.entryPoint = kFlareTrackEntryPoint}, 1, 1); });
 	myFlarePass = myGraph.AddPass(
 		"Flare",
 		[this](FrameGraph::PassBuilder& builder)
@@ -3171,8 +3208,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			pipeline.SetDescriptorData("gFlareLens", BufferBinding{.buffer = myLensDataBuffers[frameIt], .offset = 0}, kFlareSet, frameIt);
 			pipeline.SetDescriptorData("gFlareGhosts", BufferBinding{.buffer = myLensGhostBuffers[frameIt], .offset = 0}, kFlareSet, frameIt);
 		}
-		pipeline.SetDescriptorData("gFlareSourceCount", BufferBinding{.buffer = myGraph.GetBuffer(myLensSourceCount), .offset = 0}, kFlareSet);
-		pipeline.SetDescriptorData("gFlareSources", BufferBinding{.buffer = myGraph.GetBuffer(myLensSources), .offset = 0}, kFlareSet);
+		pipeline.SetDescriptorData("gFlareSourceCount", BufferBinding{.buffer = *myLensSourceCountBuffer, .offset = 0}, kFlareSet);
+		pipeline.SetDescriptorData("gFlareSources", BufferBinding{.buffer = *myLensSourceBuffer, .offset = 0}, kFlareSet);
 		pipeline.InvalidateDescriptorSets();
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 	}
@@ -3199,9 +3236,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	if (myVisibilityBuffer)
 		pipeline.SetDescriptorData(
 			"gVisibilityTiles", BufferBinding{.buffer = myGraph.GetBuffer(myVisibilityTiles), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-	pipeline.SetDescriptorData(
-		"gLensSourceCount", BufferBinding{.buffer = myGraph.GetBuffer(myLensSourceCount), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-	pipeline.SetDescriptorData("gLensSources", BufferBinding{.buffer = myGraph.GetBuffer(myLensSources), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+	pipeline.SetDescriptorData("gLensSourceCount", BufferBinding{.buffer = *myLensSourceCountBuffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+	pipeline.SetDescriptorData("gLensSources", BufferBinding{.buffer = *myLensSourceBuffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 	pipeline.SetDescriptorData(
 		"gShadowTraceList", BufferBinding{.buffer = myGraph.GetBuffer(myShadowTraceList), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	pipeline.SetDescriptorData(
@@ -3812,7 +3848,10 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myBloomPass, bloom);
 	myGraph.SetEnabled(myFlareClearPass, flares);
 	myGraph.SetEnabled(myFlareSourcesPass, flares);
+	myGraph.SetEnabled(myFlareTrackPass, flares);
 	myGraph.SetEnabled(myFlarePass, flares);
+	myGraph.Bind(myLensSourceCount, *myLensSourceCountBuffer);
+	myGraph.Bind(myLensSources, *myLensSourceBuffer);
 	// and the depth of field
 	bool dof = lens && frame.lens.dof != 0U;
 	for (auto pass : {myDofTilesPass, myDofTilesDilatePass, myDofPreparePass, myDofGatherPass, myDofCompositePass})

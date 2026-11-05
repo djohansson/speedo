@@ -2753,6 +2753,7 @@ struct Scene::Impl
 				{"ComputeMotionTiles", SLANG_STAGE_COMPUTE},
 				{"ComputeMotionTilesDilate", SLANG_STAGE_COMPUTE},
 				{"ComputeMotionBlur", SLANG_STAGE_COMPUTE},
+				{"ComputeFlareTrack", SLANG_STAGE_COMPUTE}, // see the Flare Track pass
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

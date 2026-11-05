@@ -156,10 +156,13 @@ FlareVertexOutput VertexFlare(uint vertexId : SV_VertexID, uint instanceId : SV_
 	output.source = instanceId / itemCount;
 	output.item = instanceId % itemCount;
 	output.position = float4(0.0, 0.0, 0.0, 1.0);
-	if (output.source >= min(gFlareSourceCount[0], SHADER_TYPES_LENS_SOURCE_COUNT))
-		return output;
 	LensData lens = gFlareLens[gFlare.frame][0];
-	LensSource source = gFlareSources[output.source];
+	// the frame's list of the sources tracked (see ComputeFlareTrack), its light by its strength
+	uint parity = lens.grainFrame & 1u;
+	if (output.source >= min(gFlareSourceCount[parity], SHADER_TYPES_LENS_SOURCE_COUNT))
+		return output;
+	LensSource source = gFlareSources[parity * SHADER_TYPES_LENS_SOURCE_COUNT + output.source];
+	source.flux.rgb *= source.position.w;
 	float2 mmPerPixel = FlareSensorMmPerPixel(lens, source.viewport);
 	float pixelMm = max(mmPerPixel.x, mmPerPixel.y);
 	float exposure = source.position.z;
@@ -234,7 +237,9 @@ FlareVertexOutput VertexFlare(uint vertexId : SV_VertexID, uint instanceId : SV_
 float4 FragmentFlare(FlareVertexOutput input) : SV_Target
 {
 	LensData lens = gFlareLens[gFlare.frame][0];
-	LensSource source = gFlareSources[input.source];
+	uint parity = lens.grainFrame & 1u;
+	LensSource source = gFlareSources[parity * SHADER_TYPES_LENS_SOURCE_COUNT + input.source];
+	source.flux.rgb *= source.position.w;
 	float2 pixel = input.position.xy;
 	if (any(pixel < source.viewport.xy) || any(pixel > source.viewport.xy + source.viewport.zw))
 		return float4(0.0, 0.0, 0.0, 0.0);

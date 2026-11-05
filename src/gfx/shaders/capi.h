@@ -652,17 +652,22 @@ struct LensGhost
 };
 #define SHADER_TYPES_LENS_GHOST_COUNT 64u
 
-// a source of glare the frame holds (see ComputeFlareSources: a bright blob, the sun's disk, a lamp), which the Flare
-// pass draws the ghosts and the starburst of: where it is on the sensor (mm from its view's center, across over an
-// anamorphic lens's squeeze), its light at the lens (rgb: radiance times solid angle, the renderer's units), the view's
-// exposure and viewport (the output's pixels)
+// a source of glare the frame holds (see ComputeFlareSources: a bright compact blob, the sun's disk, a lamp's bulb, a
+// glint), which the Flare pass draws the ghosts and the starburst of: where it is on the sensor (mm from its view's
+// center, across over an anamorphic lens's squeeze), its light at the lens (rgb: radiance times solid angle, the
+// renderer's units), the view's exposure and viewport (the output's pixels), and its strength (w: fading in over the
+// frames it is found again, out over those it isn't, see ComputeFlareTrack). gLensSources holds three lists of
+// SHADER_TYPES_LENS_SOURCE_COUNT: the frames' by parity (the sources tracked from frame to frame) and the frame's
+// candidates, counted in gLensSourceCount's first three words
 struct LensSource
 {
-	alignas(16) FLOAT4(position); // xy mm; z the exposure; w unused
+	alignas(16) FLOAT4(position); // xy mm; z the exposure; w the strength, 0 to 1
 	alignas(16) FLOAT4(flux);
 	alignas(16) FLOAT4(viewport);
 };
 #define SHADER_TYPES_LENS_SOURCE_COUNT 8u
+#define SHADER_TYPES_LENS_SOURCE_LIST_COUNT 3u
+#define SHADER_TYPES_LENS_SOURCE_CANDIDATES 2u
 
 // the Flare layout's push constants (flare.slang): the frame index, the lens's ghosts (an instance per source and
 // ghost, then one per source for its starburst) and the output's size in pixels

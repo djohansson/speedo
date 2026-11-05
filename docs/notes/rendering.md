@@ -438,13 +438,26 @@ image the usage: declared storage alone, its sampled descriptor was invalid
 (`VUID-VkWriteDescriptorSet-descriptorType-00337`), and KosmicKrisp read black through it with no other sign, which
 took an afternoon of tints to find; the validation layer finds it at once. The **Flare Sources** pass
 (`ComputeFlareSources`, a thread per texel of the chain's third level; `gLensSourceCount`, emptied by the Flare Clear
-pass, and `gLensSources`, `LensSource`, at most `SHADER_TYPES_LENS_SOURCE_COUNT`, 8) lists the frame's bright blobs: a
-texel over `kFlareSourceLeastLuminance` (8 times white at the view's exposure) that is the brightest of its 5x5 (ties
-by place), where it is on the sensor (the 5x5's luminance weighted centroid, mm from the view's center; an anamorphic
-view's across over the squeeze), and its light at the lens (the texels' radiance times their solid angle, over the
-vignetting the lens's image was darkened by there), kept where its brightest ghost or its starburst would show
-(`LensData::ghostGain`, `starGain`, from the cpu). The sun's disk in view is such a blob, so is a lamp; an extended
-source (a lit window) is taken as a point at its brightest. The **Flare** pass draws their ghosts and starbursts over
+pass, and `gLensSources`, `LensSource`, at most `SHADER_TYPES_LENS_SOURCE_COUNT`, 8) lists the frame's bright compact
+blobs as candidates: a texel over `kFlareSourceLeastLuminance` (64 times white at the view's exposure) that is the
+brightest of its 5x5 (ties by place) and `kFlareSourceLeastContrast` (4) times the mean of the 5x5's outer ring (the
+sun's disk, a lamp's bulb, a glint; a sunlit wall or a window by day isn't: at 8 times white and without the ring,
+Bistro's sunlit facades at 10:30 made sources all over, and with 8 slots another set each frame, flares that jumped
+between them, the user's pose `-917.1450,363.1188,47.4961,5.605,71.996`), where it is on the sensor (the 5x5's
+luminance weighted centroid, mm from the view's center; an anamorphic view's across over the squeeze), and its light
+at the lens (the texels' radiance times their solid angle, over the vignetting the lens's image was darkened by there),
+kept where its brightest ghost or its starburst would show (`LensData::ghostGain`, `starGain`, from the cpu). The sun's
+disk in view is such a blob, so is a lamp; an extended source is taken as a point at its brightest. The **Flare
+Track** pass (`ComputeFlareTrack`, one thread) keeps the sources from frame to frame: the buffers are the renderer's
+own, imported into the graph and emptied once (three lists, the frames' by parity and the candidates, `gLensSourceCount`'s
+first three words; the Flare Clear pass empties the candidates' count alone); each of the last frame's sources is
+matched to the nearest candidate of its view within `kFlareTrackReach` (32 pixels), its light blended toward it by
+`kFlareTrackBlend` (0.2) and its place too unless the candidate strays within `kFlareTrackDeadZone` (1.5 pixels: the
+centroid moves with the frames' jitter, and a streak a pixel wide with it), its strength (`LensSource::position.w`,
+which the Flare pass scales the light by) up by `kFlareTrackRamp` (0.15) a frame, or, unmatched, down by as much and
+dropped at 0; the candidates left become sources of that strength while there is room. So a flare fades in over about
+seven frames and out over as many. At the user's pose a still frame changed by 0.52 of 255 a frame with 0.45% of its
+pixels off by more than 16 (the flares jumping) and changes by 0.22 to 0.33 with 0.05 to 0.15% now (the fades). The **Flare** pass draws their ghosts and starbursts over
 black into `myFlare` (`SHADER_TYPES_FLARE_TEXTURE`, output sized), added: the Flare layout's (`flare.slang`, created
 beside the Main layout, its set 1 the lens, its ghosts, the sources; `CommandEncoder::Draw`, rhi's plain draw, 6
 vertices an instance), a quad an instance, each source's ghosts then its starburst, the unused degenerate

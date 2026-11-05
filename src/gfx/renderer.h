@@ -404,7 +404,13 @@ private:
 	FrameGraph::PassId myBloomPass;
 	FrameGraph::PassId myFlareClearPass;
 	FrameGraph::PassId myFlareSourcesPass;
+	FrameGraph::PassId myFlareTrackPass;
 	FrameGraph::PassId myFlarePass;
+	// the sources' lists, kept from frame to frame (see ComputeFlareTrack: imported into the graph), and whether they
+	// have been emptied once
+	std::unique_ptr<Buffer> myLensSourceCountBuffer;
+	std::unique_ptr<Buffer> myLensSourceBuffer;
+	bool myLensSourcesCleared = false;
 	// the Flare pass's draws (the Flare layout's quads, see flare.slang)
 	void InternalDrawFlares(FrameGraph::PassContext& context);
 	RenderOutput& myRenderOutput;

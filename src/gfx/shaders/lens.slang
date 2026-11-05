@@ -7,10 +7,21 @@
 // Flare pass draws their ghosts and starbursts over the lens's image (flare.slang, a layout of its own). a part of
 // shaders.slang, which includes it after capi.h and sky.h
 
-// a blob is a source of glare from this many times white at the view's exposure, and a ghost or a starburst is drawn
-// from this share of white (see ComputeFlareSources, VertexFlare)
-static const float kFlareSourceLeastLuminance = 8.0;
+// a blob is a source of glare from this many times white at the view's exposure, where its texel is this many times
+// its surroundings' mean (compact: the sun's disk, a lamp's bulb, a glint; a sunlit wall or a window by day isn't), and
+// a ghost or a starburst is drawn from this share of white (see ComputeFlareSources, VertexFlare)
+static const float kFlareSourceLeastLuminance = 64.0;
+static const float kFlareSourceLeastContrast = 4.0;
 static const float kFlareLeastVisible = 1e-3;
+// the sources tracked from frame to frame (see ComputeFlareTrack): a candidate within this many output pixels of a
+// source is the same, its place and light blended in by this share, and a source's strength rises or falls by this
+// much a frame as it is found again or not
+static const float kFlareTrackReach = 32.0;
+static const float kFlareTrackBlend = 0.2;
+static const float kFlareTrackRamp = 0.15;
+// and a source's place stands while the candidate strays within this many pixels of it (the centroid moves with the
+// frames' jitter, and a streak a pixel wide with it)
+static const float kFlareTrackDeadZone = 1.5;
 
 float LensLuminance(float3 color)
 {
@@ -240,6 +251,7 @@ void ComputeFlareSources(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float3 fluxSum = 0.0;
 	float2 centroid = 0.0;
 	float weightSum = 0.0;
+	float ringSum = 0.0;
 	for (int y = -2; y <= 2; y++)
 		for (int x = -2; x <= 2; x++)
 		{
@@ -249,6 +261,8 @@ void ComputeFlareSources(uint3 dispatchThreadId : SV_DispatchThreadID)
 			bool before = at.y < int(texel.y) || (at.y == int(texel.y) && at.x < int(texel.x));
 			if (any(at != int2(texel)) && (there > luminance || (there == luminance && before)))
 				return;
+			if (max(abs(x), abs(y)) == 2)
+				ringSum += there;
 			if (there >= 0.25 * kFlareSourceLeastLuminance)
 			{
 				fluxSum += color;
@@ -256,6 +270,9 @@ void ComputeFlareSources(uint3 dispatchThreadId : SV_DispatchThreadID)
 				weightSum += there;
 			}
 		}
+	// compact: well above the ring around it
+	if (luminance < kFlareSourceLeastContrast * ringSum / 16.0)
+		return;
 	centroid /= max(weightSum, 1e-6);
 	// on the sensor, and the light: the texels' radiance times their solid angle (each texelPixels squared pixels of
 	// (a pixel's mm over the focal length) squared steradians)
@@ -269,13 +286,86 @@ void ComputeFlareSources(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float gain = max(lens.ghostGain, lens.starGain / 25.0);
 	if (LensLuminance(flux) * exposure * gain < kFlareLeastVisible)
 		return;
+	// a candidate (see ComputeFlareTrack)
 	uint index;
-	InterlockedAdd(gLensSourceCount[0], 1u, index);
+	InterlockedAdd(gLensSourceCount[SHADER_TYPES_LENS_SOURCE_CANDIDATES], 1u, index);
 	if (index >= SHADER_TYPES_LENS_SOURCE_COUNT)
 		return;
 	LensSource source;
 	source.position = float4(sensor, exposure, 0.0);
 	source.flux = float4(flux, 0.0);
 	source.viewport = viewport;
-	gLensSources[index] = source;
+	gLensSources[SHADER_TYPES_LENS_SOURCE_CANDIDATES * SHADER_TYPES_LENS_SOURCE_COUNT + index] = source;
+}
+
+// the frame's sources from the last frame's and the candidates (one thread: at most SHADER_TYPES_LENS_SOURCE_COUNT of
+// each): each of the last frame's matched to the nearest candidate of its view within kFlareTrackReach, its place and
+// light blended toward it and its strength up by kFlareTrackRamp, or, unmatched, its strength down by as much and
+// dropped at 0; then the candidates left, as new sources of that strength, while there is room. so a flare fades in
+// over a few frames and out over a few, and never jumps between the blobs a bright frame holds
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void ComputeFlareTrack(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+	LensData lens = gLensData[gPushConstants.frameIndex][0];
+	uint parity = lens.grainFrame & 1u;
+	uint previousParity = parity ^ 1u;
+	uint previousFirst = previousParity * SHADER_TYPES_LENS_SOURCE_COUNT;
+	uint candidateFirst = SHADER_TYPES_LENS_SOURCE_CANDIDATES * SHADER_TYPES_LENS_SOURCE_COUNT;
+	uint currentFirst = parity * SHADER_TYPES_LENS_SOURCE_COUNT;
+	uint previousCount = min(gLensSourceCount[previousParity], SHADER_TYPES_LENS_SOURCE_COUNT);
+	uint candidateCount = min(gLensSourceCount[SHADER_TYPES_LENS_SOURCE_CANDIDATES], SHADER_TYPES_LENS_SOURCE_COUNT);
+	bool taken[SHADER_TYPES_LENS_SOURCE_COUNT];
+	for (uint candidateIt = 0; candidateIt < SHADER_TYPES_LENS_SOURCE_COUNT; candidateIt++)
+		taken[candidateIt] = false;
+	uint count = 0;
+	for (uint previousIt = 0; previousIt < previousCount; previousIt++)
+	{
+		LensSource source = gLensSources[previousFirst + previousIt];
+		float2 mmPerPixel = LensSensorMmPerPixel(lens, source.viewport);
+		float reach = kFlareTrackReach * max(mmPerPixel.x, mmPerPixel.y);
+		uint nearest = SHADER_TYPES_LENS_SOURCE_COUNT;
+		float nearestDistance = reach;
+		for (uint candidateIt = 0; candidateIt < candidateCount; candidateIt++)
+		{
+			if (taken[candidateIt])
+				continue;
+			LensSource candidate = gLensSources[candidateFirst + candidateIt];
+			if (any(candidate.viewport != source.viewport))
+				continue;
+			float distance = length(candidate.position.xy - source.position.xy);
+			if (distance < nearestDistance)
+			{
+				nearest = candidateIt;
+				nearestDistance = distance;
+			}
+		}
+		if (nearest < SHADER_TYPES_LENS_SOURCE_COUNT)
+		{
+			taken[nearest] = true;
+			LensSource candidate = gLensSources[candidateFirst + nearest];
+			if (nearestDistance > kFlareTrackDeadZone * max(mmPerPixel.x, mmPerPixel.y))
+				source.position.xy = lerp(source.position.xy, candidate.position.xy, kFlareTrackBlend);
+			source.position.z = candidate.position.z;
+			source.position.w = min(source.position.w + kFlareTrackRamp, 1.0);
+			source.flux.rgb = lerp(source.flux.rgb, candidate.flux.rgb, kFlareTrackBlend);
+		}
+		else
+		{
+			source.position.w -= kFlareTrackRamp;
+			if (source.position.w <= 0.0)
+				continue;
+		}
+		if (count < SHADER_TYPES_LENS_SOURCE_COUNT)
+			gLensSources[currentFirst + count++] = source;
+	}
+	for (uint candidateIt = 0; candidateIt < candidateCount && count < SHADER_TYPES_LENS_SOURCE_COUNT; candidateIt++)
+	{
+		if (taken[candidateIt])
+			continue;
+		LensSource source = gLensSources[candidateFirst + candidateIt];
+		source.position.w = kFlareTrackRamp;
+		gLensSources[currentFirst + count++] = source;
+	}
+	gLensSourceCount[parity] = count;
 }
