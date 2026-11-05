@@ -30,6 +30,10 @@ struct Uploads
 // from that submission's timeline callback, i.e. once the gpu can no longer be using it. call on the draw thread.
 void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::shared_ptr<void> resource);
 
+// records writing data to buffer at offset into cmd (a command buffer of the graphics queue's): after the frames in
+// flight have read the old data, and before whatever follows reads the new
+void RecordBufferUpdate(CommandBufferHandle cmd, const Buffer& buffer, uint64_t offset, std::span<const std::byte> data);
+
 // writes data to buffer at offset, in a submission on the graphics queue that is ordered after all graphics work
 // submitted so far, and before all that follows. call on the draw thread.
 void UpdateBufferOnGraphics(

@@ -140,6 +140,10 @@ constexpr uint32_t kGiCacheWarmFrameCount = 256;
 // the frames after lights last changed gradually (see Renderer::myGiLightsGradual) for which the surface cache samples
 // as where something moves, so that it follows them: about a second
 constexpr uint32_t kGiLightsFollowFrameCount = 64;
+// over how many of a clip's updates a gradual change of the lights relights its static voxels, a share of them each
+// (see GiClipClock::relightPhase; SPEEDO_GI_RELIGHT_PHASE_COUNT, 1 for all at once): the sun moving every frame (600x)
+// lit every voxel of every clip every frame, the shadow rays of GI Light Static most of what the time lapse cost
+constexpr uint32_t kGiRelightPhaseCount = 4;
 
 // at most: the main list's early and late jobs, the transmissive and the scatter lists' per main view, and the shadow
 // list's early and late per shadow view
@@ -1150,8 +1154,12 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			clips(
 				[&](uint32_t clip, const gi::Layout& layout)
 				{
+					// a thread per voxel, or per voxel of this update's share (see GiClipClock::relightPhase)
 					if (myGiClipJobs[clip].voxelize || myGiClipClocks[clip].relight)
-						giKernel(context.cmd, kGiLightStaticEntryPoint, layout.voxelCount, clip);
+					{
+						uint64_t phases = std::max<uint32_t>(myGiClipClocks[clip].relightPhaseCount, 1);
+						giKernel(context.cmd, kGiLightStaticEntryPoint, (layout.voxelCount + phases - 1) / phases, clip);
+					}
 				});
 		});
 	myGiRestorePass = myGraph.AddPass(
@@ -2173,6 +2181,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiProbeFreeze = std::string_view(freeze) != "0";
 	if (const char* stagger = std::getenv("SPEEDO_GI_STAGGER"); stagger != nullptr)
 		myGiStagger = std::string_view(stagger) != "0";
+	myGiRelightPhaseCount = kGiRelightPhaseCount;
+	if (const char* phases = std::getenv("SPEEDO_GI_RELIGHT_PHASE_COUNT"); phases != nullptr && *phases != '\0')
+		myGiRelightPhaseCount = static_cast<uint32_t>(std::clamp(std::strtol(phases, nullptr, 10), 1L, 64L));
 	// a probe dumped at exit for debugging (SPEEDO_GI_DUMP=<x,y,z>, or pixel:<x>,<y> for the point under a pixel: per
 	// clip the one nearest the point, see GI_DUMP_FLOAT_COUNT)
 	if (const char* dump = std::getenv("SPEEDO_GI_DUMP"); dump != nullptr && *dump != '\0')
@@ -2405,6 +2416,11 @@ LightCapture Renderer::GetLightCapture() const
 std::array<uint32_t, CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT> Renderer::GetCullStatistics() const
 {
 	return myCullStatistics.Read().Get();
+}
+
+uint64_t Renderer::GetTimingGroup() const noexcept
+{
+	return myGraph.GetTimingGroup();
 }
 
 FrameStatistics Renderer::GetFrameStatistics() const
@@ -4483,6 +4499,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		uint32_t level = myGiClipmap.clips[clipIt].data.level;
 		clock.frames += myGiTimeBased ? myGiFrameSeconds * 60.0 : 1.0;
 		clock.lightsChanged = clock.lightsChanged || myGiLightsChanged;
+		clock.relightAll = clock.relightAll || (myGiLightsChanged && !myGiLightsGradual);
 		clock.emittersToggled = clock.emittersToggled || myGiEmittersToggled;
 		clock.cacheReset = clock.cacheReset || (myGiLightsChanged && !myGiLightsGradual) || myGiCacheInit;
 		clock.updated = everyClip || level == 0 || (level - 1) % coarseLevelCount == myGiStaggerFrame || myGiClipJobs[clipIt].voxelize;
@@ -4494,7 +4511,24 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clock.rayPhase = (clock.rayPhase + 1) % (2 * myGiRayPhaseCount);
 		clock.frameStamp = (clock.frameStamp % 0xFFFFFF) + 1;
 		clock.updatesSinceCacheReset = clock.cacheReset || myGiReset ? 0 : clock.updatesSinceCacheReset + 1;
-		clock.relight = clock.lightsChanged;
+		// the static voxels lit again for the lights changed since: every voxel at once where a change wasn't gradual, or
+		// the clip is voxelized, the emitters toggled or everything starts over (the whole light is made then, see
+		// GiData::lightsOnly), else a share of them, the next updates taking the rest (a change in the middle of the cycle
+		// starts its count over, so the shares still to come take the newer light)
+		if (myGiClipJobs[clipIt].voxelize || clock.relightAll || clock.emittersToggled || myGiReset)
+		{
+			clock.relight = clock.lightsChanged;
+			clock.relightPhaseCount = 1;
+			clock.relightLeft = 0;
+		}
+		else if (clock.lightsChanged || clock.relightLeft > 0)
+		{
+			clock.relight = true;
+			clock.relightPhaseCount = myGiRelightPhaseCount;
+			clock.relightPhase = (clock.relightPhase + 1) % myGiRelightPhaseCount;
+			clock.relightLeft = clock.lightsChanged ? myGiRelightPhaseCount - 1 : clock.relightLeft - 1;
+		}
+		clock.relightAll = false;
 	}
 	myGraph.SetEnabled(myGiLightStaticPass, voxelize || std::ranges::any_of(myGiClipClocks, [](const auto& clock) { return clock.relight; }));
 	// (while the finest clips' cache warms up, see IsLightingWarmingUp and the cache's rays below)
@@ -4582,7 +4616,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.reset = myGiReset ? 1 : 0;
 		// the lights alone changed (since the clip was last updated): the part of the static voxels' light they don't change
 		// is kept (see GiData::keptFirst)
-		clip.lightsOnly = clock.updated && clock.lightsChanged && !clock.emittersToggled && !myGiReset && !myGiClipJobs[clipIt].voxelize ? 1 : 0;
+		clip.lightsOnly = clock.updated && clock.relight && !clock.emittersToggled && !myGiReset && !myGiClipJobs[clipIt].voxelize ? 1 : 0;
+		clip.relightPhase = clock.relightPhase;
+		clip.relightPhaseCount = clock.relightPhaseCount;
 		if (clock.updated)
 		{
 			clock.frames = 0.0;

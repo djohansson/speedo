@@ -378,6 +378,34 @@ float ShBasis(uint c, float3 d)
 	}
 }
 
+// the irradiance's first pass: a thread per coefficient (x) and row (y) of the source mip (gInput, at most 128 wide),
+// the row's texels projected on the coefficient's basis function by their solid angle, into gOutput (the partials: a
+// column per coefficient, a row each), which EnvironmentIrradiance sums. one thread per coefficient over the whole mip
+// (8192 dependent loads) took about a millisecond and a half of every sky redraw
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void EnvironmentIrradianceRows(uint3 id : SV_DispatchThreadID)
+{
+	uint c = id.x;
+	uint y = id.y;
+	uint width;
+	uint height;
+	gInput.GetDimensions(width, height);
+	if (c >= 9 || y >= height)
+		return;
+	float v = (float(y) + 0.5) / float(height);
+	float solidAngle = (2.0 * kPi / float(width)) * (kPi / float(height)) * sin(v * kPi);
+	float3 sum = 0.0;
+	for (uint x = 0; x < width; x++)
+	{
+		float3 d = Direction(float2((float(x) + 0.5) / float(width), v));
+		sum += gInput.Load(int3(x, y, 0)).rgb * (solidAngle * ShBasis(c, d));
+	}
+	gOutput[uint2(c, y)] = float4(sum, 0.0);
+}
+
+// the irradiance: a thread per coefficient summing its column of the partials (gInput, see EnvironmentIrradianceRows),
+// into gEnvironment[0] (one group)
 [shader("compute")]
 [numthreads(16, 1, 1)]
 void EnvironmentIrradiance(uint3 id : SV_GroupThreadID)
@@ -391,15 +419,7 @@ void EnvironmentIrradiance(uint3 id : SV_GroupThreadID)
 	gInput.GetDimensions(width, height);
 	float3 sum = 0.0;
 	for (uint y = 0; y < height; y++)
-	{
-		float v = (float(y) + 0.5) / float(height);
-		float solidAngle = (2.0 * kPi / float(width)) * (kPi / float(height)) * sin(v * kPi);
-		for (uint x = 0; x < width; x++)
-		{
-			float3 d = Direction(float2((float(x) + 0.5) / float(width), v));
-			sum += gInput.Load(int3(x, y, 0)).rgb * (solidAngle * ShBasis(c, d));
-		}
-	}
+		sum += gInput.Load(int3(c, y, 0)).rgb;
 	float band = c == 0 ? 1.0 : c < 4 ? 2.0 / 3.0 : 0.25;
 	gEnvironment[0].irradiance[c] = float4(sum * band, 0.0);
 }

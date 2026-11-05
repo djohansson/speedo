@@ -232,6 +232,9 @@ public:
 	[[nodiscard]] std::string_view GetOcclusionModeName() const noexcept;
 	// what the cpu planned for the last frame recorded. any thread.
 	[[nodiscard]] FrameStatistics GetFrameStatistics() const;
+	// the gpu profiler's group its passes are timed in (see GpuProfiler::Begin), for work recorded outside the graph that
+	// SPEEDO_GPU_TIMINGS should list with them (the sky's redraw)
+	[[nodiscard]] uint64_t GetTimingGroup() const noexcept;
 	// whether the last frame recorded traced the surface cache's warm-up rays (its first frames after it started over,
 	// see InternalPlanGi): those frames cost more, so a measure of the settled frame time leaves them out. the draw thread's
 	[[nodiscard]] bool IsLightingWarmingUp() const noexcept { return myGiCacheWarming; }
@@ -544,6 +547,7 @@ private:
 	// SPEEDO_GI_STAGGER=0 updates every clip every frame
 	bool myGiStagger = true;
 	uint32_t myGiStaggerFrame = 0;
+	uint32_t myGiRelightPhaseCount = 4; // see kGiRelightPhaseCount
 	// a clip's clock, which advances only in the frames it is updated, and what changed since it was last updated, which
 	// its next update takes in (see GiData::frameStamp)
 	struct GiClipClock
@@ -561,6 +565,14 @@ private:
 		bool cacheReset = false;
 		bool updated = true; // this frame
 		bool relight = false; // this frame: its static voxels lit again for the lights changed since (GI Light Static)
+		// a gradual change of the lights (see myGiLightsGradual: the sun moving) is taken in over kGiRelightPhaseCount
+		// updates, a share of the static voxels each (GiData::relightPhase): this update's share and how many are to
+		// come for the last change; and whether a change since the last update was not gradual, which lights every voxel
+		// at once (as does a voxelizing or the emitters toggling)
+		uint32_t relightPhase = 0;
+		uint32_t relightPhaseCount = 1;
+		uint32_t relightLeft = 0;
+		bool relightAll = false;
 	};
 	std::vector<GiClipClock> myGiClipClocks;
 	// which clips each frame index's frame updated (a bit each), and what each counted the last time it was (its probes

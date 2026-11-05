@@ -17,6 +17,7 @@ void EnvironmentCopy(ComputeVaryingInput* varyingInput, void* entryPointParams, 
 void EnvironmentSpecular(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
 void EnvironmentSheen(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
 void EnvironmentIrradiance(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
+void EnvironmentIrradianceRows(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
 void EnvironmentSkyTransmittance(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
 void EnvironmentSkyMultipleScattering(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
 void EnvironmentSkyView(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
@@ -291,12 +292,16 @@ Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& envir
 	for (uint32_t level = 0; level < levelCount; level++)
 		dispatch(EnvironmentSheen, nullptr, sheenLevels, level, roughnessOf(level));
 
-	// the irradiance: one group, from the first mip at most 128 wide
+	// the irradiance: from the first mip at most 128 wide, its rows' partials (a coefficient a column), then one group
+	// summing them (as the gpu's EnvironmentFilter::Record)
 	uint32_t irradianceLevel = 0;
 	while (irradianceLevel + 1 < sourceLevelCount && sourceImage.levels[irradianceLevel].width > 128)
 		irradianceLevel++;
 	CpuView irradianceInput(sourceImage, irradianceLevel, 1);
-	globals.input.texture = &irradianceInput;
+	CpuImage partials(9, sourceImage.levels[irradianceLevel].height);
+	dispatch(EnvironmentIrradianceRows, &irradianceInput, partials, 0, 0.0F);
+	CpuView partialsView(partials, 0, 1);
+	globals.input.texture = &partialsView;
 	ComputeVaryingInput one{};
 	one.endGroupID = {1, 1, 1};
 	EnvironmentIrradiance(&one, nullptr, &globals);

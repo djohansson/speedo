@@ -1873,7 +1873,14 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   change of the same lights turned by under 2 degrees and dimmed by under a quarter is gradual
   (`Renderer::myGiLightsGradual`): the surface cache keeps what it has rather than starting over, sampling as where
   something moves (32 samples at most) for `kGiLightsFollowFrameCount` (64) frames after, so that it follows the sun
-  rather than restarting every frame. Each frame GI Light (`ComputeGiLight`) gives every voxel
+  rather than restarting every frame; and the static voxels are lit again a share at a time, over
+  `kGiRelightPhaseCount` (4) of the clip's updates (`GiClipClock::relightPhase`, `GiData::relightPhase`: every fourth
+  voxel from the update's phase, a thread each; `SPEEDO_GI_RELIGHT_PHASE_COUNT`, 1 for all at once; a change in the
+  middle of a cycle starts its count over, the shares still to come taking the newer light; a change that isn't
+  gradual, a voxelizing or the emitters toggling light every voxel at once, as before), since the sun moving every
+  frame (600x) lit every voxel of every clip every frame, the shadow rays of GI Light Static (4.8 ms at Bistro on
+  NVIDIA; about a millisecond on KosmicKrisp, whose rays are queries: Bistro's street at 600x 64.0 to 63.0 ms). Each
+  frame GI Light (`ComputeGiLight`) gives every voxel
   that (a moving voxel's, which differs from the static one at its place, made then: a moving voxel doesn't shadow the
   static ones' kept light), plus what its albedo reflects of the probes' light at it as the last frame resolved it
   (`GiData::bounce`, `SPEEDO_GI_BOUNCE=0` for the lights' light alone): the light bounces on, a bounce a frame, settling
@@ -2766,10 +2773,21 @@ share. It replaced a stylized gradient whose sun was fixed.
   `kSkyUpdateAngle`, a tenth of it, see the moon's bullet), the view (the sun's and the moon's), the panorama and the
   prefiltering, into the installed environment, the filter's first barrier waiting for the frames still reading it, and
   its descriptor sets handed back once the gpu is done (`Pipeline::TakeDescriptorSets`, see "Descriptor sets": 3000
-  frames at 3600x, a redraw each, where the pool would have run out of storage images within minutes). A redraw costs
-  about 3 ms on KosmicKrisp (DamagedHelmet without indirect lighting, the time at 3600x: 9.1 ms frames
-  against a 6.1 ms `Frame` scope); Bistro's street with the sun moving every frame 82.7 to 92.9 ms (2560x1440, GI on: the
-  voxels lit again for the sun and the cache following it, see "Lighting the voxels").
+  frames at 3600x, a redraw each, where the pool would have run out of storage images within minutes), in one command
+  buffer with the fields' update. What a time lapse costs (2026-11-05, Bistro's street at 600x, 2560x1440, KosmicKrisp,
+  the draw thread's frame time; the sun moves 0.16 degrees a frame, a redraw every frame): with the indirect lighting
+  off 37.2 ms still against 45.9 moving (47.4 before), with it 52.3 against 62.0 (63.7 to 64.0 before). Of the 8.7 the
+  sun's cascades are 5.6 (the shadow cache keeps them while the sun is still, and at 600x a far shadow moves texels a
+  frame: real work), and the redraw itself about 2: its kernels' work is small (the sky's views, the panorama, the
+  pyramid, the levels, the sheen levels, the irradiance: 2.1 ms with a barrier after each, 1.2 now), and on KosmicKrisp
+  each barrier ends the compute encoder, about a tenth of a millisecond, so the kernels that read the pyramid alone (the
+  levels, the sheen levels, the irradiance's rows) have no barrier between them, and the irradiance is projected a row
+  at a time (`EnvironmentIrradianceRows`: one thread per coefficient over the mip's 8192 texels was 0.85 ms of it,
+  measured by elimination, since KosmicKrisp's compute timestamps read 0 but the first; the filter's own gpu scope,
+  "Environment Filter", times it where a backend can). The static voxels' relight is spread over frames (see "Lighting
+  the voxels", `kGiRelightPhaseCount`). Left: the pyramid's five levels from level 0 in one go (four barriers), the
+  sheen levels only where a material has sheen, and the cascades drawn at their texels' pace (a far cascade's texel is
+  30 cm, which a 50 m building's shadow crosses in a frame at 600x: nothing to skip).
 - **What it looks like**: a deep blue zenith at noon ((0.021, 0.043, 0.096)), the sky 8% of a horizontal surface's light
   at noon (a very clear day's: Hillaire's aerosols are few; hazier skies give 10 to 30%), so shade is about 3 stops below
   sunlight, where the gradient gave half of it; a red sun near the horizon ((1.08, 0.36, 0.05) at 3 degrees up), a pink
@@ -3158,7 +3176,10 @@ lights out on the cpu (cached, `environment-vN`: the original and lighting panor
 uploads both panoramas; the sky needs nothing (the filter draws its source, `EnvironmentSky`, and its sun is known).
 `InstallEnvironment` then records the filter on the draw thread (after the uploads are acquired, writing the rest of
 `gEnvironment` first): the source pyramid (`EnvironmentDownsample`, by solid angle, down to 8 wide), level 0 (the original,
-or the sky's source), the GGX and Charlie levels, and the irradiance (one group, into `gEnvironment[0]`), each kernel over
+or the sky's source), the GGX and Charlie levels, and the irradiance (its rows' partials first, `EnvironmentIrradianceRows`: a thread per
+spherical harmonics coefficient and row of the source mip at most 128 wide, into an image of floats a column per
+coefficient; then one group summing the columns into `gEnvironment[0]`; one thread per coefficient over the whole mip,
+8192 dependent loads, took about a millisecond and a half of every sky redraw), each kernel over
 a mip as a storage image (`ImageViewCreateDesc::baseLevel`) and dispatched by threads (`CommandEncoder::DispatchThreads`,
 by the reflected group size). The resources of a layout of its own start at set 1: set 0 is the push constants'
 (`[[vk::binding(0, 0)]]` on them, as in `Main`), else they share binding 0 with a resource. `assettest` checks the same
@@ -3166,7 +3187,7 @@ kernels, run on the cpu: slang compiles `environment.slang` to c++ at build time
 of the assettest target), and `src/tools/environmentkernels*` run it in `EnvironmentFilter::Record`'s order, with cpu
 textures behind the prelude's `ITexture` (trilinear, around in u and clamped in v, as the gpu's sampler) and rows of
 groups on threads. A group's threads run one after another there, so the kernels can't use shared memory or group
-barriers (the irradiance is a thread per coefficient). The prelude's global names (`half`, `Vector`, ...) stay behind
+barriers (the irradiance is a thread per coefficient and row, then per coefficient, through an image of partials). The prelude's global names (`half`, `Vector`, ...) stay behind
 `environmentkernelsbridge.cpp` (plain types), away from the gfx headers. It included `<stdfloat>` for c++23 and up,
 which libc++ lacks in every language mode: `ports/shader-slang/0005-*` includes it only if `__has_include` finds it (to
 go to the fork, as 0001 to 0004 did). libc++ runs

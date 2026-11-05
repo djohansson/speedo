@@ -27,9 +27,17 @@ public:
 	// reading the levels and the sky's view (it waits for them on the gpu), so the sky can be drawn again into the same
 	// environment as the sun moves. returns what the commands use beyond the environment (image views of its mips), to
 	// keep until the gpu is done with them. skyAerosols: what gEnvironment[0] says of them (EnvironmentData::skyAtmosphere),
-	// for which the sky's tables are made again if they were made for other
+	// for which the sky's tables are made again if they were made for other. profiler and timingGroup (the queue's, and
+	// the renderer's group, see Renderer::GetTimingGroup): its parts timed as the frame graph's passes are, for
+	// SPEEDO_GPU_TIMINGS (none without)
 	[[nodiscard]] std::shared_ptr<void> Record(
-		CommandBufferHandle cmd, Pipeline& pipeline, const EnvironmentTexture& environment, const Buffer& environmentBuffer, float skyAerosols = 1.0F);
+		CommandBufferHandle cmd,
+		Pipeline& pipeline,
+		const EnvironmentTexture& environment,
+		const Buffer& environmentBuffer,
+		float skyAerosols = 1.0F,
+		GpuProfiler* profiler = nullptr,
+		uint64_t timingGroup = 0);
 
 	// the sky's view of itself (SHADER_TYPES_SKY_VIEW_TEXTURE, see sky.h), in the general layout once the first
 	// environment is recorded
@@ -50,6 +58,7 @@ private:
 	Texture mySkyMultipleScattering;
 	Texture mySkyView;
 	Texture mySkyMoonView;
+	Texture myIrradiancePartials; // see EnvironmentIrradianceRows
 	bool mySkyTablesMade = false;
 	float mySkyTablesAerosols = 1.0F;
 };

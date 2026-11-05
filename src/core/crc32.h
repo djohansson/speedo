@@ -50,7 +50,9 @@ consteval uint32_t Crc32(const char* str)
 #if defined(CXX_CONSTEXPR_STEPS)
 	static_assert(Idx <= CXX_CONSTEXPR_STEPS, "String too long for crc32 constexpr function");
 #endif
-	return (Crc32<Idx - 1>(str) >> 8) ^ kCrcTable[(Crc32<Idx - 1>(str) ^ str[Idx]) & 0x000000FF];
+	// once: called twice a level, a tag of 17 characters was 65536 calls, past the constant evaluation's steps
+	uint32_t previous = Crc32<Idx - 1>(str);
+	return (previous >> 8) ^ kCrcTable[(previous ^ str[Idx]) & 0x000000FF];
 }
 
 // This is the stop-recursion function

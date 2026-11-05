@@ -1304,8 +1304,12 @@ struct GiData
 	// from its rays, and the voxels are lit by the lights alone
 	alignas(4) UINT1(reset);
 	// whether ComputeGiLightStatic lights the static voxels again for the lights alone (they changed, the clip wasn't
-	// voxelized, and the emitters lit as before), taking the part of their light kept (see keptFirst) as it is
+	// voxelized, and the emitters lit as before), taking the part of their light kept (see keptFirst) as it is; and which
+	// share of them it lights this update (every relightPhaseCount-th voxel from relightPhase: a gradual change of the
+	// lights, the sun moving, is taken in over that many updates, see Renderer::GiClipClock::relightPhase; 1 is all)
 	alignas(4) UINT1(lightsOnly);
+	alignas(4) UINT1(relightPhase);
+	alignas(4) UINT1(relightPhaseCount);
 	// whether the voxels' radiance adds what their albedo reflects of the probes' light at them (the last frame's: the
 	// light bounces on, a bounce a frame; SPEEDO_GI_BOUNCE=0 for the lights' light alone)
 	alignas(4) UINT1(bounce);

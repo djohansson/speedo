@@ -758,16 +758,26 @@ struct Scene::Impl
 		static_assert(offsetof(EnvironmentData, skyMoonRadiance) == offsetof(EnvironmentData, skyMoon) + sizeof(data.skyMoon));
 		static_assert(offsetof(EnvironmentData, skyNight) == offsetof(EnvironmentData, skyMoonRadiance) + sizeof(data.skyMoonRadiance));
 		auto first = reinterpret_cast<const std::byte*>(&data) + offsetof(EnvironmentData, skySun);
-		UpdateBufferOnGraphics(
-			graphics,
-			environmentBuffer,
-			offsetof(EnvironmentData, skySun),
-			std::span(first, offsetof(EnvironmentData, skyNight) + sizeof(data.skyNight) - offsetof(EnvironmentData, skySun)));
+		std::span fields(first, offsetof(EnvironmentData, skyNight) + sizeof(data.skyNight) - offsetof(EnvironmentData, skySun));
 		mySkySunUploaded = sky.sun;
 		mySkyMoonUploaded = sky.moon.direction;
+		// the fields and the redraw in one command buffer (a submit each cost a time lapse of 600x about half a millisecond
+		// a frame on KosmicKrisp); the sky's lights move with the tables (every kSkyRedrawAngle, not with the fields): a
+		// change of the lights redraws the sun's shadow cascades and relights the static voxels, which a 0.05 degree step
+		// doesn't show (a shadow's tip moves a centimetre at 10 m), and with the fields a time lapse of 60x paid them every
+		// frame rather than every 12th
+		std::shared_ptr<void> used;
+		RecordOnGraphics(
+			graphics,
+			[&](CommandBufferHandle cmd)
+			{
+				RecordBufferUpdate(cmd, environmentBuffer, offsetof(EnvironmentData, skySun), fields);
+				if (redrawTables)
+					used = RecordEnvironment(cmd, graphics, *mySky, environmentBuffer, sky.aerosols);
+			});
 		if (!redrawTables)
 			return;
-		RecordEnvironment(graphics, *mySky, environmentBuffer, sky.aerosols);
+		RetireAfterGraphicsWork(graphics, std::move(used));
 		myEnvironmentLights = SkyLights(sky);
 		RememberSkyDrawn(sky);
 		// the frame binds what it draws with: the main layout, as before
@@ -788,21 +798,26 @@ struct Scene::Impl
 
 	// prefilters an environment on the gpu (see EnvironmentFilter::Record), before the frames that sample it (the same
 	// queue), keeping what it reads until the gpu is done. draw thread.
+	// records an environment's prefiltering (see EnvironmentFilter::Record) into cmd, a command buffer of the graphics
+	// queue's; returns what the commands use, to retire once the submit they are in is done
+	[[nodiscard]] std::shared_ptr<void> RecordEnvironment(
+		CommandBufferHandle cmd,
+		QueueTimelineContextData& graphics,
+		const EnvironmentTexture& environment,
+		const Buffer& environmentBuffer,
+		float skyAerosols = 1.0F)
+	{
+		auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
+		return myEnvironmentFilter->Record(
+			cmd, myPipeline, environment, environmentBuffer, skyAerosols, graphicsQueue.GetProfiler(), myRenderer ? myRenderer->GetTimingGroup() : 0);
+	}
+
+	// the same in a submit of its own
 	void RecordEnvironment(
 		QueueTimelineContextData& graphics, const EnvironmentTexture& environment, const Buffer& environmentBuffer, float skyAerosols = 1.0F)
 	{
-		auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
-		auto cmd = graphicsQueue.GetPool().Begin();
-		auto used = myEnvironmentFilter->Record(cmd, myPipeline, environment, environmentBuffer, skyAerosols);
-		cmd.End();
-		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
-			.waitSemaphores = {graphics.semaphore},
-			.waitDstStageMasks = {PipelineStage::kAllCommands},
-			.waitSemaphoreValues = {graphics.timeline},
-			.signalSemaphores = {graphics.semaphore},
-			.signalSemaphoreValues = {++graphics.timeline}},
-			std::move(cmd));
-		graphicsSubmits |= graphicsQueue.Submit();
+		std::shared_ptr<void> used;
+		RecordOnGraphics(graphics, [&](CommandBufferHandle cmd) { used = RecordEnvironment(cmd, graphics, environment, environmentBuffer, skyAerosols); });
 		RetireAfterGraphicsWork(graphics, std::move(used));
 	}
 

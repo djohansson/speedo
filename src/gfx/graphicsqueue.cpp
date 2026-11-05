@@ -35,6 +35,24 @@ void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::shared_ptr
 
 // writes data to buffer at offset, in a submission on the graphics queue that is ordered after all graphics work
 // submitted so far, and before all that follows. call on the draw thread.
+void RecordBufferUpdate(CommandBufferHandle cmd, const Buffer& buffer, uint64_t offset, std::span<const std::byte> data)
+{
+	if (data.empty())
+		return;
+
+	CommandEncoder encoder(cmd);
+
+	// after the frames in flight have read the old data
+	encoder.Barrier(PipelineStage::kAllCommands, Access::kShaderRead, PipelineStage::kTransfer, Access::kTransferWrite);
+
+	// UpdateBuffer takes 64 kB at most
+	constexpr size_t kMaxUpdateSize = 65536;
+	for (size_t chunk = 0; chunk < data.size(); chunk += kMaxUpdateSize)
+		encoder.UpdateBuffer(buffer, offset + chunk, data.subspan(chunk, std::min(kMaxUpdateSize, data.size() - chunk)));
+
+	encoder.Barrier(PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kAllCommands, Access::kShaderRead);
+}
+
 void UpdateBufferOnGraphics(
 	QueueTimelineContextData& graphics, const Buffer& buffer, uint64_t offset, std::span<const std::byte> data)
 {
@@ -46,18 +64,7 @@ void UpdateBufferOnGraphics(
 	auto cmd = graphicsQueue.GetPool().Begin();
 	{
 		GPU_SCOPE(cmd, graphicsQueue, UpdateBuffer); //NOLINT(bugprone-suspicious-stringview-data-usage)
-
-		CommandEncoder encoder(cmd);
-
-		// after the frames in flight have read the old data
-		encoder.Barrier(PipelineStage::kAllCommands, Access::kShaderRead, PipelineStage::kTransfer, Access::kTransferWrite);
-
-		// UpdateBuffer takes 64 kB at most
-		constexpr size_t kMaxUpdateSize = 65536;
-		for (size_t chunk = 0; chunk < data.size(); chunk += kMaxUpdateSize)
-			encoder.UpdateBuffer(buffer, offset + chunk, data.subspan(chunk, std::min(kMaxUpdateSize, data.size() - chunk)));
-
-		encoder.Barrier(PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kAllCommands, Access::kShaderRead);
+		RecordBufferUpdate(cmd, buffer, offset, data);
 	}
 	cmd.End();
 

@@ -30,6 +30,9 @@ constexpr ComputePipelineVariant kIrradiance{.entryPoint = 5};
 constexpr ComputePipelineVariant kSkyTransmittance{.entryPoint = 6};
 constexpr ComputePipelineVariant kSkyMultipleScattering{.entryPoint = 7};
 constexpr ComputePipelineVariant kSkyView{.entryPoint = 8};
+constexpr ComputePipelineVariant kIrradianceRows{.entryPoint = 9};
+// the irradiance's partials: a column per spherical harmonics coefficient (see EnvironmentIrradianceRows)
+constexpr uint32_t kIrradianceCoefficientCount = 9;
 
 // the irradiance is projected from the first mip of the source at most this wide (as the cpu reference)
 constexpr uint32_t kIrradianceSourceWidth = 128;
@@ -60,6 +63,7 @@ EnvironmentFilter::EnvironmentFilter(Device& device, Pipeline& pipeline, ShaderL
 						{"EnvironmentSkyTransmittance", SLANG_STAGE_COMPUTE},
 						{"EnvironmentSkyMultipleScattering", SLANG_STAGE_COMPUTE},
 						{"EnvironmentSkyView", SLANG_STAGE_COMPUTE},
+						{"EnvironmentIrradianceRows", SLANG_STAGE_COMPUTE},
 					},
 				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -72,36 +76,54 @@ EnvironmentFilter::EnvironmentFilter(Device& device, Pipeline& pipeline, ShaderL
 			.addressModeV = AddressMode::kClampToEdge,
 			.addressModeW = AddressMode::kClampToEdge}}});
 
-	auto table = [&device](const char* name, uint32_t width, uint32_t height)
+	auto table = [&device](const char* name, uint32_t width, uint32_t height, Format format = Format::kR16G16B16A16Sfloat)
 	{
 		Texture texture;
 		texture.image = std::make_shared<Image>(ImageCreateDesc{
 			device.CreateDeviceObjectCreateDesc(name),
 			{{.extent = {.width = width, .height = height}}},
-			Format::kR16G16B16A16Sfloat,
+			format,
 			ImageTiling::kOptimal,
 			ImageUsage::kStorage | ImageUsage::kSampled,
 			MemoryProperty::kDeviceLocal,
 			ImageAspect::kColor,
 			ImageLayout::kUndefined});
-		texture.view = std::make_shared<ImageView>(ImageViewCreateDesc{
-			device.CreateDeviceObjectCreateDesc(std::format("{} View", name)), *texture.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor});
+		texture.view = std::make_shared<ImageView>(
+			ImageViewCreateDesc{device.CreateDeviceObjectCreateDesc(std::format("{} View", name)), *texture.image, format, ImageAspect::kColor});
 		return texture;
 	};
 	mySkyTransmittance = table("Sky Transmittance", SHADER_TYPES_SKY_TRANSMITTANCE_WIDTH, SHADER_TYPES_SKY_TRANSMITTANCE_HEIGHT);
 	mySkyMultipleScattering = table("Sky Multiple Scattering", SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE, SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE);
 	mySkyView = table("Sky View", SHADER_TYPES_SKY_VIEW_WIDTH, SHADER_TYPES_SKY_VIEW_HEIGHT);
 	mySkyMoonView = table("Sky Moon View", SHADER_TYPES_SKY_VIEW_WIDTH, SHADER_TYPES_SKY_VIEW_HEIGHT);
+	// the irradiance's partials (in floats: a row's sum of a bright panorama's texels passes a half float), a row per row
+	// of the source mip it is projected from, at most kIrradianceSourceWidth wide, so half as tall
+	myIrradiancePartials = table(
+		"Irradiance Partials",
+		environmentfilter::kIrradianceCoefficientCount,
+		environmentfilter::kIrradianceSourceWidth / 2,
+		Format::kR32G32B32A32Sfloat);
 }
 
 EnvironmentFilter::~EnvironmentFilter() = default;
 
 std::shared_ptr<void> EnvironmentFilter::Record(
-	CommandBufferHandle cmd, Pipeline& pipeline, const EnvironmentTexture& environment, const Buffer& environmentBuffer, float skyAerosols)
+	CommandBufferHandle cmd,
+	Pipeline& pipeline,
+	const EnvironmentTexture& environment,
+	const Buffer& environmentBuffer,
+	float skyAerosols,
+	GpuProfiler* profiler,
+	uint64_t timingGroup)
 {
 	using namespace environmentfilter;
 
 	ZoneScopedN("EnvironmentFilter::Record");
+	// its parts timed with the frame graph's passes (SPEEDO_GPU_TIMINGS), where asked
+	static constexpr SourceLocationData kLocation = SOURCE_LOCATION_DATA(skyfilter);
+	auto scope = [&](std::string_view name)
+	{ return profiler != nullptr && timingGroup != 0 ? profiler->Begin(cmd, name, kLocation, timingGroup) : GpuProfiler::Scope{}; };
+	auto wholeScope = scope("Environment Filter");
 
 	auto& device = pipeline.GetDevice();
 	CommandEncoder encoder(cmd);
@@ -131,7 +153,14 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	encoder.Barrier(PipelineStage::kFragmentShader | PipelineStage::kComputeShader, Access::kNone, PipelineStage::kComputeShader, Access::kNone);
 	// every image in kGeneral throughout: written as storage, read by texel or sampled
 	for (auto* image :
-		 {&source, &levels, &sheenLevels, mySkyTransmittance.image.get(), mySkyMultipleScattering.image.get(), mySkyView.image.get(), mySkyMoonView.image.get()})
+		 {&source,
+		  &levels,
+		  &sheenLevels,
+		  mySkyTransmittance.image.get(),
+		  mySkyMultipleScattering.image.get(),
+		  mySkyView.image.get(),
+		  mySkyMoonView.image.get(),
+		  myIrradiancePartials.image.get()})
 		image->Transition(cmd, ImageLayout::kGeneral, ImageAspect::kColor);
 	if (environment.lighting)
 		for (const auto* texture : {&environment.lighting, &environment.original})
@@ -149,8 +178,17 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	pipeline.SetDescriptorData("gSkyMoonView", sampled(mySkyMoonView), kSet);
 
 	auto general = [](const ImageView& view) { return ImageBinding{.sampler = {}, .imageView = view, .layout = ImageLayout::kGeneral}; };
-	// one kernel over an output level: what it reads (by texel), the roughness it is for, and the light (the sky's views)
-	auto dispatch = [&](ComputePipelineVariant kernel, const ImageView* input, const ImageView& output, Extent2d extent, float roughness, uint32_t light = 0)
+	// one kernel over an output level: what it reads (by texel), the roughness it is for, and the light (the sky's views);
+	// then a barrier for the next kernel to read what it wrote, unless the next reads none of it (the kernels of a level
+	// each read the pyramid alone: on KosmicKrisp a barrier ends the compute encoder, about a tenth of a millisecond
+	// each, and a redraw with one after every kernel cost a time lapse 2 ms a frame more than its kernels do)
+	auto dispatch = [&](ComputePipelineVariant kernel,
+						const ImageView* input,
+						const ImageView& output,
+						Extent2d extent,
+						float roughness,
+						uint32_t light = 0,
+						bool readNext = true)
 	{
 		if (input != nullptr)
 			pipeline.SetDescriptorData("gInput", general(*input), kSet);
@@ -160,8 +198,8 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 		EnvironmentFilterConstants constants{.roughness = roughness, .sourceLevelCount = sourceLevelCount, .light = light};
 		pipeline.PushConstants(cmd, std::as_bytes(std::span(&constants, 1)));
 		encoder.DispatchThreads(pipeline.GetComputeLaunchParameters(kernel), extent.width, extent.height);
-		// what one kernel wrote, the next reads
-		encoder.Barrier(PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite);
+		if (readNext)
+			encoder.Barrier(PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite);
 	};
 
 	// the source's level 0: the sky drawn, or the file's lighting panorama copied; then its pyramid
@@ -190,7 +228,8 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 			mySkyTablesMade = true;
 			mySkyTablesAerosols = skyAerosols;
 		}
-		dispatch(kSkyView, nullptr, *mySkyView.view, extentOfTable(mySkyView), 0.0F);
+		// the sun's view and the moon's, then the panorama from both
+		dispatch(kSkyView, nullptr, *mySkyView.view, extentOfTable(mySkyView), 0.0F, 0, false);
 		dispatch(kSkyView, nullptr, *mySkyMoonView.view, extentOfTable(mySkyMoonView), 0.0F, 1);
 		dispatch(kSky, nullptr, *sourceMips[0], extentOf(source, 0), 0.0F);
 	}
@@ -202,18 +241,37 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	pipeline.SetDescriptorData("gSource", ImageBinding{.sampler = {}, .imageView = *environment.sourceView, .layout = ImageLayout::kGeneral}, kSet);
 	auto levelCount = static_cast<uint32_t>(levels.GetDesc().mipLevels.size());
 	auto roughnessOf = [](uint32_t level, uint32_t count) { return static_cast<float>(level) / static_cast<float>(count - 1); };
-	dispatch(kCopy, environment.original ? environment.original.view.get() : sourceMips[0].get(), *mipView(levels, 0), extentOf(levels, 0), 0.0F);
-	for (uint32_t level = 1; level < levelCount; level++)
-		dispatch(kSpecular, nullptr, *mipView(levels, level), extentOf(levels, level), roughnessOf(level, levelCount));
+	// the levels, the sheen levels and the irradiance's partials each read the pyramid alone (a file's original for level
+	// 0): no barrier between them, one before the irradiance's sums
+	{
+		dispatch(
+			kCopy, environment.original ? environment.original.view.get() : sourceMips[0].get(), *mipView(levels, 0), extentOf(levels, 0), 0.0F, 0, false);
+		for (uint32_t level = 1; level < levelCount; level++)
+			dispatch(kSpecular, nullptr, *mipView(levels, level), extentOf(levels, level), roughnessOf(level, levelCount), 0, false);
+	}
 	auto sheenLevelCount = static_cast<uint32_t>(sheenLevels.GetDesc().mipLevels.size());
-	for (uint32_t level = 0; level < sheenLevelCount; level++)
-		dispatch(kSheen, nullptr, *mipView(sheenLevels, level), extentOf(sheenLevels, level), roughnessOf(level, sheenLevelCount));
+	{
+		for (uint32_t level = 0; level < sheenLevelCount; level++)
+			dispatch(kSheen, nullptr, *mipView(sheenLevels, level), extentOf(sheenLevels, level), roughnessOf(level, sheenLevelCount), 0, false);
+	}
 
-	// the irradiance, from a small mip: one group
+	// the irradiance, from a small mip: its rows' partials (a thread per coefficient and row), then their sums (one group)
 	uint32_t irradianceLevel = 0;
 	while (irradianceLevel + 1 < sourceLevelCount && extentOf(source, irradianceLevel).width > kIrradianceSourceWidth)
 		irradianceLevel++;
-	pipeline.SetDescriptorData("gInput", general(*sourceMips[irradianceLevel]), kSet);
+	auto irradianceExtent = extentOf(source, irradianceLevel);
+	ENSUREF(
+		irradianceExtent.height <= myIrradiancePartials.image->GetDesc().mipLevels[0].extent.height,
+		"the irradiance's source mip, {} rows, is taller than its partials hold ({})",
+		irradianceExtent.height,
+		myIrradiancePartials.image->GetDesc().mipLevels[0].extent.height);
+	dispatch(
+		kIrradianceRows,
+		sourceMips[irradianceLevel].get(),
+		*myIrradiancePartials.view,
+		Extent2d{.width = kIrradianceCoefficientCount, .height = irradianceExtent.height},
+		0.0F);
+	pipeline.SetDescriptorData("gInput", sampled(myIrradiancePartials), kSet);
 	pipeline.SetDescriptorData("gOutput", general(*sourceMips[0]), kSet); // unused, but bound
 	pipeline.BindDescriptorSetAuto(cmd, kSet);
 	pipeline.BindPipelineAuto(cmd, kIrradiance);

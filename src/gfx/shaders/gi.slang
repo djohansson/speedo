@@ -1255,9 +1255,11 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 	uint3 threadId = GiThread(dispatchId);
 	GiData gi = GiClip(gPushConstants.giClip);
 	uint3 size = GiLevelSize(gi, 0);
-	if (threadId.x >= size.x * size.y * size.z)
+	// this update's share of the voxels (see GiData::relightPhase), a thread each
+	uint voxelIndex = threadId.x * max(gi.relightPhaseCount, 1u) + gi.relightPhase;
+	if (voxelIndex >= size.x * size.y * size.z)
 		return;
-	GiVoxel voxel = gGiVoxels[gi.voxelFirst + threadId.x];
+	GiVoxel voxel = gGiVoxels[gi.voxelFirst + voxelIndex];
 	float4 albedo = GiUnpackRgba8(voxel.albedo);
 	float3 radiance = 0.0;
 	float3 kept = 0.0;
@@ -1265,10 +1267,10 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 	float open = kGiOpenReach * gi.volumeOrigin.w;
 	if (albedo.a != 0.0)
 	{
-		uint3 at = uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y));
+		uint3 at = uint3(voxelIndex % size.x, (voxelIndex / size.x) % size.y, voxelIndex / (size.x * size.y));
 		if (gi.lightsOnly != 0u)
 		{
-			float4 keptValue = GiUnpackRgba16(gGiRadiance[gi.keptFirst + threadId.x]);
+			float4 keptValue = GiUnpackRgba16(gGiRadiance[gi.keptFirst + voxelIndex]);
 			kept = keptValue.rgb;
 			open = keptValue.a * gi.volumeOrigin.w;
 		}
@@ -1280,10 +1282,10 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 		radiance = GiDirectRadiance(gi, at, voxel, albedo, false, open, false) + kept;
 	}
 	if (gi.lightsOnly == 0u)
-		gGiRadiance[gi.keptFirst + threadId.x] = GiPackRgba16(float4(kept, open / gi.volumeOrigin.w));
-	gGiRadiance[gi.directFirst + threadId.x] = GiPackRgba16(float4(radiance, open / gi.volumeOrigin.w));
+		gGiRadiance[gi.keptFirst + voxelIndex] = GiPackRgba16(float4(kept, open / gi.volumeOrigin.w));
+	gGiRadiance[gi.directFirst + voxelIndex] = GiPackRgba16(float4(radiance, open / gi.volumeOrigin.w));
 	// and the frame's radiance from nothing: the frame's lighting skips the blocks nothing is near, whose voxels must hold 0
-	gGiRadiance[gi.radianceFirst + threadId.x] = uint2(0, 0);
+	gGiRadiance[gi.radianceFirst + voxelIndex] = uint2(0, 0);
 }
 
 // before what moves is voxelized over the static voxels: the blocks it was voxelized in last frame (see gGiFlags'
