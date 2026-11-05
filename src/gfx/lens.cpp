@@ -406,6 +406,10 @@ Appearance Appear(const Prescription& lens, float fNumber, float sensorHalfDiago
 	auto green = Trace(lens, kWavelengths[1], stopRadius);
 	appearance.focalLength = green.focalLength;
 	appearance.entrancePupilRadius = green.entrancePupilRadius;
+	appearance.stopRadius = stopRadius;
+	constexpr float kCoatedGlare = 0.005F;
+	constexpr float kUncoatedGlare = 0.02F;
+	appearance.glare = lens.coated ? kCoatedGlare : kUncoatedGlare;
 	appearance.fieldAngle = std::atan(sensorHalfDiagonal / std::max(green.focalLength, 1e-3F));
 
 	// the mechanical vignetting: of a grid of rays over the aperture stop's disk (height y along the field, x across it)

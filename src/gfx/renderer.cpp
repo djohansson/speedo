@@ -98,6 +98,10 @@ constexpr uint8_t kUpscaleLumaInstabilityEntryPoint = 38;
 constexpr uint8_t kUpscaleAccumulateEntryPoint = 39;
 constexpr uint8_t kSharpenEntryPoint = 40;
 constexpr uint8_t kLensEntryPoint = 53;
+// the lens's glare (see lens.slang): the bloom's chain down and up, and the glare's sources
+constexpr uint8_t kBloomDownEntryPoint = 54;
+constexpr uint8_t kBloomUpEntryPoint = 55;
+constexpr uint8_t kFlareSourcesEntryPoint = 56;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -347,6 +351,12 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	}
 	myUpscaleNewLocks = myGraph.ImportImage("Upscale New Locks");
 	myLensed = myGraph.ImportImage("Lensed");
+	// the lens's glare (see lens.slang, flare.slang): the bloom's chain, at half the output's size and down, the glare's
+	// sources (how many, then the sources) and the flares drawn over black at the output's size
+	myBloom = myGraph.CreateImage({.name = "Bloom", .format = Format::kR16G16B16A16Sfloat, .mipChain = true, .downscale = 2, .outputSized = true});
+	myLensSourceCount = myGraph.CreateBuffer({.name = "Lens Source Count", .size = 4 * sizeof(uint32_t)});
+	myLensSources = myGraph.CreateBuffer({.name = "Lens Sources", .size = SHADER_TYPES_LENS_SOURCE_COUNT * sizeof(LensSource)});
+	myFlare = myGraph.CreateImage({.name = "Flare", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
 	// the order independent transparency's per pixel lists (see OitNode): their heads (a node index per pixel of the
 	// render target), nodes and counter
 	myOitHeads = myGraph.CreateBuffer(
@@ -399,6 +409,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			MemoryProperty::kHostVisible});
 		myLensDataBuffers.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("Lens Data {}", frameIt)), sizeof(LensData), BufferUsage::kStorage, MemoryProperty::kHostVisible});
+		myLensGhostBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Lens Ghosts {}", frameIt)),
+			SHADER_TYPES_LENS_GHOST_COUNT * sizeof(LensGhost),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
 		myClusterViewBuffers.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("Cluster Views {}", frameIt)),
 			SHADER_TYPES_VIEW_COUNT * sizeof(ClusterView),
@@ -1993,6 +2008,65 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			outputKernel(
 				context.cmd, ComputePipelineVariant{.entryPoint = kLensEntryPoint}, myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent(), false);
 		});
+	// the lens's glare (see lens.slang, flare.slang): the lens's image blurred over itself (the Bloom pass: the chain's
+	// levels down from it, then each summed back up into the one above, a dispatch each with a barrier between, as the
+	// depth pyramid's), the frame's bright blobs found (the Flare Sources pass, into gLensSources, counted in
+	// gLensSourceCount, which the Flare Clear pass empties first), and their ghosts and starbursts drawn over black (the
+	// Flare pass: the Flare layout's quads, added); the final pass adds the bloom's share and the flares
+	myBloomPass = myGraph.AddPass(
+		"Bloom",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myLensed, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myBloom, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			const auto& levels = context.graph.GetImage(myBloom).GetDesc().mipLevels;
+			auto levelCount = static_cast<uint32_t>(myBloomViews.size());
+			for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
+			{
+				if (levelIt > 0)
+					CommandEncoder(context.cmd).Barrier(
+						PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead);
+				kernel(
+					context.cmd, ComputePipelineVariant{.entryPoint = kBloomDownEntryPoint}, levels[levelIt].extent.width, levels[levelIt].extent.height, 0, levelIt);
+			}
+			for (uint32_t levelIt = levelCount - 1; levelIt-- > 0;)
+			{
+				CommandEncoder(context.cmd).Barrier(
+					PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite);
+				kernel(context.cmd, ComputePipelineVariant{.entryPoint = kBloomUpEntryPoint}, levels[levelIt].extent.width, levels[levelIt].extent.height, 0, levelIt);
+			}
+		});
+	myFlareClearPass = myGraph.AddPass(
+		"Flare Clear",
+		[this](FrameGraph::PassBuilder& builder) { builder.Use(myLensSourceCount, ResourceUse::TransferDestination()); },
+		[this](FrameGraph::PassContext& context) { CommandEncoder(context.cmd).FillBuffer(context.graph.GetBuffer(myLensSourceCount), 0, 0, 0); });
+	myFlareSourcesPass = myGraph.AddPass(
+		"Flare Sources",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myBloom, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myLensSourceCount, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myLensSources, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			// a thread per texel of the chain's third level (see ComputeFlareSources)
+			const auto& levels = context.graph.GetImage(myBloom).GetDesc().mipLevels;
+			auto level = std::min<size_t>(2, levels.size() - 1);
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kFlareSourcesEntryPoint}, levels[level].extent.width, levels[level].extent.height);
+		});
+	myFlarePass = myGraph.AddPass(
+		"Flare",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.ColorAttachment(myFlare, LoadOp::kClear, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
+			builder.Use(myLensSourceCount, ResourceUse::Storage(PipelineStage::kVertexShader | PipelineStage::kFragmentShader, Access::kShaderRead));
+			builder.Use(myLensSources, ResourceUse::Storage(PipelineStage::kVertexShader | PipelineStage::kFragmentShader, Access::kShaderRead));
+		},
+		[this](FrameGraph::PassContext& context) { InternalDrawFlares(context); });
 	mySharpenPass = myGraph.AddPass(
 		"Sharpen",
 		[this](FrameGraph::PassBuilder& builder)
@@ -2001,6 +2075,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			for (auto image : myUpscaleColor)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myLensed, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			// sampled (which gives their images the usage: through gTextures a storage image read nothing, invalid)
+			builder.Use(myBloom, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myFlare, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 			builder.Use(myUiBlurSource, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
@@ -2664,6 +2741,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			frameIt);
 		pipeline.SetDescriptorData(
 			"gLensData", BufferBinding{.buffer = myLensDataBuffers[frameIt], .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frameIt);
+		pipeline.SetDescriptorData(
+			"gLensGhosts", BufferBinding{.buffer = myLensGhostBuffers[frameIt], .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frameIt);
 		for (auto [name, buffers] : std::array{
 				 std::pair{"gClusterViews", &myClusterViewBuffers},
 				 std::pair{"gClusters", &myClusterBuffers},
@@ -2909,6 +2988,47 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		ImageBinding{.sampler = {}, .imageView = *myLensedImage.view, .layout = ImageLayout::kGeneral},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
 		SHADER_TYPES_LENSED_RW_TEXTURE);
+	// the bloom's chain (see ComputeBloomDown): sampled whole, and a storage view per level (the slots past them the
+	// last's, bound, so none names a view of an earlier size's chain); and the flares' image
+	{
+		const auto& bloom = myGraph.GetImage(myBloom);
+		auto levelCount = std::min<size_t>(bloom.GetDesc().mipLevels.size(), SHADER_TYPES_BLOOM_LEVEL_COUNT);
+		myBloomViews.clear();
+		for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
+			myBloomViews.push_back(std::make_unique<ImageView>(ImageViewCreateDesc{
+				device.CreateDeviceObjectCreateDesc(std::format("Bloom Level {}", levelIt)), bloom, Format::kR16G16B16A16Sfloat, ImageAspect::kColor, 1, {}, levelIt}));
+		for (uint32_t slotIt = 0; slotIt < SHADER_TYPES_BLOOM_LEVEL_COUNT; slotIt++)
+			pipeline.SetDescriptorData(
+				"gBloomLevels",
+				ImageBinding{.sampler = {}, .imageView = *myBloomViews[std::min<size_t>(slotIt, levelCount - 1)], .layout = ImageLayout::kGeneral},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+				slotIt);
+		pipeline.SetDescriptorData(
+			"gTextures",
+			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myBloom), .layout = ImageLayout::kShaderReadOnly},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+			SHADER_TYPES_BLOOM_TEXTURE);
+		pipeline.SetDescriptorData(
+			"gTextures",
+			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myFlare), .layout = ImageLayout::kShaderReadOnly},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+			SHADER_TYPES_FLARE_TEXTURE);
+	}
+	// the Flare layout's set (see flare.slang): the lens and its ghosts per frame index, and the glare's sources, the
+	// same buffers as the main layout's
+	{
+		constexpr uint32_t kFlareSet = 1;
+		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Flare"), PipelineBindPoint::kGraphics);
+		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+		{
+			pipeline.SetDescriptorData("gFlareLens", BufferBinding{.buffer = myLensDataBuffers[frameIt], .offset = 0}, kFlareSet, frameIt);
+			pipeline.SetDescriptorData("gFlareGhosts", BufferBinding{.buffer = myLensGhostBuffers[frameIt], .offset = 0}, kFlareSet, frameIt);
+		}
+		pipeline.SetDescriptorData("gFlareSourceCount", BufferBinding{.buffer = myGraph.GetBuffer(myLensSourceCount), .offset = 0}, kFlareSet);
+		pipeline.SetDescriptorData("gFlareSources", BufferBinding{.buffer = myGraph.GetBuffer(myLensSources), .offset = 0}, kFlareSet);
+		pipeline.InvalidateDescriptorSets();
+		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+	}
 	myUpscaleHistoryValid = false;
 	myGiNearHistoryValid = false;
 	myEmitterHistoryValid = false;
@@ -2932,6 +3052,9 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	if (myVisibilityBuffer)
 		pipeline.SetDescriptorData(
 			"gVisibilityTiles", BufferBinding{.buffer = myGraph.GetBuffer(myVisibilityTiles), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+	pipeline.SetDescriptorData(
+		"gLensSourceCount", BufferBinding{.buffer = myGraph.GetBuffer(myLensSourceCount), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+	pipeline.SetDescriptorData("gLensSources", BufferBinding{.buffer = myGraph.GetBuffer(myLensSources), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 	pipeline.SetDescriptorData(
 		"gShadowTraceList", BufferBinding{.buffer = myGraph.GetBuffer(myShadowTraceList), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	pipeline.SetDescriptorData(
@@ -3536,6 +3659,13 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	for (auto pass : myUpscalePasses)
 		myGraph.SetEnabled(pass, upscale);
 	myGraph.SetEnabled(myLensPass, lens);
+	// and its glare: the flares want the bloom's chain (their sources are found in it)
+	bool flares = lens && frame.lens.flares != 0U;
+	bool bloom = lens && (frame.lens.glare > 0.0F || flares);
+	myGraph.SetEnabled(myBloomPass, bloom);
+	myGraph.SetEnabled(myFlareClearPass, flares);
+	myGraph.SetEnabled(myFlareSourcesPass, flares);
+	myGraph.SetEnabled(myFlarePass, flares);
 	myGraph.SetEnabled(mySharpenPass, composite);
 	frame.pushConstants.lens = lens ? LENS_ACTIVE : 0U;
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
@@ -3554,12 +3684,20 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myUpscaleFrame++;
 	}
 	myUpscaleHistoryValid = upscale;
-	// the camera's lens, for the Lens pass and the flares
+	// the camera's lens, for the Lens pass and the flares, and its ghosts
 	{
 		auto& buffer = myLensDataBuffers[frame.frameIndex];
 		auto memory = buffer.Map();
 		std::memcpy(memory.data(), &frame.lens, sizeof(frame.lens));
 		buffer.Flush(0, sizeof(frame.lens));
+		buffer.Unmap();
+	}
+	if (auto ghostCount = std::min<size_t>(frame.lensGhosts.size(), SHADER_TYPES_LENS_GHOST_COUNT); ghostCount > 0)
+	{
+		auto& buffer = myLensGhostBuffers[frame.frameIndex];
+		auto memory = buffer.Map();
+		std::memcpy(memory.data(), frame.lensGhosts.data(), ghostCount * sizeof(LensGhost));
+		buffer.Flush(0, ghostCount * sizeof(LensGhost));
 		buffer.Unmap();
 	}
 
@@ -4837,6 +4975,33 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	std::vector<CommandBuffer> secondaries;
 	secondaries.push_back(std::move(cmd));
 	CommandEncoder(context.cmd).ExecuteCommands(std::move(secondaries));
+}
+
+void Renderer::InternalDrawFlares(FrameGraph::PassContext& context)
+{
+	ZoneScopedN("Renderer::InternalDrawFlares");
+
+	// the Flare layout's quads (see flare.slang: a quad per source and ghost, and one per source for its starburst, the
+	// unused degenerate), added over the flares' image the pass began
+	auto& pipeline = *myFrame.pipeline;
+	const auto& inputs = *myFrame.inputs;
+	auto cmd = context.cmd;
+	auto extent = context.target->GetExtent();
+	pipeline.SetRenderTarget(*context.target);
+	pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Flare"), PipelineBindPoint::kGraphics);
+	constexpr uint32_t kFlareSet = 1;
+	pipeline.BindDescriptorSetAuto(cmd, kFlareSet);
+	pipeline.BindPipelineAuto(cmd, GraphicsPipelineVariant{.blend = {BlendMode::kAdd}});
+	CommandEncoder encoder(cmd);
+	encoder.SetViewport(Viewport{.width = static_cast<float>(extent.width), .height = static_cast<float>(extent.height)});
+	encoder.SetScissor(Rect{.width = extent.width, .height = extent.height});
+	encoder.SetCullMode(CullMode::kNone);
+	encoder.SetFrontFace(FrontFace::kCounterClockwise);
+	encoder.SetStencilReference(0);
+	FlareConstants constants{.frame = inputs.frameIndex, .ghostCount = inputs.lens.ghostCount, .width = extent.width, .height = extent.height};
+	pipeline.PushConstants(cmd, std::as_bytes(std::span(&constants, 1)));
+	encoder.Draw(6, SHADER_TYPES_LENS_SOURCE_COUNT * (inputs.lens.ghostCount + 1));
+	pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 }
 
 } // namespace gfx

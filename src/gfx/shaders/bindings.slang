@@ -60,6 +60,11 @@ StructuredBuffer<EmitterNode> gEmitterTree;
 // tiles (VisibilityTileFirst), x and y in 16 bits each
 [[vk::binding(12, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
 RWStructuredBuffer<uint> gVisibilityTiles;
+// the glare's sources this frame (see ComputeFlareSources, LensSource): how many, then the sources
+[[vk::binding(13, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+RWStructuredBuffer<uint> gLensSourceCount;
+[[vk::binding(14, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+RWStructuredBuffer<LensSource> gLensSources;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
@@ -100,6 +105,9 @@ RWTexture3D<float4> gGiVolumeImages[SHADER_TYPES_GI_VOLUME_COUNT];
 // the main color, which the visibility buffer's shading writes (see ComputeMainVisibility)
 [[vk::binding(4, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("rgba16f")]]
 RWTexture2D<float4> gMainColor;
+// the bloom's levels (see ComputeBloomDown), a storage view per level of its chain (SHADER_TYPES_BLOOM_TEXTURE sampled)
+[[vk::binding(8, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("rgba16f")]]
+RWTexture2D<float4> gBloomLevels[SHADER_TYPES_BLOOM_LEVEL_COUNT];
 // the shadow transmittance (SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE), which the caustics' photons start from and their
 // light goes in (see ComputeCaustics)
 [[vk::binding(5, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("rgba16f")]]
@@ -298,3 +306,6 @@ StructuredBuffer<AerialPerspectiveData> gAerialPerspectiveData[SHADER_TYPES_FRAM
 // the camera's lens (see LensData): what the Lens pass and the flares take, per frame index. gLensData[frame][0]
 [[vk::binding(52, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<LensData> gLensData[SHADER_TYPES_FRAME_COUNT];
+// and its ghosts (see LensGhost), LensData::ghostCount of them, per frame index
+[[vk::binding(53, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<LensGhost> gLensGhosts[SHADER_TYPES_FRAME_COUNT];

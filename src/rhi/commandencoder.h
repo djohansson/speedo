@@ -44,6 +44,9 @@ public:
 	// to mark what moves (see the depth reprojection)
 	void SetStencilReference(uint32_t reference) const;
 	void BindIndexBuffer(const Buffer<G>& buffer, uint64_t offset, IndexType type) const;
+	// vertexCount vertices (the vertex stage makes them of SV_VertexID: rhi's pipelines have no vertex input), instanceCount
+	// times, with no index buffer
+	void Draw(uint32_t vertexCount, uint32_t instanceCount = 1, uint32_t firstVertex = 0, uint32_t firstInstance = 0) const;
 	void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1, uint32_t firstIndex = 0, int32_t vertexOffset = 0, uint32_t firstInstance = 0) const;
 	// drawCount indexed draws, each from a command in buffer (BufferUsage::kIndirect: index count, instance count, first
 	// index, vertex offset and first instance, as uint32s but the offset, an int32) from offset, stride bytes apart. the

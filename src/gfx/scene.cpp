@@ -139,7 +139,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 74; // after the sky's tables, its views, its view by the moon and the lens pass's image (SHADER_TYPES_LENSED_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 76; // after the sky's tables, its views, its view by the moon, the lens pass's image and the glare's (SHADER_TYPES_FLARE_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -200,6 +200,9 @@ static_assert(SHADER_TYPES_SKY_MOON_VIEW_TEXTURE == SHADER_TYPES_SKY_EYE_VIEW_TE
 static_assert(
 	SHADER_TYPES_LENSED_TEXTURE == SHADER_TYPES_SKY_MOON_VIEW_TEXTURE + 1 && SHADER_TYPES_LENSED_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_LENSED_RW_TEXTURE > SHADER_TYPES_SKY_EYE_VIEW_RW_TEXTURE && SHADER_TYPES_LENSED_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
+static_assert(
+	SHADER_TYPES_BLOOM_TEXTURE == SHADER_TYPES_LENSED_TEXTURE + 1 && SHADER_TYPES_FLARE_TEXTURE == SHADER_TYPES_BLOOM_TEXTURE + 1 &&
+	SHADER_TYPES_FLARE_TEXTURE < kModelTextureFirstSlot);
 static_assert(
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE > SHADER_TYPES_PREPASS_MOTION_TEXTURE && SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE > SHADER_TYPES_COMPOSITE_RW_TEXTURE &&
@@ -487,6 +490,10 @@ struct Scene::Impl
 		float halfDiagonal = 0.0F;
 		lens::Appearance appearance;
 		float margin = 1.0F;
+		// the glare's (see LensGhost, LensData::ghostGain and starGain)
+		std::vector<LensGhost> ghosts;
+		float ghostGain = 0.0F;
+		float starGain = 0.0F;
 	};
 	LensState myLensState;
 
@@ -569,8 +576,49 @@ struct Scene::Impl
 			auto leastScale = std::clamp(std::min({1.0F, appearance.redScale, appearance.blueScale}), 0.5F, 1.0F);
 			myLensState.margin = (1.0F - std::min(prescription.distortion, 0.0F)) / leastScale;
 			views.SetLens(prescription.focalLength, myLensState.margin, prescription.squeeze);
+			// the ghosts (see LensGhost: a, b to the sensor and as, bs to the stop per channel, and the reflectances) and
+			// the gains the glare's sources are worth drawing by (see ComputeFlareSources): a ghost's irradiance over the
+			// source's, the brightest's, as radiance (f^2 over pi times the pupil's radius squared), and the starburst's at
+			// a millimeter (see FlareStarburst: the blades' edge squared times the f-number squared over pi^3, times its
+			// width over a gaussian's integral at least a pixel wide)
+			auto ghosts = lens::Ghosts(prescription, quantized);
+			ENSUREF(
+				ghosts.size() <= SHADER_TYPES_LENS_GHOST_COUNT,
+				"{} has {} ghosts, more than SHADER_TYPES_LENS_GHOST_COUNT ({})",
+				prescription.name,
+				ghosts.size(),
+				SHADER_TYPES_LENS_GHOST_COUNT);
+			auto pupilRadius = std::max(appearance.entrancePupilRadius, 1e-3F);
+			auto toRadiance = appearance.focalLength * appearance.focalLength / (glm::pi<float>() * pupilRadius * pupilRadius);
+			myLensState.ghosts.clear();
+			myLensState.ghostGain = 0.0F;
+			for (const auto& ghost : ghosts)
+			{
+				LensGhost data{};
+				for (glm::length_t channel = 0; channel < 3; channel++)
+				{
+					const auto& toSensor = ghost.toSensor[static_cast<size_t>(channel)];
+					const auto& toStop = ghost.toStop[static_cast<size_t>(channel)];
+					data.sensor[channel][0] = toSensor[0][0];
+					data.sensor[channel][1] = toSensor[1][0];
+					data.sensor[channel][2] = toStop[0][0];
+					data.sensor[channel][3] = toStop[1][0];
+					data.reflectance[channel] = ghost.reflectance[channel];
+					auto magnification = std::max(toSensor[0][0] * toSensor[0][0], 1e-6F);
+					myLensState.ghostGain = std::max(myLensState.ghostGain, ghost.reflectance[channel] / magnification * toRadiance);
+				}
+				myLensState.ghosts.push_back(data);
+			}
+			auto fNumber = appearance.focalLength / (2.0F * pupilRadius);
+			auto edge = prescription.bladeCount >= 3 ? 2.0F * appearance.stopRadius * std::sin(glm::pi<float>() / static_cast<float>(prescription.bladeCount)) : 0.0F;
+			auto pixelMm = sensorHeight / static_cast<float>(std::max<uint32_t>(viewports.empty() ? 1 : viewports.front().height, 1));
+			constexpr float kGreenWavelengthMm = 550e-6F;
+			auto width = kGreenWavelengthMm * appearance.focalLength / std::max(edge, 1e-6F);
+			auto sigma = std::max(width / 2.5F, 0.6F * pixelMm);
+			myLensState.starGain = edge > 0.0F ? edge * edge * fNumber * fNumber / std::pow(glm::pi<float>(), 3.0F) * width / (sigma * std::sqrt(2.0F * glm::pi<float>())) : 0.0F;
 		}
 		const auto& appearance = myLensState.appearance;
+		bool glare = mySettings.lensGlare.load(std::memory_order_relaxed);
 		LensData data{};
 		for (size_t sampleIt = 0; sampleIt < lens::Appearance::kVignettingSamples; sampleIt++)
 			data.vignetting[sampleIt / 4][sampleIt % 4] = appearance.vignetting[sampleIt];
@@ -585,6 +633,14 @@ struct Scene::Impl
 		data.squeeze = prescription.squeeze;
 		data.enabled = 1U;
 		data.bladeCount = prescription.bladeCount;
+		data.ghostCount = glare ? static_cast<uint32_t>(myLensState.ghosts.size()) : 0U;
+		data.glare = glare ? appearance.glare : 0.0F;
+		data.pupilRadius = appearance.entrancePupilRadius;
+		data.stopRadius = appearance.stopRadius;
+		data.entranceRadius = prescription.surfaces.empty() ? 0.0F : prescription.surfaces.front().clearRadius;
+		data.ghostGain = myLensState.ghostGain;
+		data.starGain = myLensState.starGain;
+		data.flares = glare ? 1U : 0U;
 		return data;
 	}
 
@@ -2581,6 +2637,9 @@ struct Scene::Impl
 				{"ComputeAerialPerspective", SLANG_STAGE_COMPUTE}, // see the Aerial Perspective pass
 				{"ComputeSkyEyeView", SLANG_STAGE_COMPUTE}, // see the Sky Eye View pass
 				{"ComputeLens", SLANG_STAGE_COMPUTE}, // see the Lens pass
+				{"ComputeBloomDown", SLANG_STAGE_COMPUTE}, // see the Bloom pass
+				{"ComputeBloomUp", SLANG_STAGE_COMPUTE},
+				{"ComputeFlareSources", SLANG_STAGE_COMPUTE}, // see the Flare Sources pass
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -2591,6 +2650,18 @@ struct Scene::Impl
 		if (device.GetLimits().rayQuery && RayQueryWatchOn())
 			mainConfiguration.entryPoints.emplace_back("ComputeRayQueryReplay", SLANG_STAGE_COMPUTE);
 		auto mainLayout = pipeline.CreateLayout("Main", shaderLoader.Load(shaderSourceFile, mainConfiguration));
+
+		// the glare's flares' layout (see flare.slang, the renderer's Flare pass): a vertex and a fragment stage of its own
+		[[maybe_unused]] auto flareLayout = pipeline.CreateLayout(
+			"Flare",
+			shaderLoader.Load(
+				shaderIncludePath / "flare.slang",
+				{
+					.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+					.entryPoints = {{"VertexFlare", SLANG_STAGE_VERTEX}, {"FragmentFlare", SLANG_STAGE_FRAGMENT}},
+					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+				}));
 
 		pipeline.BindLayoutAuto(mainLayout, PipelineBindPoint::kGraphics);
 
@@ -2901,6 +2972,7 @@ struct Scene::Impl
 				.uiBlurRects = target.uiBlurRects,
 				.upscaling = myUpscaling,
 				.lens = lensData,
+				.lensGhosts = myLensState.ghosts,
 				.executor = target.executor});
 	}
 };

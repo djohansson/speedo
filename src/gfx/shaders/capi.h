@@ -586,11 +586,65 @@ struct LensData
 	alignas(4) FLOAT1(distortion);
 	alignas(4) FLOAT1(margin);
 	alignas(4) FLOAT1(transmittance); // on the axis
-	alignas(4) FLOAT1(squeeze); // anamorphic: the horizontal squeeze (the flares' streaks), 1 spherical
+	alignas(4) FLOAT1(squeeze); // anamorphic: the horizontal squeeze, 1 spherical
 	alignas(4) UINT1(enabled); // 0: the pinhole, the Lens pass doesn't run
-	alignas(4) UINT1(bladeCount);
+	alignas(4) UINT1(bladeCount); // the aperture's blades (its polygon: the ghosts' shape, the starburst's streaks)
+	// the glare (see the Bloom, Flare Sources and Flare passes): the ghosts of gLensGhosts[frame] (LensGhost) this frame,
+	// the share of the light the lens veils over the frame (the bloom's), the entrance pupil's radius at the aperture
+	// (mm), the stop's radius (mm, the blades' polygon's apothem), the first surface's clear radius (mm) and the gains the
+	// sources are worth drawing by (see ComputeFlareSources: the brightest ghost's irradiance over a source's, the
+	// starburst's at a millimeter)
+	alignas(4) UINT1(ghostCount);
+	alignas(4) FLOAT1(glare);
+	alignas(4) FLOAT1(pupilRadius);
+	alignas(4) FLOAT1(stopRadius);
+	alignas(4) FLOAT1(entranceRadius);
+	alignas(4) FLOAT1(ghostGain);
+	alignas(4) FLOAT1(starGain);
+	alignas(4) UINT1(flares); // whether the sources' ghosts and starbursts are drawn (View > Camera > Lens Glare)
 	alignas(4) UINT1(padding0);
 };
+
+// a ghost of the lens (see lens::Ghost): a pair of its surfaces reflecting a ray back and forward again, as an affine map
+// of the entrance onto the sensor per channel (red, green, blue: a wavelength each), a ray entering at a height y with
+// the source's angle t landing at a y + b t, and crossing the aperture stop's plane first at as y + bs t
+struct LensGhost
+{
+	alignas(16) FLOAT4(sensor[3]); // per channel: a, b, as, bs
+	alignas(16) FLOAT4(reflectance); // rgb: the two surfaces' reflectances' product per channel; w unused
+};
+#define SHADER_TYPES_LENS_GHOST_COUNT 64u
+
+// a source of glare the frame holds (see ComputeFlareSources: a bright blob, the sun's disk, a lamp), which the Flare
+// pass draws the ghosts and the starburst of: where it is on the sensor (mm from its view's center, across over an
+// anamorphic lens's squeeze), its light at the lens (rgb: radiance times solid angle, the renderer's units), the view's
+// exposure and viewport (the output's pixels)
+struct LensSource
+{
+	alignas(16) FLOAT4(position); // xy mm; z the exposure; w unused
+	alignas(16) FLOAT4(flux);
+	alignas(16) FLOAT4(viewport);
+};
+#define SHADER_TYPES_LENS_SOURCE_COUNT 8u
+
+// the Flare layout's push constants (flare.slang): the frame index, the lens's ghosts (an instance per source and
+// ghost, then one per source for its starburst) and the output's size in pixels
+struct FlareConstants
+{
+	alignas(4) UINT1(frame);
+	alignas(4) UINT1(ghostCount);
+	alignas(4) UINT1(width);
+	alignas(4) UINT1(height);
+};
+
+// the gTextures slot of the bloom's chain (see ComputeBloomDown: the lens's image blurred at half the output's size and
+// down, SHADER_TYPES_BLOOM_LEVEL_COUNT levels, each a storage image of gBloomLevels, summed back into the first), which
+// the final pass adds a share of (LensData::glare)
+#define SHADER_TYPES_BLOOM_TEXTURE 74u
+#define SHADER_TYPES_BLOOM_LEVEL_COUNT 6u
+// and of the flares' image (see the Flare pass: the sources' ghosts and starbursts over black, at the output's size),
+// which the final pass adds
+#define SHADER_TYPES_FLARE_TEXTURE 75u
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,
 // and the source's mip count (its pyramid, down to 8 texels wide)

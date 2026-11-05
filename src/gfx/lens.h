@@ -101,7 +101,11 @@ struct Appearance
 	float blueScale = 1.0F;
 	float focalLength = 0.0F; // mm, effective, at the d line
 	float entrancePupilRadius = 0.0F; // mm
+	float stopRadius = 0.0F; // mm, at the f-number (the blades' polygon's apothem)
 	float transmittance = 1.0F;
+	// the share of the light the lens veils over the whole image (its glass's and coatings' scatter, beyond the ghosts
+	// the surfaces reflect: a veiling glare index of a good coated lens is about a percent, an uncoated one's a few)
+	float glare = 0.0F;
 };
 
 [[nodiscard]] Appearance Appear(const Prescription& lens, float fNumber, float sensorHalfDiagonal);

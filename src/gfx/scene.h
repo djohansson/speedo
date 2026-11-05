@@ -98,6 +98,9 @@ public:
 		// aperture's range (see GetExposureLimits), and the Lens pass draws what it does to the frame (its vignetting, its
 		// lateral chromatic aberration and its distortion, see LensData; the glare follows)
 		std::atomic<uint32_t> lens = 0;
+		// and whether its glare is drawn (the bloom it veils the frame with, and the ghosts and starbursts of the bright
+		// blobs the frame holds, see lens.slang and flare.slang; View > Camera > Lens Glare, SPEEDO_LENS_GLARE=0 without)
+		std::atomic<bool> lensGlare = true;
 		// the tonemapper (TONEMAPPER_*)
 		std::atomic<uint32_t> tonemapper = TONEMAPPER_PBR_NEUTRAL;
 		// what the views show (DEBUG_VIEW_*: the light, or a debug view of the surfaces or the lighting; View > Debug

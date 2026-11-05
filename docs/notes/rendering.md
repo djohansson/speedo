@@ -421,6 +421,54 @@ at the output's size (the Composite pass, as with upscaling) and Sharpen takes t
 (`UPSCALE_SHARPEN`, the Upscale passes' alone), where ComputeMain did everything; the pinhole's frames are as before on
 both paths (the Lens pass disabled, Sharpen reading the reconstruction, ComputeMain without upscaling).
 
+**The glare** (the third stage, 2026-11-05; View > Camera > Lens Glare, `Settings::lensGlare`, `SPEEDO_LENS_GLARE=0`
+without, which Copy Pose writes; `LensData::glare`, `flares`, `ghostCount`): three passes after the Lens pass, in
+`lens.slang` and `flare.slang`, in the renderer's units of radiance as the lens's image is. The **Bloom** pass veils the
+lens's image over itself: a chain of `SHADER_TYPES_BLOOM_LEVEL_COUNT` (6) levels at half the output's size and down
+(`myBloom`, an output sized transient with a mip chain, a storage view per level, `gBloomLevels`, and sampled whole as
+`SHADER_TYPES_BLOOM_TEXTURE`), `ComputeBloomDown` from the lens's image by Jimenez's 13 taps (the weights sum to 1: the
+partial Karis average, which weighs a tap down by its brightness, dropped the sun's disk, thousands of times white, from
+the chain), the levels after by a 4x4 tent over the 2x2 they hold, then `ComputeBloomUp` summing each level back into
+the one above by a 3x3 tent, a dispatch a level with a barrier between as the depth pyramid's; the final pass adds the
+first level over the level count times the lens's share (`lens::Appearance::glare`: half a percent coated, 2% uncoated,
+a veiling glare index's order; the surfaces' reflections are the ghosts). Within the pass the levels are read through
+their storage views: a sampled view of the chain, written by the dispatch before, read what the memory held before the
+pass on KosmicKrisp. And a transient read through `gTextures` must be declared `Sampled` by some pass, which gives its
+image the usage: declared storage alone, its sampled descriptor was invalid
+(`VUID-VkWriteDescriptorSet-descriptorType-00337`), and KosmicKrisp read black through it with no other sign, which
+took an afternoon of tints to find; the validation layer finds it at once. The **Flare Sources** pass
+(`ComputeFlareSources`, a thread per texel of the chain's third level; `gLensSourceCount`, emptied by the Flare Clear
+pass, and `gLensSources`, `LensSource`, at most `SHADER_TYPES_LENS_SOURCE_COUNT`, 8) lists the frame's bright blobs: a
+texel over `kFlareSourceLeastLuminance` (8 times white at the view's exposure) that is the brightest of its 5x5 (ties
+by place), where it is on the sensor (the 5x5's luminance weighted centroid, mm from the view's center; an anamorphic
+view's across over the squeeze), and its light at the lens (the texels' radiance times their solid angle, over the
+vignetting the lens's image was darkened by there), kept where its brightest ghost or its starburst would show
+(`LensData::ghostGain`, `starGain`, from the cpu). The sun's disk in view is such a blob, so is a lamp; an extended
+source (a lit window) is taken as a point at its brightest. The **Flare** pass draws their ghosts and starbursts over
+black into `myFlare` (`SHADER_TYPES_FLARE_TEXTURE`, output sized), added: the Flare layout's (`flare.slang`, created
+beside the Main layout, its set 1 the lens, its ghosts, the sources; `CommandEncoder::Draw`, rhi's plain draw, 6
+vertices an instance), a quad an instance, each source's ghosts then its starburst, the unused degenerate
+(`VertexFlare`), what each fragment is worked out from the pixel's place on the sensor (`FragmentFlare`). A **ghost**
+(`lens::Ghosts`, `LensGhost` in `gLensGhosts[frame]`: per channel a, b to the sensor and as, bs to the stop, the two
+reflectances' product): a ray entering at the height that lands on the pixel, (p - b t) / a with t the source's angle,
+passes the first surface's clear radius and, where it first crosses the stop's plane, the blades' polygon
+(`FlarePolygonDistance`, antialiased over a pixel), and its irradiance is the source's times the reflectances over a
+squared, read as radiance through the pupil (f^2 over pi times the pupil's radius squared: stopped down a ghost is
+smaller and sharper but no dimmer per area, as a real one); the quad is the box of the entrance's and the stop's images'
+overlap (the whole entrance's image, mostly cut away, cost 2.5 ms of fill at 720p for the sun's 45 ghosts; 0.41 now).
+The **starburst** (`FlareStarburst`): each edge of the blades' polygon diffracts a streak either way along its normal,
+the source's irradiance times the edge's length squared over 4 pi^2 times the distance squared (an edge's far field),
+as wide across as the wavelength times the focal length over the edge (its first zero, a pixel or two: red wider),
+drawn as a gaussian of that integral at least a pixel wide, so that the streaks are brighter per pixel stopped down (the
+edges longer wide open, the streaks thinner than a pixel); an anamorphic lens's cylindrical front element adds the
+streak across the lenses are known for, from an edge of its whole clear aperture, tinted blue. In the renderer's units
+the sun (2.6 units of illuminance) gives streaks across the frame at f/14 and faint ones at f/1.8, as sunstars go. The
+coatings tint the Gauss's ghosts purple (magnesium fluoride reflects the red and the blue ends most); the vintage lens,
+uncoated, cascades hexagons over the frame against the sun, 25 times brighter. A still pose changes by 1 of 255 a frame
+(the sources' centroids don't jump with the jitter). Cost on KosmicKrisp at 720p, the Flare pass: the Gauss against
+the sun 0.41 ms, the vintage 1.15, Bistro's street at night 0.16 (its lamps' starbursts, no ghost bright enough); the
+glare isn't drawn over a letterbox. Not yet: ghosts of sources out of the frame (the sun just outside it flares a real
+lens), extended sources' shapes, the ghosts at half resolution where their fill costs.
 
 ## Depth: reversed
 

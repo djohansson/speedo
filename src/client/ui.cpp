@@ -296,6 +296,8 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 			std::println(stderr, "SPEEDO_LENS={}: not a lens ({})", value, keys);
 			return std::nullopt;
 		});
+	// and whether its glare is drawn (SPEEDO_LENS_GLARE=0 without: the bloom, the ghosts and the starbursts)
+	apply(settings.lensGlare, kDefaults.lensGlare, "SPEEDO_LENS_GLARE", unless("0"));
 	// the shadows (SPEEDO_SHADOWS=0 without), and the ray traced ones (SPEEDO_TRACED_SHADOWS=0 for the atlas alone, all to
 	// trace every pixel)
 	apply(settings.shadows, kDefaults.shadows, "SPEEDO_SHADOWS", unless("0"));
@@ -837,7 +839,11 @@ void WindowedApplication::InternalCopyPose()
 	auto lensIndex = settings.lens.load(std::memory_order_relaxed);
 	bool prime = lensIndex < lenses.size() && !gfx::lens::IsPinhole(lenses[lensIndex]);
 	if (prime)
+	{
 		text += std::format(" SPEEDO_LENS={}", lenses[lensIndex].key);
+		if (!settings.lensGlare.load(std::memory_order_relaxed))
+			text += " SPEEDO_LENS_GLARE=0";
+	}
 	else if (std::abs(myViews->GetFieldOfView() - CameraCreateDesc{}.fovY) > 1e-4F)
 		text += std::format(" SPEEDO_FOCAL_LENGTH={:.4g}", static_cast<double>(myViews->GetFocalLength()));
 	if (uint32_t tonemapper = settings.tonemapper.load(std::memory_order_relaxed); tonemapper != TONEMAPPER_PBR_NEUTRAL)
@@ -2721,6 +2727,12 @@ void WindowedApplication::PrepareDraw()
 						SetItemTooltip("The lens the camera takes the frame through. The pinhole shows it as it is, at any focal length. A real lens has its own focal length and aperture range, and shows the frame as it does: darker toward the corners (vignetting, most wide open), its red and blue images a little larger or smaller than its green (lateral chromatic aberration) and barrel or pincushion distorted.");
 						ImGui::EndMenu();
 					}
+					bool glare = settings.lensGlare.load(std::memory_order_relaxed);
+					BeginDisabled(!prime);
+					if (Checkbox("Lens Glare", &glare))
+						settings.lensGlare.store(glare, std::memory_order_relaxed);
+					EndDisabled();
+					SetItemTooltip("The lens's glare: the light it veils the frame with, and the ghosts and starburst of the bright things in view (the sun, lamps): each pair of its surfaces reflects a ghost onto the sensor, and the aperture's blades diffract a starburst.");
 					auto first = myViews->GetCamera(0);
 					bool orthographic = first && first->GetDesc().viewport.type == ViewType::Orthographic;
 					BeginDisabled(orthographic || prime);

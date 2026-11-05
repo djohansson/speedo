@@ -149,6 +149,8 @@ struct FrameInputs
 	// the camera's lens (see LensData, gfx/lens.h): what the Lens pass makes of the frame at the output's size where
 	// enabled (a frame without temporal upscaling is composited at the output's size for it, see Renderer::Record)
 	LensData lens{};
+	// and its ghosts (LensData::ghostCount of them, see LensGhost, the Flare pass)
+	std::span<const LensGhost> lensGhosts;
 	// runs tasks in the background (creating pipelines, see RecordDrawList), if given
 	core::TaskExecutor* executor = nullptr;
 };
@@ -370,6 +372,19 @@ private:
 	// takes where the lens is on; imported, made with the upscaler's images (myLensedImage)
 	FrameGraph::ImageId myLensed;
 	FrameGraph::PassId myLensPass;
+	// the lens's glare (see lens.slang, flare.slang): the bloom's chain (SHADER_TYPES_BLOOM_TEXTURE, a storage view per
+	// level, see Resize), the glare's sources (gLensSourceCount, gLensSources) and the passes
+	FrameGraph::ImageId myBloom;
+	std::vector<std::unique_ptr<ImageView>> myBloomViews;
+	FrameGraph::ImageId myFlare; // the flares over black (SHADER_TYPES_FLARE_TEXTURE)
+	FrameGraph::BufferId myLensSourceCount;
+	FrameGraph::BufferId myLensSources;
+	FrameGraph::PassId myBloomPass;
+	FrameGraph::PassId myFlareClearPass;
+	FrameGraph::PassId myFlareSourcesPass;
+	FrameGraph::PassId myFlarePass;
+	// the Flare pass's draws (the Flare layout's quads, see flare.slang)
+	void InternalDrawFlares(FrameGraph::PassContext& context);
 	RenderOutput& myRenderOutput;
 	FrameGraph::ImageId myOutput;
 	FrameGraph::ImageId myShadowAtlas;
@@ -786,8 +801,10 @@ private:
 	// visible), and its volume (gAerialPerspective: the light the air scatters toward the eye, and what it lets through),
 	// room for every split view's, written every frame it is on, always in the general layout
 	std::vector<Buffer> myAerialPerspectiveDataBuffers;
-	// per frame index: the camera's lens (gLensData, see LensData), host visible, written every frame
+	// per frame index: the camera's lens (gLensData, see LensData) and its ghosts (gLensGhosts, see LensGhost), host
+	// visible, written every frame
 	std::vector<Buffer> myLensDataBuffers;
+	std::vector<Buffer> myLensGhostBuffers;
 	struct AerialPerspectiveVolume
 	{
 		std::unique_ptr<Image> image;

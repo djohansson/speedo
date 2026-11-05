@@ -49,6 +49,12 @@ void CommandEncoder<kVk>::BindIndexBuffer(const Buffer<kVk>& buffer, uint64_t of
 }
 
 template <>
+void CommandEncoder<kVk>::Draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) const
+{
+	vkCmdDraw(myCmd, vertexCount, instanceCount, firstVertex, firstInstance);
+}
+
+template <>
 void CommandEncoder<kVk>::DrawIndexed(
 	uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) const
 {

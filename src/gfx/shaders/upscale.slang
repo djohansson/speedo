@@ -1227,6 +1227,26 @@ float3 SharpenMapped(float3 color, bool data, float exposure, float scotopic)
 	return saturate(data ? max(color, 0.0) : Tonemap(Scotopic(max(color, 0.0) * exposure, scotopic)));
 }
 
+// the lens's glare at an output pixel (see ComputeBloomDown: the bloom's first level, half the output's size, holds every
+// level's blur), the lens's share of it (LensData::glare); none without a lens
+float3 SharpenGlare(bool lensed, int2 at, uint2 size)
+{
+	if (!lensed)
+		return 0.0;
+	LensData lens = gLensData[gPushConstants.frameIndex][0];
+	float3 glare = 0.0;
+	if (lens.glare > 0.0)
+	{
+		float2 uv = (float2(at) + 0.5) / float2(size);
+		float3 bloom = gTextures[SHADER_TYPES_BLOOM_TEXTURE].SampleLevel(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], uv, 0.0).rgb;
+		glare += max(bloom, 0.0) * (lens.glare / float(SHADER_TYPES_BLOOM_LEVEL_COUNT));
+	}
+	// and the flares (see the Flare pass)
+	if (lens.flares != 0u)
+		glare += max(gTextures[SHADER_TYPES_FLARE_TEXTURE].Load(int3(at, 0)).rgb, 0.0);
+	return glare;
+}
+
 [shader("compute")]
 [numthreads(16, 16, 1)]
 void ComputeSharpen(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -1245,9 +1265,11 @@ void ComputeSharpen(uint3 dispatchThreadId : SV_DispatchThreadID)
 	bool data = DebugViewIsData(gPushConstants.debugView);
 	int2 last = int2(size) - 1;
 	ViewData view;
-	UpscaleViewAtUv((float2(xy) + 0.5) / float2(size), view);
+	bool inView = UpscaleViewAtUv((float2(xy) + 0.5) / float2(size), view);
 	float exposure = view.exposure;
-	float3 e = SharpenMapped(resolved.Load(int3(xy, 0)).rgb, data, exposure, view.scotopic);
+	// the lens's glare over its image (see SharpenGlare), within the views (not over a letterbox)
+	lensed = lensed && inView;
+	float3 e = SharpenMapped(resolved.Load(int3(xy, 0)).rgb + SharpenGlare(lensed, xy, size), data, exposure, view.scotopic);
 	// without a reconstruction there is nothing to sharpen (RCAS's lobe is the upscaler's)
 	if (!upscaled)
 	{
@@ -1256,10 +1278,14 @@ void ComputeSharpen(uint3 dispatchThreadId : SV_DispatchThreadID)
 			gRWTextures[SHADER_TYPES_UI_BLUR_SOURCE_RW_TEXTURE][uint2(xy)] = float4(e, 1.0);
 		return;
 	}
-	float3 b = SharpenMapped(resolved.Load(int3(clamp(xy + int2(0, -1), int2(0), last), 0)).rgb, data, exposure, view.scotopic);
-	float3 d = SharpenMapped(resolved.Load(int3(clamp(xy + int2(-1, 0), int2(0), last), 0)).rgb, data, exposure, view.scotopic);
-	float3 f = SharpenMapped(resolved.Load(int3(clamp(xy + int2(1, 0), int2(0), last), 0)).rgb, data, exposure, view.scotopic);
-	float3 h = SharpenMapped(resolved.Load(int3(clamp(xy + int2(0, 1), int2(0), last), 0)).rgb, data, exposure, view.scotopic);
+	int2 bAt = clamp(xy + int2(0, -1), int2(0), last);
+	int2 dAt = clamp(xy + int2(-1, 0), int2(0), last);
+	int2 fAt = clamp(xy + int2(1, 0), int2(0), last);
+	int2 hAt = clamp(xy + int2(0, 1), int2(0), last);
+	float3 b = SharpenMapped(resolved.Load(int3(bAt, 0)).rgb + SharpenGlare(lensed, bAt, size), data, exposure, view.scotopic);
+	float3 d = SharpenMapped(resolved.Load(int3(dAt, 0)).rgb + SharpenGlare(lensed, dAt, size), data, exposure, view.scotopic);
+	float3 f = SharpenMapped(resolved.Load(int3(fAt, 0)).rgb + SharpenGlare(lensed, fAt, size), data, exposure, view.scotopic);
+	float3 h = SharpenMapped(resolved.Load(int3(hAt, 0)).rgb + SharpenGlare(lensed, hAt, size), data, exposure, view.scotopic);
 	float3 lowest = min(min(b, d), min(f, h));
 	float3 highest = max(max(b, d), max(f, h));
 	float3 toZero = lowest / max(4.0 * highest, 1e-5);
