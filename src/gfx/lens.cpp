@@ -454,12 +454,31 @@ Appearance Appear(const Prescription& lens, float fNumber, float sensorHalfDiago
 		return total > 0 ? static_cast<float>(passed) / static_cast<float>(total) : 1.0F;
 	};
 	float onAxis = std::max(passing(0.0F), 1e-3F);
+	// the cat's eye from the mechanical share: two disks of one radius a distance d apart (in radii) overlap by
+	// (2 acos(d / 2) - (d / 2) sqrt(4 - d^2)) / pi of a disk, falling from 1 at d = 0 to 0 at 2; d by bisection
+	auto overlap = [](float distance)
+	{
+		float half = 0.5F * distance;
+		return (2.0F * std::acos(std::clamp(half, -1.0F, 1.0F)) - half * std::sqrt(std::max(4.0F - distance * distance, 0.0F))) / std::numbers::pi_v<float>;
+	};
 	for (size_t sampleIt = 0; sampleIt < Appearance::kVignettingSamples; sampleIt++)
 	{
 		float angle = appearance.fieldAngle * static_cast<float>(sampleIt) / static_cast<float>(Appearance::kVignettingSamples - 1);
 		float natural = std::pow(std::cos(angle), 4.0F);
-		appearance.vignetting[sampleIt] = natural * std::min(passing(angle) / onAxis, 1.0F);
+		float mechanical = std::min(passing(angle) / onAxis, 1.0F);
+		appearance.vignetting[sampleIt] = natural * mechanical;
+		float low = 0.0F;
+		float high = 2.0F;
+		for (int stepIt = 0; stepIt < 24; stepIt++)
+		{
+			float middle = 0.5F * (low + high);
+			(overlap(middle) > mechanical ? low : high) = middle;
+		}
+		appearance.catEye[sampleIt] = 0.5F * (low + high);
 	}
+	// the focal lengths at the red's and the blue's wavelengths
+	appearance.focalLengthRed = Trace(lens, kWavelengths[0], stopRadius).focalLength;
+	appearance.focalLengthBlue = Trace(lens, kWavelengths[2], stopRadius).focalLength;
 
 	// the lateral chromatic aberration: the chief ray's (through the stop's center) height on the sensor per wavelength,
 	// the red's and the blue's over the green's

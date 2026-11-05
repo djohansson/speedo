@@ -36,3 +36,4 @@ __include types;
 #include "emitters.slang"
 #include "upscale.slang"
 #include "lens.slang"
+#include "dof.slang"

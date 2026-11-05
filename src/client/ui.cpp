@@ -298,6 +298,18 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 		});
 	// and whether its glare is drawn (SPEEDO_LENS_GLARE=0 without: the bloom, the ghosts and the starbursts)
 	apply(settings.lensGlare, kDefaults.lensGlare, "SPEEDO_LENS_GLARE", unless("0"));
+	// and what it focuses at (SPEEDO_FOCUS=auto, or a distance in meters)
+	apply(settings.focusAuto, kDefaults.focusAuto, "SPEEDO_FOCUS", [](const char* value) { return std::optional<bool>(std::string_view(value) == "auto"); });
+	apply(
+		settings.focusDistance,
+		kDefaults.focusDistance,
+		"SPEEDO_FOCUS",
+		[](const char* value) -> std::optional<float>
+		{
+			if (std::string_view(value) == "auto")
+				return kDefaults.focusDistance.load(std::memory_order_relaxed);
+			return std::clamp(std::strtof(value, nullptr), 1e-3F, 1e6F);
+		});
 	// the shadows (SPEEDO_SHADOWS=0 without), and the ray traced ones (SPEEDO_TRACED_SHADOWS=0 for the atlas alone, all to
 	// trace every pixel)
 	apply(settings.shadows, kDefaults.shadows, "SPEEDO_SHADOWS", unless("0"));
@@ -843,6 +855,8 @@ void WindowedApplication::InternalCopyPose()
 		text += std::format(" SPEEDO_LENS={}", lenses[lensIndex].key);
 		if (!settings.lensGlare.load(std::memory_order_relaxed))
 			text += " SPEEDO_LENS_GLARE=0";
+		if (!settings.focusAuto.load(std::memory_order_relaxed))
+			text += std::format(" SPEEDO_FOCUS={:.4g}", static_cast<double>(settings.focusDistance.load(std::memory_order_relaxed)));
 	}
 	else if (std::abs(myViews->GetFieldOfView() - CameraCreateDesc{}.fovY) > 1e-4F)
 		text += std::format(" SPEEDO_FOCAL_LENGTH={:.4g}", static_cast<double>(myViews->GetFocalLength()));
@@ -2733,6 +2747,24 @@ void WindowedApplication::PrepareDraw()
 						settings.lensGlare.store(glare, std::memory_order_relaxed);
 					EndDisabled();
 					SetItemTooltip("The lens's glare: the light it veils the frame with, and the ghosts and starburst of the bright things in view (the sun, lamps): each pair of its surfaces reflects a ghost onto the sensor, and the aperture's blades diffract a starburst.");
+					// the focus (the depth of field, see dof.slang): the view's own measure, or a distance
+					bool focusAuto = settings.focusAuto.load(std::memory_order_relaxed);
+					BeginDisabled(!prime);
+					if (Checkbox("Autofocus", &focusAuto))
+					{
+						// turned off, the focus stays where it was
+						if (!focusAuto)
+							settings.focusDistance.store(App().GetScene().GetFocusDistance(), std::memory_order_relaxed);
+						settings.focusAuto.store(focusAuto, std::memory_order_relaxed);
+					}
+					EndDisabled();
+					SetItemTooltip("Focuses on what the view looks at (how far most of it is), as a camera's autofocus does; off, at the distance below.");
+					BeginDisabled(!prime || focusAuto);
+					float focusDistance = App().GetScene().GetFocusDistance();
+					if (DragFloat("Focus Distance", &focusDistance, 0.01F, 0.01F, 10000.0F, "%.3g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+						settings.focusDistance.store(focusDistance, std::memory_order_relaxed);
+					EndDisabled();
+					SetItemTooltip("The distance the lens focuses at, meters: what is nearer or farther blurs by the aperture (wider open, shallower). Drag, or double-click to type.");
 					auto first = myViews->GetCamera(0);
 					bool orthographic = first && first->GetDesc().viewport.type == ViewType::Orthographic;
 					BeginDisabled(orthographic || prime);

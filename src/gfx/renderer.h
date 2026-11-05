@@ -377,6 +377,18 @@ private:
 	FrameGraph::ImageId myBloom;
 	std::vector<std::unique_ptr<ImageView>> myBloomViews;
 	FrameGraph::ImageId myFlare; // the flares over black (SHADER_TYPES_FLARE_TEXTURE)
+	// the depth of field (see dof.slang): the frame and its circles at half the output's size, the gather's result, the
+	// tiles' largest circles (and dilated), the frame through it at the output's size, and the passes
+	FrameGraph::ImageId myDofHalf;
+	FrameGraph::ImageId myDofBlur;
+	FrameGraph::ImageId myDofTiles;
+	FrameGraph::ImageId myDofTilesDilated;
+	FrameGraph::ImageId myDofOut;
+	FrameGraph::PassId myDofTilesPass;
+	FrameGraph::PassId myDofTilesDilatePass;
+	FrameGraph::PassId myDofPreparePass;
+	FrameGraph::PassId myDofGatherPass;
+	FrameGraph::PassId myDofCompositePass;
 	FrameGraph::BufferId myLensSourceCount;
 	FrameGraph::BufferId myLensSources;
 	FrameGraph::PassId myBloomPass;

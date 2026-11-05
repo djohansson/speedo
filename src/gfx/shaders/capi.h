@@ -574,6 +574,9 @@ struct LensData
 	// the vignetting over the field: the light a point gets as a share of the axis's, at SHADER_TYPES_LENS_VIGNETTING_COUNT
 	// field angles from the axis to fieldAngle (the view's corner's), 4 a float4
 	alignas(16) FLOAT4(vignetting[SHADER_TYPES_LENS_VIGNETTING_COUNT / 4]);
+	// the cat's eye at the same field angles (see lens::Appearance::catEye: the bokeh's clipping disk's distance from
+	// the pupil's, in radii, pointing to the center)
+	alignas(16) FLOAT4(catEye[SHADER_TYPES_LENS_VIGNETTING_COUNT / 4]);
 	alignas(4) FLOAT1(fieldAngle); // radians
 	alignas(4) FLOAT1(focalLength); // mm
 	alignas(4) FLOAT1(halfDiagonal); // mm: the sensor's, what the view's corner is from its center
@@ -602,8 +605,23 @@ struct LensData
 	alignas(4) FLOAT1(ghostGain);
 	alignas(4) FLOAT1(starGain);
 	alignas(4) UINT1(flares); // whether the sources' ghosts and starbursts are drawn (View > Camera > Lens Glare)
+	// the depth of field (see the DOF passes, dof.slang): whether it is drawn (a real lens's), the distance focused at
+	// (mm, along the view), the aperture's diameter (mm: the focal length over the f-number), and how far the red's and
+	// the blue's focal lengths are from the green's (mm: the longitudinal chromatic aberration, their circles of
+	// confusion that much of the aperture's diameter over the focal length apart)
+	alignas(4) UINT1(dof);
+	alignas(4) FLOAT1(focusDistance);
+	alignas(4) FLOAT1(apertureDiameter);
+	alignas(4) FLOAT1(focusShiftRed);
+	alignas(4) FLOAT1(focusShiftBlue);
 	alignas(4) UINT1(padding0);
+	alignas(4) UINT1(padding1);
+	alignas(4) UINT1(padding2);
 };
+// the depth of field's circle of confusion at most, in the output's pixels, and its tiles' size (the gather's reach is
+// the tile's and its neighbors' largest circle)
+#define SHADER_TYPES_DOF_MAX_COC 48.0
+#define SHADER_TYPES_DOF_TILE_SIZE 16u
 
 // a ghost of the lens (see lens::Ghost): a pair of its surfaces reflecting a ray back and forward again, as an affine map
 // of the entrance onto the sensor per channel (red, green, blue: a wavelength each), a ray entering at a height y with
@@ -645,6 +663,19 @@ struct FlareConstants
 // and of the flares' image (see the Flare pass: the sources' ghosts and starbursts over black, at the output's size),
 // which the final pass adds
 #define SHADER_TYPES_FLARE_TEXTURE 75u
+// and the depth of field's (see dof.slang): its image of the frame at the output's size, which the Lens pass takes in
+// place of the frame; the frame and its circles of confusion at half the output's size; the gather's result at half;
+// the tiles' largest circle, and that dilated; and their storage views
+#define SHADER_TYPES_DOF_TEXTURE 76u
+#define SHADER_TYPES_DOF_HALF_TEXTURE 77u
+#define SHADER_TYPES_DOF_BLUR_TEXTURE 78u
+#define SHADER_TYPES_DOF_TILES_TEXTURE 79u
+#define SHADER_TYPES_DOF_TILES_DILATED_TEXTURE 80u
+#define SHADER_TYPES_DOF_RW_TEXTURE 65u
+#define SHADER_TYPES_DOF_HALF_RW_TEXTURE 66u
+#define SHADER_TYPES_DOF_BLUR_RW_TEXTURE 67u
+#define SHADER_TYPES_DOF_TILES_RW_TEXTURE 68u
+#define SHADER_TYPES_DOF_TILES_DILATED_RW_TEXTURE 69u
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,
 // and the source's mip count (its pyramid, down to 8 texels wide)

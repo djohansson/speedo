@@ -101,6 +101,11 @@ public:
 		// and whether its glare is drawn (the bloom it veils the frame with, and the ghosts and starbursts of the bright
 		// blobs the frame holds, see lens.slang and flare.slang; View > Camera > Lens Glare, SPEEDO_LENS_GLARE=0 without)
 		std::atomic<bool> lensGlare = true;
+		// and what it focuses at (the depth of field, see dof.slang; a real lens's, the pinhole's everything): the view's
+		// own measure of how far it looks (FrameInputs::lookDistances) where focusAuto, else focusDistance, meters
+		// (View > Camera > Autofocus and Focus Distance; SPEEDO_FOCUS=auto|<meters>, which Copy Pose writes)
+		std::atomic<bool> focusAuto = true;
+		std::atomic<float> focusDistance = 2.0F;
 		// the tonemapper (TONEMAPPER_*)
 		std::atomic<uint32_t> tonemapper = TONEMAPPER_PBR_NEUTRAL;
 		// what the views show (DEBUG_VIEW_*: the light, or a debug view of the surfaces or the lighting; View > Debug
@@ -328,6 +333,8 @@ public:
 	// and the limits it exposes within (camera::ExposureLimits): the lens's aperture range (Settings::lens; the pinhole's
 	// any), the rest the defaults
 	[[nodiscard]] camera::ExposureLimits GetExposureLimits() const noexcept;
+	// and the distance it focuses at (meters: Settings::focusDistance, or the first view's measure under autofocus)
+	[[nodiscard]] float GetFocusDistance() const noexcept;
 	// the bytes of device memory the renderer's transients take, and would take without aliasing
 	[[nodiscard]] uint64_t GetTransientMemory() const noexcept;
 	[[nodiscard]] uint64_t GetUnaliasedTransientMemory() const noexcept;

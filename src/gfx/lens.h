@@ -100,6 +100,14 @@ struct Appearance
 	float redScale = 1.0F;
 	float blueScale = 1.0F;
 	float focalLength = 0.0F; // mm, effective, at the d line
+	// and at the red's and the blue's wavelengths (the longitudinal chromatic aberration: their images focus before or
+	// after the green's)
+	float focalLengthRed = 0.0F;
+	float focalLengthBlue = 0.0F;
+	// the cat's eye: at each of the vignetting's field angles, how far (in radii) the entrance pupil's disk and the one
+	// that clips it stand apart for their overlap to pass the mechanical share of the light, so that the bokeh of a
+	// point of light there is the two disks' lens shape, pointing to the center (0 on the axis, a disk)
+	std::array<float, kVignettingSamples> catEye{};
 	float entrancePupilRadius = 0.0F; // mm
 	float stopRadius = 0.0F; // mm, at the f-number (the blades' polygon's apothem)
 	float transmittance = 1.0F;

@@ -139,7 +139,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 76; // after the sky's tables, its views, its view by the moon, the lens pass's image and the glare's (SHADER_TYPES_FLARE_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 81; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's and the depth of field's (SHADER_TYPES_DOF_TILES_DILATED_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -203,6 +203,10 @@ static_assert(
 static_assert(
 	SHADER_TYPES_BLOOM_TEXTURE == SHADER_TYPES_LENSED_TEXTURE + 1 && SHADER_TYPES_FLARE_TEXTURE == SHADER_TYPES_BLOOM_TEXTURE + 1 &&
 	SHADER_TYPES_FLARE_TEXTURE < kModelTextureFirstSlot);
+static_assert(
+	SHADER_TYPES_DOF_TEXTURE == SHADER_TYPES_FLARE_TEXTURE + 1 && SHADER_TYPES_DOF_TILES_DILATED_TEXTURE == SHADER_TYPES_DOF_TEXTURE + 4 &&
+	SHADER_TYPES_DOF_TILES_DILATED_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_DOF_RW_TEXTURE == SHADER_TYPES_LENSED_RW_TEXTURE + 1 &&
+	SHADER_TYPES_DOF_TILES_DILATED_RW_TEXTURE == SHADER_TYPES_DOF_RW_TEXTURE + 4 && SHADER_TYPES_DOF_TILES_DILATED_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE > SHADER_TYPES_PREPASS_MOTION_TEXTURE && SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE > SHADER_TYPES_COMPOSITE_RW_TEXTURE &&
@@ -641,7 +645,27 @@ struct Scene::Impl
 		data.ghostGain = myLensState.ghostGain;
 		data.starGain = myLensState.starGain;
 		data.flares = glare ? 1U : 0U;
+		for (size_t sampleIt = 0; sampleIt < lens::Appearance::kVignettingSamples; sampleIt++)
+			data.catEye[sampleIt / 4][sampleIt % 4] = appearance.catEye[sampleIt];
+		// the depth of field: the focus in mm along the view (the view's own measure in the scene's units, or the setting in
+		// meters), the aperture's diameter at the aperture the camera exposes with (not quantized: a stop's width of focus
+		// would step)
+		data.dof = 1U;
+		data.focusDistance = FocusDistanceMeters() * 1000.0F;
+		data.apertureDiameter = appearance.focalLength / std::max(aperture, 0.1F);
+		data.focusShiftRed = appearance.focalLengthRed - appearance.focalLength;
+		data.focusShiftBlue = appearance.focalLengthBlue - appearance.focalLength;
 		return data;
+	}
+
+	// what the camera focuses at, meters (see Settings::focusAuto): the first view's measure of how far it looks, in the
+	// scene's units, or the setting
+	[[nodiscard]] float FocusDistanceMeters() const
+	{
+		if (!mySettings.focusAuto.load(std::memory_order_relaxed))
+			return std::max(mySettings.focusDistance.load(std::memory_order_relaxed), 1e-3F);
+		auto units = myLookDistances[0].load(std::memory_order_relaxed);
+		return std::max(units * mySettings.metersPerUnit.load(std::memory_order_relaxed), 1e-3F);
 	}
 
 	// a view's exposure, as a factor: the camera's exposure in stops (see ChosenExposure) and the compensation (see
@@ -2640,6 +2664,11 @@ struct Scene::Impl
 				{"ComputeBloomDown", SLANG_STAGE_COMPUTE}, // see the Bloom pass
 				{"ComputeBloomUp", SLANG_STAGE_COMPUTE},
 				{"ComputeFlareSources", SLANG_STAGE_COMPUTE}, // see the Flare Sources pass
+				{"ComputeDofTiles", SLANG_STAGE_COMPUTE}, // see the DOF passes
+				{"ComputeDofTilesDilate", SLANG_STAGE_COMPUTE},
+				{"ComputeDofPrepare", SLANG_STAGE_COMPUTE},
+				{"ComputeDofGather", SLANG_STAGE_COMPUTE},
+				{"ComputeDofComposite", SLANG_STAGE_COMPUTE},
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -3063,6 +3092,8 @@ core::ConcurrentAccess<std::vector<float>>& Scene::GetLightSizes() noexcept { re
 camera::Exposure Scene::GetViewExposure() const noexcept { return myImpl->ChosenExposure(0); }
 
 camera::ExposureLimits Scene::GetExposureLimits() const noexcept { return myImpl->LensLimits(); }
+
+float Scene::GetFocusDistance() const noexcept { return myImpl->FocusDistanceMeters(); }
 uint64_t Scene::GetTransientMemory() const noexcept { return myImpl->myTransientMemory.load(std::memory_order_relaxed); }
 uint64_t Scene::GetUnaliasedTransientMemory() const noexcept { return myImpl->myUnaliasedTransientMemory.load(std::memory_order_relaxed); }
 const Renderer& Scene::GetRenderer() const noexcept { return *myImpl->myRenderer; }

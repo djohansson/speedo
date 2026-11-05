@@ -82,6 +82,14 @@ float4 LensOutputViewport(ViewData view, uint2 size)
 	return float4(view.viewport.xy * scale, view.viewport.zw * scale);
 }
 
+// the frame the lens takes, at the output's size: reconstructed (the parity's), or composited at it without temporal
+// upscaling (the gTextures slot)
+uint LensFrameTexture()
+{
+	bool upscaled = (gPushConstants.upscale & UPSCALE_SHARPEN) != 0u;
+	return upscaled ? SHADER_TYPES_UPSCALE_COLOR_TEXTURE + UpscaleParity() : SHADER_TYPES_COMPOSITE_TEXTURE;
+}
+
 [shader("compute")]
 [numthreads(16, 16, 1)]
 void ComputeLens(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -94,9 +102,8 @@ void ComputeLens(uint3 dispatchThreadId : SV_DispatchThreadID)
 	uint2 pixel = dispatchThreadId.xy;
 	if (any(pixel >= size))
 		return;
-	// the frame: reconstructed at the output's size (the parity's), or composited at it without temporal upscaling
-	bool upscaled = (gPushConstants.upscale & UPSCALE_SHARPEN) != 0u;
-	Texture2D source = gTextures[upscaled ? SHADER_TYPES_UPSCALE_COLOR_TEXTURE + UpscaleParity() : SHADER_TYPES_COMPOSITE_TEXTURE];
+	// the frame, through the depth of field where it is drawn (see ComputeDofComposite)
+	Texture2D source = gTextures[lens.dof != 0u ? SHADER_TYPES_DOF_TEXTURE : LensFrameTexture()];
 	ViewData view;
 	if (!UpscaleViewAtUv((float2(pixel) + 0.5) / float2(size), view))
 	{

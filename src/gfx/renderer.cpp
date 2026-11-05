@@ -102,6 +102,12 @@ constexpr uint8_t kLensEntryPoint = 53;
 constexpr uint8_t kBloomDownEntryPoint = 54;
 constexpr uint8_t kBloomUpEntryPoint = 55;
 constexpr uint8_t kFlareSourcesEntryPoint = 56;
+// the depth of field (see dof.slang)
+constexpr uint8_t kDofTilesEntryPoint = 57;
+constexpr uint8_t kDofTilesDilateEntryPoint = 58;
+constexpr uint8_t kDofPrepareEntryPoint = 59;
+constexpr uint8_t kDofGatherEntryPoint = 60;
+constexpr uint8_t kDofCompositeEntryPoint = 61;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -357,6 +363,13 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myLensSourceCount = myGraph.CreateBuffer({.name = "Lens Source Count", .size = 4 * sizeof(uint32_t)});
 	myLensSources = myGraph.CreateBuffer({.name = "Lens Sources", .size = SHADER_TYPES_LENS_SOURCE_COUNT * sizeof(LensSource)});
 	myFlare = myGraph.CreateImage({.name = "Flare", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
+	// and the depth of field's (see dof.slang)
+	myDofHalf = myGraph.CreateImage({.name = "DOF Half", .format = Format::kR16G16B16A16Sfloat, .downscale = 2, .outputSized = true});
+	myDofBlur = myGraph.CreateImage({.name = "DOF Blur", .format = Format::kR16G16B16A16Sfloat, .downscale = 2, .outputSized = true});
+	myDofTiles = myGraph.CreateImage({.name = "DOF Tiles", .format = Format::kR16Sfloat, .downscale = SHADER_TYPES_DOF_TILE_SIZE, .outputSized = true});
+	myDofTilesDilated =
+		myGraph.CreateImage({.name = "DOF Tiles Dilated", .format = Format::kR16Sfloat, .downscale = SHADER_TYPES_DOF_TILE_SIZE, .outputSized = true});
+	myDofOut = myGraph.CreateImage({.name = "DOF", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
 	// the order independent transparency's per pixel lists (see OitNode): their heads (a node index per pixel of the
 	// render target), nodes and counter
 	myOitHeads = myGraph.CreateBuffer(
@@ -1992,8 +2005,65 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[this, upscaleKernel](FrameGraph::PassContext& context)
 		{ upscaleKernel(context, kUpscaleAccumulateEntryPoint, myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent()); });
+	// the depth of field (see dof.slang): the frame's circles of confusion from the main depth, the largest per tile
+	// (and over its neighbors), the frame at half the output's size with its circles, gathered over each tile's reach,
+	// and the frame recomposed through it, which the Lens pass takes in place of the frame; where a real lens is on
+	auto dofFrame = [this](FrameGraph::PassBuilder& builder)
+	{
+		builder.Use(myComposite, ResourceUse::Sampled(PipelineStage::kComputeShader));
+		for (auto image : myUpscaleColor)
+			builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+		builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+	};
+	auto dofKernel = [this, kernel](FrameGraph::PassContext& context, uint8_t entryPoint, FrameGraph::ImageId image)
+	{
+		auto extent = context.graph.GetImage(image).GetDesc().mipLevels.front().extent;
+		kernel(context.cmd, ComputePipelineVariant{.entryPoint = entryPoint}, extent.width, extent.height);
+	};
+	myDofTilesPass = myGraph.AddPass(
+		"DOF Tiles",
+		[this, dofFrame](FrameGraph::PassBuilder& builder)
+		{
+			dofFrame(builder);
+			builder.Use(myDofTiles, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, dofKernel](FrameGraph::PassContext& context) { dofKernel(context, kDofTilesEntryPoint, myDofTiles); });
+	myDofTilesDilatePass = myGraph.AddPass(
+		"DOF Tiles Dilate",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDofTiles, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myDofTilesDilated, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, dofKernel](FrameGraph::PassContext& context) { dofKernel(context, kDofTilesDilateEntryPoint, myDofTilesDilated); });
+	myDofPreparePass = myGraph.AddPass(
+		"DOF Prepare",
+		[this, dofFrame](FrameGraph::PassBuilder& builder)
+		{
+			dofFrame(builder);
+			builder.Use(myDofHalf, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, dofKernel](FrameGraph::PassContext& context) { dofKernel(context, kDofPrepareEntryPoint, myDofHalf); });
+	myDofGatherPass = myGraph.AddPass(
+		"DOF Gather",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDofHalf, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myDofTilesDilated, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myDofBlur, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, dofKernel](FrameGraph::PassContext& context) { dofKernel(context, kDofGatherEntryPoint, myDofBlur); });
+	myDofCompositePass = myGraph.AddPass(
+		"DOF Composite",
+		[this, dofFrame](FrameGraph::PassBuilder& builder)
+		{
+			dofFrame(builder);
+			builder.Use(myDofBlur, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myDofOut, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, dofKernel](FrameGraph::PassContext& context) { dofKernel(context, kDofCompositeEntryPoint, myDofOut); });
 	// the camera's lens (see LensData, lens.slang): what it makes of the frame at the output's size, reconstructed (the
-	// parity's) or composited at it, for the final pass; where the lens is on
+	// parity's) or composited at it, or through the depth of field, for the final pass; where the lens is on
 	myLensPass = myGraph.AddPass(
 		"Lens",
 		[this](FrameGraph::PassBuilder& builder)
@@ -2001,6 +2071,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myComposite, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			for (auto image : myUpscaleColor)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myDofOut, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myLensed, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this, outputKernel](FrameGraph::PassContext& context)
@@ -3013,6 +3084,25 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myFlare), .layout = ImageLayout::kShaderReadOnly},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 			SHADER_TYPES_FLARE_TEXTURE);
+		// and the depth of field's, each sampled by a later pass and written as a storage image by its own
+		for (auto [image, sampled, storage] : {
+				 std::tuple{myDofOut, SHADER_TYPES_DOF_TEXTURE, SHADER_TYPES_DOF_RW_TEXTURE},
+				 std::tuple{myDofHalf, SHADER_TYPES_DOF_HALF_TEXTURE, SHADER_TYPES_DOF_HALF_RW_TEXTURE},
+				 std::tuple{myDofBlur, SHADER_TYPES_DOF_BLUR_TEXTURE, SHADER_TYPES_DOF_BLUR_RW_TEXTURE},
+				 std::tuple{myDofTiles, SHADER_TYPES_DOF_TILES_TEXTURE, SHADER_TYPES_DOF_TILES_RW_TEXTURE},
+				 std::tuple{myDofTilesDilated, SHADER_TYPES_DOF_TILES_DILATED_TEXTURE, SHADER_TYPES_DOF_TILES_DILATED_RW_TEXTURE}})
+		{
+			pipeline.SetDescriptorData(
+				"gTextures",
+				ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kShaderReadOnly},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+				sampled);
+			pipeline.SetDescriptorData(
+				"gRWTextures",
+				ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kGeneral},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+				storage);
+		}
 	}
 	// the Flare layout's set (see flare.slang): the lens and its ghosts per frame index, and the glare's sources, the
 	// same buffers as the main layout's
@@ -3666,6 +3756,10 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myFlareClearPass, flares);
 	myGraph.SetEnabled(myFlareSourcesPass, flares);
 	myGraph.SetEnabled(myFlarePass, flares);
+	// and the depth of field
+	bool dof = lens && frame.lens.dof != 0U;
+	for (auto pass : {myDofTilesPass, myDofTilesDilatePass, myDofPreparePass, myDofGatherPass, myDofCompositePass})
+		myGraph.SetEnabled(pass, dof);
 	myGraph.SetEnabled(mySharpenPass, composite);
 	frame.pushConstants.lens = lens ? LENS_ACTIVE : 0U;
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)

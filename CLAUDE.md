@@ -297,7 +297,7 @@ Each as deep as the subsystem's history: what was tried, what it cost, the user'
   the swap idiom, specialization ordering, delegating constructors, object identity and tracking, frame slots,
   command buffers' ownership, the queues' shared locks, descriptor sets and the pool, layouts by name.
 - docs/notes/rendering.md: the frame graph, debug views and the Statistics window, gpu timings and shader tiers,
-  the views, the physical camera, its lenses and their glare, reversed depth, temporal upscaling (FSR 3.1), culling and
+  the views, the physical camera, its lenses, their glare and depth of field, reversed depth, temporal upscaling (FSR 3.1), culling and
   occlusion, shadows, ray traced shadows, traced reflections and refractions, the visibility buffer, clustered
   lighting.
 - docs/notes/indirect-lighting.md: the irradiance probes over the voxel clipmap, the surface cache, the near field,

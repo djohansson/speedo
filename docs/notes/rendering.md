@@ -470,6 +470,40 @@ the sun 0.41 ms, the vintage 1.15, Bistro's street at night 0.16 (its lamps' sta
 glare isn't drawn over a letterbox. Not yet: ghosts of sources out of the frame (the sun just outside it flares a real
 lens), extended sources' shapes, the ghosts at half resolution where their fill costs.
 
+**The depth of field** (the fourth stage, 2026-11-05; a real lens's, the pinhole's everything sharp; View > Camera >
+Autofocus and Focus Distance, `Settings::focusAuto` and `focusDistance` in meters, `SPEEDO_FOCUS=auto|<meters>`, which
+Copy Pose writes where it isn't auto; `Scene::GetFocusDistance`; `LensData::dof`, `focusDistance`, `apertureDiameter`,
+`focusShiftRed`, `focusShiftBlue`, `catEye`; `dof.slang`, five passes before the Lens pass, which takes the frame
+through it, `SHADER_TYPES_DOF_TEXTURE`, in place of the frame). The circle of confusion is the thin lens's
+(`DofCircleMm`: the sensor at the green's image of the focus, a point's image at its own distance along the view,
+`UpscaleViewDepth` times the scene's unit; the aperture's diameter, the focal length over the f-number the camera
+exposes with, times how far the point's image falls from the sensor over the image's distance; signed, in the output's
+pixels by the sensor's mm per pixel, at most `SHADER_TYPES_DOF_MAX_COC`, 48), so the depth of field follows the
+exposure's aperture (wide open at night, shallow); the focus is the view's own measure of how far it looks
+(`FrameInputs::lookDistances`, the median distance, as a camera's autofocus of the scene) or the setting. The red's and
+the blue's circles are the green's less the aperture's diameter times their focal lengths' shift over the focal length
+(`lens::Appearance::focalLengthRed`, `focalLengthBlue`, from `Trace` at their wavelengths: the longitudinal chromatic
+aberration, fringes at the circles' edges, small for the achromatized designs). DOF Tiles finds each 16 pixel tile's
+largest circle (every other pixel's, the view looked up once per tile), DOF Tiles Dilate the largest among its
+neighbors as far as theirs reach, DOF Prepare reduces the frame to half the output's size with the 2x2's mean and the
+circle of the one that spreads farthest, DOF Gather gathers each half texel over its tile's reach (a scatter as gather:
+`kDofTapCount`, 48, taps on a spiral turned per texel by interleaved gradient noise, up to twice that the farther the
+reach, each on the blades' polygon, `DofBokehPoint`, and kept where the cat's eye leaves it, a disk of the same radius
+`catEye` radii toward the view's center, which `lens::Appear` solves per field angle from the mechanical share of the
+light, two disks' overlap by bisection; a tap counts for a channel where its circle covers the texel, antialiased over
+a texel, a tap behind the point by as much as the point is blurred itself, so a blurred background doesn't bleed over
+a sharp foreground; the share of what counted that lies in front of the point in the alpha), and DOF Composite
+recomposes the frame at the output's size (the gather's result, a 3x3 tent of it, where the pixel's own circle is past
+a pixel or the foreground's spread reaches it, else the frame; a letterbox as it is). DamagedHelmet through the Gauss
+at f/1.8 under autofocus: the helmet sharp, the ground blurring away before and behind it; focused at 1.2 m, all of it
+blurred, smooth (the taps' noise was dotty before the composite's tent and the taps scaled with the reach). Cost on
+KosmicKrisp at 1440p by the draw thread's frame time, the helmet framed, the Gauss with its other passes skipped
+(`SPEEDO_SKIP_PASSES`; a pinhole run is no baseline, a prime's field of view being another scene): the Lens pass
+0.15 ms, the depth of field 1.1 at f/14 (little blurred; 2.5 before the view lookups were hoisted out of the tiles'
+and the prepare's pixels), about 4 wide open with everything blurred, the glare within the runs' noise there. Clean
+under the validation layer. Not yet: a bokeh's shape by the lens's aberrations (a Gauss's onion rings, a mirror's
+rings), the focus pulling smoothly over time, each split screen view's own focus (the first's serves all).
+
 ## Depth: reversed
 
 Depth is reversed: 1 at the near plane, 0 at the far (or at infinity), the cameras' and the shadow views' projections
