@@ -5,6 +5,7 @@
 #include <gfx/indirectlight.h>
 #include <gfx/meshimport.h>
 #include <gfx/model.h>
+#include <gfx/physicalcamera.h>
 #include <gfx/renderoutput.h>
 #include <gfx/shaders/capi.h>
 #include <gfx/upscaling.h>
@@ -77,11 +78,21 @@ public:
 		// whether the renderer keeps a copy of each frame's lights and shadow views (Renderer::GetLightCapture), for the
 		// ui's light gizmos (View > Lights)
 		std::atomic<bool> captureLights = false;
-		// the final image is scaled by 2^exposureStops before tonemapping (with auto exposure, on top of what it picks:
-		// View > Auto Exposure, on by default since 2026-10-26, the user's call with the sky's time of day; SPEEDO_AUTO_EXPOSURE=0
-		// to start without, as captures compared at a fixed exposure need)
+		// the camera's exposure (see gfx/physicalcamera.h): its mode (camera::ExposureMode; View > Auto Exposure is program
+		// against manual, View > Camera > Exposure the priorities; SPEEDO_EXPOSURE_MODE, SPEEDO_AUTO_EXPOSURE=0 for manual;
+		// auto exposure on by default since 2026-10-26, the user's call with the sky's time of day, and a program mode since
+		// 2026-11-05: the camera chooses its aperture, shutter and ISO for the exposure auto exposure asks for, see
+		// camera::Choose) and what is set (the aperture, shutter and ISO: all of them in manual, one of them pinned in a
+		// priority mode, none in program; SPEEDO_APERTURE, SPEEDO_SHUTTER, SPEEDO_ISO; sunny sixteen by default, which
+		// exposes a unit of radiance as white, the renderer's 0 stops: captures compared at a fixed exposure take
+		// SPEEDO_AUTO_EXPOSURE=0 as before); and the final image is scaled by 2^exposureStops more (View > Exposure: an
+		// exposure compensation)
 		std::atomic<float> exposureStops = 0.0F;
-		std::atomic<bool> autoExposure = true;
+		std::atomic<uint8_t> exposureMode = static_cast<uint8_t>(camera::ExposureMode::kProgram);
+		std::atomic<float> aperture = camera::Exposure{}.aperture;
+		std::atomic<float> shutter = camera::Exposure{}.shutter;
+		std::atomic<float> iso = camera::Exposure{}.iso;
+		[[nodiscard]] bool AutoExposure() const noexcept { return exposureMode.load(std::memory_order_relaxed) != static_cast<uint8_t>(camera::ExposureMode::kManual); }
 		// the tonemapper (TONEMAPPER_*)
 		std::atomic<uint32_t> tonemapper = TONEMAPPER_PBR_NEUTRAL;
 		// what the views show (DEBUG_VIEW_*: the light, or a debug view of the surfaces or the lighting; View > Debug
@@ -303,8 +314,9 @@ public:
 	// (environment::kSkySunRadius), 0 for a point or spot light (glTF's lights are punctual). cleared when a model is
 	// installed
 	[[nodiscard]] core::ConcurrentAccess<std::vector<float>>& GetLightSizes() noexcept;
-	// the exposure auto exposure picked, in stops (see Settings::autoExposure): the first view's (each view has its own)
-	[[nodiscard]] float GetAutoExposureStops() const noexcept;
+	// the exposure the camera exposes with (see Settings::exposureMode: what is set, or what it chose for auto exposure's
+	// stops, see camera::Choose): the first view's (each view has its own)
+	[[nodiscard]] camera::Exposure GetViewExposure() const noexcept;
 	// the bytes of device memory the renderer's transients take, and would take without aliasing
 	[[nodiscard]] uint64_t GetTransientMemory() const noexcept;
 	[[nodiscard]] uint64_t GetUnaliasedTransientMemory() const noexcept;

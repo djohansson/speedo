@@ -1005,6 +1005,45 @@ camera. It replaced `UpdateBuffers`, which wrote every frame index's buffer when
 still in flight, so a frame could draw with a newer camera than it had been culled by (a chunk at the screen's edge
 missing for a frame while the camera turned). Nothing else uploads the views: a change shows in the next frame.
 
+## The physical camera
+
+`gfx/physicalcamera.h` (the user's call, 2026-11-05: a camera that behaves like a real one, and lenses whose artifacts
+arise from the lens; this is its first stage, the sensor and the exposure: the lenses, their vignetting, ghosts,
+starburst, aberration and distortion, then the glare, the depth of field, the motion blur and the grain follow, each a
+commit). The renderer's units: a unit of radiance is `camera::kUnitLuminance`, 49230 cd/m^2 (the sky's sun gives
+`SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE` units for 128000 lux, and a white Lambertian surface under a unit of illuminance
+radiates a unit over pi), and a sensor saturates at 1.2 * 2^EV100 cd/m^2 (Lagarde and de Rousiers' physically based
+camera), so the exposure that shows a unit as white, the renderer's 0 stops, is EV100 `kSaturationEv100`, 15.32: sunny
+sixteen's, f/16 at 1/160 s and ISO 100, the defaults (`camera::Exposure`); the stops an aperture, shutter and ISO give are
+`kSaturationEv100 - EV100(N, t, S)` (`ExposureStops`), on which View > Exposure (`Settings::exposureStops`) is a
+compensation. The **sensor** (`camera::Sensor`: full frame, 36x24 mm, by default; APS-C, Super 35, 1 inch, a phone's
+1/2.3 inch; View > Camera > Sensor, `SPEEDO_SENSOR=full-frame|aps-c|super35|1-inch|phone`) and the **focal length**
+(View > Camera > Focal Length, `SPEEDO_FOCAL_LENGTH=<mm>`) give the vertical field of view (`camera::FieldOfView`,
+`Views::SetFocalLength`, `SetSensorHeight`, which keeps the focal length, so a smaller sensor narrows the view as a
+lens's does): the cameras' `fovY` stays the truth, the default 75 degrees reading as 15.6 mm on full frame, and a scene
+camera's yfov as its focal length; the variables are applied with `SPEEDO_CAMERA`, once the model is in (the install
+frames the views, which sets the field of view back: `ui::AutoLens`), and Copy Pose writes them where they aren't the
+defaults. The **exposure** (`Settings::exposureMode`, `aperture`, `shutter`, `iso`; View > Camera > Exposure;
+`SPEEDO_EXPOSURE_MODE=program|aperture|shutter|manual`, `SPEEDO_APERTURE=<f-number>`, `SPEEDO_SHUTTER=<seconds or
+1/n>`, `SPEEDO_ISO`; Copy Pose writes the mode where it isn't program, as `SPEEDO_AUTO_EXPOSURE=0` for manual, and what
+is set in it): auto exposure asks for stops as before (see "Auto exposure" under "Asset import and testing"), and the
+camera chooses what to expose with (`camera::Choose`, per view, every frame: `ChosenExposure` in `scene.cpp`, whose
+stops `ViewExposure` takes): in **program** mode the aperture and the shutter along the line through sunny sixteen, a
+stop to the shutter for every stop to the aperture (narrower and faster where the scene is brighter, wider and slower
+where darker), each as far as its limit (`camera::ExposureLimits`: f/0.7 to f/64 until a lens narrows it, 1/8000 to
+30 s, 1/30 the slowest held by hand, which the program keeps to, ISO 50 to 409600), and the ISO for the rest; in
+**aperture or shutter priority** the one set and the other along the line, then the ISO; **manual** exposes with what
+is set (View > Auto Exposure off; turned off, it takes what the camera chose, as a lock does, and a mode change keeps the
+chosen as the set, so a priority starts from the exposure it had). Beyond the limits the image is under or over exposed,
+as a real camera's: moonlight at +20 stops is f/0.7, 1/30 s and ISO 38000 with the pinhole's aperture, f/1.4 and ISO
+153000 with a 50 mm f/1.4; starlight past ISO 409600 stays dark. Within them the choice reaches auto exposure's stops
+exactly, so the renders are as before (Bistro's street by day +2.76 at f/9.9, 1/62 s and ISO 100; the night pose over its
+square, +6.5, f/3.9 at 1/30 s, the shutter at its handheld limit and the aperture the rest; a day's shutter priority at
+1/1000 s f/7.9), and manual with the defaults is the 0 stops `SPEEDO_AUTO_EXPOSURE=0` always was (ThousandsOfLights at
+a fixed exposure 0.37 of 255 from before, the traced effects' noise). The client prints the
+choice at exit with the stops (`auto exposure: +x EV (f/n, 1/t s, ISO s, EV100 e)`), and the View menu shows it under
+Auto Exposure.
+
 ## Depth: reversed
 
 Depth is reversed: 1 at the near plane, 0 at the far (or at infinity), the cameras' and the shadow views' projections

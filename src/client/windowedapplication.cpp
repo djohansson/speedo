@@ -625,8 +625,14 @@ void WindowedApplication::Shutdown()
 	}
 	// what auto exposure settled on, to capture the same view at it (SPEEDO_AUTO_EXPOSURE=0 SPEEDO_EXPOSURE=<stops>):
 	// measured as it adapts, a capture's change mixes the exposure's with the scene's
-	if (myScene && myScene->GetSettings().autoExposure.load(std::memory_order_relaxed))
-		std::println("auto exposure: {:+.2f} EV", static_cast<double>(myScene->GetAutoExposureStops()));
+	if (myScene && myScene->GetSettings().AutoExposure())
+	{
+		auto exposure = myScene->GetViewExposure();
+		std::println(
+			"auto exposure: {:+.2f} EV (f/{:.3g}, {} s, ISO {:.0f}, EV100 {:.2f})", static_cast<double>(exposure.Stops()), static_cast<double>(exposure.aperture),
+			exposure.shutter < 1.0F ? std::format("1/{:.0f}", 1.0 / static_cast<double>(exposure.shutter)) : std::format("{:.3g}", static_cast<double>(exposure.shutter)),
+			static_cast<double>(exposure.iso), static_cast<double>(exposure.Ev100()));
+	}
 
 	auto& rhi = GetRHI();
 	auto& device = rhi.GetPrimaryDevice();

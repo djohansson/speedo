@@ -479,13 +479,24 @@ struct Scene::Impl
 	std::vector<SceneLight> myAnimatedLights; // the lights as last uploaded, if some follow nodes
 
 
-	// a view's exposure, as a factor: the exposure in stops and its auto exposure's (see ViewData::exposure)
+	// the exposure the camera exposes a view with (see Settings::exposureMode, camera::Choose): what is set, or what it
+	// chooses in its mode for the stops auto exposure asks for
+	[[nodiscard]] camera::Exposure ChosenExposure(size_t view) const
+	{
+		auto mode = static_cast<camera::ExposureMode>(mySettings.exposureMode.load(std::memory_order_relaxed));
+		camera::Exposure set{
+			.aperture = mySettings.aperture.load(std::memory_order_relaxed),
+			.shutter = mySettings.shutter.load(std::memory_order_relaxed),
+			.iso = mySettings.iso.load(std::memory_order_relaxed)};
+		float stops = view < myAutoExposureStops.size() ? myAutoExposureStops[view].load(std::memory_order_relaxed) : 0.0F;
+		return camera::Choose(mode, stops, set, camera::ExposureLimits{});
+	}
+
+	// a view's exposure, as a factor: the camera's exposure in stops (see ChosenExposure) and the compensation (see
+	// ViewData::exposure)
 	float ViewExposure(size_t view) const
 	{
-		float stops = view < myAutoExposureStops.size() && mySettings.autoExposure.load(std::memory_order_relaxed)
-						  ? myAutoExposureStops[view].load(std::memory_order_relaxed)
-						  : 0.0F;
-		return std::exp2(mySettings.exposureStops.load(std::memory_order_relaxed) + stops);
+		return std::exp2(mySettings.exposureStops.load(std::memory_order_relaxed) + ChosenExposure(view).Stops());
 	}
 	float ViewScotopic(size_t view) const { return view < myScotopic.size() ? myScotopic[view].load(std::memory_order_relaxed) : 0.0F; }
 
@@ -1090,7 +1101,7 @@ struct Scene::Impl
 				percentile(0.05), percentile(0.25), percentile(0.5), percentile(0.75), percentile(0.95), percentile(0.99), litShare, mean, *meanAll, darkness, night, scotopic,
 				target, myAutoExposureStops[view].load(std::memory_order_relaxed));
 		}
-		if (!mySettings.autoExposure.load(std::memory_order_relaxed))
+		if (!mySettings.AutoExposure())
 			return;
 		adapt(myAutoExposureStops[view], myAutoExposureMeasured[view], static_cast<float>(target));
 	}
@@ -2877,7 +2888,7 @@ core::ConcurrentAccess<std::string>& Scene::GetEnvironmentName() noexcept { retu
 core::ConcurrentAccess<std::string>& Scene::GetEnvironmentPath() noexcept { return myImpl->myEnvironmentPath; }
 core::ConcurrentAccess<std::vector<Scene::DominantLightInfo>>& Scene::GetEnvironmentLightInfo() noexcept { return myImpl->myEnvironmentLightInfo; }
 core::ConcurrentAccess<std::vector<float>>& Scene::GetLightSizes() noexcept { return myImpl->myLightSizes; }
-float Scene::GetAutoExposureStops() const noexcept { return myImpl->myAutoExposureStops[0].load(std::memory_order_relaxed); }
+camera::Exposure Scene::GetViewExposure() const noexcept { return myImpl->ChosenExposure(0); }
 uint64_t Scene::GetTransientMemory() const noexcept { return myImpl->myTransientMemory.load(std::memory_order_relaxed); }
 uint64_t Scene::GetUnaliasedTransientMemory() const noexcept { return myImpl->myUnaliasedTransientMemory.load(std::memory_order_relaxed); }
 const Renderer& Scene::GetRenderer() const noexcept { return *myImpl->myRenderer; }

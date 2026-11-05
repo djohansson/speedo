@@ -248,7 +248,36 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 	// auto exposure (on by default: SPEEDO_AUTO_EXPOSURE=0 without), and SPEEDO_EXPOSURE=<stops>: the exposure (View >
 	// Exposure), e.g. to capture a dark interior as it is, comparably (with SPEEDO_AUTO_EXPOSURE=0: else it is added to
 	// what auto exposure picks)
-	apply(settings.autoExposure, kDefaults.autoExposure, "SPEEDO_AUTO_EXPOSURE", unless("0"));
+	// the camera's exposure mode (SPEEDO_EXPOSURE_MODE=program|aperture|shutter|manual; SPEEDO_AUTO_EXPOSURE=0 is manual,
+	// as before the camera), what it exposes with (SPEEDO_APERTURE=<f-number>, SPEEDO_SHUTTER=<seconds, or 1/<n>>,
+	// SPEEDO_ISO) and the compensation on top (SPEEDO_EXPOSURE=<stops>)
+	apply(
+		settings.exposureMode,
+		kDefaults.exposureMode,
+		"SPEEDO_AUTO_EXPOSURE",
+		[](const char* value) -> std::optional<uint8_t>
+		{ return static_cast<uint8_t>(std::string_view(value) == "0" ? gfx::camera::ExposureMode::kManual : gfx::camera::ExposureMode::kProgram); });
+	apply(
+		settings.exposureMode,
+		settings.exposureMode,
+		"SPEEDO_EXPOSURE_MODE",
+		[](const char* value) -> std::optional<uint8_t>
+		{
+			auto mode = gfx::camera::ParseExposureMode(value);
+			return mode ? std::optional(static_cast<uint8_t>(*mode)) : std::nullopt;
+		});
+	apply(settings.aperture, kDefaults.aperture, "SPEEDO_APERTURE", number(gfx::camera::ExposureLimits{}.widestAperture, gfx::camera::ExposureLimits{}.narrowestAperture));
+	apply(
+		settings.shutter,
+		kDefaults.shutter,
+		"SPEEDO_SHUTTER",
+		[](const char* value) -> std::optional<float>
+		{
+			std::string_view text(value);
+			float seconds = text.starts_with("1/") ? 1.0F / std::max(std::strtof(value + 2, nullptr), 1e-3F) : std::strtof(value, nullptr);
+			return std::clamp(seconds, gfx::camera::ExposureLimits{}.fastestShutter, gfx::camera::ExposureLimits{}.slowestShutter);
+		});
+	apply(settings.iso, kDefaults.iso, "SPEEDO_ISO", number(gfx::camera::ExposureLimits{}.lowestIso, gfx::camera::ExposureLimits{}.highestIso));
 	apply(settings.exposureStops, kDefaults.exposureStops, "SPEEDO_EXPOSURE", number(-kAny, kAny));
 	// the shadows (SPEEDO_SHADOWS=0 without), and the ray traced ones (SPEEDO_TRACED_SHADOWS=0 for the atlas alone, all to
 	// trace every pixel)
@@ -361,6 +390,74 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 	apply(settings.fog, kDefaults.fog, "SPEEDO_FOG", unless("0"));
 	apply(settings.fogVisibility, kDefaults.fogVisibility, "SPEEDO_FOG_VISIBILITY", number(kMinFogVisibility, kMaxFogVisibility));
 	apply(settings.fogHeight, kDefaults.fogHeight, "SPEEDO_FOG_HEIGHT", number(kMinFogHeight, kMaxFogHeight));
+}
+
+// a shutter's seconds as a camera shows them: a fraction under a second
+[[nodiscard]] std::string ShutterText(float seconds)
+{
+	return seconds < 1.0F ? std::format("1/{:.0f} s", 1.0 / static_cast<double>(seconds)) : std::format("{:.3g} s", static_cast<double>(seconds));
+}
+
+// the sensor whose height a view's is (see Views::GetSensorHeight), none for a height of no preset's
+[[nodiscard]] std::optional<gfx::camera::Sensor> SensorOfHeight(float height)
+{
+	for (auto sensor : gfx::camera::kSensors)
+		if (std::abs(gfx::camera::SensorSizeOf(sensor).height - height) < 1e-3F)
+			return sensor;
+	return std::nullopt;
+}
+
+// the camera's sensor and focal length a pose names (SPEEDO_SENSOR=<full-frame|aps-c|super35|1-inch|phone>,
+// SPEEDO_FOCAL_LENGTH=<mm>), applied with the camera once the model is in (the install frames the views, which sets
+// the field of view back: see PrepareDraw's gAutoLens): the sensor first, which keeps the focal length, then the focal
+// length on it (none: the field of view as it is); left out where resetMissing, the defaults (full frame, the 15.6 mm of
+// the default field of view); none to apply otherwise
+struct AutoLens
+{
+	std::optional<float> sensorHeight;
+	std::optional<float> focalLength;
+	bool defaultFieldOfView = false;
+
+	void Apply(Views& views) const
+	{
+		if (sensorHeight)
+			views.SetSensorHeight(*sensorHeight);
+		if (focalLength)
+			views.SetFocalLength(*focalLength);
+		else if (defaultFieldOfView)
+			views.SetFieldOfView(CameraCreateDesc{}.fovY);
+	}
+};
+
+template <typename Lookup>
+[[nodiscard]] std::optional<AutoLens> ApplyCameraVariables(Lookup&& lookup, bool resetMissing)
+{
+	AutoLens lens;
+	bool any = false;
+	if (const char* value = lookup("SPEEDO_SENSOR"); value != nullptr && *value != '\0')
+	{
+		if (auto sensor = gfx::camera::ParseSensor(value))
+			lens.sensorHeight = gfx::camera::SensorSizeOf(*sensor).height;
+		else
+			std::println(stderr, "SPEEDO_SENSOR={}: not understood (full-frame, aps-c, super35, 1-inch or phone)", value);
+		any = true;
+	}
+	else if (resetMissing)
+	{
+		lens.sensorHeight = gfx::camera::SensorSizeOf(gfx::camera::Sensor::kFullFrame).height;
+		any = true;
+	}
+	if (const char* value = lookup("SPEEDO_FOCAL_LENGTH"); value != nullptr && *value != '\0')
+	{
+		lens.focalLength = std::clamp(std::strtof(value, nullptr), 1.0F, 5000.0F);
+		any = true;
+	}
+	else if (resetMissing)
+	{
+		lens.defaultFieldOfView = true;
+		any = true;
+	}
+	return any ? std::optional(lens) : std::nullopt;
 }
 
 // a pose's text read from the clipboard (on the main thread, see InternalPastePose), for the next PrepareDraw
@@ -692,11 +789,35 @@ void WindowedApplication::InternalCopyPose()
 	float rotation = settings.environmentRotationDegrees.load(std::memory_order_relaxed);
 	if (rotation != 0.0F)
 		text += std::format(" SPEEDO_ENVIRONMENT_ROTATION={:.2f}", static_cast<double>(rotation));
-	if (!settings.autoExposure.load(std::memory_order_relaxed))
-		text += " SPEEDO_AUTO_EXPOSURE=0";
+	// the camera's exposure: its mode (manual as SPEEDO_AUTO_EXPOSURE=0, as before the camera), what is set in it (all
+	// three in manual, the pinned one in a priority mode), and the compensation
+	{
+		auto mode = static_cast<gfx::camera::ExposureMode>(settings.exposureMode.load(std::memory_order_relaxed));
+		if (mode == gfx::camera::ExposureMode::kManual)
+			text += " SPEEDO_AUTO_EXPOSURE=0";
+		else if (mode != gfx::camera::ExposureMode::kProgram)
+			text += std::format(" SPEEDO_EXPOSURE_MODE={}", gfx::camera::ExposureModeName(mode));
+		const gfx::camera::Exposure kDefault{};
+		float aperture = settings.aperture.load(std::memory_order_relaxed);
+		float shutter = settings.shutter.load(std::memory_order_relaxed);
+		float iso = settings.iso.load(std::memory_order_relaxed);
+		if ((mode == gfx::camera::ExposureMode::kManual || mode == gfx::camera::ExposureMode::kAperturePriority) && aperture != kDefault.aperture)
+			text += std::format(" SPEEDO_APERTURE={:.3g}", static_cast<double>(aperture));
+		if ((mode == gfx::camera::ExposureMode::kManual || mode == gfx::camera::ExposureMode::kShutterPriority) && shutter != kDefault.shutter)
+			text += shutter < 1.0F ? std::format(" SPEEDO_SHUTTER=1/{:.0f}", 1.0 / static_cast<double>(shutter))
+								   : std::format(" SPEEDO_SHUTTER={:.4g}", static_cast<double>(shutter));
+		if (mode == gfx::camera::ExposureMode::kManual && iso != kDefault.iso)
+			text += std::format(" SPEEDO_ISO={:.0f}", static_cast<double>(iso));
+	}
 	float stops = settings.exposureStops.load(std::memory_order_relaxed);
 	if (stops != 0.0F)
 		text += std::format(" SPEEDO_EXPOSURE={:.2f}", static_cast<double>(stops));
+	// the camera's sensor and focal length (see Views::GetFocalLength), where they aren't the defaults (full frame, and
+	// the 15.6 mm of the default 75 degree field of view)
+	if (auto sensor = ui::SensorOfHeight(myViews->GetSensorHeight()); sensor && *sensor != gfx::camera::Sensor::kFullFrame)
+		text += std::format(" SPEEDO_SENSOR={}", gfx::camera::SensorKey(*sensor));
+	if (std::abs(myViews->GetFieldOfView() - CameraCreateDesc{}.fovY) > 1e-4F)
+		text += std::format(" SPEEDO_FOCAL_LENGTH={:.4g}", static_cast<double>(myViews->GetFocalLength()));
 	if (uint32_t tonemapper = settings.tonemapper.load(std::memory_order_relaxed); tonemapper != TONEMAPPER_PBR_NEUTRAL)
 		for (auto [name, value] : ui::kTonemappers)
 			if (value == tonemapper)
@@ -1498,6 +1619,9 @@ void WindowedApplication::PrepareDraw()
 	// the views' grid a pose pasted names (SPEEDO_LAYOUT, 1x1 where it names none), for the layout's section below
 	static std::optional<std::array<uint32_t, 2>> gPastedLayout;
 	static bool gAutoFrame = false;
+	// the camera's sensor and focal length the variables or a pasted pose name (see ui::ApplyCameraVariables), applied with
+	// the camera once the model is in
+	static std::optional<ui::AutoLens> gAutoLens;
 	// SPEEDO_LIGHT_SIZES=<light>=<size>[,...]: the model's lights' sizes (as View > Lights sets them: a directional light's
 	// angular radius in degrees, a point or spot light's radius), once it is installed (which clears them)
 	static std::vector<std::pair<size_t, float>> gAutoLightSizes;
@@ -1588,6 +1712,7 @@ void WindowedApplication::PrepareDraw()
 			if (auto index = static_cast<uint32_t>(std::strtoul(giDebug, nullptr, 10)); index > 0 && DEBUG_VIEW_GI_FIRST + index - 1 < DEBUG_VIEW_GI_END)
 				App().GetScene().GetSettings().debugView.store(DEBUG_VIEW_GI_FIRST + index - 1, std::memory_order_relaxed);
 		ui::ApplyPoseSettings(App().GetScene().GetSettings(), [](const char* name) -> const char* { return std::getenv(name); }, false);
+		gAutoLens = ui::ApplyCameraVariables([](const char* name) -> const char* { return std::getenv(name); }, false);
 		// the unit SPEEDO_UNITS or SPEEDO_METERS_PER_UNIT names is the autoloaded model's (see ChooseSceneUnit: set and
 		// remembered for its file as it installs)
 		if ((std::getenv("SPEEDO_UNITS") != nullptr || std::getenv("SPEEDO_METERS_PER_UNIT") != nullptr) && std::getenv("SPEEDO_AUTOLOAD_MODEL") != nullptr)
@@ -1736,6 +1861,7 @@ void WindowedApplication::PrepareDraw()
 			std::println("Paste Pose: {}", *text);
 			auto& scene = App().GetScene();
 			ui::ApplyPoseSettings(scene.GetSettings(), [&pose](const char* name) { return pose->Get(name); }, true);
+			gAutoLens = ui::ApplyCameraVariables([&pose](const char* name) { return pose->Get(name); }, true);
 			gAutoCameraAfterModel = false;
 			gAutoModel.reset();
 			if (const char* model = pose->Get("SPEEDO_AUTOLOAD_MODEL"))
@@ -1868,7 +1994,7 @@ void WindowedApplication::PrepareDraw()
 		}
 		gAutoLightSizes.clear();
 	}
-	if ((gAutoCamera || gAutoFrame) && autoLoadsReady && modelInstalled)
+	if ((gAutoCamera || gAutoFrame || gAutoLens) && autoLoadsReady && modelInstalled)
 	{
 		if (gAutoFrame)
 		{
@@ -1876,7 +2002,7 @@ void WindowedApplication::PrepareDraw()
 			auto [task, future] = core::CreateTask([this] { myViews->UseSceneCamera(std::nullopt); });
 			rhi.drawCalls.enqueue(task);
 		}
-		else
+		else if (gAutoCamera)
 		{
 			// on the draw thread too, after the install (which frames the views, or sets the model's camera), and for a
 			// few frames: the install may be queued after the scene names its file
@@ -1903,10 +2029,17 @@ void WindowedApplication::PrepareDraw()
 				});
 			rhi.drawCalls.enqueue(task);
 		}
+		// and the sensor and the focal length named (after the placement or the framing, which set the field of view)
+		if (gAutoLens)
+		{
+			auto [task, future] = core::CreateTask([this, lens = *gAutoLens] { lens.Apply(*myViews); });
+			rhi.drawCalls.enqueue(task);
+		}
 		if (--gAutoCameraRepeats == 0)
 		{
 			gAutoCamera.reset();
 			gAutoFrame = false;
+			gAutoLens.reset();
 		}
 	}
 	if (!gAutoPath.empty() && !gAutoPathFollowed && !gAutoCamera && !gAutoFrame && autoLoadsReady && modelInstalled)
@@ -2539,6 +2672,74 @@ void WindowedApplication::PrepareDraw()
 						useCamera(cameraIt);
 					PopID();
 				}
+				Separator();
+				// the physical camera (see gfx/physicalcamera.h): its sensor and focal length, which give the field of view,
+				// and its exposure's mode and settings
+				{
+					auto sensor = ui::SensorOfHeight(myViews->GetSensorHeight());
+					if (ui::BeginMenu("Sensor"))
+					{
+						for (auto preset : gfx::camera::kSensors)
+							if (MenuItem(gfx::camera::SensorName(preset).data(), nullptr, sensor == preset))
+								myViews->SetSensorHeight(gfx::camera::SensorSizeOf(preset).height);
+						SetItemTooltip("The sensor's size: with the focal length it gives the field of view (a smaller sensor's is narrower, as a lens's is).");
+						ImGui::EndMenu();
+					}
+					auto first = myViews->GetCamera(0);
+					bool orthographic = first && first->GetDesc().viewport.type == ViewType::Orthographic;
+					BeginDisabled(orthographic);
+					float focalLength = myViews->GetFocalLength();
+					if (DragFloat("Focal Length", &focalLength, 0.5F, 4.0F, 1200.0F, "%.3g mm", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+						myViews->SetFocalLength(focalLength);
+					EndDisabled();
+					SetItemTooltip("The lens's focal length on the sensor: the vertical field of view is %.1f degrees. Drag, or double-click to type.", static_cast<double>(glm::degrees(myViews->GetFieldOfView())));
+				}
+				if (ui::BeginMenu("Exposure"))
+				{
+					auto& settings = App().GetScene().GetSettings();
+					auto mode = static_cast<gfx::camera::ExposureMode>(settings.exposureMode.load(std::memory_order_relaxed));
+					auto chosen = App().GetScene().GetViewExposure();
+					// a mode change keeps what the camera chose as what is set, so a priority starts from the exposure it had
+					auto setMode = [&settings, &chosen](gfx::camera::ExposureMode wanted)
+					{
+						settings.aperture.store(chosen.aperture, std::memory_order_relaxed);
+						settings.shutter.store(chosen.shutter, std::memory_order_relaxed);
+						settings.iso.store(chosen.iso, std::memory_order_relaxed);
+						settings.exposureMode.store(static_cast<uint8_t>(wanted), std::memory_order_relaxed);
+					};
+					for (auto [name, wanted] : {std::pair{"Program", gfx::camera::ExposureMode::kProgram},
+												std::pair{"Aperture Priority", gfx::camera::ExposureMode::kAperturePriority},
+												std::pair{"Shutter Priority", gfx::camera::ExposureMode::kShutterPriority},
+												std::pair{"Manual", gfx::camera::ExposureMode::kManual}})
+						if (MenuItem(name, nullptr, mode == wanted))
+							setMode(wanted);
+					SetItemTooltip("Program: the camera chooses its aperture, shutter and ISO for the scene's brightness, along a line from sunny sixteen (narrower and faster where it is brighter, wider and slower where darker, the ISO for the rest). A priority pins one of them. Manual pins all three.");
+					Separator();
+					const gfx::camera::ExposureLimits limits{};
+					bool apertureSet = mode == gfx::camera::ExposureMode::kManual || mode == gfx::camera::ExposureMode::kAperturePriority;
+					bool shutterSet = mode == gfx::camera::ExposureMode::kManual || mode == gfx::camera::ExposureMode::kShutterPriority;
+					bool isoSet = mode == gfx::camera::ExposureMode::kManual;
+					BeginDisabled(!apertureSet);
+					float aperture = apertureSet ? settings.aperture.load(std::memory_order_relaxed) : chosen.aperture;
+					if (DragFloat("Aperture", &aperture, 0.02F, limits.widestAperture, limits.narrowestAperture, "f/%.3g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+						settings.aperture.store(aperture, std::memory_order_relaxed);
+					EndDisabled();
+					SetItemTooltip("The f-number: a stop of exposure per factor of the square root of 2 (wider open, more light). Drag, or double-click to type.");
+					BeginDisabled(!shutterSet);
+					float shutter = shutterSet ? settings.shutter.load(std::memory_order_relaxed) : chosen.shutter;
+					if (DragFloat("Shutter", &shutter, 0.01F, limits.fastestShutter, limits.slowestShutter, "%.5g s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+						settings.shutter.store(shutter, std::memory_order_relaxed);
+					EndDisabled();
+					SetItemTooltip("The shutter's time, seconds: %s. Drag, or double-click to type.", ui::ShutterText(shutter).c_str());
+					BeginDisabled(!isoSet);
+					float iso = isoSet ? settings.iso.load(std::memory_order_relaxed) : chosen.iso;
+					if (DragFloat("ISO", &iso, 1.0F, limits.lowestIso, limits.highestIso, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+						settings.iso.store(iso, std::memory_order_relaxed);
+					EndDisabled();
+					SetItemTooltip("The sensor's sensitivity: a stop per doubling. Drag, or double-click to type.");
+					TextDisabled("EV100 %.2f, %+.2f EV", static_cast<double>(chosen.Ev100()), static_cast<double>(chosen.Stops()));
+					ImGui::EndMenu();
+				}
 				ImGui::EndMenu();
 			}
 			Checkbox("FPS", &gShowFps);
@@ -2569,13 +2770,30 @@ void WindowedApplication::PrepareDraw()
 				float stops = App().GetScene().GetSettings().exposureStops.load(std::memory_order_relaxed);
 				if (DragFloat("Exposure", &stops, 0.05F, -16.0F, 16.0F, "%+.2f EV", ImGuiSliderFlags_AlwaysClamp))
 					App().GetScene().GetSettings().exposureStops.store(stops, std::memory_order_relaxed);
-				SetItemTooltip("Scales the image by 2^EV before tonemapping (with auto exposure, on top of what it picks). Drag, or double-click to type.");
-				bool autoExposure = App().GetScene().GetSettings().autoExposure.load(std::memory_order_relaxed);
+				SetItemTooltip("An exposure compensation: scales the image by 2^EV on top of the camera's exposure (View > Camera > Exposure). Drag, or double-click to type.");
+				// auto exposure: the camera's program mode against manual (its priority modes are under View > Camera >
+				// Exposure); turned off, manual takes what the camera chose, as a lock does
+				auto& settings = App().GetScene().GetSettings();
+				bool autoExposure = settings.AutoExposure();
 				if (Checkbox("Auto Exposure", &autoExposure))
-					App().GetScene().GetSettings().autoExposure.store(autoExposure, std::memory_order_relaxed);
-				SetItemTooltip("Adapts the exposure to the scene's brightness over time.");
-				if (autoExposure)
-					TextDisabled("Auto: %+.2f EV", App().GetScene().GetAutoExposureStops());
+				{
+					if (!autoExposure)
+					{
+						auto chosen = App().GetScene().GetViewExposure();
+						settings.aperture.store(chosen.aperture, std::memory_order_relaxed);
+						settings.shutter.store(chosen.shutter, std::memory_order_relaxed);
+						settings.iso.store(chosen.iso, std::memory_order_relaxed);
+					}
+					settings.exposureMode.store(
+						static_cast<uint8_t>(autoExposure ? gfx::camera::ExposureMode::kProgram : gfx::camera::ExposureMode::kManual), std::memory_order_relaxed);
+				}
+				SetItemTooltip("The camera chooses its aperture, shutter and ISO for the scene's brightness over time (a program, or a priority mode under View > Camera > Exposure); off, it keeps what it chose, to set by hand there.");
+				{
+					auto exposure = App().GetScene().GetViewExposure();
+					TextDisabled(
+						"%s: %+.2f EV (f/%.3g, %s, ISO %.0f)", autoExposure ? "Auto" : "Manual", static_cast<double>(exposure.Stops()), static_cast<double>(exposure.aperture),
+						ui::ShutterText(exposure.shutter).c_str(), static_cast<double>(exposure.iso));
+				}
 				bool shadows = App().GetScene().GetSettings().shadows.load(std::memory_order_relaxed);
 				if (Checkbox("Shadows", &shadows))
 					App().GetScene().GetSettings().shadows.store(shadows, std::memory_order_relaxed);

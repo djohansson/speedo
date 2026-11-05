@@ -96,6 +96,17 @@ public:
 	[[nodiscard]] float GetMoveSpeed() const noexcept { return myMoveSpeed.load(std::memory_order_relaxed); }
 	void SetMoveSpeed(float speed) noexcept;
 
+	// the camera's sensor height (mm, see gfx::camera::Sensor) and focal length (mm), which give the cameras' vertical
+	// field of view (camera::FieldOfView: the first view's, every view has the same; a scene camera's yfov reads as a
+	// focal length on the sensor, the default 75 degrees as 15.6 mm on full frame). a change of the sensor keeps the
+	// focal length, so the field of view narrows on a smaller sensor, as a lens's does. any thread.
+	[[nodiscard]] float GetSensorHeight() const noexcept { return mySensorHeight.load(std::memory_order_relaxed); }
+	void SetSensorHeight(float height);
+	[[nodiscard]] float GetFocalLength() const;
+	void SetFocalLength(float focalLength);
+	[[nodiscard]] float GetFieldOfView() const;
+	void SetFieldOfView(float fieldOfView);
+
 	// writes the views (ViewData: view projections, eyes, viewports) to frameIndex's buffer from the cameras as they are
 	// now, and returns those cameras: what the frame draws with, so what it culls by and fits its shadows and clusters
 	// to. the other frame indices' buffers may still be in use. call on the draw thread, recording that frame (after its
@@ -159,6 +170,7 @@ private:
 	static constexpr float kDefaultMoveSpeed = 5.0F; // until a model is framed
 
 	std::atomic<float> myMoveSpeed{kDefaultMoveSpeed};
+	std::atomic<float> mySensorHeight{24.0F}; // full frame's (see SetSensorHeight)
 	// see FollowPath: the poses, and the next to place
 	struct Path
 	{

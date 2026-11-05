@@ -1,5 +1,7 @@
 #include <gfx/views.h>
 
+#include <gfx/physicalcamera.h>
+
 #include <gfx/shaders/capi.h>
 
 #include <core/assert.h>
@@ -370,6 +372,40 @@ std::vector<std::string> Views::GetSceneCameraNames() const
 std::optional<size_t> Views::GetSceneCamera() const
 {
 	return myScene.Read().Get().current;
+}
+
+void Views::SetSensorHeight(float height)
+{
+	// the focal length kept: the field of view follows the sensor
+	auto focalLength = GetFocalLength();
+	mySensorHeight.store(std::clamp(height, 1.0F, 100.0F), std::memory_order_relaxed);
+	SetFocalLength(focalLength);
+}
+
+float Views::GetFieldOfView() const
+{
+	auto cameras = myCameras.Read();
+	return cameras.Get().empty() ? CameraCreateDesc{}.fovY : cameras.Get().front().GetDesc().fovY;
+}
+
+void Views::SetFieldOfView(float fieldOfView)
+{
+	auto cameras = myCameras.Write();
+	for (auto& camera : cameras.Get())
+	{
+		camera.GetDesc().fovY = std::clamp(fieldOfView, glm::radians(1.0F), glm::radians(170.0F));
+		camera.UpdateProjectionMatrix();
+	}
+}
+
+float Views::GetFocalLength() const
+{
+	return camera::FocalLength(GetSensorHeight(), GetFieldOfView());
+}
+
+void Views::SetFocalLength(float focalLength)
+{
+	SetFieldOfView(camera::FieldOfView(GetSensorHeight(), focalLength));
 }
 
 void Views::SetMoveSpeed(float speed) noexcept
