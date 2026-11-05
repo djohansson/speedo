@@ -2771,10 +2771,10 @@ share. It replaced a stylized gradient whose sun was fixed.
   again where the sun or the moon has moved more than `kSkyRedrawAngle` (0.05 degrees: every 12 seconds at real time,
   every frame at 600x): the sky fields of `gEnvironment` alone (the irradiance is the filter's; they alone go up every
   `kSkyUpdateAngle`, a tenth of it, see the moon's bullet), the view (the sun's and the moon's), the panorama and the
-  prefiltering, into the installed environment, the filter's first barrier waiting for the frames still reading it, and
-  its descriptor sets handed back once the gpu is done (`Pipeline::TakeDescriptorSets`, see "Descriptor sets": 3000
-  frames at 3600x, a redraw each, where the pool would have run out of storage images within minutes), in one command
-  buffer with the fields' update. What a time lapse costs (2026-11-05, Bistro's street at 600x, 2560x1440, KosmicKrisp,
+  prefiltering, into the installed environment, the filter's first barrier waiting for the frames still reading it, its
+  resources' set pushed at each kernel (see "Descriptor sets": it took a set from the pool each, handed back once the
+  gpu was done, until 2026-11-05; 3000 frames at 3600x, a redraw each, had run the pool out of storage images within
+  minutes before that), in one command buffer with the fields' update. What a time lapse costs (2026-11-05, Bistro's street at 600x, 2560x1440, KosmicKrisp,
   the draw thread's frame time; the sun moves 0.16 degrees a frame, a redraw every frame): with the indirect lighting
   off 37.2 ms still against 45.9 moving (47.4 before), with it 52.3 against 62.0 (63.7 to 64.0 before). Of the 8.7 the
   sun's cascades are 5.6 (the shadow cache keeps them while the sun is still, and at 600x a far shadow moves texels a
@@ -2932,22 +2932,29 @@ full; old arrays are never recycled. So `SetDescriptorData` skips writes whose v
 (`pipeline::SameBinding`, compared per field since the Vulkan structs have padding) — otherwise
 per-frame re-writes of the same data (as the compute pass does) exhaust the pool within seconds
 (`VK_ERROR_OUT_OF_POOL_MEMORY`). Genuine changes (loads, resizes) still leak a little until sets are
-recycled once the gpu is done with them. A layout whose bindings change at every dispatch hands its sets over instead
+recycled once the gpu is done with them. A layout whose bindings change at every dispatch can hand its sets over instead
 (`Pipeline::TakeDescriptorSets(set)`: the set's arrays so far, to destroy once the gpu is done with the commands that bound
-them, which frees them back to the pool; the next bind takes a fresh one): the environment filter's, 20 sets a sky redraw,
-every frame while the time of day advances fast, which would have emptied the pool's storage images within minutes. Those
+them, which frees them back to the pool; the next bind takes a fresh one), as the environment filter's did until its set
+was pushed (below): 20 sets a sky redraw, every frame while the time of day advances fast, which would have emptied the
+pool's storage images within minutes. Those
 handed over are freed in a timeline callback, on an executor thread, while the draw thread allocates from the same pool,
 which Vulkan requires to be externally synchronized: every allocation, free and reset of a pipeline's pool holds its
 mutex (`Pipeline::myDescriptorPoolMutex`, shared with each `DescriptorSetArray`, `DescriptorSetArrayCreateDesc::poolMutex`).
 Unguarded, the two corrupted KosmicKrisp's list of the pool's sets while the time of day advanced, and destroying the pool
-crashed at shutdown (`kk_descriptor_set_destroy`, unlinking a set already freed). Push
-descriptors would be the other way, but rhi's push path (`InternalPushDescriptorSet`, never used) doesn't work yet: with
-the Environment layout's set 1 flagged, validation reported the template's set 1 not to be the flagged layout
-(`VUID-VkDescriptorUpdateTemplateCreateInfo-templateType-00353`) and a set layout with a binding number twice
-(`VUID-VkDescriptorSetLayoutCreateInfo-binding-00279`), and KosmicKrisp crashed in `vkCmdPushDescriptorSetWithTemplate`.
-The reflection keys that layout's sets 1 and 16777216 (its push constants', declared in set 0), and the pipeline layout
-lays its set layouts out in the order of those keys (`DescriptorSetLayoutFlatMap`, `GetDescriptorSetLayoutHandles`):
-where to look first (TODO.md).
+crashed at shutdown (`kk_descriptor_set_destroy`, unlinking a set already freed). The environment filter's set is pushed
+instead (2026-11-05; `Pipeline::CreateLayout`'s `pushDescriptorSets`: those sets' layouts are made with
+`VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT` and their bindings not partially bound, since a push descriptor
+layout allows no binding flags; `BindDescriptorSetAuto` then pushes the set's bindings into the command buffer with its
+template, `InternalPushDescriptorSet`, at each bind, and `TakeDescriptorSets` gives nothing for it): every one of its 9
+bindings is set before the first kernel, and 9 is within the 32 push descriptors every device has (KosmicKrisp's
+`KK_MAX_PUSH_DESCRIPTORS`, which implements the template push). Nothing else qualifies: the other layouts' sets hold
+arrays past that limit (the imgui renderer's 256 textures, the main layout's 1024 and more), and their sets seldom
+change (a model installed, a texture added); what changes every frame is in buffers indexed by the frame slot. The
+reflection keys the Environment layout's sets 0 (its push constants, `[[vk::binding(0, 0)]]`, a uniform buffer binding
+nothing binds) and 1, in that order, so the earlier try's failures (validation's `VUID-...-templateType-00353` and
+`-binding-00279`, a crash in `vkCmdPushDescriptorSetWithTemplate` on KosmicKrisp) weren't the order; a push set layout
+with the partially bound flag is invalid, likely them. Bistro's street at 600x: 45.9 to 45.3 ms with the indirect
+lighting off (KosmicKrisp, 2560x1440).
 
 A handle equal to the one set isn't the same object, though: drivers reuse a destroyed object's handle (NVIDIA's are
 addresses), so what is destroyed and made again with the gpu idle (the swapchain's storage views and the frame graph's

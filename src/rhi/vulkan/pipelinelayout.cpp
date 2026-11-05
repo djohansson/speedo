@@ -3,6 +3,7 @@
 #include <rhi/vulkan/convert.h>
 #include <rhi/vulkan/utils.h>
 
+#include <algorithm>
 #include <format>
 
 namespace rhi
@@ -87,10 +88,14 @@ PipelineLayout<kVk>::PipelineLayout(
 namespace pipeline
 {
 
-// a shader set layout as vulkan takes it: every binding partially bound, so the shaders may leave elements unwritten
-static DescriptorSetLayoutCreateDesc<kVk> ToDescriptorSetLayoutCreateDesc(const ShaderSetLayout& layout)
+// a shader set layout as vulkan takes it: every binding partially bound, so the shaders may leave elements unwritten;
+// a pushed set's (see Pipeline::CreateLayout) are not (a push descriptor set layout allows no binding flags), its
+// descriptors all written at each push
+static DescriptorSetLayoutCreateDesc<kVk> ToDescriptorSetLayoutCreateDesc(const ShaderSetLayout& layout, bool push)
 {
 	DescriptorSetLayoutCreateDesc<kVk> desc;
+	if (push)
+		desc.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT;
 	for (const auto& binding : layout.bindings)
 	{
 		desc.bindings.push_back(DescriptorSetLayoutBinding<kVk>{
@@ -99,7 +104,7 @@ static DescriptorSetLayoutCreateDesc<kVk> ToDescriptorSetLayoutCreateDesc(const 
 			.descriptorCount = binding.count,
 			.stageFlags = vk::ToVk(binding.stages),
 			.pImmutableSamplers = nullptr});
-		desc.bindingFlags.push_back(VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT);
+		desc.bindingFlags.push_back(push ? 0 : VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT);
 		desc.variableNames.push_back(binding.name);
 		desc.variableNameHashes.push_back(binding.nameHash);
 	}
@@ -114,7 +119,8 @@ static DescriptorSetLayoutCreateDesc<kVk> ToDescriptorSetLayoutCreateDesc(const 
 template <>
 PipelineLayout<kVk>::PipelineLayout(
 	CreateDescType&& desc,
-	const ShaderSet& shaderSet)
+	const ShaderSet& shaderSet,
+	std::span<const uint32_t> pushDescriptorSets)
 	: PipelineLayout(
 		std::forward<CreateDescType>(desc),
 		// read from desc, not GetDesc(): this runs before the delegated constructor has initialized the base
@@ -131,12 +137,13 @@ PipelineLayout<kVk>::PipelineLayout(
 
 			return shaderModules;
 		}(),
-		[&shaderSet, &desc]
+		[&shaderSet, &desc, pushDescriptorSets]
 		{
 			DescriptorSetLayoutFlatMap<kVk> map;
 			for (const auto& [set, shaderSetLayout] : shaderSet.layouts)
 			{
-				auto layout = pipeline::ToDescriptorSetLayoutCreateDesc(shaderSetLayout);
+				bool push = std::ranges::find(pushDescriptorSets, set) != pushDescriptorSets.end();
+				auto layout = pipeline::ToDescriptorSetLayoutCreateDesc(shaderSetLayout, push);
 				layout.instance = desc.instance;
 				layout.device = desc.device;
 				layout.uuid = uuids::NewUuid();

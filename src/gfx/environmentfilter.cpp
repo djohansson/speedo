@@ -67,7 +67,10 @@ EnvironmentFilter::EnvironmentFilter(Device& device, Pipeline& pipeline, ShaderL
 					},
 				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-			}));
+			}),
+		// the resources' set is pushed at each dispatch (its images change at every one): a redraw took a descriptor set
+		// from the pool for each of its 22 kernels, handed back once the gpu was done (see Pipeline::CreateLayout)
+		std::array{environmentfilter::kSet});
 
 	mySampler = std::make_unique<SamplerVector>(SamplerVectorCreateDesc{
 		device.CreateDeviceObjectCreateDesc("Environment Filter Sampler"),
@@ -290,8 +293,8 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 
 	for (auto& view : sourceMips)
 		views->push_back(std::move(view));
-	// and the descriptor sets this took (a new one at every dispatch, its images changing), freed once the gpu is done with
-	// these commands rather than never: the sky is drawn again every frame while the time of day advances fast
+	// (the descriptors are pushed, see the constructor: none taken from the pool to hand back, TakeDescriptorSets gives
+	// nothing for a pushed set)
 	return std::make_shared<std::pair<decltype(views), std::shared_ptr<void>>>(views, pipeline.TakeDescriptorSets(kSet));
 }
 

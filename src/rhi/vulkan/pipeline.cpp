@@ -572,7 +572,7 @@ void Pipeline<kVk>::PushConstants(CommandBufferHandle<kVk> cmd, std::span<const 
 }
 
 template <>
-PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(std::string_view name, const ShaderSet& shaderSet)
+PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(std::string_view name, const ShaderSet& shaderSet, std::span<const uint32_t> pushDescriptorSets)
 {
 	ENSUREF(!myLayoutNames.contains(std::string(name)), "pipeline layout {} exists", name);
 
@@ -581,7 +581,8 @@ PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(std::string_view name, con
 			PipelineLayoutCreateDesc<kVk>{
 				SuperType::CreateDeviceObjectCreateDesc(name),
 			},
-			shaderSet));
+			shaderSet,
+			pushDescriptorSets));
 
 	auto handle = static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
 	myLayoutNames.emplace(std::string(name), handle);

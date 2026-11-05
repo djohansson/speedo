@@ -66,7 +66,8 @@ private:
 	friend Pipeline<G>;
 	explicit PipelineLayout(
 		CreateDescType&& desc,
-		const ShaderSet& shaderSet);
+		const ShaderSet& shaderSet,
+		std::span<const uint32_t> pushDescriptorSets = {});
 	PipelineLayout( // takes ownership over provided handles
 		CreateDescType&& desc,
 		std::vector<ShaderModule<G>>&& shaderModules,
@@ -145,8 +146,13 @@ public:
 	void PushConstants(CommandBufferHandle<G> cmd, std::span<const std::byte> data, uint32_t offset = 0) const;
 
 	// creates a layout of the pipeline's own, by name (a pipeline's descriptor sets and layouts are its own: another
-	// pipeline has its own of the same name). GetLayoutHandle finds it by that name
-	[[maybe_unused]] PipelineLayoutHandle<G> CreateLayout(std::string_view name, const ShaderSet& shaderSet);
+	// pipeline has its own of the same name). GetLayoutHandle finds it by that name. pushDescriptorSets: the sets whose
+	// descriptors are pushed into the command buffer at each bind (BindDescriptorSetAuto) rather than written into a
+	// set from the pool: for a set whose bindings change at every dispatch (the environment filter's), which took a
+	// set from the pool each; such a set's bindings are all written at each push (none partially bound), and at most
+	// the device's push descriptor limit (32 at least)
+	[[maybe_unused]] PipelineLayoutHandle<G> CreateLayout(
+		std::string_view name, const ShaderSet& shaderSet, std::span<const uint32_t> pushDescriptorSets = {});
 	[[nodiscard]] PipelineLayoutHandle<G> GetLayoutHandle(std::string_view name) const;
 
 	// "manual" api
