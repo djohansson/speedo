@@ -275,7 +275,7 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 		color *= TracedSample(material.baseColorView, texCoords, weights, worldArea, coneWidth);
 	float3 emission = material.emissive.rgb;
 	if (any(emission > 0.0) && (material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
-		emission *= TracedSample(material.emissiveView, texCoords, weights, worldArea, coneWidth).rgb;
+		emission *= EmissiveTexel(TracedSample(material.emissiveView, texCoords, weights, worldArea, coneWidth).rgb);
 	if ((material.flags & MATERIAL_FLAG_UNLIT) != 0u)
 		return color.rgb;
 	Surface surface;

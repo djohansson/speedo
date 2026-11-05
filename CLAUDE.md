@@ -3036,7 +3036,14 @@ Emissive (gltf `emissiveFactor` times `KHR_materials_emissive_strength` and the 
 `map_Ke`) is added after the lighting, unclamped (CornellBox's lamp, `Ke 17 12 4`, saturates to white); an emissive
 texture with a black factor isn't loaded, but an obj's `map_Ke` with `Ke 0` is the map alone, as exporters write it
 (`objimport-v9`: Bistro's hanging lanterns, its shop signs and every lamp of its interior emitted nothing by the
-factor). Occlusion maps (gltf `occlusionTexture`,
+factor). A sampled emissive texture is taken less its black level (`EmissiveTexel`, `kEmissiveBlack`: 4 of 255 in
+srgb, 0.00122 linear, wherever one is sampled: the fragments', the voxels', the rays' hits', the emitters' points'): an
+8 bit texture's black isn't 0 once compressed (BC1's about 3 of 255 of an authored 4, Basis's 1 of 255), and no
+authored emission is that dim; CarConcept's rims, mirror, brake, trim and interior frames have the Khronos logo on a
+near black field for their emissive texture with a factor of 1, glowed at 3e-4, a thousandth of a sunlit white, and the
+night's auto exposure, +7.7 at its headlights' pools, showed them as a mid gray against the black paint (the user's
+white rims and interior, 2026-11-05; the glTF folder's png, 4 of 255 through BC1, drew them purple gray, the GLB's
+KTX2 neutral). Occlusion maps (gltf `occlusionTexture`,
 by its strength) darken only the ambient term, the stand-in for the indirect light gltf applies them to; they are
 imported as `image::Usage::kOcclusion` (the red channel, linear, BC4), since gltf often packs occlusion, roughness and
 metallic into one texture's r, g and b, which kMask's luminance would mix. Each texture is a `TextureRef` (`gfx/textureref.h`: path, texcoord set, `KHR_texture_transform` as a 2x3 matrix, and its

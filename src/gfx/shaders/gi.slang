@@ -697,7 +697,7 @@ float3 GiHitRadiance(uint firstClip, float3 position, BvhHit hit, out float3 emi
 							gVertexBuffer[gIndexBuffer[hit.firstIndex + 1]].texCoord01 * weights.x +
 							gVertexBuffer[gIndexBuffer[hit.firstIndex + 2]].texCoord01 * weights.y;
 		TextureView view = gTextureViews[material.emissiveView];
-		emission *= SampleViewLevel(view, ViewTexCoord(view, texCoord01), BVH_ALPHA_LEVEL).rgb;
+		emission *= EmissiveTexel(SampleViewLevel(view, ViewTexCoord(view, texCoord01), BVH_ALPHA_LEVEL).rgb);
 	}
 	return reflected + emission;
 }
@@ -1083,7 +1083,7 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 			if ((material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
 			{
 				TextureView view = gTextureViews[material.emissiveView];
-				emission *= SampleViewLevel(view, ViewTexCoord(view, texCoord01), 6.0).rgb;
+				emission *= EmissiveTexel(SampleViewLevel(view, ViewTexCoord(view, texCoord01), 6.0).rgb);
 			}
 		}
 		// sampled half a voxel apart along its longest edge, in rows of samples, up to kGiVoxelizeSampledSteps of them: a

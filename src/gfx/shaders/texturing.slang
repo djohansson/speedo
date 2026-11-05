@@ -161,6 +161,20 @@ float4 SampleView(uint viewId, float4 texCoord01)
 	return SampleView(view, ViewTexCoord(view, texCoord01));
 }
 
+// a sampled emissive texture's value (linear) less its black level, 4 of 255 in srgb: an 8 bit texture's black isn't 0
+// once compressed (BC1's is about 3 of 255 of an authored 4, Basis's 1 of 255), and no authored emission is that dim (an
+// emissive strength carries what is). CarConcept's rims, trim and interior frames have the Khronos logo for their
+// emissive texture, on a near black field, with an emissive factor of 1: they glowed at 3e-4, a thousandth of a sunlit
+// white, which the night's exposure, +7.7 at its headlights' pools, showed as a mid gray against the black paint (the
+// user's white rims and interior, 2026-11-05). every sampling of an emissive texture takes it (the fragments', the voxels',
+// the rays' hits', the emitters' points')
+static const float kEmissiveBlack = 0.00122;
+
+float3 EmissiveTexel(float3 sample)
+{
+	return max(sample - kEmissiveBlack, 0.0);
+}
+
 // the tangent frame (rows: along +u, along +v as sampled, normal) of a texture view's texcoords at a pixel: the vertex
 // tangents' where they are valid, else one from screen space derivatives (see NormalFromMap)
 float3x3 SurfaceFrame(float3 normal, float4 tangent, float3 position, float4 texCoord01, TextureView view, float faceSign)

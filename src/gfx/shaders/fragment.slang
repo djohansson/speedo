@@ -64,7 +64,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 	// light the surface gives off, unaffected by the lighting
 	float3 emissive = material.emissive.rgb;
 	if ((material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
-		emissive *= SampleView(material.emissiveView, v.texCoord01).rgb;
+		emissive *= EmissiveTexel(SampleView(material.emissiveView, v.texCoord01).rgb);
 
 	// the debug views (not the scatter pass's: what it draws is only seen lit)
 	uint debugView = scatterPass ? DEBUG_VIEW_NONE : DebugView();
