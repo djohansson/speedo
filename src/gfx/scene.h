@@ -136,8 +136,9 @@ public:
 		std::atomic<float> visibility = environment::kSkyDefaultVisibility;
 		// the aerial perspective, where the environment is the sky (FrameInputs::aerialPerspective; View > Environment >
 		// Aerial Perspective, SPEEDO_AERIAL_PERSPECTIVE=0 to start without), and its light shafts, the sun's shadows in the air
-		// (View > Environment > Light Shafts, SPEEDO_LIGHT_SHAFTS=0); and the scene's unit in meters, which the air's
-		// thickness goes by (View > Environment > Meters per Unit, SPEEDO_METERS_PER_UNIT)
+		// (View > Environment > Light Shafts, SPEEDO_LIGHT_SHAFTS=0); and the scene's unit in meters (see gfx::SceneUnit;
+		// View > Units, SPEEDO_UNITS or SPEEDO_METERS_PER_UNIT), which the air's thickness, the lights' falloff and the
+		// ground plane's checker go by
 		std::atomic<bool> aerialPerspective = true;
 		std::atomic<bool> lightShafts = true;
 		std::atomic<float> metersPerUnit = 1.0F;
@@ -195,6 +196,7 @@ public:
 		// where files' variants are laid out to compare (see LoadVariants): the variant of each of filePaths (none: the
 		// default materials), empty otherwise
 		std::vector<std::optional<uint32_t>> layout;
+		Bounds3f bounds; // the model's, without its ground plane (Model::GetFramedBounds): what its unit is guessed by
 	};
 
 	// one of the installed environment's dominant lights, for the ui: its irradiance (lux, luminance) and whether the

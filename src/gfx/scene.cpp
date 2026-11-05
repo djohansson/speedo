@@ -503,7 +503,8 @@ struct Scene::Impl
 			.tonemapper = mySettings.tonemapper.load(std::memory_order_relaxed),
 			.shadowView = SHADER_TYPES_NO_SHADOW,
 			.debugView = std::min(mySettings.debugView.load(std::memory_order_relaxed), DEBUG_VIEW_COUNT - 1),
-			.outputIndex = outputIndex};
+			.outputIndex = outputIndex,
+			.metersPerUnit = std::max(mySettings.metersPerUnit.load(std::memory_order_relaxed), 1e-6F)};
 	}
 
 
@@ -1636,7 +1637,8 @@ struct Scene::Impl
 					.variants = model->GetDesc().variants,
 					.variant = model->GetDesc().variant,
 					.ground = model->GetGround(),
-					.layout = std::vector(model->GetLayout().begin(), model->GetLayout().end())};
+					.layout = std::vector(model->GetLayout().begin(), model->GetLayout().end()),
+					.bounds = model->GetFramedBounds()};
 			}
 
 			// its first animation plays, from the start (SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests)

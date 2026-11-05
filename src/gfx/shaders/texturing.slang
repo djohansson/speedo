@@ -71,7 +71,11 @@ float4 FirstTexCoordDerivatives(float2 uv)
 
 float GroundChecker(float2 uv, float contrast)
 {
-	float4 d = FirstTexCoordDerivatives(uv);
+	// squares of a meter: the texcoords are the place in the scene's units (View > Units, see PushConstants::metersPerUnit;
+	// of a unit, a centimeter file's squares were a centimeter, Sponza's unseen from the camera's 14 m up)
+	float metersPerUnit = gPushConstants.metersPerUnit;
+	float4 d = FirstTexCoordDerivatives(uv) * metersPerUnit;
+	uv *= metersPerUnit;
 	float scale = exp2(gViewData[gPushConstants.frameIndex][gShadingViewId].textureLodBias);
 	float2 width = max(abs(d.xy), abs(d.zw)) * scale + 1e-4;
 	float2 wave = 2.0 * (abs(frac((uv - 0.5 * width) * 0.5) - 0.5) - abs(frac((uv + 0.5 * width) * 0.5) - 0.5)) / width;

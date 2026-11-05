@@ -2820,8 +2820,8 @@ share. It replaced a stylized gradient whose sun was fixed.
   slice at the eye, the second 1 m away and each after a constant factor farther, to 200 km at the last (fine near the eye
   for the shafts, kilometres apart in the haze), each marched in 2 steps through the sky's medium as the sky's view is
   (`SkyScatteredLight`'s energy conserving step), the eye at its altitude over the planet's surface (the scene's lowest
-  point, by `SPEEDO_METERS_PER_UNIT`, the scene's unit in meters, 1 by default: View > Environment > Meters per Unit, 0.01
-  for Bistro's centimetres), as far as the surface where the ray meets it (`groundReach`, the step cut there, the slices
+  point, by the scene's unit in meters, View > Units, see "The scene's unit": 0.01 for Bistro's centimetres), as far as
+  the surface where the ray meets it (`groundReach`, the step cut there, the slices
   past it holding what reached the eye from the surface: marched on through the planet, a cell's ray below the horizon
   crossed 200 km of air at the surface's density, denser by the exponential layers' negative altitudes, with no sun,
   the planet in the way of every point under its surface, a saturated dark fog that the sky's last rows took bilinearly
@@ -3531,6 +3531,26 @@ which the views frame and orbit (`Views::SetScene`'s `framed`, `FrameBounds`' re
 Variant keep when they load it again. A set side by side stands on it (see "Archives of several models"), and a model on a
 ground plane is framed from 30 degrees above (`Views::FrameBounds`' pitch), so that a set's back rows show over its front
 ones and the shadows are in view.
+
+**The scene's unit** (`gfx::SceneUnit` in `gfx/units.h`: meters, centimeters, millimeters, inches or feet, or a custom
+meters per unit; `Scene::Settings::metersPerUnit` holds it, `PushConstants::metersPerUnit` carries it): what the file's
+coordinates are in. The lights' inverse square falloff takes distances in meters (`LightFalloff`: candela over meters
+squared; the range stays the file's units, as the position is), the ground plane's checker is squares of a meter
+(`GroundChecker`: of a unit, a centimeter file's were a centimeter, Sponza's unseen from the camera's 14 m up, the user's
+pose `-563.7288,1397.0325,3264.7698,14.237,1.151`, 2026-11-05) and the air goes by it (`AerialPerspectiveData::metersPerUnit`);
+what is relative to the model (the framing, the move speed, the clipmap, the cascades, the contacts, the emitters'
+importance) doesn't. A file's unit is resolved as its model installs (`ResolveSceneUnit` in `client/ui.cpp`, once per
+scene file): the unit chosen for it (`ChooseSceneUnit`: the file browser's "Units" dropdown next to "Ground plane",
+`SPEEDO_UNITS=<m|cm|mm|in|ft>` or `SPEEDO_METERS_PER_UNIT=<meters>` with the autoloads, a pasted pose's, which Copy Pose
+writes where the unit isn't meters), then remembered for the file; else the file's remembered unit (`RememberedUnit`,
+`<user profile>/units.txt`: meters per unit and the scene's file path a line); else guessed (`gfx::GuessUnit`): a gltf's
+meters, its spec's; an obj's by its size, centimeters over `kCentimeterExtent` (500) units across (the McGuire archive's
+centimeter scenes are 594 to 10860 across: bmw, white oak, holodeck, conference, Sponza, Bistro; its meter ones under
+170: San Miguel, Sibenik, salle de bain, erato, Lost Empire, Rungholt's house, the rooms, the small models; teapot, 154,
+and the chestnut trees fall to meters), a set's meters (its files are scaled to one size). View > Units shows the unit
+and pins one for the scene's file (or a custom Meters per Unit, which was under View > Environment), and its Automatic
+forgets the file's, resolved again as a guess. The browser's dropdown's "automatic" (the default) makes no choice: the
+remembered or the guessed stands.
 
 Archives of several models are sets of variants (geodesic's 86 polyhedra, sphere's tessellations and texture mappings,
 the CornellBox variants, ...), not scenes: each file stands alone at the origin, and the files of a set needn't share a

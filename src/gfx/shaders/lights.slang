@@ -63,7 +63,10 @@ float LightFalloff(LightData light, float3 position, out float3 toLight)
 		float3 offset = light.positionRange.xyz - position;
 		float distance2 = max(dot(offset, offset), 1e-8);
 		toLight = offset * rsqrt(distance2);
-		attenuation = 1.0 / distance2;
+		// the inverse square in meters (candela over meters squared): the scene's unit, View > Units, see
+		// PushConstants::metersPerUnit; the range stays the file's units, as the position is
+		float metersPerUnit = gPushConstants.metersPerUnit;
+		attenuation = 1.0 / max(distance2 * metersPerUnit * metersPerUnit, 1e-10);
 		if (light.positionRange.w > 0.0)
 		{
 			float ratio = sqrt(distance2) / light.positionRange.w;

@@ -1473,6 +1473,9 @@ struct PushConstants
 	// per frame: what the shading traces through the device's ray queries (TRACED_*, see traced.slang): View > Ray Traced
 	// Reflections and Refractions, where the device has them
 	alignas(4) UINT1(traced);
+	// per frame: the scene's unit in meters (View > Units, see gfx::SceneUnit): the lights' inverse square falloff and the
+	// ground plane's checker, squares of a meter, go by it, as the air does (AerialPerspectiveData::metersPerUnit)
+	alignas(4) FLOAT1(metersPerUnit);
 };
 // PushConstants::visibilityTiles: the dispatch's, every tile; gVisibilityTiles' list of the tiles without a material with an
 // extended layer (the specialized kernel's); its list of those with (the generic kernel's)

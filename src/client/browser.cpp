@@ -1,5 +1,7 @@
 #include "windowedapplicationdetail.h"
 
+#include <gfx/units.h>
+
 #include <imgui.h>
 
 #include <algorithm>
@@ -184,6 +186,9 @@ struct State
 	std::optional<size_t> scrollTo; // the entry the arrow keys moved to, scrolled into view when drawn
 	bool sideBySide = true;
 	bool ground = true; // the models opened stand on a ground plane (see ModelGround): by default since 2026-11-04
+	// the unit the models opened are in (see gfx::SceneUnit): 0 as remembered for the file or guessed, else 1 + the
+	// unit's index in gfx::kSceneUnits, chosen for them as they install (ChooseSceneUnit) and remembered
+	int unit = 0;
 	bool listed = false;
 	ListOptions options; // the current purpose's (see BrowserPurpose)
 	windowedapplication::BrowserPurpose purpose = windowedapplication::BrowserPurpose::kFiles;
@@ -478,10 +483,15 @@ void WindowedApplication::InternalDrawBrowser()
 					.paths = {entry.path.string()}, .ground = entry.kind == Kind::kArchive ? ground : ModelGround::kNone});
 		}
 		if (!models.empty())
+		{
+			// the unit chosen for them, as they install (see ChooseSceneUnit); none chosen, the file's remembered or guessed
+			if (state.unit > 0 && static_cast<size_t>(state.unit) <= gfx::kSceneUnits.size())
+				ChooseSceneUnit(gfx::MetersPerUnit(gfx::kSceneUnits[static_cast<size_t>(state.unit) - 1]));
 			InternalOpen(RecentFile{
 				.paths = std::move(models),
 				.arrangement = state.sideBySide ? ModelArrangement::kSideBySide : ModelArrangement::kAsAuthored,
 				.ground = ground});
+		}
 		gShowBrowser = false;
 	};
 
@@ -901,6 +911,17 @@ void WindowedApplication::InternalDrawBrowser()
 			Checkbox("Ground plane", &state.ground);
 			SetItemTooltip("The models opened stand on a plane of light gray squares, for their shadows and caustics to land on.");
 			SameLine();
+			// the unit the models opened are in (see State::unit): as remembered for the file or guessed (a gltf's meters, an
+			// obj's by its size), or one chosen, which is then remembered for the file (View > Units changes it later)
+			{
+				std::array<const char*, gfx::kSceneUnits.size() + 1> names{"Units: automatic"};
+				for (size_t unitIt = 0; unitIt < gfx::kSceneUnits.size(); unitIt++)
+					names[unitIt + 1] = gfx::UnitName(gfx::kSceneUnits[unitIt]).data();
+				SetNextItemWidth(GetFontSize() * 9.0F);
+				Combo("##units", &state.unit, names.data(), static_cast<int>(names.size()));
+				SetItemTooltip("What the files' coordinates are in: as remembered for the file or guessed (a gltf's meters, an obj's by its size, centimeters over 500 units across), or chosen here and remembered. View > Units changes it later.");
+				SameLine();
+			}
 		}
 		BeginDisabled(files == 0);
 		if (Button("Open"))

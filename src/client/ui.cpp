@@ -3,6 +3,7 @@
 #include <core/file.h>
 #include <core/utils.h>
 #include <gfx/lightgizmos.h>
+#include <gfx/units.h>
 
 #include <version.h>
 
@@ -345,6 +346,17 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 	apply(settings.aerialPerspective, kDefaults.aerialPerspective, "SPEEDO_AERIAL_PERSPECTIVE", unless("0"));
 	apply(settings.lightShafts, kDefaults.lightShafts, "SPEEDO_LIGHT_SHAFTS", unless("0"));
 	apply(settings.metersPerUnit, kDefaults.metersPerUnit, "SPEEDO_METERS_PER_UNIT", number(1e-6F, kAny));
+	// the scene's unit by name (SPEEDO_UNITS=m, cm, mm, in or ft: View > Units, see gfx::SceneUnit), over a custom meters
+	// per unit; left out, what SPEEDO_METERS_PER_UNIT set stays (the setting itself as the fallback)
+	apply(
+		settings.metersPerUnit,
+		settings.metersPerUnit,
+		"SPEEDO_UNITS",
+		[](const char* value) -> std::optional<float>
+		{
+			auto unit = gfx::ParseUnit(value);
+			return unit ? std::optional(gfx::MetersPerUnit(*unit)) : std::nullopt;
+		});
 	// the fog near the ground in it, its visibility at the ground (km) and its scale height (m)
 	apply(settings.fog, kDefaults.fog, "SPEEDO_FOG", unless("0"));
 	apply(settings.fogVisibility, kDefaults.fogVisibility, "SPEEDO_FOG_VISIBILITY", number(kMinFogVisibility, kMaxFogVisibility));
@@ -494,6 +506,67 @@ void LoadAutoModel(RHI& rhi, const AutoModelLoad& load, std::atomic_uint8_t& pro
 
 } // namespace ui
 
+namespace windowedapplication
+{
+
+// the unit chosen for the model about to be installed (see ChooseSceneUnit), until it is: outer none, no choice; inner
+// none, automatic (the file's remembered unit forgotten, the guess taken)
+static std::optional<std::optional<float>> gUnitChoice;
+// the scene file the unit was last resolved for (see ResolveSceneUnit)
+static std::string gUnitResolvedFor;
+
+void ChooseSceneUnit(std::optional<float> metersPerUnit)
+{
+	gUnitChoice = metersPerUnit;
+}
+
+// has the scene's unit resolved again next frame, as the installed model's would be (View > Units > Automatic, once its
+// file's remembered unit is forgotten)
+static void ForgetSceneUnit()
+{
+	gUnitResolvedFor.clear();
+}
+
+// the scene's unit (Scene::Settings::metersPerUnit, View > Units) as a model installs, once per scene file: the unit
+// chosen for it (ChooseSceneUnit: the file browser's as it opened, SPEEDO_UNITS at startup, a pasted pose's), remembered
+// for the file; else the file's remembered unit (RememberedUnit); else what gfx::GuessUnit says: a gltf's meters, an obj's
+// by its size, a set's meters. ui thread, every frame (PrepareDraw)
+static void ResolveSceneUnit()
+{
+	auto& scene = App().GetScene();
+	Scene::SceneState state = scene.GetScenes().Read().Get();
+	if (state.filePath.empty() || state.filePath == gUnitResolvedFor)
+		return;
+	gUnitResolvedFor = state.filePath;
+	std::optional<float> metersPerUnit;
+	if (gUnitChoice)
+	{
+		metersPerUnit = *gUnitChoice;
+		RememberUnit(state.filePath, metersPerUnit);
+		gUnitChoice.reset();
+	}
+	else
+		metersPerUnit = RememberedUnit(state.filePath);
+	if (!metersPerUnit)
+	{
+		bool gltf = !state.filePaths.empty() && std::ranges::all_of(
+													state.filePaths,
+													[](const std::string& path)
+													{
+														auto extension = std::filesystem::path(path).extension().string();
+														std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+														return extension == ".gltf" || extension == ".glb";
+													});
+		bool set = state.filePaths.size() > 1 || !state.layout.empty();
+		auto size = state.bounds.GetMax() - state.bounds.GetMin();
+		float longest = std::max({size.x, size.y, size.z, 0.0F});
+		metersPerUnit = gfx::MetersPerUnit(gfx::GuessUnit(gltf, set, longest));
+	}
+	scene.GetSettings().metersPerUnit.store(*metersPerUnit, std::memory_order_relaxed);
+}
+
+} // namespace windowedapplication
+
 void WindowedApplication::InternalCopyPose()
 {
 	// the first view's camera (what SPEEDO_CAMERA places: the eye, and pitch and yaw in degrees, see Views::Place), the
@@ -605,8 +678,14 @@ void WindowedApplication::InternalCopyPose()
 		if (float height = settings.fogHeight.load(std::memory_order_relaxed); height != gfx::environment::kFogDefaultHeight)
 			text += std::format(" SPEEDO_FOG_HEIGHT={:.4g}", static_cast<double>(height));
 	}
+	// the scene's unit (View > Units): by name where it is one of the units', else the custom meters per unit
 	if (float metersPerUnit = settings.metersPerUnit.load(std::memory_order_relaxed); metersPerUnit != 1.0F)
-		text += std::format(" SPEEDO_METERS_PER_UNIT={:.6g}", static_cast<double>(metersPerUnit));
+	{
+		if (auto unit = gfx::UnitOf(metersPerUnit))
+			text += std::format(" SPEEDO_UNITS={}", gfx::UnitSymbol(*unit));
+		else
+			text += std::format(" SPEEDO_METERS_PER_UNIT={:.6g}", static_cast<double>(metersPerUnit));
+	}
 	float intensity = settings.environmentIntensity.load(std::memory_order_relaxed);
 	if (intensity != 1.0F)
 		text += std::format(" SPEEDO_ENVIRONMENT_INTENSITY={:.3f}", static_cast<double>(intensity));
@@ -1509,6 +1588,10 @@ void WindowedApplication::PrepareDraw()
 			if (auto index = static_cast<uint32_t>(std::strtoul(giDebug, nullptr, 10)); index > 0 && DEBUG_VIEW_GI_FIRST + index - 1 < DEBUG_VIEW_GI_END)
 				App().GetScene().GetSettings().debugView.store(DEBUG_VIEW_GI_FIRST + index - 1, std::memory_order_relaxed);
 		ui::ApplyPoseSettings(App().GetScene().GetSettings(), [](const char* name) -> const char* { return std::getenv(name); }, false);
+		// the unit SPEEDO_UNITS or SPEEDO_METERS_PER_UNIT names is the autoloaded model's (see ChooseSceneUnit: set and
+		// remembered for its file as it installs)
+		if ((std::getenv("SPEEDO_UNITS") != nullptr || std::getenv("SPEEDO_METERS_PER_UNIT") != nullptr) && std::getenv("SPEEDO_AUTOLOAD_MODEL") != nullptr)
+			windowedapplication::ChooseSceneUnit(App().GetScene().GetSettings().metersPerUnit.load(std::memory_order_relaxed));
 		if (const char* culling = std::getenv("SPEEDO_CULLING"); culling != nullptr && std::string_view(culling) == "0")
 			App().GetScene().GetSettings().culling.store(false, std::memory_order_relaxed);
 		if (const char* clustered = std::getenv("SPEEDO_CLUSTERED_LIGHTS"); clustered != nullptr && std::string_view(clustered) == "0")
@@ -1686,6 +1769,9 @@ void WindowedApplication::PrepareDraw()
 						wanted.layout = std::move(copies.variants);
 					}
 				}
+				// the unit the pose names (SPEEDO_UNITS, SPEEDO_METERS_PER_UNIT) is its model's: chosen for it as it installs
+				// (see ChooseSceneUnit), or remembered for it now where it is the one installed
+				bool unitNamed = pose->Get("SPEEDO_UNITS") != nullptr || pose->Get("SPEEDO_METERS_PER_UNIT") != nullptr;
 				if (!modelIs(wanted))
 				{
 					gAutoLoads.emplace_back(gLoads.Enqueue(
@@ -1697,7 +1783,12 @@ void WindowedApplication::PrepareDraw()
 					gAutoModel = std::move(wanted);
 					gAutoCameraAfterModel = true;
 					gAutoLoadsReadyFrame.reset();
+					if (unitNamed)
+						windowedapplication::ChooseSceneUnit(scene.GetSettings().metersPerUnit.load(std::memory_order_relaxed));
 				}
+				else if (unitNamed)
+					windowedapplication::RememberUnit(
+						scene.GetScenes().Read().Get().filePath, scene.GetSettings().metersPerUnit.load(std::memory_order_relaxed));
 			}
 			std::string environment;
 			if (const char* named = pose->Get("SPEEDO_AUTOLOAD_ENVIRONMENT"))
@@ -1752,6 +1843,9 @@ void WindowedApplication::PrepareDraw()
 		else
 			std::println(stderr, "Paste Pose: the clipboard holds no pose (SPEEDO_CAMERA=... as Copy Pose writes it): {}", *text);
 	}
+
+	// the scene's unit, as a model installs (see windowedapplication::ResolveSceneUnit)
+	windowedapplication::ResolveSceneUnit();
 
 	// the autoloaded model installed (its file named by the scene; a pasted pose's, that one), or given up on 600 drawn
 	// frames after the loads were ready: one that failed never installs, and the run must still end (and report it)
@@ -2287,10 +2381,6 @@ void WindowedApplication::PrepareDraw()
 							settings.fogHeight.store(fogHeight, std::memory_order_relaxed);
 						SetItemTooltip("How thick the layer is: this high up it is a third as dense as at the ground (its scale height). Drag, or double-click to type.");
 						EndDisabled();
-						float metersPerUnit = settings.metersPerUnit.load(std::memory_order_relaxed);
-						if (DragFloat("Meters per Unit", &metersPerUnit, 0.01F, 1e-4F, 1e4F, "%.4g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-							settings.metersPerUnit.store(metersPerUnit, std::memory_order_relaxed);
-						SetItemTooltip("How long the model's unit is, which the air's thickness goes by (0.01 for a model in centimetres, as Bistro is). Drag, or double-click to type.");
 						EndDisabled();
 						Separator();
 					}
@@ -2330,6 +2420,40 @@ void WindowedApplication::PrepareDraw()
 					gShowBrowser = !(gShowBrowser && gBrowserPurpose == BrowserPurpose::kEnvironment);
 					gBrowserPurpose = BrowserPurpose::kEnvironment;
 				}
+				ImGui::EndMenu();
+			}
+			// the scene's unit (see gfx::SceneUnit): one of the units, pinned for the scene's file (remembered, see
+			// RememberUnit), a custom meters per unit, or automatic, the file's forgotten and guessed again (GuessUnit)
+			if (ui::BeginMenu("Units"))
+			{
+				auto& settings = App().GetScene().GetSettings();
+				float metersPerUnit = settings.metersPerUnit.load(std::memory_order_relaxed);
+				auto current = gfx::UnitOf(metersPerUnit);
+				std::string filePath = App().GetScene().GetScenes().Read().Get().filePath;
+				auto set = [&settings, &filePath](float value)
+				{
+					settings.metersPerUnit.store(value, std::memory_order_relaxed);
+					if (!filePath.empty())
+						windowedapplication::RememberUnit(filePath, value);
+				};
+				for (auto unit : gfx::kSceneUnits)
+					if (MenuItem(gfx::UnitName(unit).data(), nullptr, current == unit))
+						set(gfx::MetersPerUnit(unit));
+				SetItemTooltip("What the file's coordinates are in: the lights' falloff, the ground plane's squares (a meter each) and the air go by it. Remembered for the file.");
+				Separator();
+				float custom = metersPerUnit;
+				if (DragFloat("Meters per Unit", &custom, 0.01F, 1e-4F, 1e4F, "%.4g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+					set(custom);
+				SetItemTooltip("A custom unit: how long the file's unit is. Drag, or double-click to type. Remembered for the file.");
+				BeginDisabled(filePath.empty() || !windowedapplication::RememberedUnit(filePath));
+				if (MenuItem("Automatic"))
+				{
+					// forgotten, and resolved again as the file's would be (see ResolveSceneUnit)
+					windowedapplication::RememberUnit(filePath, std::nullopt);
+					windowedapplication::ForgetSceneUnit();
+				}
+				EndDisabled();
+				SetItemTooltip("Forget the unit remembered for the file: a gltf's meters, an obj's by its size (centimeters over 500 units across).");
 				ImGui::EndMenu();
 			}
 			if (ui::BeginMenu("Scene"))

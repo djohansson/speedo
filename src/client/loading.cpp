@@ -1,8 +1,10 @@
 #include "windowedapplicationdetail.h"
 
 #include <core/application.h>
+#include <core/utils.h>
 #include <core/zip.h>
 
+#include <algorithm>
 #include <ranges>
 
 namespace client::windowedapplication
@@ -253,6 +255,70 @@ void AddRecentFile(RecentFile file)
 	if (gRecentFiles.size() > kRecentFileCount)
 		gRecentFiles.resize(kRecentFileCount);
 	WriteRecentFiles();
+}
+
+// the units remembered for files (see RememberedUnit), read from the user profile once. ui thread
+static core::UnorderedMap<std::string, float> gRememberedUnits;
+static bool gRememberedUnitsRead = false;
+
+[[nodiscard]] static std::filesystem::path RememberedUnitsPath()
+{
+	return std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["UserProfilePath"]) / "units.txt";
+}
+
+static void ReadRememberedUnits()
+{
+	if (std::exchange(gRememberedUnitsRead, true))
+		return;
+	auto mapped = core::file::Map(RememberedUnitsPath());
+	if (!mapped || mapped->size() == 0) // none yet
+		return;
+	// a line a file: its meters per unit, then its path after a tab
+	std::string_view text(reinterpret_cast<const char*>(mapped->data()), mapped->size());
+	for (auto line : text | std::views::split('\n'))
+	{
+		std::string_view row(line.begin(), line.end());
+		if (row.ends_with('\r'))
+			row.remove_suffix(1);
+		auto tab = row.find('\t');
+		if (tab == std::string_view::npos || tab + 1 >= row.size())
+			continue;
+		float metersPerUnit = std::strtof(std::string(row.substr(0, tab)).c_str(), nullptr);
+		if (metersPerUnit > 0.0F)
+			gRememberedUnits[std::string(row.substr(tab + 1))] = metersPerUnit;
+	}
+}
+
+static void WriteRememberedUnits()
+{
+	std::vector<std::string_view> paths;
+	paths.reserve(gRememberedUnits.size());
+	for (const auto& [path, metersPerUnit] : gRememberedUnits)
+		paths.emplace_back(path);
+	std::ranges::sort(paths);
+	std::string text;
+	for (auto path : paths)
+		text += std::format("{:.6g}\t{}\n", static_cast<double>(gRememberedUnits[std::string(path)]), path);
+	auto path = RememberedUnitsPath();
+	if (auto written = core::file::Write(path, std::as_bytes(std::span(text))); !written)
+		std::println(stderr, "Failed to write {}: {}", path.string(), written.error().message());
+}
+
+std::optional<float> RememberedUnit(std::string_view filePath)
+{
+	ReadRememberedUnits();
+	auto found = gRememberedUnits.find(std::string(filePath));
+	return found != gRememberedUnits.end() ? std::optional(found->second) : std::nullopt;
+}
+
+void RememberUnit(std::string_view filePath, std::optional<float> metersPerUnit)
+{
+	ReadRememberedUnits();
+	if (metersPerUnit)
+		gRememberedUnits[std::string(filePath)] = *metersPerUnit;
+	else if (gRememberedUnits.erase(std::string(filePath)) == 0)
+		return;
+	WriteRememberedUnits();
 }
 
 void ClearRecentFiles()

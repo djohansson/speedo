@@ -190,6 +190,15 @@ struct RecentFile
 
 	bool operator==(const RecentFile&) const = default;
 };
+// the scene's unit remembered for a file (View > Units pins it, the file browser's Units as it opens): meters per unit
+// (see gfx::SceneUnit) by the scene's file path (Scene::SceneState::filePath), in the user profile's units.txt, read when
+// first asked for and written at each change. none: not told, taken as gfx::GuessUnit says. ui thread
+[[nodiscard]] std::optional<float> RememberedUnit(std::string_view filePath);
+void RememberUnit(std::string_view filePath, std::optional<float> metersPerUnit); // none forgets it
+// the unit chosen for the model about to be installed (the file browser's Units as it opens, SPEEDO_UNITS at startup, a
+// pasted pose's): set and remembered for its file as it installs; none, automatic, forgets the file's then. ui thread
+void ChooseSceneUnit(std::optional<float> metersPerUnit);
+
 // the files opened last (File > Open Recent), newest first, at most kRecentFileCount of them: read from the user profile
 // (recent.txt) when first asked for, and written back whenever they change. ui thread
 inline constexpr size_t kRecentFileCount = 6;
