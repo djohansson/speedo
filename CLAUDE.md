@@ -3139,7 +3139,18 @@ into 96 bins of 40 stops (`gExposureHistogram`, `SHADER_TYPES_EXPOSURE_BINS`, fr
 exposure never followed the moon down; per frame index, host visible: shared memory per group, then atomics; emptied with
 `FillBuffer` before, and a barrier to the host stage after), and `UpdateAutoExposure` reads a frame's histogram after
 its fence (where `Model::Animate` writes the frame's buffers), averages the log luminance between the 50th and 95th
-percentile, and moves the exposure toward `log2(0.2) - mean`, less up to 2 stops as the mean falls from daylight's
+percentile, each pixel weighing whole in the eye's photopic range (above `kPhotopicLog2`, 2^-14, 3 cd/m^2: every daylit
+surface, a lit street) and below it by its luminance's share of that level (the mesopic range: a dim street between
+its lamps, a twilight sky, a moonlit ground), where that weight is `kLitShare` (3%) of the view or more, blended in
+stops from the plain percentiles' mean below it, so that at night the lit parts govern: by the whole view's
+percentiles a lit street under a night sky seen from above, the sky and the unlit roofs over half the view, the user's
+pose `543.0920,1718.0579,716.2755,-20.047,-76.637` at 21:52 on the 21st of June, read as moonlight, a mean of -19
+where its facades are lit at 2^-11, and they came out 8 times white (the histogram's floor at -12 had hidden it); a
+view with nothing lit, moonlight alone, keys on the whole view; the day is photopic throughout, unchanged (Sponza's
+darkest twentieth by day weighs 0.7). A step at a level (whole above 2^-16, none below 2^-20) counted a dusk sky whole
+until it fell out, and the exposure rose 1.3 stops as the sky dimmed and fell back 2 once it was gone, a dip in a time
+lapse; by the luminance the dip is half a stop. `SPEEDO_EXPOSURE_LOG=1` prints the percentiles, the lit share, the
+mean and the target every 30th frame), and moves the exposure toward `log2(0.2) - mean`, less up to 2 stops as the mean falls from daylight's
 (2^-4 in the renderer's units: 2900 cd/m^2 scaled as the sky's sun is, EV100 14, Bistro's street at noon -4.2) to a lit
 street's at night (2^-11, 22 cd/m^2, EV100 7; Bistro's -10.5), and `kMoonlightStops` (1.3) more on down to moonlight
 (2^-21, a full moon's ground: about 0.02 linear then, a dark gray; 3 more stops left it black but for the highlights):

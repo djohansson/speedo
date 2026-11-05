@@ -464,6 +464,7 @@ struct Scene::Impl
 	// draw thread's
 	Upscaling myUpscaling = Upscaling::kOff;
 	std::optional<std::chrono::steady_clock::time_point> myAutoExposureLast;
+	uint64_t myExposureLogFrame = 0; // SPEEDO_EXPOSURE_LOG's frame count
 	// how far each view looks (see FrameInputs::lookDistances), by the draw thread, and whether it has been measured yet
 	std::array<std::atomic<float>, SHADER_TYPES_SPLIT_VIEW_COUNT> myLookDistances{};
 	std::array<bool, SHADER_TYPES_SPLIT_VIEW_COUNT> myLookDistanceMeasured{};
@@ -912,10 +913,11 @@ struct Scene::Impl
 
 	// a frame's histograms (gExposureHistogram, read once the frame's previous use is done). auto exposure: what the
 	// scene's luminance is, the mean log2 luminance of the pixels between the 50th and 95th percentile (the darkest and
-	// the brightest left out), toward which the exposure moves, a little each frame (by elapsed time), so that it is
-	// kAutoExposureKey, less up to kNightStops as the scene darkens from daylight's luminance to a lit street's at night (see
-	// kDaylightLog2): a night shown darker than a day, as the eye and a photographer have it (with one key, Bistro at night
-	// was lifted 8.7 stops to look as bright as at noon, 2.5). and how far the camera looks: the median of the drawn
+	// the brightest left out; the lit pixels weighing most at night, where enough of the view is lit: see kLitShare), toward
+	// which the exposure moves, a little each frame (by elapsed time), so that it is kAutoExposureKey, less up to
+	// kNightStops as the scene darkens from daylight's luminance to a lit street's at night (see kDaylightLog2): a night
+	// shown darker than a day, as the eye and a photographer have it (with one key, Bistro at night was lifted 8.7 stops
+	// to look as bright as at noon, 2.5). and how far the camera looks: the median of the drawn
 	// pixels' distances from the eye, toward which myLookDistances moves the same way (the indirect lighting's finer clips
 	// are centered toward it, see gi::MakeClipmap). each view by its own pixels (split screen's: a sunlit roof beside a dark
 	// corridor, one exposure for both blew the roof out). call on the draw thread.
@@ -991,41 +993,105 @@ struct Scene::Impl
 			}
 		}
 
+		// at night the lit parts of the view govern: each pixel weighs whole in the percentiles where it is in the eye's
+		// photopic range (above kPhotopicLog2: every daylit surface, a lit street at 2^-11), and below it by its
+		// luminance's share of that level (the mesopic range: a dim street between its lamps, a twilight sky, a moonlit
+		// ground), as the eye's adaptation and the viewer's attention favour what is lit. by the whole view's percentiles
+		// a lit street under a night sky, from above, with the sky and the unlit roofs over half of the view (the user's
+		// pose 543.0920,1718.0579,716.2755,-20.047,-76.637 over Bistro at 21:52 on the 21st of June: p50 -25, p95 -11),
+		// read as moonlight (a mean of -19), and its facades, lit at 2^-11, came out 8 times white. the weighed
+		// percentiles' mean stands where the weight is kLitShare of the view or more, blended in stops from the plain
+		// percentiles' below it (a lit street panned off the view's bottom hands the exposure to the sky over the last
+		// kLitShare of it; a lamp in a dark field is a highlight), and a view with nothing lit, moonlight alone, keys on
+		// its own percentiles, as before: the exposure follows the moon down. the day is photopic throughout (a daylit
+		// interior is 10 to 100 cd/m^2; Sponza's darkest twentieth by day, 2^-14.5, weighs 0.7): unchanged. a step at a
+		// level (whole above 2^-16, none below 2^-20) counted a dusk sky whole until it fell out: the exposure rose 1.3
+		// stops as the sky dimmed and fell back 2 once it was gone, a dip in a time lapse; by the luminance the sky's
+		// weight fades with its light, and the dip is half a stop
+		constexpr double kLitShare = 0.03;
+
 		uint64_t total = std::accumulate(bins.begin(), bins.begin() + SHADER_TYPES_EXPOSURE_BINS, uint64_t{0});
 		if (total == 0)
 			return;
-		auto low = static_cast<double>(total) * 0.5;
-		auto high = static_cast<double>(total) * 0.95;
-		double counted = 0.0;
-		double sum = 0.0;
-		double weight = 0.0;
-		for (size_t binIt = 0; binIt < SHADER_TYPES_EXPOSURE_BINS; binIt++)
+		auto binLog2Luminance = [](size_t binIt)
 		{
-			// the part of the bin between the percentiles
-			auto from = std::max(counted, low);
-			auto to = std::min(counted + bins[binIt], high);
-			counted += bins[binIt];
-			if (to <= from)
-				continue;
-			auto log2Luminance = SHADER_TYPES_EXPOSURE_LOG2_MIN +
-								 ((static_cast<double>(binIt) + 0.5) / SHADER_TYPES_EXPOSURE_BINS * (SHADER_TYPES_EXPOSURE_LOG2_MAX - SHADER_TYPES_EXPOSURE_LOG2_MIN));
-			sum += log2Luminance * (to - from);
-			weight += to - from;
-		}
-		if (weight <= 0.0)
+			return SHADER_TYPES_EXPOSURE_LOG2_MIN +
+				   ((static_cast<double>(binIt) + 0.5) / SHADER_TYPES_EXPOSURE_BINS * (SHADER_TYPES_EXPOSURE_LOG2_MAX - SHADER_TYPES_EXPOSURE_LOG2_MIN));
+		};
+		auto litWeight = [&binLog2Luminance](size_t binIt) { return std::exp2(std::min(binLog2Luminance(binIt) - kPhotopicLog2, 0.0)); };
+		// the mean log2 luminance of the pixels between the 50th and 95th percentile of the histogram with each bin's
+		// pixels weighed by weightOf, none where it weighs nothing
+		auto percentileMean = [&bins, &binLog2Luminance](auto&& weightOf) -> std::optional<double>
+		{
+			double weighted = 0.0;
+			for (size_t binIt = 0; binIt < SHADER_TYPES_EXPOSURE_BINS; binIt++)
+				weighted += weightOf(binIt) * bins[binIt];
+			if (weighted <= 0.0)
+				return std::nullopt;
+			auto low = weighted * 0.5;
+			auto high = weighted * 0.95;
+			double counted = 0.0;
+			double sum = 0.0;
+			double weight = 0.0;
+			for (size_t binIt = 0; binIt < SHADER_TYPES_EXPOSURE_BINS; binIt++)
+			{
+				// the part of the bin between the percentiles
+				auto count = weightOf(binIt) * bins[binIt];
+				auto from = std::max(counted, low);
+				auto to = std::min(counted + count, high);
+				counted += count;
+				if (to <= from)
+					continue;
+				sum += binLog2Luminance(binIt) * (to - from);
+				weight += to - from;
+			}
+			if (weight <= 0.0)
+				return std::nullopt;
+			return sum / weight;
+		};
+		auto meanAll = percentileMean([](size_t) { return 1.0; });
+		if (!meanAll)
 			return;
-		double mean = sum / weight;
+		double mean = *meanAll;
+		double litShare = 0.0;
+		for (size_t binIt = 0; binIt < SHADER_TYPES_EXPOSURE_BINS; binIt++)
+			litShare += litWeight(binIt) * bins[binIt];
+		litShare /= static_cast<double>(total);
+		double lit = std::clamp(litShare / kLitShare, 0.0, 1.0);
+		if (lit > 0.0)
+			if (auto meanLit = percentileMean(litWeight))
+				mean = std::lerp(*meanAll, *meanLit, lit);
 		double darkness = std::clamp((kDaylightLog2 - mean) / (kDaylightLog2 - kNightLog2), 0.0, 1.0);
 		// the night vision's share by the scene's luminance, whether or not the exposure follows it
 		double night = std::clamp((kNightLog2 - mean) / (kNightLog2 - kMoonlightLog2), 0.0, 1.0);
 		double scotopic = std::clamp((kPhotopicLog2 - mean) / (kPhotopicLog2 - kScotopicLog2), 0.0, 1.0);
 		adapt(myScotopic[view], myScotopicMeasured[view], static_cast<float>(scotopic));
+		double target = std::log2(kAutoExposureKey) - (kNightStops * darkness) - (kMoonlightStops * night) - mean;
+		// SPEEDO_EXPOSURE_LOG=1: what the exposure keys on, every 30th frame: the histogram's percentiles, the lit share,
+		// the mean and the target
+		static const bool kLog = [] { const char* log = std::getenv("SPEEDO_EXPOSURE_LOG"); return log != nullptr && std::string_view(log) == "1"; }();
+		if (kLog && view == 0 && (myExposureLogFrame++ % 30) == 0)
+		{
+			auto percentile = [&bins, &binLog2Luminance, total](double share)
+			{
+				double at = static_cast<double>(total) * share;
+				double count = 0.0;
+				for (size_t binIt = 0; binIt < SHADER_TYPES_EXPOSURE_BINS; binIt++)
+				{
+					count += bins[binIt];
+					if (count >= at)
+						return binLog2Luminance(binIt);
+				}
+				return static_cast<double>(SHADER_TYPES_EXPOSURE_LOG2_MAX);
+			};
+			std::println(
+				"exposure: p5 {:.1f} p25 {:.1f} p50 {:.1f} p75 {:.1f} p95 {:.1f} p99 {:.1f} lit {:.3f} mean {:.2f} (all {:.2f}) darkness {:.2f} night {:.2f} scotopic {:.2f} target {:+.2f} current {:+.2f}",
+				percentile(0.05), percentile(0.25), percentile(0.5), percentile(0.75), percentile(0.95), percentile(0.99), litShare, mean, *meanAll, darkness, night, scotopic,
+				target, myAutoExposureStops[view].load(std::memory_order_relaxed));
+		}
 		if (!mySettings.autoExposure.load(std::memory_order_relaxed))
 			return;
-		adapt(
-			myAutoExposureStops[view],
-			myAutoExposureMeasured[view],
-			static_cast<float>(std::log2(kAutoExposureKey) - (kNightStops * darkness) - (kMoonlightStops * night) - mean));
+		adapt(myAutoExposureStops[view], myAutoExposureMeasured[view], static_cast<float>(target));
 	}
 
 
