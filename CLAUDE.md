@@ -1036,7 +1036,10 @@ hidden (Bistro through its arch 46.8 a frame two-phase, 46.5 reprojected and hyb
 
 A view of a model on the ground plane has no far plane (the ground reaches the horizon: `Views::SetScene`'s `horizon`;
 `CameraCreateDesc::farPlane` 0, glm's perspective as its far plane goes to infinity, `Camera::UpdateProjectionMatrix`), the
-near plane the framing's as before. Not infinity: the release and profile builds are `-ffast-math`, which assumes there is
+near plane the framing's as before; a scene camera's too, whatever its `zfar` (`Views::InternalApplySceneCamera`:
+ThousandsOfLights' camera has one of 500 m, which the views took and `SPEEDO_CAMERA` kept, so the plane's rings were cut
+4 degrees below the horizon from 32 m up and the sky model's own sun-lit ground showed between the cut and the horizon, a
+gray band, the user's pose `70.0000,32.0000,70.0000,17.913,-45.000`, 2026-11-05). Not infinity: the release and profile builds are `-ffast-math`, which assumes there is
 none, so `std::isinf` was compiled to false and the ground past the old far plane was clipped (the sky's own ground showed
 there, below its horizon). What took a far plane takes none: the cascades slice along the frustum's edges from the eye
 (`shadows.cpp`'s `unbounded`), the clusters and the frustum culling already did (Gribb and Hartmann's far plane comes out
@@ -1189,7 +1192,8 @@ cascade skips what it doesn't see); chunks of 4096 were 7.5 in the street but 7.
 (degrees; positive pitch looks down, positive yaw turns from -z towards +x) places the views once the autoloads have
 installed (`Views::Place`), for such measurements: Bistro's were `3430,170,2200,0,-62`, `564,170,-2436,0,30`, and framed.
 It keeps the near and far planes of the camera the views had (a model's own camera's, e.g. a chase camera's far plane of
-1 m in DiffuseTransmissionPlant); `SPEEDO_CAMERA=frame` frames the model instead, as View > Camera > Frame model.
+1 m in DiffuseTransmissionPlant, where the model stands on no ground plane: on one the views have no far plane, see
+"Depth: reversed"); `SPEEDO_CAMERA=frame` frames the model instead, as View > Camera > Frame model.
 `SPEEDO_LAYOUT=1x1|1x2|2x1|2x2` starts with that grid of views, as View > Layout.
 
 ## Shadows

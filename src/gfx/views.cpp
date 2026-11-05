@@ -326,13 +326,14 @@ void Views::InternalApplySceneCamera(const SceneCamera& camera, const Bounds3f& 
 	auto up = glm::vec3(sceneCamera->up[0], sceneCamera->up[1], sceneCamera->up[2]);
 	auto roll = std::atan2(-glm::dot(up, right0), glm::dot(up, up0));
 
-	// a far plane the file leaves out (an infinite perspective) takes in all of the bounds, or none where the scene reaches
-	// the horizon
+	// no far plane where the scene reaches the horizon (a perspective camera over the ground plane): the ground runs to the
+	// horizon whatever the file's zfar (ThousandsOfLights' camera has one of 500 m, which cut the plane's rings 4 degrees
+	// below the horizon from 32 m up, and the sky model's own sun-lit ground showed between the cut and the horizon, a gray
+	// band, 2026-11-05); else the file's, or, left out (an infinite perspective), one taking in all of the bounds. the near
+	// plane the file's, else a ten thousandth of the far (of the bounds' where there is none)
 	auto radius = std::max(bounds.Radius(), 1e-3F);
 	auto boundsFar = 2.0F * (glm::distance(eye, bounds.Center()) + radius);
-	auto farPlane = sceneCamera->zfar > 0.0F ? sceneCamera->zfar
-				  : horizon && !sceneCamera->orthographic ? 0.0F
-														  : boundsFar;
+	auto farPlane = horizon && !sceneCamera->orthographic ? 0.0F : sceneCamera->zfar > 0.0F ? sceneCamera->zfar : boundsFar;
 	auto nearPlane = sceneCamera->znear > 0.0F ? sceneCamera->znear : (farPlane > 0.0F ? std::min(farPlane, boundsFar) : boundsFar) * 1e-4F;
 
 	{
