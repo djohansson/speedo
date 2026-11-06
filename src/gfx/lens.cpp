@@ -279,6 +279,8 @@ void Achromatize(Prescription& lens, size_t surface)
 		anamorphic.name = "50 mm 2x anamorphic";
 		anamorphic.key = "anamorphic-50";
 		anamorphic.squeeze = 2.0F;
+		// a Galilean pair of plano cylinders, -100 mm and 200 mm (n - 1 = 0.6), the squeeze apart
+		anamorphic.cylinderRadii = {0.0F, -60.0F, 120.0F, 0.0F};
 		anamorphic.bladeCount = 10;
 		anamorphic.distortion = -0.02F;
 		anamorphic.transmittance = 0.9F;
@@ -304,6 +306,7 @@ void Achromatize(Prescription& lens, size_t surface)
 		lightAnamorphic.name = "50 mm 1.33x anamorphic";
 		lightAnamorphic.key = "anamorphic-50-133";
 		lightAnamorphic.squeeze = 1.33F;
+		lightAnamorphic.cylinderRadii = {0.0F, -90.0F, 120.0F, 0.0F}; // -150 mm and 200 mm
 		lightAnamorphic.bladeCount = 11;
 		lightAnamorphic.distortion = -0.015F;
 		lightAnamorphic.transmittance = 0.93F;
@@ -775,7 +778,7 @@ std::optional<float> TraceRay(const Prescription& lens, float wavelength, float 
 	return static_cast<float>(y + t * dy);
 }
 
-float Reflectance(float indexBefore, float indexAfter, float wavelength, bool coated) noexcept
+float Reflectance(float indexBefore, float indexAfter, float wavelength, bool coated, float tuned) noexcept
 {
 	auto fresnel = [](float n1, float n2) { return (n1 - n2) / (n1 + n2); };
 	if (!coated)
@@ -783,15 +786,40 @@ float Reflectance(float indexBefore, float indexAfter, float wavelength, bool co
 		float r = fresnel(indexBefore, indexAfter);
 		return r * r;
 	}
-	// a single layer, a quarter wave at 550 nm, of magnesium fluoride: the two interfaces' amplitudes interfere by the
-	// phase of the double pass
+	// a single layer, a quarter wave at the tuned wavelength, of magnesium fluoride: the two interfaces' amplitudes
+	// interfere by the phase of the double pass
 	constexpr float kCoating = 1.38F;
-	constexpr float kTuned = 550.0F;
 	float r1 = fresnel(indexBefore, kCoating);
 	float r2 = fresnel(kCoating, indexAfter);
-	float phase = std::numbers::pi_v<float> * kTuned / wavelength;
+	float phase = std::numbers::pi_v<float> * tuned / wavelength;
 	float c = std::cos(phase);
 	return (r1 * r1 + r2 * r2 + 2.0F * r1 * r2 * c) / (1.0F + r1 * r1 * r2 * r2 + 2.0F * r1 * r2 * c);
+}
+
+std::vector<Streak> Streaks(const Prescription& lens, float fNumber)
+{
+	std::vector<Streak> streaks;
+	if (IsPinhole(lens) || lens.cylinderRadii.empty())
+		return streaks;
+	float aperture = std::max(fNumber, lens.widestAperture);
+	auto curvature = [](float radius) { return radius != 0.0F ? 1.0F / radius : 0.0F; };
+	for (size_t first = 0; first < lens.cylinderRadii.size(); first++)
+		for (size_t second = first + 1; second < lens.cylinderRadii.size(); second++)
+		{
+			float vergence = 2.0F * std::abs(curvature(lens.cylinderRadii[second]) - curvature(lens.cylinderRadii[first]));
+			if (vergence <= 0.0F)
+				continue;
+			Streak streak;
+			// half the blur: the pupil's diameter (f over N) over f, times the image's displacement f^2 times the vergence
+			streak.halfLength = 0.5F * lens.focalLength * lens.focalLength * vergence / aperture;
+			for (size_t channel = 0; channel < kWavelengths.size(); channel++)
+			{
+				float reflectance = Reflectance(1.0F, lens.cylinderIndex, kWavelengths[channel], lens.coated, lens.cylinderCoating);
+				streak.reflectance[static_cast<glm::length_t>(channel)] = reflectance * reflectance;
+			}
+			streaks.push_back(streak);
+		}
+	return streaks;
 }
 
 std::vector<Ghost> Ghosts(const Prescription& lens, float fNumber)

@@ -382,6 +382,9 @@ private:
 	FrameGraph::ImageId myStar;
 	FrameGraph::ImageId myStarTiles;
 	FrameGraph::ImageId myStarSource;
+	// an anamorphic lens's streaks (see ComputeStreakScan): each row's running sum of the image the near field gathers
+	FrameGraph::ImageId myStreakSum;
+	FrameGraph::PassId myStreakScanPass;
 	FrameGraph::PassId myStarTilesPass;
 	FrameGraph::PassId myStarburstPass;
 	// the depth of field (see dof.slang): the frame and its circles at half the output's size, the gather's result, the

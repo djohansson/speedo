@@ -51,6 +51,14 @@ struct Prescription
 	float distortion = 0.0F; // the third order coefficient in the normalized image's radius (negative: barrel)
 	float squeeze = 1.0F; // anamorphic: the horizontal squeeze (2 for a 2x anamorphic), 1 spherical
 	float transmittance = 0.98F; // what the whole lens lets through on axis
+	// an anamorphic lens's cylinders: the front group's surfaces with power across (radii, mm, 0 flat; a Galilean pair of
+	// focal lengths a squeeze apart, so afocal), in glass of cylinderIndex, whose reflections streak a light across (see
+	// Streaks)
+	std::vector<float> cylinderRadii;
+	float cylinderIndex = 1.6F;
+	// the wavelength (nm) the cylinders' quarter wave coating is tuned to: the red, so that the blue reflects most (the
+	// blue streak anamorphic lenses are known for; tuned to the green, as the spherical surfaces are, it was magenta)
+	float cylinderCoating = 650.0F;
 };
 
 // the lenses offered (View > Camera > Lens), the pinhole first: no surfaces, a focal length of its own on any sensor
@@ -157,9 +165,26 @@ struct Ghost
 // f-number
 [[nodiscard]] std::vector<Ghost> Ghosts(const Prescription& lens, float fNumber);
 
+// an anamorphic lens's streak (the user's ask, 2026-11-06, with a reference of a long blue streak through a light): a
+// pair of its cylinders' surfaces reflects a light back and forward again, and the cylinders have power across alone, so
+// the ghost is in focus up and down (on the light's row) and defocused across into a line: the vergence the two
+// reflections add, twice the difference of the surfaces' curvatures, over the entrance pupil's diameter times the focal
+// length on the sensor (the defocus of a thin lens: the image displaced f^2 times the vergence, its blur the pupil's
+// diameter over f times that). its light is the two reflectances' product (per channel, through the coating: blue and red
+// reflect most), spread evenly along the line
+struct Streak
+{
+	glm::vec3 reflectance{0.0F};
+	float halfLength = 0.0F; // mm on the sensor, across
+};
+
+// every pair of the cylinders' surfaces whose reflections defocus (two flat surfaces' ghost is the light itself), at an
+// f-number; none for a spherical lens
+[[nodiscard]] std::vector<Streak> Streaks(const Prescription& lens, float fNumber);
+
 // the reflectance of a surface between two indices at a wavelength (nm): Fresnel at normal incidence, through a quarter
-// wave coating of magnesium fluoride tuned to 550 nm where coated (a single layer's interference; a glass to glass
-// surface, cemented, is never coated)
-[[nodiscard]] float Reflectance(float indexBefore, float indexAfter, float wavelength, bool coated) noexcept;
+// wave coating of magnesium fluoride tuned to a wavelength (550 nm, the green, by default) where coated (a single layer's
+// interference; a glass to glass surface, cemented, is never coated)
+[[nodiscard]] float Reflectance(float indexBefore, float indexAfter, float wavelength, bool coated, float tuned = 550.0F) noexcept;
 
 } // namespace gfx::lens

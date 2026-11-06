@@ -523,7 +523,22 @@ over the second half; the sources' sprites draw the **far field** past that, fad
 steps (`FlareFarField`), each spike spread across by the source's disk (a uniform disk's chord has a deviation of half
 its radius; drawn as lines from a point, the sun's bands turned thin where the far field began), and only where it
 reaches past the near field. Two passes, since within one a sampled view of what a dispatch wrote read stale memory on
-KosmicKrisp (the glare's lesson). The near field sampled the lens's image at the output's size at first, which cost
+KosmicKrisp (the glare's lesson). An anamorphic lens's **streak** (the user's ask, the same day, with a reference of a
+long blue streak through a light; `lens::Streaks`, `LensData::streaks`): the cylinders (`Prescription::cylinderRadii`,
+a Galilean pair of plano cylinders, -100 and 200 mm for the 2x, -150 and 200 for the 1.33x) reflect a light between each
+pair of their surfaces back and forward again, and having power across alone, the ghost is in focus up and down, on the
+light's row, and defocused across into a line: half its length on the sensor is half the focal length squared times
+the vergence the two reflections add (twice the difference of the surfaces' curvatures) over the f-number, its light
+the two reflectances' product spread evenly along it (the two flat surfaces' ghost is the light itself, so no streak;
+four surfaces, five streaks of three lengths, nested). The cylinders' quarter wave is tuned to 650 nm
+(`Prescription::cylinderCoating`): tuned to the green, as the spherical surfaces are, the streak came out magenta (both
+ends reflecting), and anamorphic streaks are known blue. Every point's, as the near field: the **Streak Scan** pass
+(`ComputeStreakScan`, a group of 256 a row, each thread a run of it, the runs' totals scanned in groupshared memory)
+sums each row of the half size image from its left (`SHADER_TYPES_STREAK_SUM_TEXTURE`, 32 bit, so that the difference of
+two sums far along a row with the sun in it keeps the dim light between), and the Starburst pass adds each streak's box
+along the row, two reads (`StreakLight`, within the view's viewport). The 50 mm 2x at f/2.8 against the sun: a blue
+streak through it in three nested lengths, the longest about 0.7 of the frame. Its cost at 1440p is within the runs'
+noise (0.2 ms at most). The near field sampled the lens's image at the output's size at first, which cost
 twice as much. Bistro's bulbs at night get stars a few pixels long at f/11: they are 10 to 50 times white, where real
 bulbs are thousands of times; the sun's highlights on MetalRoughSpheres aren't brighter than 64 times white either. The
 coatings tint the Gauss's ghosts purple (magnesium fluoride reflects the red and the blue ends most); the vintage lens,

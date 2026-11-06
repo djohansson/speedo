@@ -576,6 +576,8 @@ struct AerialPerspectiveData
 // for the aperture the camera exposes with): what the Lens pass (ComputeLens, lens.slang) makes of the frame at the
 // output's size, between the frame's reconstruction and the final pass. gLensData[frame][0]
 #define SHADER_TYPES_LENS_VIGNETTING_COUNT 32u
+// an anamorphic lens's streaks at most: its cylinders' surfaces' pairs (four surfaces, six pairs)
+#define SHADER_TYPES_LENS_STREAK_COUNT 6u
 struct LensData
 {
 	// the vignetting over the field: the light a point gets as a share of the axis's, at SHADER_TYPES_LENS_VIGNETTING_COUNT
@@ -589,6 +591,9 @@ struct LensData
 	// rim or soft edge), at the reference circle's radius (bokehReference, mm; larger circles tend to uniform)
 	alignas(16) FLOAT4(bokehNear[SHADER_TYPES_LENS_VIGNETTING_COUNT / 4]);
 	alignas(16) FLOAT4(bokehFar[SHADER_TYPES_LENS_VIGNETTING_COUNT / 4]);
+	// an anamorphic lens's streaks (see lens::Streak, ComputeStarburst): per pair of its cylinders' surfaces, rgb the
+	// reflectances' product, w the line's half length across the sensor (mm); streakCount of them
+	alignas(16) FLOAT4(streaks[SHADER_TYPES_LENS_STREAK_COUNT]);
 	alignas(4) FLOAT1(bokehReference);
 	alignas(4) FLOAT1(fieldAngle); // radians
 	alignas(4) FLOAT1(focalLength); // mm
@@ -640,7 +645,7 @@ struct LensData
 	// apothem) is cut by. wide open the blades are retracted behind it, so the aperture is round (no straight edges: no
 	// starburst, round bokeh and ghosts), and a little stopped down the polygon's corners are still cut off
 	alignas(4) FLOAT1(openRadius);
-	alignas(4) UINT1(padding1);
+	alignas(4) UINT1(streakCount);
 	alignas(4) UINT1(padding2);
 	alignas(4) UINT1(padding3);
 	alignas(4) UINT1(padding4);
@@ -738,6 +743,11 @@ struct FlareConstants
 #define SHADER_TYPES_STAR_RW_TEXTURE 74u
 #define SHADER_TYPES_STAR_TILES_RW_TEXTURE 75u
 #define SHADER_TYPES_STAR_SOURCE_RW_TEXTURE 76u
+// and an anamorphic lens's streaks' (see ComputeStreakScan): each row's running sum of the lens's image at half the
+// output's size (32 bit, so the difference of two far along a row with the sun in it keeps the dim light between)
+#define SHADER_TYPES_STREAK_SUM_TEXTURE 88u
+#define SHADER_TYPES_STREAK_SUM_RW_TEXTURE 77u
+#define SHADER_TYPES_STREAK_SCAN_THREAD_COUNT 256u // a row's group's threads, each a run of the row
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,
 // and the source's mip count (its pyramid, down to 8 texels wide)

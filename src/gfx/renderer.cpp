@@ -120,6 +120,8 @@ constexpr uint8_t kStarTilesEntryPoint = 67;
 constexpr uint8_t kStarburstEntryPoint = 68;
 // the glare's sources' sizes, after they are tracked (see ComputeFlareSize)
 constexpr uint8_t kFlareSizeEntryPoint = 69;
+// an anamorphic lens's streaks' running sums (see ComputeStreakScan)
+constexpr uint8_t kStreakScanEntryPoint = 70;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -388,6 +390,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myFlare = myGraph.CreateImage({.name = "Flare", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
 	myStar = myGraph.CreateImage({.name = "Star", .format = Format::kR16G16B16A16Sfloat, .downscale = 2, .outputSized = true});
 	myStarSource = myGraph.CreateImage({.name = "Star Source", .format = Format::kR16G16B16A16Sfloat, .downscale = 2, .outputSized = true});
+	myStreakSum = myGraph.CreateImage({.name = "Streak Sum", .format = Format::kR32G32B32A32Sfloat, .downscale = 2, .outputSized = true});
 	myStarTiles =
 		myGraph.CreateImage({.name = "Star Tiles", .format = Format::kR16Sfloat, .downscale = 2 * SHADER_TYPES_STAR_TILE_SIZE, .outputSized = true});
 	// and the depth of field's (see dof.slang)
@@ -2203,6 +2206,20 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			auto extent = context.graph.GetImage(myStarSource).GetDesc().mipLevels.front().extent;
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kStarTilesEntryPoint}, extent.width, extent.height);
 		});
+	// an anamorphic lens's streaks (see ComputeStreakScan): each row's running sum of the image at half the output's size,
+	// a group a row
+	myStreakScanPass = myGraph.AddPass(
+		"Streak Scan",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myStarSource, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myStreakSum, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			auto extent = context.graph.GetImage(myStreakSum).GetDesc().mipLevels.front().extent;
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kStreakScanEntryPoint}, SHADER_TYPES_STREAK_SCAN_THREAD_COUNT, extent.height);
+		});
 	myStarburstPass = myGraph.AddPass(
 		"Starburst",
 		[this](FrameGraph::PassBuilder& builder)
@@ -2210,6 +2227,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myLensed, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myStarSource, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myStarTiles, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myStreakSum, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myStar, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this, kernel](FrameGraph::PassContext& context)
@@ -3237,7 +3255,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 				 std::tuple{myMotionTilesDilated, SHADER_TYPES_MOTION_TILES_DILATED_TEXTURE, SHADER_TYPES_MOTION_TILES_DILATED_RW_TEXTURE},
 				 std::tuple{myStar, SHADER_TYPES_STAR_TEXTURE, SHADER_TYPES_STAR_RW_TEXTURE},
 				 std::tuple{myStarTiles, SHADER_TYPES_STAR_TILES_TEXTURE, SHADER_TYPES_STAR_TILES_RW_TEXTURE},
-				 std::tuple{myStarSource, SHADER_TYPES_STAR_SOURCE_TEXTURE, SHADER_TYPES_STAR_SOURCE_RW_TEXTURE}})
+				 std::tuple{myStarSource, SHADER_TYPES_STAR_SOURCE_TEXTURE, SHADER_TYPES_STAR_SOURCE_RW_TEXTURE},
+				 std::tuple{myStreakSum, SHADER_TYPES_STREAK_SUM_TEXTURE, SHADER_TYPES_STREAK_SUM_RW_TEXTURE}})
 		{
 			pipeline.SetDescriptorData(
 				"gTextures",
@@ -3900,6 +3919,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	bool bloom = lens && (frame.lens.glare > 0.0F || flares);
 	myGraph.SetEnabled(myBloomPass, bloom);
 	myGraph.SetEnabled(myStarTilesPass, flares);
+	myGraph.SetEnabled(myStreakScanPass, flares && frame.lens.streakCount != 0U);
 	myGraph.SetEnabled(myStarburstPass, flares);
 	myGraph.SetEnabled(myFlareClearPass, flares);
 	myGraph.SetEnabled(myFlareSourcesPass, flares);

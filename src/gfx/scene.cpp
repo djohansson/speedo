@@ -139,7 +139,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 88; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's, the motion blur's and the starburst's (SHADER_TYPES_STAR_SOURCE_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 89; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's, the motion blur's, the starburst's and the anamorphic streaks' (SHADER_TYPES_STREAK_SUM_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -217,6 +217,9 @@ static_assert(
 	SHADER_TYPES_STAR_TILES_RW_TEXTURE == SHADER_TYPES_STAR_RW_TEXTURE + 1 && SHADER_TYPES_STAR_SOURCE_TEXTURE == SHADER_TYPES_STAR_TILES_TEXTURE + 1 &&
 	SHADER_TYPES_STAR_SOURCE_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_STAR_SOURCE_RW_TEXTURE == SHADER_TYPES_STAR_TILES_RW_TEXTURE + 1 &&
 	SHADER_TYPES_STAR_SOURCE_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
+static_assert(
+	SHADER_TYPES_STREAK_SUM_TEXTURE == SHADER_TYPES_STAR_SOURCE_TEXTURE + 1 && SHADER_TYPES_STREAK_SUM_TEXTURE < kModelTextureFirstSlot &&
+	SHADER_TYPES_STREAK_SUM_RW_TEXTURE == SHADER_TYPES_STAR_SOURCE_RW_TEXTURE + 1 && SHADER_TYPES_STREAK_SUM_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE > SHADER_TYPES_PREPASS_MOTION_TEXTURE && SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE > SHADER_TYPES_COMPOSITE_RW_TEXTURE &&
@@ -665,6 +668,19 @@ struct Scene::Impl
 		data.pupilRadius = appearance.entrancePupilRadius;
 		data.stopRadius = appearance.stopRadius;
 		data.openRadius = lens::OpenRadius(prescription);
+		// an anamorphic lens's streaks at the aperture (see lens::Streaks), with the glare
+		if (glare && appearance.entrancePupilRadius > 0.0F)
+		{
+			auto streaks = lens::Streaks(prescription, appearance.focalLength / (2.0F * appearance.entrancePupilRadius));
+			ENSUREF(streaks.size() <= SHADER_TYPES_LENS_STREAK_COUNT, "lens {}: {} streaks, at most {} (SHADER_TYPES_LENS_STREAK_COUNT)", prescription.name, streaks.size(), SHADER_TYPES_LENS_STREAK_COUNT);
+			for (size_t streakIt = 0; streakIt < streaks.size(); streakIt++)
+			{
+				for (glm::length_t channel = 0; channel < 3; channel++)
+					data.streaks[streakIt][channel] = streaks[streakIt].reflectance[channel];
+				data.streaks[streakIt][3] = streaks[streakIt].halfLength;
+			}
+			data.streakCount = static_cast<uint32_t>(streaks.size());
+		}
 		data.entranceRadius = prescription.surfaces.empty() ? 0.0F : prescription.surfaces.front().clearRadius;
 		data.ghostGain = myLensState.ghostGain;
 		data.starGain = myLensState.starGain;
@@ -2771,6 +2787,7 @@ struct Scene::Impl
 				{"ComputeStarTiles", SLANG_STAGE_COMPUTE}, // see the Starburst pass
 				{"ComputeStarburst", SLANG_STAGE_COMPUTE},
 				{"ComputeFlareSize", SLANG_STAGE_COMPUTE}, // see the Flare Track pass
+				{"ComputeStreakScan", SLANG_STAGE_COMPUTE}, // see the Streak Scan pass
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

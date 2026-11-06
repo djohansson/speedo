@@ -529,6 +529,79 @@ void ComputeStarTiles(uint3 dispatchThreadId : SV_DispatchThreadID, uint3 groupT
 	}
 }
 
+// an anamorphic lens's streaks' running sums (the Streak Scan pass, see ComputeStarburst): each row of the lens's image at
+// half the output's size summed from its left, a group a row (each thread a run of it, the runs' totals scanned in
+// groupshared memory, Hillis and Steele), so that a streak's box along the row is two reads
+groupshared float3 gStreakRuns[SHADER_TYPES_STREAK_SCAN_THREAD_COUNT];
+
+[shader("compute")]
+[numthreads(SHADER_TYPES_STREAK_SCAN_THREAD_COUNT, 1, 1)]
+void ComputeStreakScan(uint3 groupThreadId : SV_GroupThreadID, uint3 groupId : SV_GroupID)
+{
+	RWTexture2D sum = gRWTextures[SHADER_TYPES_STREAK_SUM_RW_TEXTURE];
+	uint2 size;
+	sum.GetDimensions(size.x, size.y);
+	uint row = groupId.y;
+	if (row >= size.y)
+		return;
+	Texture2D source = gTextures[SHADER_TYPES_STAR_SOURCE_TEXTURE];
+	uint thread = groupThreadId.x;
+	uint run = (size.x + SHADER_TYPES_STREAK_SCAN_THREAD_COUNT - 1u) / SHADER_TYPES_STREAK_SCAN_THREAD_COUNT;
+	uint first = thread * run;
+	float3 total = 0.0;
+	for (uint it = 0; it < run; it++)
+	{
+		uint x = first + it;
+		if (x < size.x)
+			total += max(source.Load(int3(int(x), int(row), 0)).rgb, 0.0);
+	}
+	gStreakRuns[thread] = total;
+	GroupMemoryBarrierWithGroupSync();
+	for (uint offset = 1u; offset < SHADER_TYPES_STREAK_SCAN_THREAD_COUNT; offset *= 2u)
+	{
+		float3 before = thread >= offset ? gStreakRuns[thread - offset] : float3(0.0, 0.0, 0.0);
+		GroupMemoryBarrierWithGroupSync();
+		gStreakRuns[thread] += before;
+		GroupMemoryBarrierWithGroupSync();
+	}
+	float3 running = thread > 0u ? gStreakRuns[thread - 1u] : float3(0.0, 0.0, 0.0);
+	for (uint it = 0; it < run; it++)
+	{
+		uint x = first + it;
+		if (x < size.x)
+		{
+			running += max(source.Load(int3(int(x), int(row), 0)).rgb, 0.0);
+			sum[uint2(x, row)] = float4(running, 1.0);
+		}
+	}
+}
+
+// an anamorphic lens's streaks at a half texel (see lens::Streak): per pair of its cylinders' surfaces, the reflectances'
+// product times the row's mean over the line's half length either way (output pixels across: the sensor's mm over the
+// view's mm per pixel across), within the view's viewport (the running sums' difference)
+float3 StreakLight(LensData lens, uint2 texel, float2 mmPerPixel, float4 viewport)
+{
+	Texture2D sum = gTextures[SHADER_TYPES_STREAK_SUM_TEXTURE];
+	int low = int(floor(0.5 * viewport.x));
+	int high = int(ceil(0.5 * (viewport.x + viewport.z))) - 1;
+	float3 light = 0.0;
+	for (uint streakIt = 0; streakIt < min(lens.streakCount, SHADER_TYPES_LENS_STREAK_COUNT); streakIt++)
+	{
+		float4 streak = lens.streaks[streakIt];
+		float halfTexels = 0.5 * streak.w / max(mmPerPixel.x, 1e-6);
+		if (halfTexels < 1.0)
+			continue;
+		int left = max(int(texel.x) - int(halfTexels), low);
+		int right = min(int(texel.x) + int(halfTexels), high);
+		if (right < left)
+			continue;
+		float3 before = left > 0 ? sum.Load(int3(left - 1, int(texel.y), 0)).rgb : float3(0.0, 0.0, 0.0);
+		float3 through = sum.Load(int3(right, int(texel.y), 0)).rgb;
+		light += streak.rgb * (through - before) / (2.0 * halfTexels + 1.0);
+	}
+	return light;
+}
+
 // the blades' polygon's edges' straight length (mm; FlareEdgeLength in flare.slang, lens::StraightEdgeLength): the
 // stop's radius its apothem, its edge 2 a tan(pi / N), or the chord the round opening leaves of it (none wide open)
 float StarEdgeLength(LensData lens)
@@ -588,6 +661,8 @@ void ComputeStarburst(uint3 dispatchThreadId : SV_DispatchThreadID)
 	}
 	float4 viewport = LensOutputViewport(view, outputSize);
 	float2 mmPerPixel = LensSensorMmPerPixel(lens, viewport);
+	// an anamorphic lens's streaks, every point's (see StreakLight)
+	float3 streaks = lens.streakCount != 0u ? StreakLight(lens, texel, mmPerPixel, viewport) : float3(0.0, 0.0, 0.0);
 	bool evenBlades = (lens.bladeCount & 1u) == 0u;
 	float3 bladeCoefficient = edge > 0.0 ? StarCoefficient(lens, edge) * (evenBlades ? 2.0 : 1.0) : 0.0;
 	// the cylinder's edge, the lens's whole clear aperture, tinted blue as its coatings reflect it (FlareStarburst's)
@@ -607,7 +682,7 @@ void ComputeStarburst(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float reach = min(float(SHADER_TYPES_STAR_REACH), sqrt(brightest * strongest / (shortestStep * kFlareLeastVisible)));
 	if (reach < 1.0)
 	{
-		star[texel] = float4(0.0, 0.0, 0.0, 0.0);
+		star[texel] = float4(streaks, 1.0);
 		return;
 	}
 	uint stepCount = uint(ceil(reach));
@@ -642,5 +717,5 @@ void ComputeStarburst(uint3 dispatchThreadId : SV_DispatchThreadID)
 		}
 		sum += along * coefficient;
 	}
-	star[texel] = float4(sum, 1.0);
+	star[texel] = float4(sum + streaks, 1.0);
 }
