@@ -383,9 +383,14 @@ squeeze and what it lets through on axis), and from it, by paraxial ray transfer
 refractions and translations, Lee and Eisemann 2013 after Hullin et al. 2011, `lens::Trace`: the effective focal length
 is -1 over the entrance to sensor matrix's c, the back focal distance -a over it, the entrance pupil the stop seen
 through the elements before it), what the camera shows (`lens::Appear`, `lens::Appearance`): the vignetting over the
-field (`SHADER_TYPES_LENS_VIGNETTING_COUNT` samples from the axis to the sensor's corner: cos^4 of the field angle, and
-the mechanical one, the share of the stop's disk whose rays, traced back to the entrance and through, pass every clear
-radius, the cat's eye, strongest wide open and at the corner), the lateral chromatic aberration (the red and the blue
+field (`SHADER_TYPES_LENS_VIGNETTING_COUNT` samples from the axis to the sensor's corner: the natural one, cos^4 of the
+angle the chief ray meets the sensor at, the field's tangent times the chief ray's slope after the lens over before it,
+so the exit pupil's distance decides it; and the mechanical one, the share of the stop's disk whose rays, traced back
+to the entrance and through, pass every clear radius, the cat's eye, strongest wide open and at the corner. The natural
+one was cos^4 of the object side's field angle at first, which left a 12 mm's corner, at 61 degrees, 0.056 of the axis
+however it was built, four stops in a game's view; a retrofocus design's exit pupil stands far before the sensor, real
+ones keep 0.15 to 0.3 wide open, and now the 12 mm keeps 0.43, while a telephoto's, its exit pupil near, darkens: the
+85 mm's corner went from 0.865 to 0.473, the Gauss's from 0.265 to 0.276), the lateral chromatic aberration (the red and the blue
 images' heights over the green's, from the chief ray at 650, 550 and 450 nm through the glasses' dispersion, `IndexAt`,
 linear in the inverse square of the wavelength; a design's correctors' glasses are chosen for it by bisection,
 `Achromatize`), and each ghost (`lens::Ghosts`: every pair of glass-air surfaces, the ray reflected back at the later and
@@ -394,11 +399,22 @@ Fresnel reflectances' product through a quarter wave of magnesium fluoride where
 not drawn yet). The lenses (`lens::Lenses()`, their keys): the pinhole (`pinhole`, the default: no surfaces, the frame
 as it is, at any focal length), a 50 mm f/1.8 double Gauss (`gauss-50`, Kolb's 1995 prescription), a 28 mm f/2.8 wide
 angle (`wide-28`, barrel distortion of 6%), an 85 mm f/1.8 portrait (`portrait-85`), a 50 mm f/2.8 vintage Tessar
-(`vintage-50`, uncoated: its ghosts 25 times a coated lens's, and 85% transmittance) and a 50 mm 2x anamorphic
-(`anamorphic-50`, the Gauss squeezed). `assettest` checks each (`CheckLenses`: the focal length it scales to, a positive
-back focus, the vignetting within 0 and 1, the aberration under 2%, ghosts and their brightness): the Gauss's corner
-0.265 of the axis wide open at 23.4 degrees, the wide angle's 0.356 with red 1.0027 and blue 0.9953 of green, the
-portrait's 0.865, the vintage's 0.608. A prime pins the views' focal length (`Views::SetLens`: the framing and the
+(`vintage-50`, uncoated: its ghosts 25 times a coated lens's, and 85% transmittance), a 50 mm 2x anamorphic
+(`anamorphic-50`, the Gauss squeezed), and since 2026-11-06 (the user's ask: more lenses, wide angles a first person
+game can be played through) a 20 mm f/1.8 (`wide-20`), a 16 mm f/2.8 (`ultrawide-16`) and a 12 mm f/2.8 ultra wide
+(`ultrawide-12`), retrofocus as the 28 (on a 16:9 view of the full frame sensor 84, 97 and 113 degrees across, the
+fields games call 90 to 110; rectilinear as a game's projection, 2.5 to 3.5% barrel at the corner: at 15% the 12 mm
+looked a fisheye's), a 35 mm f/1.4 (`fast-35`, a Gauss's topology of six elements) and a 135 mm f/2 telephoto
+(`tele-135`). The retrofocus designs achromatize five glasses (the front's two negative elements, the positive before
+the stop, the flint and the positive after it): with two the glasses ran to the ends of their range and the 12 mm's
+red and blue images stood 1% apart at the corner, 10 pixels at 1440p, 0.15% now. `assettest` checks each
+(`CheckLenses`: the focal length it scales to, a positive back focus, the vignetting within 0.04 and 1, the aberration
+under 2%, ghosts and their brightness, and that a ray near the axis and one at 0.7 of the pupil reach the sensor through
+`lens::TraceRay`, the exact trace, reporting the surface that cut it: the 35 mm's elements, a convex back against the
+next one's concave front at no spacing, overlapped off the axis, which the paraxial matrices don't see, and the 135's
+rear element stood at its front group's focus, scaling it to 4 mm of back focus): the Gauss's corner 0.276 of the axis
+wide open at 23.4 degrees, the 28's 0.690, the portrait's 0.473, the vintage's 0.656, the 20's 0.580 at 47 degrees, the
+16's 0.522 at 54, the 12's 0.434 at 61, the 35's 0.128 (mechanical, f/1.4), the 135's 0.831. A prime pins the views' focal length (`Views::SetLens`: the framing and the
 scene cameras take its field of view, the Focal Length drag is disabled, and `SPEEDO_FOCAL_LENGTH` is ignored) and the
 aperture's range (`Scene::GetExposureLimits`, which `ChosenExposure` and the Exposure menu take: a manual f/0.7 is
 clamped to its widest); the anamorphic lens's image, squeezed across onto the sensor, is shown unsqueezed, the views
@@ -503,7 +519,19 @@ circle of the one that spreads farthest, DOF Gather gathers each half texel over
 `kDofTapCount`, 48, taps on a spiral turned per texel by interleaved gradient noise, up to twice that the farther the
 reach, each on the blades' polygon, `DofBokehPoint`, and kept where the cat's eye leaves it, a disk of the same radius
 `catEye` radii toward the view's center, which `lens::Appear` solves per field angle from the mechanical share of the
-light, two disks' overlap by bisection; a tap counts for a channel where its circle covers the texel, antialiased over
+light, two disks' overlap by bisection; weighed by the bokeh's profile, `DofBokeh`, the light at the tap's share of its
+circle's radius: the lens's spherical aberration spreads a point's rays over its circle unevenly, so a point's disk has
+a bright rim on one side of the focus and a soft edge on the other (an undercorrected lens's far points soft, its near
+ones rimmed, an overcorrected lens's the other way), which `lens::Appear` finds by tracing 96 rays parallel to the axis
+exactly (`lens::TraceRay`, Snell's law at each sphere, the stop and the clear radii cutting) and fitting their heights
+on the sensor as c1 y + c3 y^3, c3 the aberration; a defocused point's rays land at k y + c3 y^3, so 4096 of them over
+the pupil, counted by the radius they land at over each annulus's area, give the profile for a near point and a far one
+(`LensData::bokehNear`, `bokehFar`, 32 radii each) at the reference circle where the aberration is a quarter of the
+defocus (`bokehReference`, mm), tending to uniform as a circle outgrows it (the profile's departure from 1 scaled by the
+reference over the circle). The Gauss is a little overcorrected (c3 3.3e-5 mm/mm^3: its far points rimmed, 2.4 times
+the mean at the edge, the reference 0.35 mm, so its larger disks are nearly flat), the portrait undercorrected (-2.3e-4,
+12 mm), the vintage strongly (-3.1e-3, 8.7 mm: soft far disks wherever it blurs); Bistro's lamps at night through them
+out of focus show it. A tap counts for a channel where its circle covers the texel, antialiased over
 a texel, a tap behind the point by as much as the point is blurred itself, so a blurred background doesn't bleed over
 a sharp foreground; the share of what counted that lies in front of the point in the alpha), and DOF Composite
 recomposes the frame at the output's size (the gather's result, a 3x3 tent of it, where the pixel's own circle is past
@@ -514,8 +542,9 @@ KosmicKrisp at 1440p by the draw thread's frame time, the helmet framed, the Gau
 (`SPEEDO_SKIP_PASSES`; a pinhole run is no baseline, a prime's field of view being another scene): the Lens pass
 0.15 ms, the depth of field 1.1 at f/14 (little blurred; 2.5 before the view lookups were hoisted out of the tiles'
 and the prepare's pixels), about 4 wide open with everything blurred, the glare within the runs' noise there. Clean
-under the validation layer. Not yet: a bokeh's shape by the lens's aberrations (a Gauss's onion rings, a mirror's
-rings), the focus pulling smoothly over time, each split screen view's own focus (the first's serves all).
+under the validation layer. Not yet: the bokeh's onion rings (an aspheric's polish) and a mirror lens's rings, the
+profile across the field (it is the axis's everywhere), the focus pulling smoothly over time, each split screen view's
+own focus (the first's serves all).
 
 **The motion blur and the grain** (the fifth stage, 2026-11-05, the camera plan's last; View > Camera > Motion Blur
 and Grain, `Settings::motionBlur` and `grain`, `SPEEDO_MOTION_BLUR=0` and `SPEEDO_GRAIN=0` without, which Copy Pose

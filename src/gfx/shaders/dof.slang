@@ -182,6 +182,20 @@ float2 DofBokehPoint(LensData lens, float2 point)
 	return point * radius;
 }
 
+// the bokeh's profile at a radius of a point's circle (0 its center, 1 its edge), nearer than the focus or farther
+// (see LensData::bokehNear: the spherical aberration's rim or soft edge), as much as the circle is within the reference
+// (a larger circle's defocus outgrows the aberration, and the profile tends to uniform)
+float DofBokeh(LensData lens, float radius, bool near, float circleMm)
+{
+	float sample = saturate(radius) * float(SHADER_TYPES_LENS_VIGNETTING_COUNT - 1u);
+	uint below = uint(floor(sample));
+	uint above = min(below + 1u, SHADER_TYPES_LENS_VIGNETTING_COUNT - 1u);
+	float profile = near ? lerp(lens.bokehNear[below / 4u][below % 4u], lens.bokehNear[above / 4u][above % 4u], frac(sample))
+						 : lerp(lens.bokehFar[below / 4u][below % 4u], lens.bokehFar[above / 4u][above % 4u], frac(sample));
+	float share = lens.bokehReference > 0.0 ? saturate(lens.bokehReference / max(circleMm, 1e-6)) : 0.0;
+	return lerp(1.0, profile, share);
+}
+
 float DofCatEye(LensData lens, float2 sensor)
 {
 	float tangent = length(sensor) / max(lens.focalLength, 1e-3);
@@ -261,7 +275,9 @@ void ComputeDofGather(uint3 dispatchThreadId : SV_DispatchThreadID)
 		// behind the point: as much as the point is blurred itself
 		bool behind = tap.a > center.a + 0.5;
 		float3 hidden = behind ? saturate(centerCircle / max(tapCircle, 1e-3)) : 1.0;
-		float3 tapWeight = covers * hidden;
+		// the tap's circle's profile where it covers the texel (see DofBokeh)
+		float bokeh = DofBokeh(lens, distance / max(tapCircle.y, 1e-3), tap.a < 0.0, tapCircle.y * mmPerPixel);
+		float3 tapWeight = covers * hidden * bokeh;
 		sum += tap.rgb * tapWeight;
 		weight += tapWeight;
 		front += behind ? 0.0 : tapWeight.y;

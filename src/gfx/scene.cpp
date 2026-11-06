@@ -664,6 +664,13 @@ struct Scene::Impl
 		data.flares = glare ? 1U : 0U;
 		for (size_t sampleIt = 0; sampleIt < lens::Appearance::kVignettingSamples; sampleIt++)
 			data.catEye[sampleIt / 4][sampleIt % 4] = appearance.catEye[sampleIt];
+		static_assert(lens::Appearance::kBokehSamples == lens::Appearance::kVignettingSamples);
+		for (size_t sampleIt = 0; sampleIt < lens::Appearance::kBokehSamples; sampleIt++)
+		{
+			data.bokehNear[sampleIt / 4][sampleIt % 4] = appearance.bokehNear[sampleIt];
+			data.bokehFar[sampleIt / 4][sampleIt % 4] = appearance.bokehFar[sampleIt];
+		}
+		data.bokehReference = appearance.bokehReference;
 		// the depth of field: the focus in mm along the view (the view's own measure in the scene's units, or the setting in
 		// meters), the aperture's diameter at the aperture the camera exposes with (not quantized: a stop's width of focus
 		// would step)

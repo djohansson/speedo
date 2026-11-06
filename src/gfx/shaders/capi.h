@@ -584,6 +584,12 @@ struct LensData
 	// the cat's eye at the same field angles (see lens::Appearance::catEye: the bokeh's clipping disk's distance from
 	// the pupil's, in radii, pointing to the center)
 	alignas(16) FLOAT4(catEye[SHADER_TYPES_LENS_VIGNETTING_COUNT / 4]);
+	// the bokeh's radial profile at SHADER_TYPES_LENS_VIGNETTING_COUNT radii from a circle's center to its edge, for a
+	// point nearer than the focus and one farther (see lens::Appearance::bokehNear: the spherical aberration's bright
+	// rim or soft edge), at the reference circle's radius (bokehReference, mm; larger circles tend to uniform)
+	alignas(16) FLOAT4(bokehNear[SHADER_TYPES_LENS_VIGNETTING_COUNT / 4]);
+	alignas(16) FLOAT4(bokehFar[SHADER_TYPES_LENS_VIGNETTING_COUNT / 4]);
+	alignas(4) FLOAT1(bokehReference);
 	alignas(4) FLOAT1(fieldAngle); // radians
 	alignas(4) FLOAT1(focalLength); // mm
 	alignas(4) FLOAT1(halfDiagonal); // mm: the sensor's, what the view's corner is from its center
@@ -633,6 +639,9 @@ struct LensData
 	alignas(4) UINT1(padding0);
 	alignas(4) UINT1(padding1);
 	alignas(4) UINT1(padding2);
+	alignas(4) UINT1(padding3);
+	alignas(4) UINT1(padding4);
+	alignas(4) UINT1(padding5);
 };
 // the motion blur's longest blur, in the output's pixels, and its tiles' size
 #define SHADER_TYPES_MOTION_BLUR_MAX 64.0

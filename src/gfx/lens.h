@@ -108,6 +108,17 @@ struct Appearance
 	// that clips it stand apart for their overlap to pass the mechanical share of the light, so that the bokeh of a
 	// point of light there is the two disks' lens shape, pointing to the center (0 on the axis, a disk)
 	std::array<float, kVignettingSamples> catEye{};
+	// the bokeh's radial profile (see Bokeh and TraceRay: the lens's spherical aberration spreads a point's rays over
+	// its circle of confusion unevenly, a bright rim on one side of the focus and a soft edge on the other), the light
+	// at kBokehSamples radii from a circle's center to its edge as a share of a uniform disk's, for a point nearer than
+	// the focus and one farther, at the reference circle (bokehReference: the circle's radius, mm, where the aberration
+	// is a quarter of the defocus; larger circles tend to uniform as the defocus outgrows the aberration), and the
+	// aberration itself (mm per mm cubed of the entrance height, negative undercorrected)
+	static constexpr size_t kBokehSamples = 32;
+	std::array<float, kBokehSamples> bokehNear{};
+	std::array<float, kBokehSamples> bokehFar{};
+	float bokehReference = 0.0F;
+	float sphericalAberration = 0.0F;
 	float entrancePupilRadius = 0.0F; // mm
 	float stopRadius = 0.0F; // mm, at the f-number (the blades' polygon's apothem)
 	float transmittance = 1.0F;
@@ -117,6 +128,12 @@ struct Appearance
 };
 
 [[nodiscard]] Appearance Appear(const Prescription& lens, float fNumber, float sensorHalfDiagonal);
+
+// a meridional ray traced exactly through the spherical surfaces (Snell's law at each, the stop open to stopRadius, 0
+// wide open) from a height (mm) and an angle (radians, up) at the entrance, to the sensor: its height there, or none
+// where it is cut (a clear radius, the stop) or reflected in full (what the paraxial matrices leave out: the
+// aberrations, see Appearance::sphericalAberration)
+[[nodiscard]] std::optional<float> TraceRay(const Prescription& lens, float wavelength, float height, float angle, float stopRadius = 0.0F, size_t* cutAt = nullptr);
 
 // a ghost: a pair of reflecting surfaces, the ray reflected back at the second (later) and forward again at the first
 // (earlier), as an affine map of the entrance pupil's (height, angle) onto the sensor, per wavelength

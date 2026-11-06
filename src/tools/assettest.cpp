@@ -1364,14 +1364,25 @@ Report CheckLenses()
 			brightest = std::max(brightest, std::max(ghost.reflectance.x, std::max(ghost.reflectance.y, ghost.reflectance.z)));
 		report.Info(
 			"{} ({}): {} surfaces, f {:.2f} mm, back focus {:.2f} mm, pupil {:.2f} mm, f/{:.2f} wide open, corner {:.3f} of the axis at {:.1f} degrees, red "
-			"{:.5f} blue {:.5f} of green, {} ghosts, the brightest {:.2e}",
+			"{:.5f} blue {:.5f} of green, {} ghosts, the brightest {:.2e}, spherical aberration {:.2e} mm/mm^3 (the bokeh's rim near {:.2f} far {:.2f}, "
+			"the center {:.2f} and {:.2f}, at a circle of {:.3f} mm)",
 			lens.name, lens.key, lens.surfaces.size(), traced.focalLength, traced.backFocalDistance, traced.entrancePupilRadius * 2.0F, lens.widestAperture,
-			appearance.vignetting.back(), glm::degrees(appearance.fieldAngle), appearance.redScale, appearance.blueScale, ghosts.size(), brightest);
+			appearance.vignetting.back(), glm::degrees(appearance.fieldAngle), appearance.redScale, appearance.blueScale, ghosts.size(), brightest,
+			appearance.sphericalAberration, appearance.bokehNear.back(), appearance.bokehFar.back(), appearance.bokehNear.front(), appearance.bokehFar.front(),
+			appearance.bokehReference);
+		// a ray down the axis reaches the sensor (the exact trace, see lens::TraceRay), and the marginal one too
+		for (float share : {0.01F, 0.7F})
+		{
+			size_t cutAt = 0;
+			if (!gfx::lens::TraceRay(lens, 550.0F, share * traced.entrancePupilRadius, 0.0F, 0.0F, &cutAt))
+				report.Fail("{}: a ray at {:.2f} of the pupil doesn't reach the sensor, cut at surface {}", lens.name, share, cutAt);
+		}
 		if (std::abs(traced.focalLength - lens.focalLength) > 0.01F * lens.focalLength)
 			report.Fail("{}: traces to {:.2f} mm rather than {:.2f}", lens.name, traced.focalLength, lens.focalLength);
 		if (traced.backFocalDistance <= 0.0F)
 			report.Fail("{}: its focus is {:.2f} mm behind its last surface", lens.name, traced.backFocalDistance);
-		if (!(appearance.vignetting.front() > 0.999F && appearance.vignetting.back() > 0.05F && appearance.vignetting.back() < 1.0F))
+		// the corner keeps some light (the 12 mm's corner is at 61 degrees, where the natural cos^4 alone leaves 0.056)
+		if (!(appearance.vignetting.front() > 0.999F && appearance.vignetting.back() > 0.04F && appearance.vignetting.back() < 1.0F))
 			report.Fail("{}: vignetting {:.3f} on the axis, {:.3f} at the corner", lens.name, appearance.vignetting.front(), appearance.vignetting.back());
 		if (std::abs(appearance.redScale - 1.0F) > 0.02F || std::abs(appearance.blueScale - 1.0F) > 0.02F)
 			report.Fail("{}: a lateral chromatic aberration of {:.4f} and {:.4f}", lens.name, appearance.redScale, appearance.blueScale);

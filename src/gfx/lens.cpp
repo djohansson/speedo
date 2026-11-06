@@ -26,6 +26,7 @@ namespace
 [[nodiscard]] float A(const Matrix& m) noexcept { return m[0][0]; }
 [[nodiscard]] float B(const Matrix& m) noexcept { return m[1][0]; }
 [[nodiscard]] float C(const Matrix& m) noexcept { return m[0][1]; }
+[[nodiscard]] float D(const Matrix& m) noexcept { return m[1][1]; }
 
 // a translation by a distance (mm) in one medium
 [[nodiscard]] Matrix Translate(float distance) noexcept { return Make(1.0F, distance, 0.0F, 1.0F); }
@@ -283,19 +284,96 @@ void Achromatize(Prescription& lens, size_t surface)
 		anamorphic.transmittance = 0.9F;
 		lenses.push_back(std::move(anamorphic));
 	}
+	// the wide angles a first person game is played through (the user's ask, 2026-11-06: on a 16:9 window of a full
+	// frame sensor, 20 mm sees 84 degrees across, 16 mm 97 and 12 mm 113, the fields games call 90 to 110), each a
+	// retrofocus as the 28: a diverging front group the wider the shorter, the stop in the converging rear group, the
+	// focus well behind it, big front elements. rectilinear, as a game's projection is: a few percent of barrel
+	// distortion at the corner, as modern ones have (at 15% the 12 mm looked a fisheye's)
+	auto retrofocus = [&lenses](const char* name, const char* key, float focalLength, float frontFocal, float frontRadius, float widest, uint32_t blades, float distortion)
+	{
+		const std::array elements{
+			Element{.focalLength = frontFocal, .thickness = 3.0F, .index = 1.62F, .abbe = 60.0F, .clearRadius = frontRadius, .shape = 1.0F, .spacing = 10.0F},
+			Element{.focalLength = 1.8F * frontFocal, .thickness = 2.5F, .index = 1.72F, .abbe = 50.0F, .clearRadius = 0.7F * frontRadius, .shape = 0.6F, .spacing = 20.0F},
+			Element{.focalLength = 50.0F, .thickness = 6.0F, .index = 1.62F, .abbe = 60.0F, .clearRadius = 14.0F, .shape = 0.2F, .spacing = 3.0F},
+			Element{.focalLength = -60.0F, .thickness = 2.0F, .index = 1.75F, .abbe = 28.0F, .clearRadius = 12.0F, .shape = -0.3F, .spacing = 3.0F},
+			Element{.focalLength = 40.0F, .thickness = 6.0F, .index = 1.62F, .abbe = 60.0F, .clearRadius = 14.0F, .shape = -0.4F, .spacing = 40.0F},
+		};
+		auto lens = FromElements(name, key, focalLength, elements, 3, 2.5F);
+		lens.widestAperture = widest;
+		lens.bladeCount = blades;
+		lens.distortion = distortion;
+		lenses.push_back(std::move(lens));
+	};
+	retrofocus("20 mm f/1.8 wide angle", "wide-20", 20.0F, -55.0F, 34.0F, 1.8F, 7, -0.025F);
+	retrofocus("16 mm f/2.8 ultra wide", "ultrawide-16", 16.0F, -45.0F, 38.0F, 2.8F, 7, -0.03F);
+	retrofocus("12 mm f/2.8 ultra wide", "ultrawide-12", 12.0F, -38.0F, 42.0F, 2.8F, 9, -0.035F);
+	{
+		// a fast 35: a double Gauss's symmetry, two converging elements, a diverging one, the stop, a diverging one and two
+		// converging, fast and with a little barrel. the elements stand apart in air (an element's convex back and the
+		// next one's concave front overlap off the axis at no spacing: the exact trace, TraceRay, is cut by it where the
+		// paraxial one isn't), and the front group is weak, as a Gauss's is, so that the marginal ray wide open stays
+		// shallow through the middle (a strong front group bent it 50 degrees)
+		const std::array elements{
+			Element{.focalLength = 90.0F, .thickness = 6.0F, .index = 1.69F, .abbe = 50.0F, .clearRadius = 22.0F, .shape = 0.8F, .spacing = 0.5F},
+			Element{.focalLength = 75.0F, .thickness = 7.0F, .index = 1.67F, .abbe = 47.0F, .clearRadius = 20.0F, .shape = 0.5F, .spacing = 3.0F},
+			Element{.focalLength = -45.0F, .thickness = 2.5F, .index = 1.70F, .abbe = 30.0F, .clearRadius = 17.0F, .shape = -0.6F, .spacing = 8.0F},
+			Element{.focalLength = -48.0F, .thickness = 2.5F, .index = 1.60F, .abbe = 38.0F, .clearRadius = 17.0F, .shape = 0.6F, .spacing = 1.5F},
+			Element{.focalLength = 55.0F, .thickness = 8.0F, .index = 1.66F, .abbe = 57.0F, .clearRadius = 19.0F, .shape = -0.5F, .spacing = 0.5F},
+			Element{.focalLength = 90.0F, .thickness = 5.0F, .index = 1.72F, .abbe = 48.0F, .clearRadius = 21.0F, .shape = -0.8F, .spacing = 36.0F},
+		};
+		auto fast = FromElements("35 mm f/1.4", "fast-35", 35.0F, elements, 3, 8.0F);
+		fast.widestAperture = 1.4F;
+		fast.bladeCount = 9;
+		fast.distortion = -0.02F;
+		lenses.push_back(std::move(fast));
+	}
+	{
+		// a 135 telephoto: a converging front group (110 and 150 mm, 63 together) and a diverging rear (-40 mm) 30 mm
+		// behind it, as the 85, longer; a touch of pincushion. the rear stands well before the front group's focus (at
+		// 45 mm it stood at it, the design's focal length ran to 1350 mm and the scale left 4 mm of back focus)
+		const std::array elements{
+			Element{.focalLength = 110.0F, .thickness = 14.0F, .index = 1.62F, .abbe = 60.0F, .clearRadius = 42.0F, .shape = 0.2F, .spacing = 1.0F},
+			Element{.focalLength = 150.0F, .thickness = 12.0F, .index = 1.65F, .abbe = 55.0F, .clearRadius = 40.0F, .shape = 0.3F, .spacing = 18.0F},
+			Element{.focalLength = -55.0F, .thickness = 3.0F, .index = 1.76F, .abbe = 27.0F, .clearRadius = 26.0F, .shape = -0.3F, .spacing = 40.0F},
+		};
+		auto tele = FromElements("135 mm f/2 telephoto", "tele-135", 135.0F, elements, 2, 10.0F);
+		tele.widestAperture = 2.0F;
+		tele.bladeCount = 9;
+		tele.distortion = 0.01F;
+		lenses.push_back(std::move(tele));
+	}
 
 	for (auto& lens : lenses)
 		if (!IsPinhole(lens))
 			Scale(lens);
 	// the designs built from elements achromatized by two glasses' dispersions each, the correctors, as a designer picks
-	// glasses: the wide angle's and the portrait's front element and rear negative element, in turns (the Tessar keeps
-	// its fringes, a vintage lens's)
+	// glasses: each design's front element and a rear negative element, in turns (the Tessar keeps its fringes, a
+	// vintage lens's; the anamorphic is the Gauss)
 	for (int round = 0; round < 4; round++)
 	{
-		Achromatize(lenses[2], 0);
-		Achromatize(lenses[2], 7);
-		Achromatize(lenses[3], 0);
-		Achromatize(lenses[3], 5);
+		for (size_t lensIt = 0; lensIt < lenses.size(); lensIt++)
+		{
+			const auto& key = lenses[lensIt].key;
+			if (key == "wide-28" || key == "wide-20" || key == "ultrawide-16" || key == "ultrawide-12")
+			{
+				Achromatize(lenses[lensIt], 0);
+				Achromatize(lenses[lensIt], 2);
+				Achromatize(lenses[lensIt], 4);
+				Achromatize(lenses[lensIt], 7);
+				Achromatize(lenses[lensIt], 9);
+			}
+			else if (key == "portrait-85" || key == "tele-135")
+			{
+				Achromatize(lenses[lensIt], 0);
+				Achromatize(lenses[lensIt], 5);
+			}
+			else if (key == "fast-35")
+			{
+				// its rear negative element's front, past the stop
+				Achromatize(lenses[lensIt], 0);
+				Achromatize(lenses[lensIt], 7);
+			}
+		}
 	}
 	return lenses;
 }
@@ -461,10 +539,23 @@ Appearance Appear(const Prescription& lens, float fNumber, float sensorHalfDiago
 		float half = 0.5F * distance;
 		return (2.0F * std::acos(std::clamp(half, -1.0F, 1.0F)) - half * std::sqrt(std::max(4.0F - distance * distance, 0.0F))) / std::numbers::pi_v<float>;
 	};
+	// the natural vignetting: cos^4 of the angle the chief ray meets the sensor at, the exit pupil's solid angle as a point
+	// of the image sees it (its distance, its tilt, the sensor's). the image side's angle is the field's times the
+	// chief ray's slope after the lens over before it (its tangent, paraxially): a retrofocus wide angle's exit pupil
+	// stands far before the sensor, so its corners get more light than the object side's cos^4 (which left a 12 mm's
+	// corner, at 61 degrees, 0.056 of the axis's however it was built: real ones keep 0.15 to 0.3 wide open), and a
+	// telephoto's near, so they get less
+	float chiefSlope = 1.0F;
+	if (std::abs(A(green.toStop)) > 1e-6F)
+	{
+		constexpr float kProbe = 0.01F;
+		float chiefHeight = -B(green.toStop) * kProbe / A(green.toStop);
+		chiefSlope = std::abs(C(green.toSensor) * chiefHeight + D(green.toSensor) * kProbe) / kProbe;
+	}
 	for (size_t sampleIt = 0; sampleIt < Appearance::kVignettingSamples; sampleIt++)
 	{
 		float angle = appearance.fieldAngle * static_cast<float>(sampleIt) / static_cast<float>(Appearance::kVignettingSamples - 1);
-		float natural = std::pow(std::cos(angle), 4.0F);
+		float natural = std::pow(std::cos(std::atan(chiefSlope * std::tan(angle))), 4.0F);
 		float mechanical = std::min(passing(angle) / onAxis, 1.0F);
 		appearance.vignetting[sampleIt] = natural * mechanical;
 		float low = 0.0F;
@@ -479,6 +570,69 @@ Appearance Appear(const Prescription& lens, float fNumber, float sensorHalfDiago
 	// the focal lengths at the red's and the blue's wavelengths
 	appearance.focalLengthRed = Trace(lens, kWavelengths[0], stopRadius).focalLength;
 	appearance.focalLengthBlue = Trace(lens, kWavelengths[2], stopRadius).focalLength;
+
+	// the bokeh's profile from the spherical aberration (see Appearance::bokehNear): rays parallel to the axis across the
+	// pupil, traced exactly to the sensor (the paraxial focus), their heights fitted as c1 y + c3 y^3 (c3 the aberration);
+	// a defocused point's rays land at k y + c3 y^3, k the defocus (positive for a point nearer than the focus, whose
+	// rays haven't met; negative farther), so the light over the circle is the rays' density there: uniform over the
+	// pupil's area, counted by the radius they land at over the annulus's area
+	{
+		constexpr int kRays = 96;
+		float pupil = std::max(green.entrancePupilRadius, 1e-3F);
+		double sumY4 = 0.0;
+		double sumY6 = 0.0;
+		double sumY2 = 0.0;
+		double sumHY = 0.0;
+		double sumHY3 = 0.0;
+		for (int rayIt = 0; rayIt < kRays; rayIt++)
+		{
+			float y = pupil * (static_cast<float>(rayIt) + 0.5F) / kRays;
+			auto height = TraceRay(lens, kWavelengths[1], y, 0.0F, stopRadius);
+			if (!height)
+				continue;
+			sumY2 += static_cast<double>(y) * y;
+			sumY4 += std::pow(static_cast<double>(y), 4.0);
+			sumY6 += std::pow(static_cast<double>(y), 6.0);
+			sumHY += static_cast<double>(*height) * y;
+			sumHY3 += static_cast<double>(*height) * std::pow(static_cast<double>(y), 3.0);
+		}
+		// the least squares of [y, y^3]: the normal equations' 2x2
+		double determinant = sumY2 * sumY6 - sumY4 * sumY4;
+		float aberration = 0.0F;
+		if (std::abs(determinant) > 1e-12)
+			aberration = static_cast<float>((sumY2 * sumHY3 - sumY4 * sumHY) / determinant);
+		appearance.sphericalAberration = aberration;
+		// the reference defocus: the aberration at the pupil's edge a quarter of it
+		float reference = 4.0F * std::abs(aberration) * pupil * pupil;
+		appearance.bokehReference = reference * pupil;
+		auto profile = [aberration, pupil, reference](float sign, std::array<float, Appearance::kBokehSamples>& table)
+		{
+			table.fill(1.0F);
+			if (reference <= 1e-9F)
+				return;
+			constexpr int kSamples = 4096;
+			std::array<int, Appearance::kBokehSamples> counts{};
+			float edge = 0.0F;
+			std::array<float, kSamples> landings{};
+			for (int sampleIt = 0; sampleIt < kSamples; sampleIt++)
+			{
+				float y = pupil * std::sqrt((static_cast<float>(sampleIt) + 0.5F) / kSamples);
+				landings[static_cast<size_t>(sampleIt)] = std::abs(sign * reference * y + aberration * y * y * y);
+				edge = std::max(edge, landings[static_cast<size_t>(sampleIt)]);
+			}
+			for (float landing : landings)
+				counts[std::min<size_t>(static_cast<size_t>(landing / std::max(edge, 1e-9F) * Appearance::kBokehSamples), Appearance::kBokehSamples - 1)]++;
+			for (size_t binIt = 0; binIt < Appearance::kBokehSamples; binIt++)
+			{
+				float inner = static_cast<float>(binIt) / Appearance::kBokehSamples;
+				float outer = static_cast<float>(binIt + 1) / Appearance::kBokehSamples;
+				float area = outer * outer - inner * inner; // of the unit disk's
+				table[binIt] = std::clamp(static_cast<float>(counts[binIt]) / kSamples / area, 0.0F, 8.0F);
+			}
+		};
+		profile(1.0F, appearance.bokehNear);
+		profile(-1.0F, appearance.bokehFar);
+	}
 
 	// the lateral chromatic aberration: the chief ray's (through the stop's center) height on the sensor per wavelength,
 	// the red's and the blue's over the green's
@@ -496,6 +650,87 @@ Appearance Appear(const Prescription& lens, float fNumber, float sensorHalfDiago
 		appearance.blueScale = imageHeight(kWavelengths[2], angle) / greenHeight;
 	}
 	return appearance;
+}
+
+std::optional<float> TraceRay(const Prescription& lens, float wavelength, float height, float angle, float stopRadius, size_t* cutAt)
+{
+	if (cutAt != nullptr)
+		*cutAt = lens.surfaces.size();
+	if (IsPinhole(lens))
+		return std::nullopt;
+	// the ray's point and direction in the meridional plane (z along the axis, y up), from the first surface's vertex
+	// plane, and the index it is in
+	double z = 0.0;
+	double y = height;
+	double dz = std::cos(angle);
+	double dy = std::sin(angle);
+	double index = 1.0;
+	double vertex = 0.0;
+	for (size_t surfaceIt = 0; surfaceIt < lens.surfaces.size(); surfaceIt++)
+	{
+		const auto& surface = lens.surfaces[surfaceIt];
+		if (cutAt != nullptr)
+			*cutAt = surfaceIt;
+		double radius = surface.radius;
+		double normalZ = -1.0;
+		double normalY = 0.0;
+		if (std::abs(radius) > 1e-6)
+		{
+			// the sphere's center on the axis, radius behind the vertex (positive), and the ray's nearer crossing of it
+			double centerZ = vertex + radius;
+			double pz = z - centerZ;
+			double b = pz * dz + y * dy;
+			double c = pz * pz + y * y - radius * radius;
+			double discriminant = b * b - c;
+			if (discriminant < 0.0)
+				return std::nullopt;
+			double root = std::sqrt(discriminant);
+			// the crossing on the vertex's side of the center
+			double t1 = -b - root;
+			double t2 = -b + root;
+			double t = radius > 0.0 ? t1 : t2;
+			if (t < -1e-6)
+				t = radius > 0.0 ? t2 : t1;
+			z += t * dz;
+			y += t * dy;
+			normalZ = (z - centerZ) / radius;
+			normalY = y / radius;
+			// against the ray
+			if (normalZ * dz + normalY * dy > 0.0)
+			{
+				normalZ = -normalZ;
+				normalY = -normalY;
+			}
+		}
+		else
+		{
+			if (std::abs(dz) < 1e-9)
+				return std::nullopt;
+			double t = (vertex - z) / dz;
+			z = vertex;
+			y += t * dy;
+		}
+		double limit = surfaceIt == lens.stopSurface && stopRadius > 0.0F ? stopRadius : surface.clearRadius;
+		if (std::abs(y) > limit)
+			return std::nullopt;
+		// Snell's law: the direction refracted about the normal
+		double next = IndexAt(surface.index, surface.abbe, wavelength);
+		double eta = index / next;
+		double cosIncidence = -(normalZ * dz + normalY * dy);
+		double sinTransmitted2 = eta * eta * (1.0 - cosIncidence * cosIncidence);
+		if (sinTransmitted2 > 1.0)
+			return std::nullopt;
+		double scale = eta * cosIncidence - std::sqrt(1.0 - sinTransmitted2);
+		dz = eta * dz + scale * normalZ;
+		dy = eta * dy + scale * normalY;
+		index = next;
+		vertex += surface.thickness;
+	}
+	// to the sensor, at the last surface's thickness past it
+	if (std::abs(dz) < 1e-9)
+		return std::nullopt;
+	double t = (vertex - z) / dz;
+	return static_cast<float>(y + t * dy);
 }
 
 float Reflectance(float indexBefore, float indexAfter, float wavelength, bool coated) noexcept
