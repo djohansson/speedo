@@ -50,6 +50,22 @@ else
 }
 
 $global:Env['VCPKG_ROOT'] = "$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg'
+
+# the llvm port's version, which the clang triplets track in their packages' ABI (VCPKG_ENV_PASSTHROUGH): the compiler is
+# that port's (a host package, which vcpkg's compiler tracking can't see, VCPKG_DISABLE_COMPILER_TRACKING), so without it
+# a shared binary cache would hand out packages built by an older clang against an older libc++ after an LLVM update
+$LlvmPort = Get-Content -Path "$PSScriptRoot/ports/llvm/vcpkg.json" -Raw | ConvertFrom-Json
+$global:Env['LLVM_PORT_VERSION'] = "$($LlvmPort.version)#$($LlvmPort.'port-version' ?? 0)"
+
+# vcpkg's binary sources: the local cache and the shared one (see scripts/binarycache.ps1); the AWS CLI's endpoint and
+# region where this machine writes to the shared one (SPEEDO_BINARY_CACHE_WRITE)
+. $PSScriptRoot/scripts/binarycache.ps1
+$global:Env['VCPKG_BINARY_SOURCES'] = Get-BinaryCacheSources
+foreach ($Entry in (Get-BinaryCacheAwsEnvironment).GetEnumerator())
+{
+	if ($env:SPEEDO_BINARY_CACHE_WRITE) { $global:Env[$Entry.Key] = $Entry.Value } else { $global:Env.Remove($Entry.Key) }
+}
+
 $global:Env | ConvertTo-Json | Out-File $EnvFile -Force
 
 $ChangedPlatformState = $PlatformStateKeys | Where-Object {
@@ -98,6 +114,10 @@ $CMakePresets = [ordered] @{
 			}
 			environment = [ordered] @{
 				VCPKG_ROOT = "$env:VCPKG_ROOT"
+				# the binary cache's sources and the llvm port's version (tracked by the clang triplets), as setup's own vcpkg
+				# run has them, for the vcpkg runs a configure starts (the vscode cmake extension's too)
+				VCPKG_BINARY_SOURCES = "$env:VCPKG_BINARY_SOURCES"
+				LLVM_PORT_VERSION = "$env:LLVM_PORT_VERSION"
 				FASTBUILD_TEMP_PATH = '${sourceDir}/temp' # dont use user/machine specific temp paths, keep it local to the source tree to not mess with other builds on the same machine and to be able to easily clean it up.
 				FASTBUILD_BROKERAGE_PATH = $env:FASTBUILD_BROKERAGE_PATH ?? "$HOME/.fastbuild/brokerage"
 				FASTBUILD_CACHE_PATH = $env:FASTBUILD_CACHE_PATH ?? "$HOME/.fastbuild/cache"
@@ -119,6 +139,8 @@ $CMakePresets = [ordered] @{
 				# needs to be duplicated here to be work in the vscode cmake extension
 				VCPKG_CHAINLOAD_TOOLCHAIN_FILE = '${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake'
 				#
+				# the project's own code for this machine's cpu (the vcpkg ports for a fixed baseline, see clang.toolchain.cmake)
+				SPEEDO_TARGET_CPU = 'native'
 			}
 			environment = [ordered] @{
 				LLVM_ROOT = "`${sourceDir}/install/$(Get-HostTriplet)"
@@ -127,6 +149,11 @@ $CMakePresets = [ordered] @{
 		}
 	)
 	buildPresets = @()
+}
+# where this machine writes to the shared binary cache, the AWS CLI's endpoint and region for the vcpkg runs a configure starts
+if ($env:SPEEDO_BINARY_CACHE_WRITE)
+{
+	foreach ($Entry in (Get-BinaryCacheAwsEnvironment).GetEnumerator()) { $CMakePresets.configurePresets[0].environment[$Entry.Key] = $Entry.Value }
 }
 
 $VSCodeLaunchConfiguration = [ordered] @{
@@ -194,6 +221,7 @@ $PlatformSettings = @(
 		}
 		PresetEnvironment = [ordered] @{
 			SDKROOT = "$env:SDKROOT"
+			MACOSX_DEPLOYMENT_TARGET = "$env:MACOSX_DEPLOYMENT_TARGET" # tracked by the osx triplets (the SDKROOT path is not)
 			CMAKE_APPLE_SILICON_PROCESSOR = $env:CMAKE_APPLE_SILICON_PROCESSOR ?? 'arm64'
 			CMAKE_OSX_ARCHITECTURES = $env:CMAKE_APPLE_SILICON_PROCESSOR ?? 'arm64'
 		}
@@ -232,6 +260,7 @@ $PlatformSettings = @(
 		PresetCacheVariables = [ordered] @{}
 		PresetEnvironment = [ordered] @{
 			LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
+			GLIBC_VERSION = "$env:GLIBC_VERSION" # tracked by the linux clang triplets
 		}
 		Debugger = 'lldb'
 		LaunchEnvironment = {
@@ -410,6 +439,8 @@ $VSCodeSettings = [ordered] @{
 }
 
 $CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force
+# a fresh clone has no .vscode (it isn't tracked), and Out-File doesn't create directories
+New-Item -ItemType Directory -Force -Path "$PSScriptRoot/.vscode" | Out-Null
 $VSCodeLaunchConfiguration | ConvertTo-Json -Depth 5 | Out-File "$PSScriptRoot/.vscode/launch.json" -Force
 $VSCodeSettings | ConvertTo-Json -Depth 2 | Out-File "$PSScriptRoot/.vscode/settings.json" -Force
 $VSCodeTasks | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/.vscode/tasks.json" -Force

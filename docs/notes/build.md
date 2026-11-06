@@ -275,3 +275,57 @@ spirv-llvm-translator spirv-tools meson ninja`, and `.venv`, a Python venv with 
 `PATH=$PWD/.venv/bin:/opt/homebrew/opt/llvm/bin:$PATH` and `SDKROOT=$(xcrun --show-sdk-path)`, and run the client on it
 with `VK_DRIVER_FILES=~/Repos/mesa/install/share/vulkan/icd.d/kosmickrisp_mesa_icd.aarch64.json`. Commit there, push the
 branch, then do steps 3 to 5.
+
+## vcpkg's shared binary cache
+
+A new clone restores its packages from a shared binary cache instead of building them (the user's ask, 2026-11-06: the
+first setup built LLVM for most of an hour). `setup.ps1` sets `VCPKG_BINARY_SOURCES` (`scripts/binarycache.ps1`, into
+`.env.json` and the presets' environment, so a configure's vcpkg run has it too): vcpkg's local default cache, read and
+written; the Backblaze B2 bucket `danjo-artifacts` (region `us-west-001`), prefix `speedo/vcpkg/`, read over https by
+vcpkg's `http` source (`https://s3.us-west-001.backblazeb2.com/danjo-artifacts/speedo/vcpkg/{sha}.zip`). The bucket is
+public: reading needs no account, key or tool, and a missing key answers `NoSuchKey`, a 404, which vcpkg takes as a miss.
+`SPEEDO_BINARY_CACHE=0` keeps to the local cache.
+
+Writing is a maintainer's: with `SPEEDO_BINARY_CACHE_WRITE` set, setup adds vcpkg's `x-aws` source
+(`x-aws,s3://danjo-artifacts/speedo/vcpkg/,write`, which runs the AWS CLI's `aws s3 cp` and `aws s3 ls`), installs the
+AWS CLI (Homebrew's `awscli`) and points it at B2 (`AWS_ENDPOINT_URL_S3`, `AWS_DEFAULT_REGION`); the credentials are the
+AWS CLI's own, a B2 application key scoped to the bucket in `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or a profile
+(`AWS_PROFILE`), never in the repository. Both sources name an archive `<prefix><abi>.zip`, the package's ABI hash
+(vcpkg-tool's `make_object_path` for `x-aws`; `{sha}` is the same hash for `http`). vcpkg uploads what it builds, not
+what it restores from another source, so a machine whose packages were built before it wrote seeds the bucket with
+`scripts/seed-binary-cache.ps1` (the archives of `install/vcpkg/status`'s packages from the local cache, those the bucket
+lacks, each checked readable anonymously after; `-DryRun` lists them).
+
+What makes a package's ABI hash the same on another machine, and different where its binaries would differ (the hash
+covers the port's files, the triplet's and the chainloaded toolchain's text, the variables in `VCPKG_ENV_PASSTHROUGH`, and
+its dependencies' hashes; the compiler isn't tracked, `VCPKG_DISABLE_COMPILER_TRACKING`, since it is a host package of the
+same install):
+
+- the cpu: the ports are built for a fixed baseline (`clang.toolchain.cmake`: `-mcpu=apple-m1` on Apple's arm64,
+  `-march=armv8.2-a+crc+crypto` on other arm64, `-march=x86-64-v3` on x86-64), the project's own code for this machine's
+  (`SPEEDO_TARGET_CPU=native`, which the presets set). With `-march=native` in the toolchain's text every machine had the
+  same hash for different code, and an M4's packages would have handed an M1 instructions it lacks.
+- the oldest macOS a package runs on: `MACOSX_DEPLOYMENT_TARGET`, the SDK's major version's first (`osx.ps1`: 27.0 for
+  the 27.2 SDK), which every compile reads (clang, CMake and meson take it from the environment) and both osx triplets
+  track, the host's too. Without it clang takes the SDK's own version: the target packages built with the 27.2 SDK
+  required macOS 27.2, and LLVM and KosmicKrisp, built in October with the 27.0 SDK, required 27.0 while the host triplet
+  tracked nothing, so the cache would have handed a Mac on macOS 26 a clang it can't run (the user's ask that the toolchain
+  be part of the download). The SDK's path (`SDKROOT`) isn't tracked: the same SDK from Xcode and from the Command Line
+  Tools has two paths, so the shared packages would have matched neither. A minor SDK update keeps the packages (their
+  headers differ little; an unguarded call to an API newer than the target would only fail on an older minor macOS).
+- the compiler: the llvm port's version and port version (`LLVM_PORT_VERSION`, from `ports/llvm/vcpkg.json`), tracked by
+  the clang triplets: the target packages are built by that port's clang and link its static libc++, so after an LLVM
+  update the shared cache must not hand out the old ones.
+- Linux's C library (`GLIBC_VERSION`, `getconf GNU_LIBC_VERSION`), tracked by the Linux triplets: a package built against
+  a newer glibc fails to load with an older one (not yet run on Linux). Windows' toolset and SDK versions stay untracked;
+  nothing is shared for Windows or Linux yet.
+
+The host packages (`arm64-osx-release`: LLVM, the toolchain itself, mesa's KosmicKrisp, the spirv tools) are built by the
+system's clang with no cpu flag, so the deployment target was what they lacked. On macOS arm64 the cache holds 86
+packages, 1.51 GB: LLVM 1.1 GB, the 74 target packages 0.41 GB. The cpu baseline rebuilt the target packages in 14
+minutes on the M4 Pro; the deployment target rebuilt everything, LLVM in 52 minutes (twice the session ending killed
+vcpkg partway: setup again picks up where it stopped). `seed-binary-cache.ps1` uploaded the 86 packages, 1.51 GB, in 408 s.
+A second clone at another path restored all 84 of its packages from the local cache in 20 s and built none (the keys
+don't depend on the clone's path); a fresh clone with an empty local cache (`VCPKG_DEFAULT_BINARY_CACHE` an empty dir)
+restored all 84 from the bucket in 2.4 minutes, setup's whole run 165 s, and built none. A fresh clone has no `.vscode`
+(it isn't tracked), which `setup.ps1` failed writing `launch.json` into until it created it.

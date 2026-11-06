@@ -15,10 +15,15 @@ set(VCPKG_CXX_FLAGS "-D_LIBCPP_KEEP_TRANSITIVE_INCLUDES_LLVM23")
 set(VCPKG_C_FLAGS "") # vcpkg_cmake_configure requires both to be defined
 #
 
-# tracked: SDKROOT is the resolved, versioned SDK path (see osx.ps1), so an SDK update changes package ABI hashes and triggers rebuilds
-set(VCPKG_ENV_PASSTHROUGH SDKROOT)
+# tracked in the packages' ABI, for the shared binary cache (see setup.ps1): the oldest macOS they run on, the SDK's major
+# version's first (MACOSX_DEPLOYMENT_TARGET, see osx.ps1, which every compile reads), so a new major SDK rebuilds them,
+# though not the SDK's path (SDKROOT, untracked: the same SDK from Xcode and from the Command Line Tools has two paths, and
+# the shared cache's packages would match neither); and the compiler, the llvm port's version (the compiler tracking can't
+# see it)
+set(VCPKG_ENV_PASSTHROUGH MACOSX_DEPLOYMENT_TARGET LLVM_PORT_VERSION)
 set(
 	VCPKG_ENV_PASSTHROUGH_UNTRACKED
+		SDKROOT
 		CMAKE_APPLE_SILICON_PROCESSOR
 		LLVM_ROOT
 		LLVM_TOOLS_BINARY_DIR

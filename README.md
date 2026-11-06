@@ -93,8 +93,11 @@ The bootstrap script installs PowerShell 7.5+ if it's missing, then hands over t
 
 Re-run `setup.ps1` after OS or SDK updates; it notices them and clears stale CMake caches.
 
-The first configure builds every dependency through vcpkg, including the LLVM toolchain itself, so expect it to take a
-long time. Later configures restore packages from vcpkg's binary cache.
+Setup restores the dependencies, the LLVM toolchain included, from the project's shared binary cache where they were
+built for your platform: on macOS on Apple silicon, for the macOS major version the maintainer's SDK targets (a public
+Backblaze B2 bucket, read over https; no account or tools needed). Whatever it doesn't find, it builds through vcpkg, including the LLVM toolchain itself, which
+takes a long time the first time. Later configures restore packages from vcpkg's local binary cache. See
+[docs/notes/build.md](docs/notes/build.md) ("vcpkg's shared binary cache") for how it works and how to write to it.
 
 ### 2. Configure and build
 

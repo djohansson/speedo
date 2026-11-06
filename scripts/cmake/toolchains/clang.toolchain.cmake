@@ -106,8 +106,21 @@ set(CXX_DEFINES_RELEASE "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSI
 # set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "0e5b6991-d74f-4b3d-a41c-cf096e0b2508") 
 # set(CMAKE_CXX_MODULE_STD 1) # this is important
 
+# the cpu: the project's own code this machine's (SPEEDO_TARGET_CPU=native, which the presets set), the vcpkg ports' a fixed
+# baseline, since their packages are shared through the binary cache (see setup.ps1): a package's ABI hash has this file's
+# text in it, not the machine, so -march=native would hand an M1 an M4's instructions. Apple's arm64 the M1's, other arm64
+# ARMv8.2 with crc and crypto; x86-64 v3 (AVX2 and FMA) for both
+if (NOT DEFINED SPEEDO_TARGET_CPU)
+	set(SPEEDO_TARGET_CPU baseline)
+endif()
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64")
-	set(COMPILE_FLAGS "${COMPILE_FLAGS} -march=native+crc+crypto")
+	if (SPEEDO_TARGET_CPU STREQUAL "native")
+		set(COMPILE_FLAGS "${COMPILE_FLAGS} -march=native+crc+crypto")
+	elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin") # APPLE isn't set yet in a toolchain file
+		set(COMPILE_FLAGS "${COMPILE_FLAGS} -mcpu=apple-m1")
+	else()
+		set(COMPILE_FLAGS "${COMPILE_FLAGS} -march=armv8.2-a+crc+crypto")
+	endif()
 elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
 	set(COMPILE_FLAGS "${COMPILE_FLAGS} -march=x86-64-v3 -mtune=generic")
 endif()

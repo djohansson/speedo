@@ -131,7 +131,8 @@ changed the caches' last bits (glm sums products pairwise), so the importer tags
 but for a few pixels of skinned models, by 3 of 255 at most.
 
 glm runs without its intrinsics, on purpose: the compiler already targets the best instruction sets
-(`clang.toolchain.cmake`: `-march=native+crc+crypto` on arm64, `-march=x86-64-v3`, AVX2 and FMA, on x64), and vectorizes
+(`clang.toolchain.cmake`: `-march=native+crc+crypto` on arm64 for the project's code, the vcpkg ports a fixed baseline
+for the shared binary cache, see docs/notes/build.md; `-march=x86-64-v3`, AVX2 and FMA, on x64), and vectorizes
 glm's scalar code (on the M4 a `mat4 * mat4` or `mat4 * vec4` is whole columns of `fmul.4s`/`fadd.4s`, as glm's NEON
 code would be). glm's own SIMD paths would cost more than they give: `GLM_FORCE_XYZW_ONLY` turns them off (without it,
 vectors are anonymous unions, which zpp::bits can't serialize by members), and they only apply to aligned types
@@ -306,4 +307,4 @@ Each as deep as the subsystem's history: what was tried, what it cost, the user'
 - docs/notes/assets.md: the importers (obj, gltf and its extensions, images), caches, the ground plane, the scene's
   unit, archives and sets, material variants, auto exposure, tonemapping, the test sets and `assettest.ps1`.
 - docs/notes/build.md: sanitizers, `<windows.h>`, `setup.ps1`, FASTBuild, libc++, the clang toolchain, vcpkg's
-  overlay ports and the mesa fork.
+  overlay ports and the mesa fork, vcpkg's shared binary cache (a public B2 bucket, what keeps its packages' hashes portable).

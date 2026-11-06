@@ -8,6 +8,10 @@ set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/../toolchains/clang
 set(VCPKG_DISABLE_COMPILER_TRACKING ON) # This target is not compiled yet when vcpkg wants to calculate the compiler hash.
 #
 
+# tracked in the packages' ABI, for the shared binary cache (see setup.ps1): the compiler, the llvm port's version (the
+# compiler tracking can't see it)
+set(VCPKG_ENV_PASSTHROUGH LLVM_PORT_VERSION)
+
 set(
 	VCPKG_ENV_PASSTHROUGH_UNTRACKED
 		LLVM_ROOT
