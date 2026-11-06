@@ -30,7 +30,7 @@ jobs:
       PRESET: arm64-osx-clang-profile
       SPEEDO_TEST_ASSETS: ${{ github.workspace }}/../test-assets
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
@@ -38,7 +38,7 @@ jobs:
       # the shared cache each run, 1.5 GB: vcpkg doesn't keep what it restored from it in its local archives, so caching
       # those here would keep nothing
       - name: Cache test assets
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.SPEEDO_TEST_ASSETS }}
           key: test-assets-${{ hashFiles('scripts/test-assets/**', 'scripts/fetch-test-assets.ps1') }}
@@ -64,7 +64,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-macos
           path: |
