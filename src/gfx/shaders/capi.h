@@ -636,7 +636,10 @@ struct LensData
 	alignas(4) UINT1(grain);
 	alignas(4) FLOAT1(grainNoise);
 	alignas(4) UINT1(grainFrame);
-	alignas(4) UINT1(padding0);
+	// the aperture stop's radius wide open (mm): the barrel's round opening, which the blades' polygon (stopRadius its
+	// apothem) is cut by. wide open the blades are retracted behind it, so the aperture is round (no straight edges: no
+	// starburst, round bokeh and ghosts), and a little stopped down the polygon's corners are still cut off
+	alignas(4) FLOAT1(openRadius);
 	alignas(4) UINT1(padding1);
 	alignas(4) UINT1(padding2);
 	alignas(4) UINT1(padding3);
@@ -662,21 +665,28 @@ struct LensGhost
 #define SHADER_TYPES_LENS_GHOST_COUNT 64u
 
 // a source of glare the frame holds (see ComputeFlareSources: a bright compact blob, the sun's disk, a lamp's bulb, a
-// glint), which the Flare pass draws the ghosts and the starburst of: where it is on the sensor (mm from its view's
-// center, across over an anamorphic lens's squeeze), its light at the lens (rgb: radiance times solid angle, the
-// renderer's units), the view's exposure and viewport (the output's pixels), and its strength (w: fading in over the
-// frames it is found again, out over those it isn't, see ComputeFlareTrack). gLensSources holds three lists of
-// SHADER_TYPES_LENS_SOURCE_COUNT: the frames' by parity (the sources tracked from frame to frame) and the frame's
-// candidates, counted in gLensSourceCount's first three words
+// glint), which the Flare pass draws the ghosts and the starburst's far field of (its near field is every pixel's, see
+// ComputeStarburst): where it is on the sensor (mm from its view's center, across over an anamorphic lens's squeeze),
+// its light at the lens (rgb: radiance times solid angle, the renderer's units), the view's exposure and viewport (the
+// output's pixels), and its strength (w: fading in over the frames it is found again, out over those it isn't, see
+// ComputeFlareTrack). gLensSources holds the frames' lists by parity, SHADER_TYPES_LENS_SOURCE_COUNT each (the sources
+// tracked from frame to frame, the brightest), then the frame's candidates, SHADER_TYPES_LENS_CANDIDATE_COUNT, counted
+// in gLensSourceCount's first three words
 struct LensSource
 {
 	alignas(16) FLOAT4(position); // xy mm; z the exposure; w the strength, 0 to 1
 	alignas(16) FLOAT4(flux);
 	alignas(16) FLOAT4(viewport);
 };
-#define SHADER_TYPES_LENS_SOURCE_COUNT 8u
-#define SHADER_TYPES_LENS_SOURCE_LIST_COUNT 3u
-#define SHADER_TYPES_LENS_SOURCE_CANDIDATES 2u
+#define SHADER_TYPES_LENS_SOURCE_COUNT 16u
+#define SHADER_TYPES_LENS_CANDIDATE_COUNT 64u
+#define SHADER_TYPES_LENS_SOURCE_CANDIDATES 2u // the count's word, and the candidates' first at twice the source count
+#define SHADER_TYPES_LENS_SOURCE_BUFFER_COUNT (2u * SHADER_TYPES_LENS_SOURCE_COUNT + SHADER_TYPES_LENS_CANDIDATE_COUNT)
+// the starburst's near field (see ComputeStarburst): every pixel's spikes gathered at half the output's size as far as
+// this many half texels, in tiles of this many half texels each way (their brightest, which bounds the reach); the
+// sources' sprites draw the far field, crossfaded over the reach's second half
+#define SHADER_TYPES_STAR_REACH 32u
+#define SHADER_TYPES_STAR_TILE_SIZE 16u
 
 // the Flare layout's push constants (flare.slang): the frame index, the lens's ghosts (an instance per source and
 // ghost, then one per source for its starburst) and the output's size in pixels
@@ -719,6 +729,15 @@ struct FlareConstants
 #define SHADER_TYPES_MOTION_VELOCITY_RW_TEXTURE 71u
 #define SHADER_TYPES_MOTION_TILES_RW_TEXTURE 72u
 #define SHADER_TYPES_MOTION_TILES_DILATED_RW_TEXTURE 73u
+// and the starburst's near field (see ComputeStarburst): the spikes at half the output's size, which the final pass adds;
+// each tile's brightest (white's units at the view's exposure); the lens's image at half the output's size, which the
+// gather takes; and their storage views
+#define SHADER_TYPES_STAR_TEXTURE 85u
+#define SHADER_TYPES_STAR_TILES_TEXTURE 86u
+#define SHADER_TYPES_STAR_SOURCE_TEXTURE 87u
+#define SHADER_TYPES_STAR_RW_TEXTURE 74u
+#define SHADER_TYPES_STAR_TILES_RW_TEXTURE 75u
+#define SHADER_TYPES_STAR_SOURCE_RW_TEXTURE 76u
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,
 // and the source's mip count (its pyramid, down to 8 texels wide)

@@ -377,6 +377,13 @@ private:
 	FrameGraph::ImageId myBloom;
 	std::vector<std::unique_ptr<ImageView>> myBloomViews;
 	FrameGraph::ImageId myFlare; // the flares over black (SHADER_TYPES_FLARE_TEXTURE)
+	// the starburst's near field (see ComputeStarburst): every pixel's spikes at half the output's size, the tiles'
+	// brightest, which bound its reach, and the lens's image at half the output's size, which it gathers from
+	FrameGraph::ImageId myStar;
+	FrameGraph::ImageId myStarTiles;
+	FrameGraph::ImageId myStarSource;
+	FrameGraph::PassId myStarTilesPass;
+	FrameGraph::PassId myStarburstPass;
 	// the depth of field (see dof.slang): the frame and its circles at half the output's size, the gather's result, the
 	// tiles' largest circles (and dilated), the frame through it at the output's size, and the passes
 	FrameGraph::ImageId myDofHalf;

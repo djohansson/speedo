@@ -495,6 +495,23 @@ float StopRadiusFor(const Prescription& lens, float fNumber)
 	return std::min(pupil * A(traced.toStop), lens.surfaces[lens.stopSurface].clearRadius);
 }
 
+float OpenRadius(const Prescription& lens) noexcept
+{
+	return IsPinhole(lens) ? 0.0F : lens.surfaces[lens.stopSurface].clearRadius;
+}
+
+float StraightEdgeLength(const Prescription& lens, float stopRadius) noexcept
+{
+	if (lens.bladeCount < 3 || IsPinhole(lens))
+		return 0.0F;
+	// the polygon's edge (2 a tan(pi / N) for the apothem a), or the chord the opening leaves of it where the polygon's
+	// corners reach past the opening
+	float open = OpenRadius(lens);
+	float edge = 2.0F * stopRadius * std::tan(std::numbers::pi_v<float> / static_cast<float>(lens.bladeCount));
+	float chord = 2.0F * std::sqrt(std::max(open * open - stopRadius * stopRadius, 0.0F));
+	return std::min(edge, chord);
+}
+
 Appearance Appear(const Prescription& lens, float fNumber, float sensorHalfDiagonal)
 {
 	Appearance appearance;

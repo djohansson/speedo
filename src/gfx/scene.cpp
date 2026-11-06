@@ -139,7 +139,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 85; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's and the motion blur's (SHADER_TYPES_MOTION_TILES_DILATED_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 88; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's, the motion blur's and the starburst's (SHADER_TYPES_STAR_SOURCE_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -211,6 +211,12 @@ static_assert(
 	SHADER_TYPES_MOTION_BLUR_TEXTURE == SHADER_TYPES_DOF_TILES_DILATED_TEXTURE + 1 && SHADER_TYPES_MOTION_TILES_DILATED_TEXTURE == SHADER_TYPES_MOTION_BLUR_TEXTURE + 3 &&
 	SHADER_TYPES_MOTION_TILES_DILATED_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_MOTION_BLUR_RW_TEXTURE == SHADER_TYPES_DOF_TILES_DILATED_RW_TEXTURE + 1 &&
 	SHADER_TYPES_MOTION_TILES_DILATED_RW_TEXTURE == SHADER_TYPES_MOTION_BLUR_RW_TEXTURE + 3 && SHADER_TYPES_MOTION_TILES_DILATED_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
+static_assert(
+	SHADER_TYPES_STAR_TEXTURE == SHADER_TYPES_MOTION_TILES_DILATED_TEXTURE + 1 && SHADER_TYPES_STAR_TILES_TEXTURE == SHADER_TYPES_STAR_TEXTURE + 1 &&
+	SHADER_TYPES_STAR_TILES_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_STAR_RW_TEXTURE == SHADER_TYPES_MOTION_TILES_DILATED_RW_TEXTURE + 1 &&
+	SHADER_TYPES_STAR_TILES_RW_TEXTURE == SHADER_TYPES_STAR_RW_TEXTURE + 1 && SHADER_TYPES_STAR_SOURCE_TEXTURE == SHADER_TYPES_STAR_TILES_TEXTURE + 1 &&
+	SHADER_TYPES_STAR_SOURCE_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_STAR_SOURCE_RW_TEXTURE == SHADER_TYPES_STAR_TILES_RW_TEXTURE + 1 &&
+	SHADER_TYPES_STAR_SOURCE_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE > SHADER_TYPES_PREPASS_MOTION_TEXTURE && SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE > SHADER_TYPES_COMPOSITE_RW_TEXTURE &&
@@ -631,7 +637,7 @@ struct Scene::Impl
 				myLensState.ghosts.push_back(data);
 			}
 			auto fNumber = appearance.focalLength / (2.0F * pupilRadius);
-			auto edge = prescription.bladeCount >= 3 ? 2.0F * appearance.stopRadius * std::sin(glm::pi<float>() / static_cast<float>(prescription.bladeCount)) : 0.0F;
+			auto edge = lens::StraightEdgeLength(prescription, appearance.stopRadius);
 			auto pixelMm = sensorHeight / static_cast<float>(std::max<uint32_t>(viewports.empty() ? 1 : viewports.front().height, 1));
 			constexpr float kGreenWavelengthMm = 550e-6F;
 			auto width = kGreenWavelengthMm * appearance.focalLength / std::max(edge, 1e-6F);
@@ -658,6 +664,7 @@ struct Scene::Impl
 		data.glare = glare ? appearance.glare : 0.0F;
 		data.pupilRadius = appearance.entrancePupilRadius;
 		data.stopRadius = appearance.stopRadius;
+		data.openRadius = lens::OpenRadius(prescription);
 		data.entranceRadius = prescription.surfaces.empty() ? 0.0F : prescription.surfaces.front().clearRadius;
 		data.ghostGain = myLensState.ghostGain;
 		data.starGain = myLensState.starGain;
@@ -2761,6 +2768,9 @@ struct Scene::Impl
 				{"ComputeMotionTilesDilate", SLANG_STAGE_COMPUTE},
 				{"ComputeMotionBlur", SLANG_STAGE_COMPUTE},
 				{"ComputeFlareTrack", SLANG_STAGE_COMPUTE}, // see the Flare Track pass
+				{"ComputeStarTiles", SLANG_STAGE_COMPUTE}, // see the Starburst pass
+				{"ComputeStarburst", SLANG_STAGE_COMPUTE},
+				{"ComputeFlareSize", SLANG_STAGE_COMPUTE}, // see the Flare Track pass
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

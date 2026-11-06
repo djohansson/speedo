@@ -115,6 +115,11 @@ constexpr uint8_t kMotionTilesDilateEntryPoint = 64;
 constexpr uint8_t kMotionBlurEntryPoint = 65;
 // the glare's sources tracked from frame to frame (see ComputeFlareTrack)
 constexpr uint8_t kFlareTrackEntryPoint = 66;
+// the starburst's near field: the tiles' brightest, and every pixel's spikes (see ComputeStarburst)
+constexpr uint8_t kStarTilesEntryPoint = 67;
+constexpr uint8_t kStarburstEntryPoint = 68;
+// the glare's sources' sizes, after they are tracked (see ComputeFlareSize)
+constexpr uint8_t kFlareSizeEntryPoint = 69;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -377,10 +382,14 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		MemoryProperty::kDeviceLocal});
 	myLensSourceBuffer = std::make_unique<Buffer>(BufferCreateDesc{
 		device.CreateDeviceObjectCreateDesc("Lens Sources"),
-		SHADER_TYPES_LENS_SOURCE_LIST_COUNT * SHADER_TYPES_LENS_SOURCE_COUNT * sizeof(LensSource),
+		SHADER_TYPES_LENS_SOURCE_BUFFER_COUNT * sizeof(LensSource),
 		BufferUsage::kStorage | BufferUsage::kTransferDestination,
 		MemoryProperty::kDeviceLocal});
 	myFlare = myGraph.CreateImage({.name = "Flare", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
+	myStar = myGraph.CreateImage({.name = "Star", .format = Format::kR16G16B16A16Sfloat, .downscale = 2, .outputSized = true});
+	myStarSource = myGraph.CreateImage({.name = "Star Source", .format = Format::kR16G16B16A16Sfloat, .downscale = 2, .outputSized = true});
+	myStarTiles =
+		myGraph.CreateImage({.name = "Star Tiles", .format = Format::kR16Sfloat, .downscale = 2 * SHADER_TYPES_STAR_TILE_SIZE, .outputSized = true});
 	// and the depth of field's (see dof.slang)
 	myDofHalf = myGraph.CreateImage({.name = "DOF Half", .format = Format::kR16G16B16A16Sfloat, .downscale = 2, .outputSized = true});
 	myDofBlur = myGraph.CreateImage({.name = "DOF Blur", .format = Format::kR16G16B16A16Sfloat, .downscale = 2, .outputSized = true});
@@ -2176,6 +2185,38 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				kernel(context.cmd, ComputePipelineVariant{.entryPoint = kBloomUpEntryPoint}, levels[levelIt].extent.width, levels[levelIt].extent.height, 0, levelIt);
 			}
 		});
+	// the starburst's near field (see ComputeStarburst): the lens's image at half the output's size and each tile's
+	// brightest (the Star Tiles pass), then every pixel's spikes gathered from it as far as the tiles around bound them (the
+	// Starburst pass, which samples what the first wrote: two passes, since within one a sampled view of what a dispatch
+	// wrote read stale memory on KosmicKrisp)
+	myStarTilesPass = myGraph.AddPass(
+		"Star Tiles",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myLensed, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myStarSource, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myStarTiles, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			// a group per tile, a thread per half texel
+			auto extent = context.graph.GetImage(myStarSource).GetDesc().mipLevels.front().extent;
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kStarTilesEntryPoint}, extent.width, extent.height);
+		});
+	myStarburstPass = myGraph.AddPass(
+		"Starburst",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myLensed, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myStarSource, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myStarTiles, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myStar, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			auto extent = context.graph.GetImage(myStar).GetDesc().mipLevels.front().extent;
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kStarburstEntryPoint}, extent.width, extent.height);
+		});
 	myFlareClearPass = myGraph.AddPass(
 		"Flare Clear",
 		[this](FrameGraph::PassBuilder& builder)
@@ -2217,8 +2258,16 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{
 			builder.Use(myLensSourceCount, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myLensSources, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myLensed, ResourceUse::Sampled(PipelineStage::kComputeShader));
 		},
-		[this, kernel](FrameGraph::PassContext& context) { kernel(context.cmd, ComputePipelineVariant{.entryPoint = kFlareTrackEntryPoint}, 1, 1); });
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kFlareTrackEntryPoint}, 1, 1);
+			// then each source's size (see ComputeFlareSize): a group of 16x16 threads a source
+			CommandEncoder(context.cmd).Barrier(
+				PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite);
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kFlareSizeEntryPoint}, 16 * SHADER_TYPES_LENS_SOURCE_COUNT, 16);
+		});
 	myFlarePass = myGraph.AddPass(
 		"Flare",
 		[this](FrameGraph::PassBuilder& builder)
@@ -2239,6 +2288,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			// sampled (which gives their images the usage: through gTextures a storage image read nothing, invalid)
 			builder.Use(myBloom, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myFlare, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myStar, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 			builder.Use(myUiBlurSource, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
@@ -3184,7 +3234,10 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 				 std::tuple{myMotionBlur, SHADER_TYPES_MOTION_BLUR_TEXTURE, SHADER_TYPES_MOTION_BLUR_RW_TEXTURE},
 				 std::tuple{myMotionVelocity, SHADER_TYPES_MOTION_VELOCITY_TEXTURE, SHADER_TYPES_MOTION_VELOCITY_RW_TEXTURE},
 				 std::tuple{myMotionTiles, SHADER_TYPES_MOTION_TILES_TEXTURE, SHADER_TYPES_MOTION_TILES_RW_TEXTURE},
-				 std::tuple{myMotionTilesDilated, SHADER_TYPES_MOTION_TILES_DILATED_TEXTURE, SHADER_TYPES_MOTION_TILES_DILATED_RW_TEXTURE}})
+				 std::tuple{myMotionTilesDilated, SHADER_TYPES_MOTION_TILES_DILATED_TEXTURE, SHADER_TYPES_MOTION_TILES_DILATED_RW_TEXTURE},
+				 std::tuple{myStar, SHADER_TYPES_STAR_TEXTURE, SHADER_TYPES_STAR_RW_TEXTURE},
+				 std::tuple{myStarTiles, SHADER_TYPES_STAR_TILES_TEXTURE, SHADER_TYPES_STAR_TILES_RW_TEXTURE},
+				 std::tuple{myStarSource, SHADER_TYPES_STAR_SOURCE_TEXTURE, SHADER_TYPES_STAR_SOURCE_RW_TEXTURE}})
 		{
 			pipeline.SetDescriptorData(
 				"gTextures",
@@ -3846,6 +3899,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	bool flares = lens && frame.lens.flares != 0U;
 	bool bloom = lens && (frame.lens.glare > 0.0F || flares);
 	myGraph.SetEnabled(myBloomPass, bloom);
+	myGraph.SetEnabled(myStarTilesPass, flares);
+	myGraph.SetEnabled(myStarburstPass, flares);
 	myGraph.SetEnabled(myFlareClearPass, flares);
 	myGraph.SetEnabled(myFlareSourcesPass, flares);
 	myGraph.SetEnabled(myFlareTrackPass, flares);

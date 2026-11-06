@@ -180,8 +180,12 @@ float2 DofBokehPoint(LensData lens, float2 point)
 	float sector = 2.0 * 3.14159265 / float(lens.bladeCount);
 	float angle = atan2(point.y, point.x);
 	float nearest = round(angle / sector) * sector;
-	// the polygon's radius along the point's direction, its circumscribed circle at 1
-	float radius = cos(0.5 * sector) / max(cos(angle - nearest), 1e-3);
+	// the aperture's radius along the point's direction (the blades' polygon cut by the round opening, see
+	// LensData::openRadius: round wide open, the polygon's corners cut off a little stopped down), its outermost at 1
+	float apothem = max(lens.stopRadius, 1e-6);
+	float open = lens.openRadius > 0.0 ? lens.openRadius : 1.0e30;
+	float outermost = min(apothem / cos(0.5 * sector), open);
+	float radius = min(apothem / max(cos(angle - nearest), 1e-3), open) / outermost;
 	return point * radius;
 }
 

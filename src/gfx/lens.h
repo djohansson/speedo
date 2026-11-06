@@ -88,6 +88,13 @@ void Scale(Prescription& lens);
 // the aperture stop's radius for an f-number (the entrance pupil's diameter is the focal length over it)
 [[nodiscard]] float StopRadiusFor(const Prescription& lens, float fNumber);
 
+// the aperture: the blades' polygon (its apothem the stop's radius at the f-number) cut by the barrel's round opening
+// (the stop's radius wide open, the stop surface's clear radius). its edges' straight length (mm), which the starburst
+// diffracts from: none wide open, where the blades are retracted behind the opening (a round aperture), the chords the
+// opening leaves of them a little stopped down, the polygon's whole edges past that
+[[nodiscard]] float OpenRadius(const Prescription& lens) noexcept;
+[[nodiscard]] float StraightEdgeLength(const Prescription& lens, float stopRadius) noexcept;
+
 // what the lens shows at an f-number (see the header's comment): the tables the final pass and the flares take
 struct Appearance
 {

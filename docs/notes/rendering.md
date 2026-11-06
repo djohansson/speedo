@@ -458,7 +458,7 @@ image the usage: declared storage alone, its sampled descriptor was invalid
 (`VUID-VkWriteDescriptorSet-descriptorType-00337`), and KosmicKrisp read black through it with no other sign, which
 took an afternoon of tints to find; the validation layer finds it at once. The **Flare Sources** pass
 (`ComputeFlareSources`, a thread per texel of the chain's third level; `gLensSourceCount`, emptied by the Flare Clear
-pass, and `gLensSources`, `LensSource`, at most `SHADER_TYPES_LENS_SOURCE_COUNT`, 8) lists the frame's bright compact
+pass, and `gLensSources`, `LensSource`, at most `SHADER_TYPES_LENS_CANDIDATE_COUNT`, 64) lists the frame's bright compact
 blobs as candidates: a texel over `kFlareSourceLeastLuminance` (64 times white at the view's exposure) that is the
 brightest of its 5x5 (ties by place) and `kFlareSourceLeastContrast` (4) times the mean of the 5x5's outer ring (the
 sun's disk, a lamp's bulb, a glint; a sunlit wall or a window by day isn't: at 8 times white and without the ring,
@@ -466,17 +466,23 @@ Bistro's sunlit facades at 10:30 made sources all over, and with 8 slots another
 between them, the user's pose `-917.1450,363.1188,47.4961,5.605,71.996`), where it is on the sensor (the 5x5's
 luminance weighted centroid, mm from the view's center; an anamorphic view's across over the squeeze), and its light
 at the lens (the texels' radiance times their solid angle, over the vignetting the lens's image was darkened by there),
-kept where its brightest ghost or its starburst would show (`LensData::ghostGain`, `starGain`, from the cpu). The sun's
-disk in view is such a blob, so is a lamp; an extended source is taken as a point at its brightest. The **Flare
+kept where its brightest ghost or its starburst's far field would show (`LensData::ghostGain`, `starGain`, from the
+cpu; the near field is every pixel's, see the starburst below) and where its light at the exposure is at least half the
+least of a full list's last frame (`gLensSourceCount`'s fourth word, which Flare Track writes), so that a frame of glints
+doesn't fill the candidates with arbitrary ones. The sun's disk in view is such a blob, so is a lamp. The **Flare
 Track** pass (`ComputeFlareTrack`, one thread) keeps the sources from frame to frame: the buffers are the renderer's
-own, imported into the graph and emptied once (three lists, the frames' by parity and the candidates, `gLensSourceCount`'s
-first three words; the Flare Clear pass empties the candidates' count alone); each of the last frame's sources is
+own, imported into the graph and emptied once (the frames' lists by parity, `SHADER_TYPES_LENS_SOURCE_COUNT`, 16, each,
+then the candidates, counted in `gLensSourceCount`'s first three words; the Flare Clear pass empties the candidates'
+count alone; 8 sources and 8 candidates until 2026-11-06, when the starburst was every source's); each of the last frame's sources is
 matched to the nearest candidate of its view within `kFlareTrackReach` (32 pixels), its light blended toward it by
 `kFlareTrackBlend` (0.2) and its place too unless the candidate strays within `kFlareTrackDeadZone` (1.5 pixels: the
 centroid moves with the frames' jitter, and a streak a pixel wide with it), its strength (`LensSource::position.w`,
 which the Flare pass scales the light by) up by `kFlareTrackRamp` (0.15) a frame, or, unmatched, down by as much and
-dropped at 0; the candidates left become sources of that strength while there is room. So a flare fades in over about
-seven frames and out over as many. At the user's pose a still frame changed by 0.52 of 255 a frame with 0.45% of its
+dropped at 0; the candidates left become sources of that strength while there is room, the brightest first. So a flare
+fades in over about seven frames and out over as many. Then each source's size (`ComputeFlareSize`, a group of 16x16
+threads a source, in the same pass): the disk as large as the lens's image's pixels above half the brightest within 64
+pixels around it (the sun's disk is uniform, a bulb near it), its radius on the sensor in `LensSource::flux.w`, which
+spreads its spikes across (below). At the user's pose a still frame changed by 0.52 of 255 a frame with 0.45% of its
 pixels off by more than 16 (the flares jumping) and changes by 0.22 to 0.33 with 0.05 to 0.15% now (the fades). The **Flare** pass draws their ghosts and starbursts over
 black into `myFlare` (`SHADER_TYPES_FLARE_TEXTURE`, output sized), added: the Flare layout's (`flare.slang`, created
 beside the Main layout, its set 1 the lens, its ghosts, the sources; `CommandEncoder::Draw`, rhi's plain draw, 6
@@ -484,8 +490,9 @@ vertices an instance), a quad an instance, each source's ghosts then its starbur
 (`VertexFlare`), what each fragment is worked out from the pixel's place on the sensor (`FragmentFlare`). A **ghost**
 (`lens::Ghosts`, `LensGhost` in `gLensGhosts[frame]`: per channel a, b to the sensor and as, bs to the stop, the two
 reflectances' product): a ray entering at the height that lands on the pixel, (p - b t) / a with t the source's angle,
-passes the first surface's clear radius and, where it first crosses the stop's plane, the blades' polygon
-(`FlarePolygonDistance`, antialiased over a pixel), and its irradiance is the source's times the reflectances over a
+passes the first surface's clear radius and, where it first crosses the stop's plane, the aperture
+(`FlarePolygonDistance`, antialiased over a pixel: the blades' polygon cut by the barrel's round opening, see the
+starburst), and its irradiance is the source's times the reflectances over a
 squared, read as radiance through the pupil (f^2 over pi times the pupil's radius squared: stopped down a ghost is
 smaller and sharper but no dimmer per area, as a real one); the quad is the box of the entrance's and the stop's images'
 overlap (the whole entrance's image, mostly cut away, cost 2.5 ms of fill at 720p for the sun's 45 ghosts; 0.41 now).
@@ -495,13 +502,40 @@ as wide across as the wavelength times the focal length over the edge (its first
 drawn as a gaussian of that integral at least a pixel wide, so that the streaks are brighter per pixel stopped down (the
 edges longer wide open, the streaks thinner than a pixel); an anamorphic lens's cylindrical front element adds the
 streak across the lenses are known for, from an edge of its whole clear aperture, tinted blue. In the renderer's units
-the sun (2.6 units of illuminance) gives streaks across the frame at f/14 and faint ones at f/1.8, as sunstars go. The
+the sun (2.6 units of illuminance) gives streaks across the frame at f/14, as sunstars go. The aperture is the blades'
+polygon cut by the barrel's round opening (`LensData::openRadius`, the stop's radius wide open; `lens::OpenRadius`,
+`StraightEdgeLength`): wide open the blades are retracted behind it, so the aperture is round, with no straight edge to
+diffract (no star, as a real lens wide open, the user's question at Bistro at night, 2026-11-06), and the bokeh and the
+ghosts are round; a little stopped down the opening leaves chords of the polygon's edges (the 8 blades' polygon is whole
+a quarter stop down), and the edges are 2 a tan(pi / N) for the apothem a (they were 2 a sin(pi / N), short by cos(pi / N)).
+The starburst is every point's (the user's ask, 2026-11-06: an image of sun glints on water, a star on each of hundreds,
+which 8 sprites couldn't give): its **near field** is a gather over the whole image (the **Star Tiles** pass,
+`ComputeStarTiles`: the lens's image at half the output's size, `SHADER_TYPES_STAR_SOURCE_TEXTURE`, and each 16 half
+texel tile's brightest channel at the exposure, `SHADER_TYPES_STAR_TILES_TEXTURE`; the **Starburst** pass,
+`ComputeStarburst`, a thread per half texel into `SHADER_TYPES_STAR_TEXTURE`, which the final pass adds bilinearly):
+along each spike's direction (an even blade count's N, its opposite edges sharing a line twice as bright, an odd
+count's 2N, the anamorphic's cylinder's two across), a half texel a step, each step's radiance times the edge's length
+times the f-number squared times the wavelength over pi cubed times the focal length (`StarCoefficient`), over the step
+on the sensor, over the step's count squared: the sprite's streak integrated over the image, so a point source gets
+the same light, an extended one a band as wide as itself. It reaches as far as the brightest tile within two tiles
+would show (`kFlareLeastVisible` at the shortest step) and at most `SHADER_TYPES_STAR_REACH`, 32 half texels, fading out
+over the second half; the sources' sprites draw the **far field** past that, faded in by the complement over the same
+steps (`FlareFarField`), each spike spread across by the source's disk (a uniform disk's chord has a deviation of half
+its radius; drawn as lines from a point, the sun's bands turned thin where the far field began), and only where it
+reaches past the near field. Two passes, since within one a sampled view of what a dispatch wrote read stale memory on
+KosmicKrisp (the glare's lesson). The near field sampled the lens's image at the output's size at first, which cost
+twice as much. Bistro's bulbs at night get stars a few pixels long at f/11: they are 10 to 50 times white, where real
+bulbs are thousands of times; the sun's highlights on MetalRoughSpheres aren't brighter than 64 times white either. The
 coatings tint the Gauss's ghosts purple (magnesium fluoride reflects the red and the blue ends most); the vintage lens,
 uncoated, cascades hexagons over the frame against the sun, 25 times brighter. A still pose changes by 1 of 255 a frame
 (the sources' centroids don't jump with the jitter). Cost on KosmicKrisp at 720p, the Flare pass: the Gauss against
 the sun 0.41 ms, the vintage 1.15, Bistro's street at night 0.16 (its lamps' starbursts, no ghost bright enough); the
-glare isn't drawn over a letterbox. Not yet: ghosts of sources out of the frame (the sun just outside it flares a real
-lens), extended sources' shapes, the ghosts at half resolution where their fill costs.
+glare isn't drawn over a letterbox. The near field, at 1440p by the draw thread's frame time against runs that skip its
+two passes, the helmet against the sun through the Gauss at f/14: 0.7 ms (21.9 against 21.2); forced to its whole reach
+everywhere, as a frame of bright glints would be, 2.6 to 3.2 ms with 8 blades and 5.4 to 6.9 with the portrait's 9 (18
+spikes; 6.5 and 11 to 15 sampling the lens's image at the output's size). Not yet: ghosts of sources out of the frame
+(the sun just outside it flares a real lens), extended sources' ghosts, rounded blades (round a few stops down), the
+ghosts at half resolution where their fill costs.
 
 **The depth of field** (the fourth stage, 2026-11-05; a real lens's, the pinhole's everything sharp; View > Camera >
 Autofocus and Focus Distance, `Settings::focusAuto` and `focusDistance` in meters, `SPEEDO_FOCUS=auto|<meters>`, which
@@ -523,7 +557,8 @@ largest circle (every other pixel's, the view looked up once per tile), DOF Tile
 neighbors as far as theirs reach, DOF Prepare reduces the frame to half the output's size with the 2x2's mean and the
 circle of the one that spreads farthest, DOF Gather gathers each half texel over its tile's reach (a scatter as gather:
 `kDofTapCount`, 48, taps on a spiral turned per texel by interleaved gradient noise, up to twice that the farther the
-reach, each on the blades' polygon, `DofBokehPoint`, and kept where the cat's eye leaves it, a disk of the same radius
+reach, each on the aperture's shape, `DofBokehPoint` (the blades' polygon cut by the barrel's round opening: round wide
+open, polygonal stopped down, see the glare), and kept where the cat's eye leaves it, a disk of the same radius
 `catEye` radii toward the view's center, which `lens::Appear` solves per field angle from the mechanical share of the
 light, two disks' overlap by bisection; an anamorphic lens's taps on an oval the squeeze taller than wide, since its
 cylinders, an afocal squeeze of the angles across, shrink the defocus across by the squeeze squared on the sensor and

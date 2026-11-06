@@ -49,14 +49,26 @@ float FlareIrradianceToRadiance(LensData lens)
 	return lens.focalLength * lens.focalLength / (kPi * max(lens.pupilRadius * lens.pupilRadius, 1e-6));
 }
 
-// the blades' polygon's edge (mm): the stop's radius its apothem
-float FlareEdgeLength(LensData lens)
+// the barrel's round opening the blades' polygon is cut by (LensData::openRadius; none for the pinhole)
+float FlareOpenRadius(LensData lens)
 {
-	return lens.bladeCount >= 3u ? 2.0 * lens.stopRadius * sin(kPi / float(lens.bladeCount)) : 0.0;
+	return lens.openRadius > 0.0 ? lens.openRadius : 1.0e30;
 }
 
-// how far a point of the stop's plane is outside the blades' polygon (the nearest edge's line; a circle of the stop's
-// radius without blades), mm
+// the blades' polygon's edges' straight length (mm; lens::StraightEdgeLength): the stop's radius its apothem, its edge
+// 2 a tan(pi / N), or the chord the opening leaves of it (none wide open, where the aperture is round)
+float FlareEdgeLength(LensData lens)
+{
+	if (lens.bladeCount < 3u)
+		return 0.0;
+	float open = FlareOpenRadius(lens);
+	float edge = 2.0 * lens.stopRadius * tan(kPi / float(lens.bladeCount));
+	float chord = 2.0 * sqrt(max(open * open - lens.stopRadius * lens.stopRadius, 0.0));
+	return min(edge, chord);
+}
+
+// how far a point of the stop's plane is outside the aperture (the blades' polygon, the nearest edge's line, cut by the
+// round opening; a circle of the stop's radius without blades), mm
 float FlarePolygonDistance(float2 at, LensData lens)
 {
 	if (lens.bladeCount < 3u)
@@ -64,7 +76,7 @@ float FlarePolygonDistance(float2 at, LensData lens)
 	float sector = 2.0 * kPi / float(lens.bladeCount);
 	float angle = atan2(at.y, at.x);
 	float nearest = round(angle / sector) * sector;
-	return dot(at, float2(cos(nearest), sin(nearest))) - lens.stopRadius;
+	return max(dot(at, float2(cos(nearest), sin(nearest))) - lens.stopRadius, length(at) - FlareOpenRadius(lens));
 }
 
 // a ghost's irradiance at a point of the sensor, per channel (see the header: the ray entering at the height that lands
@@ -92,19 +104,33 @@ float3 FlareGhost(LensData lens, LensGhost ghost, LensSource source, float2 sens
 	return color;
 }
 
-// the starburst's intensity at a point of the sensor at an offset from the source, per channel: each edge of the
-// blades' polygon diffracts a streak either way along its normal, falling as the source's irradiance times the edge's
-// length squared over 4 pi^2 times the distance squared (the far field of an edge), as wide across as the wavelength
-// times the focal length over the edge (its first zero), and here a gaussian of that integral at least a pixel wide
-float3 FlareStarburst(LensData lens, LensSource source, float2 offset, float pixelMm)
+// the share of a spike at a distance along it (mm) the sprites draw: its far field, past half the near field's reach
+// (see ComputeStarburst, which gathers every pixel's spikes as far as SHADER_TYPES_STAR_REACH half texels, fading out
+// over the second half: here the complement, by the same steps, two output pixels each along the spike's direction)
+float FlareFarField(float along, float2 normal, float2 mmPerPixel)
 {
+	float stepMm = length(2.0 * normalize(normal / mmPerPixel) * mmPerPixel);
+	return smoothstep(0.5 * float(SHADER_TYPES_STAR_REACH), float(SHADER_TYPES_STAR_REACH), along / max(stepMm, 1e-6));
+}
+
+// the starburst's far field at a point of the sensor at an offset from the source, per channel: each edge of the blades'
+// polygon diffracts a streak either way along its normal, falling as the source's irradiance times the edge's length
+// squared over 4 pi^2 times the distance squared (the far field of an edge), as wide across as the wavelength times the
+// focal length over the edge (its first zero), and here a gaussian of that integral at least a pixel wide; past the
+// near field, which every pixel's spikes are gathered over (FlareFarField)
+float3 FlareStarburst(LensData lens, LensSource source, float2 offset, float2 mmPerPixel)
+{
+	float pixelMm = max(mmPerPixel.x, mmPerPixel.y);
 	float edge = FlareEdgeLength(lens);
 	if (edge <= 0.0)
 		return 0.0;
 	float fNumber = lens.focalLength / max(2.0 * lens.pupilRadius, 1e-3);
 	float axis = edge * edge * fNumber * fNumber / (kPi * kPi * kPi); // over the distance squared: radiance
 	float3 width = kFlareWavelengths * lens.focalLength / edge;
-	float3 sigma = max(width / 2.5, 0.6 * pixelMm);
+	// across: the edge's diffraction (at least a pixel), spread by the source's disk (LensSource::flux.w, see
+	// ComputeFlareSize: a uniform disk's chord across has a deviation of half its radius), the integral across kept
+	float spread = 0.5 * source.flux.w;
+	float3 sigma = sqrt(max(width / 2.5, 0.6 * pixelMm) * max(width / 2.5, 0.6 * pixelMm) + spread * spread);
 	float3 scale = axis * width / (sigma * sqrt(2.0 * kPi));
 	float3 color = 0.0;
 	float sector = 2.0 * kPi / float(lens.bladeCount);
@@ -113,9 +139,10 @@ float3 FlareStarburst(LensData lens, LensSource source, float2 offset, float pix
 		float2 normal = float2(cos(float(edgeIt) * sector), sin(float(edgeIt) * sector));
 		float along = abs(dot(offset, normal));
 		float across = abs(dot(offset, float2(-normal.y, normal.x)));
-		if (along < 2.0 * pixelMm)
+		float far = FlareFarField(along, normal, mmPerPixel);
+		if (far <= 0.0)
 			continue;
-		color += scale * exp(-0.5 * across * across / (sigma * sigma)) / (along * along);
+		color += scale * far * exp(-0.5 * across * across / (sigma * sigma)) / (along * along);
 	}
 	// an anamorphic lens's cylindrical front element: a streak across (along the squeeze) from its edge, the lens's
 	// whole clear aperture, as the blades' edges give theirs, tinted blue as its coatings reflect it (the streak the
@@ -125,12 +152,13 @@ float3 FlareStarburst(LensData lens, LensSource source, float2 offset, float pix
 		float cylinderEdge = 2.0 * lens.entranceRadius;
 		float cylinderAxis = cylinderEdge * cylinderEdge * fNumber * fNumber / (kPi * kPi * kPi);
 		float3 cylinderWidth = kFlareWavelengths * lens.focalLength / cylinderEdge;
-		float3 cylinderSigma = max(cylinderWidth / 2.5, 0.6 * pixelMm);
+		float3 cylinderSigma = sqrt(max(cylinderWidth / 2.5, 0.6 * pixelMm) * max(cylinderWidth / 2.5, 0.6 * pixelMm) + spread * spread);
 		float3 cylinderScale = cylinderAxis * cylinderWidth / (cylinderSigma * sqrt(2.0 * kPi)) * float3(0.55, 0.75, 1.0);
 		float along = abs(offset.x);
 		float across = abs(offset.y);
-		if (along >= 2.0 * pixelMm)
-			color += cylinderScale * exp(-0.5 * across * across / (cylinderSigma * cylinderSigma)) / (along * along);
+		float far = FlareFarField(along, float2(1.0, 0.0), mmPerPixel);
+		if (far > 0.0)
+			color += cylinderScale * far * exp(-0.5 * across * across / (cylinderSigma * cylinderSigma)) / (along * along);
 	}
 	return color * source.flux.rgb;
 }
@@ -186,7 +214,7 @@ FlareVertexOutput VertexFlare(uint vertexId : SV_VertexID, uint instanceId : SV_
 		if (abs(green.z) > 1e-4)
 		{
 			float2 stopCenter = (green.y - green.x * green.w / green.z) * angle;
-			float stopCircle = lens.stopRadius / (lens.bladeCount >= 3u ? cos(kPi / float(lens.bladeCount)) : 1.0);
+			float stopCircle = lens.bladeCount >= 3u ? min(lens.stopRadius / cos(kPi / float(lens.bladeCount)), FlareOpenRadius(lens)) : lens.stopRadius;
 			float stopRadius = abs(green.x / green.z) * stopCircle;
 			low = max(low, stopCenter - stopRadius);
 			high = min(high, stopCenter + stopRadius);
@@ -221,7 +249,8 @@ FlareVertexOutput VertexFlare(uint vertexId : SV_VertexID, uint instanceId : SV_
 		float sigma = max(width / 2.5, 0.6 * pixelMm);
 		float peak = FlareLuminance(source.flux.rgb) * exposure * axis * width / (sigma * sqrt(2.0 * kPi));
 		float reach = sqrt(max(peak, 0.0) / kFlareLeastVisible);
-		if (reach < 2.0 * pixelMm)
+		// none where the spikes fade before their far field (the near field draws them, see FlareFarField)
+		if (reach < float(SHADER_TYPES_STAR_REACH) * min(mmPerPixel.x, mmPerPixel.y))
 			return output;
 		extent = reach;
 	}
@@ -247,6 +276,6 @@ float4 FragmentFlare(FlareVertexOutput input) : SV_Target
 	float pixelMm = max(mmPerPixel.x, mmPerPixel.y);
 	float2 sensor = (pixel - (source.viewport.xy + 0.5 * source.viewport.zw)) * mmPerPixel;
 	float3 color = input.item < gFlare.ghostCount ? FlareGhost(lens, gFlareGhosts[gFlare.frame][input.item], source, sensor, pixelMm)
-												 : FlareStarburst(lens, source, sensor - source.position.xy, pixelMm);
+												 : FlareStarburst(lens, source, sensor - source.position.xy, mmPerPixel);
 	return float4(max(color, 0.0), 0.0);
 }

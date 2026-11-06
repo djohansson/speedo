@@ -1267,7 +1267,13 @@ float3 SharpenLens(float3 color, bool lensed, int2 at, uint2 size, float exposur
 		glare += max(bloom, 0.0) * (lens.glare / float(SHADER_TYPES_BLOOM_LEVEL_COUNT));
 	}
 	if (lens.flares != 0u)
+	{
+		// the sources' ghosts and their spikes' far field, and every pixel's spikes' near field (half the output's size,
+		// see ComputeStarburst)
 		glare += max(gTextures[SHADER_TYPES_FLARE_TEXTURE].Load(int3(at, 0)).rgb, 0.0);
+		float2 uv = (float2(at) + 0.5) / float2(size);
+		glare += max(gTextures[SHADER_TYPES_STAR_TEXTURE].SampleLevel(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], uv, 0.0).rgb, 0.0);
+	}
 	color += glare;
 	if (lens.grain != 0u && exposure > 0.0)
 	{
