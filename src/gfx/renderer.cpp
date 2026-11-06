@@ -2262,6 +2262,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myBloom, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myLensSourceCount, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myLensSources, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			// the depth under each source (its point of the world, see ComputeFlareTrack)
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{

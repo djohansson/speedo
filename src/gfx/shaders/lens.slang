@@ -13,14 +13,14 @@
 static const float kFlareSourceLeastLuminance = 64.0;
 static const float kFlareSourceLeastContrast = 4.0;
 static const float kFlareLeastVisible = 1e-3;
-// the sources tracked from frame to frame (see ComputeFlareTrack): a candidate within this many output pixels of a
-// source is the same, its place and light blended in by this share, and a source's strength rises or falls by this
-// much a frame as it is found again or not
+// the sources tracked from frame to frame (see ComputeFlareTrack): a candidate within this many output pixels of where a
+// source's point of the world projects now is the same, its light blended in by this share (its place taken whole), and a
+// source's strength rises or falls by this much a frame as it is found again or not
 static const float kFlareTrackReach = 32.0;
 static const float kFlareTrackBlend = 0.2;
 static const float kFlareTrackRamp = 0.15;
-// and a source's place stands while the candidate strays within this many pixels of it (the centroid moves with the
-// frames' jitter, and a streak a pixel wide with it)
+// and a source stays where its point projects while the candidate strays within this many pixels of it (the centroid
+// moves with the frames' jitter, and a streak a pixel wide with it)
 static const float kFlareTrackDeadZone = 1.5;
 
 float LensLuminance(float3 color)
@@ -91,6 +91,72 @@ float4 LensOutputViewport(ViewData view, uint2 size)
 {
 	float2 scale = float2(size) / float2(UpscaleRenderSize());
 	return float4(view.viewport.xy * scale, view.viewport.zw * scale);
+}
+
+// a point of the sensor (mm from the view's center) as a point of the frame rendered (the output's pixels, continuous:
+// the Lens pass's ideal image, the distortion undone and over the margin, the green's; see LensSample), and back (the
+// distortion's third order inverted by Newton's method)
+float2 LensSensorToFrame(LensData lens, float4 viewport, float2 sensor)
+{
+	float2 toSensor = float2(1.0 / max(lens.squeeze, 1.0), 1.0);
+	float halfDiagonalPixels = 0.5 * length(viewport.zw * toSensor);
+	float2 fromCenter = sensor / max(lens.halfDiagonal, 1e-6);
+	float distorted = length(fromCenter);
+	float ideal = distorted * (1.0 - lens.distortion * distorted * distorted);
+	float2 direction = distorted > 1e-6 ? fromCenter / distorted : float2(0.0, 0.0);
+	return viewport.xy + 0.5 * viewport.zw + direction * (ideal / max(lens.margin, 1e-3)) * halfDiagonalPixels / toSensor;
+}
+
+float2 LensFrameToSensor(LensData lens, float4 viewport, float2 frame)
+{
+	float2 toSensor = float2(1.0 / max(lens.squeeze, 1.0), 1.0);
+	float halfDiagonalPixels = 0.5 * length(viewport.zw * toSensor);
+	float2 idealVector = (frame - (viewport.xy + 0.5 * viewport.zw)) * toSensor / max(halfDiagonalPixels, 1.0) * lens.margin;
+	float ideal = length(idealVector);
+	float distorted = ideal;
+	[unroll]
+	for (uint stepIt = 0; stepIt < 4; stepIt++)
+	{
+		float error = distorted * (1.0 - lens.distortion * distorted * distorted) - ideal;
+		distorted -= error / max(1.0 - 3.0 * lens.distortion * distorted * distorted, 0.1);
+	}
+	float2 direction = ideal > 1e-6 ? idealVector / ideal : float2(0.0, 0.0);
+	return direction * distorted * lens.halfDiagonal;
+}
+
+// the point of the world at a point of the frame rendered (output pixels, the output's viewport of the view), at a depth
+// (reversed: 0 is infinitely far, where the point is a direction, w 0), homogeneous; through the jittered projection the
+// frame was rendered with (the reconstruction it was lensed from has the jitter taken out)
+float4 LensFrameToWorld(ViewData view, float4 viewport, float2 frame, float depth)
+{
+	float2 ndc = (frame - viewport.xy) / viewport.zw * 2.0 - 1.0 + view.jitter.xy;
+	float4 world = mul(view.inverseViewProjection, float4(ndc, depth, 1.0));
+	return world.w < 0.0 ? -world : world;
+}
+
+// and where a point of the world is in the frame rendered now (output pixels), if in front of the view
+bool LensWorldToFrame(ViewData view, float4 viewport, float4 world, out float2 frame)
+{
+	float4 clip = mul(view.viewProjection, world);
+	frame = 0.0;
+	if (clip.w <= 1e-9)
+		return false;
+	float2 ndc = clip.xy / clip.w - view.jitter.xy;
+	frame = viewport.xy + (ndc + 1.0) * 0.5 * viewport.zw;
+	return true;
+}
+
+// the view whose output viewport a source's is
+bool LensViewOfViewport(float4 viewport, uint2 outputSize, out ViewData view)
+{
+	for (uint viewIt = 0; viewIt < gPushConstants.viewCount; viewIt++)
+	{
+		view = gViewData[gPushConstants.frameIndex][viewIt];
+		if (all(LensOutputViewport(view, outputSize) == viewport))
+			return true;
+	}
+	view = gViewData[gPushConstants.frameIndex][0];
+	return false;
 }
 
 // the frame the lens takes, at the output's size: reconstructed (the parity's), or composited at it without temporal
@@ -301,6 +367,11 @@ void ComputeFlareSources(uint3 dispatchThreadId : SV_DispatchThreadID)
 	source.position = float4(sensor, exposure, 0.0);
 	source.flux = float4(flux, 0.0);
 	source.viewport = viewport;
+	// the point of the world under it (the frame's depth there, at the render's size), for the tracking
+	float2 frame = LensSensorToFrame(lens, viewport, sensor);
+	int2 renderSize = UpscaleRenderSize();
+	int2 renderPixel = clamp(int2(frame * float2(renderSize) / float2(outputSize)), int2(0, 0), renderSize - 1);
+	source.world = LensFrameToWorld(view, viewport, frame, gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(renderPixel, 0)).r);
 	gLensSources[SHADER_TYPES_LENS_SOURCE_CANDIDATES * SHADER_TYPES_LENS_SOURCE_COUNT + index] = source;
 }
 
@@ -326,11 +397,20 @@ void ComputeFlareTrack(uint3 dispatchThreadId : SV_DispatchThreadID)
 	bool taken[SHADER_TYPES_LENS_CANDIDATE_COUNT];
 	for (uint candidateIt = 0; candidateIt < SHADER_TYPES_LENS_CANDIDATE_COUNT; candidateIt++)
 		taken[candidateIt] = false;
+	uint2 outputSize;
+	gTextures[SHADER_TYPES_LENSED_TEXTURE].GetDimensions(outputSize.x, outputSize.y);
 	uint count = 0;
 	for (uint previousIt = 0; previousIt < previousCount; previousIt++)
 	{
 		LensSource source = gLensSources[previousFirst + previousIt];
 		float2 mmPerPixel = LensSensorMmPerPixel(lens, source.viewport);
+		// where it is now: its point of the world through this frame's projection (the camera turned or moved since; the
+		// sun a direction, a lamp at the depth it was found at), dropped where its view is gone or it is behind
+		ViewData view;
+		float2 frame;
+		if (!LensViewOfViewport(source.viewport, outputSize, view) || !LensWorldToFrame(view, source.viewport, source.world, frame))
+			continue;
+		source.position.xy = LensFrameToSensor(lens, source.viewport, frame);
 		float reach = kFlareTrackReach * max(mmPerPixel.x, mmPerPixel.y);
 		uint nearest = SHADER_TYPES_LENS_CANDIDATE_COUNT;
 		float nearestDistance = reach;
@@ -352,8 +432,14 @@ void ComputeFlareTrack(uint3 dispatchThreadId : SV_DispatchThreadID)
 		{
 			taken[nearest] = true;
 			LensSource candidate = gLensSources[candidateFirst + nearest];
+			// where the candidate is, unless within the dead zone of where it was projected to (the centroid moves with the
+			// frames' jitter); not blended toward it, which trailed the camera by a few frames' motion (the user's
+			// anamorphic pose on ABeautifulGame, 2026-11-06)
 			if (nearestDistance > kFlareTrackDeadZone * max(mmPerPixel.x, mmPerPixel.y))
-				source.position.xy = lerp(source.position.xy, candidate.position.xy, kFlareTrackBlend);
+			{
+				source.position.xy = candidate.position.xy;
+				source.world = candidate.world;
+			}
 			source.position.z = candidate.position.z;
 			source.position.w = min(source.position.w + kFlareTrackRamp, 1.0);
 			source.flux.rgb = lerp(source.flux.rgb, candidate.flux.rgb, kFlareTrackBlend);

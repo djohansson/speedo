@@ -475,10 +475,20 @@ doesn't fill the candidates with arbitrary ones. The sun's disk in view is such 
 Track** pass (`ComputeFlareTrack`, one thread) keeps the sources from frame to frame: the buffers are the renderer's
 own, imported into the graph and emptied once (the frames' lists by parity, `SHADER_TYPES_LENS_SOURCE_COUNT`, 16, each,
 then the candidates, counted in `gLensSourceCount`'s first three words; the Flare Clear pass empties the candidates'
-count alone; 8 sources and 8 candidates until 2026-11-06, when the starburst was every source's); each of the last frame's sources is
-matched to the nearest candidate of its view within `kFlareTrackReach` (32 pixels), its light blended toward it by
-`kFlareTrackBlend` (0.2) and its place too unless the candidate strays within `kFlareTrackDeadZone` (1.5 pixels: the
-centroid moves with the frames' jitter, and a streak a pixel wide with it), its strength (`LensSource::position.w`,
+count alone; 8 sources and 8 candidates until 2026-11-06, when the starburst was every source's); each source holds
+the point of the world it is at (`LensSource::world`, homogeneous: `ComputeFlareSources` takes the main depth under the
+candidate, through the sensor's point undistorted to the frame rendered, `LensSensorToFrame`, and the jittered inverse
+projection, `LensFrameToWorld`; the sky's depth gives a direction, w 0, so the sun is a direction), and each frame
+each of the last frame's sources is first projected to where that point is now (`LensWorldToFrame`, this frame's
+projection, then back to the sensor, `LensFrameToSensor`, the distortion inverted by Newton's method; dropped behind
+the view), then matched to the nearest candidate of its view within `kFlareTrackReach` (32 pixels) of there, taking
+the candidate's place (and point) unless it strays within `kFlareTrackDeadZone` (1.5 pixels: the centroid moves with
+the frames' jitter, and a streak a pixel wide with it), its light blended toward it by `kFlareTrackBlend` (0.2). The
+place was blended by that share too until 2026-11-06, which trailed the camera by about four frames' motion (the far
+spikes and the ghosts lagging behind the near field and the light when turning, the user's anamorphic 75 mm pose on
+ABeautifulGame `0.0354,0.1547,0.2937,6.946,-1.841` at 10:30 on super35: the sun turning at 10 degrees a second at 720p
+showed two sets of spikes 10 to 20 pixels apart, one now), and a source lost in a turn faster than the reach faded out
+where it had been; it fades out where its point projects now. Its strength (`LensSource::position.w`,
 which the Flare pass scales the light by) up by `kFlareTrackRamp` (0.15) a frame, or, unmatched, down by as much and
 dropped at 0; the candidates left become sources of that strength while there is room, the brightest first. So a flare
 fades in over about seven frames and out over as many. Then each source's size (`ComputeFlareSize`, a group of 16x16

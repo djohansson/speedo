@@ -682,8 +682,11 @@ struct LensGhost
 struct LensSource
 {
 	alignas(16) FLOAT4(position); // xy mm; z the exposure; w the strength, 0 to 1
-	alignas(16) FLOAT4(flux);
+	alignas(16) FLOAT4(flux); // rgb; w the radius of its disk on the sensor (mm, see ComputeFlareSize)
 	alignas(16) FLOAT4(viewport);
+	// the point of the world it is at (homogeneous: the depth under it, w 0 a direction where it is the sky), which
+	// ComputeFlareTrack projects each frame to find it again wherever the camera has turned or moved
+	alignas(16) FLOAT4(world);
 };
 #define SHADER_TYPES_LENS_SOURCE_COUNT 16u
 #define SHADER_TYPES_LENS_CANDIDATE_COUNT 64u
