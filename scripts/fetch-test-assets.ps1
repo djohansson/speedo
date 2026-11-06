@@ -23,6 +23,9 @@ are kept, so running it again only fetches what is missing.
 
 -Quick prints only the quick tier's paths (scripts/test-assets/quick.txt: a model or two per feature, for iterating),
 after fetching the sets as above.
+-Minimal fetches only what the quick tier names (its McGuire archives, glTF models and panoramas, a few hundred MB rather
+than about 5.4 GB) and prints them as -Quick does: for CI (.github/workflows/ci.yml). It never narrows what is there: a
+full glTF checkout stays full, and a minimal one widens to the whole set when fetched without -Minimal.
 
 Prints the paths to pass to scripts/assettest.ps1 (progress and errors go to stderr), e.g.
   scripts/assettest.ps1 -Client (scripts/fetch-test-assets.ps1)
@@ -36,7 +39,8 @@ param(
 	[switch] $McGuire,
 	[switch] $Gltf,
 	[switch] $Environments,
-	[switch] $Quick
+	[switch] $Quick,
+	[switch] $Minimal
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,6 +57,14 @@ if (-not $McGuire -and -not $Gltf -and -not $Environments)
 	$McGuire = $true
 	$Gltf = $true
 	$Environments = $true
+}
+
+# the quick tier's entries (paths under the test asset dir), which -Minimal fetches alone
+$quickEntries = @(Get-Content (Join-Path $root 'scripts/test-assets/quick.txt') | ForEach-Object { $_.Trim() } |
+	Where-Object { $_ -and -not $_.StartsWith('#') })
+if ($Minimal)
+{
+	$Quick = $true
 }
 
 $kMcGuireUrl = 'https://casual-effects.com/g3d/data10'
@@ -85,6 +97,10 @@ if ($McGuire)
 		}
 		$source, $name, $size, $hash = $line -split '\s+'
 		$file = Join-Path $out $name
+		if ($Minimal -and $quickEntries -notcontains "mcguire/$name")
+		{
+			continue
+		}
 
 		if ((Test-Path -LiteralPath $file -PathType Leaf) -and (Get-Item -LiteralPath $file).Length -eq [int64]$size -and
 			(Get-Sha256 $file) -eq $hash)
@@ -161,15 +177,44 @@ if ($McGuire)
 if ($Gltf)
 {
 	$out = Join-Path $Dir 'glTF-Sample-Assets'
+	# the checkout's sparse directories: the whole Models, or with -Minimal the quick tier's models alone
+	$wanted = if ($Minimal)
+	{
+		@($quickEntries | Where-Object { $_.StartsWith('glTF-Sample-Assets/') } | ForEach-Object { $_.Substring('glTF-Sample-Assets/'.Length) })
+	}
+	else
+	{
+		@('Models')
+	}
 	$head = if (Test-Path (Join-Path $out '.git')) { git -C $out rev-parse HEAD 2>$null } else { $null }
-	if ($head -ne $kGltfCommit)
+	if ($head -eq $kGltfCommit)
+	{
+		# there at the commit: widen it where it lacks what is wanted (a minimal checkout fetched in full, or the quick
+		# tier grown), never narrow it (a full checkout stays full under -Minimal)
+		$have = @(git -C $out sparse-checkout list 2>$null)
+		if ($have -notcontains 'Models')
+		{
+			$missing = @($wanted | Where-Object { $have -notcontains $_ })
+			if ($missing.Count -gt 0)
+			{
+				Write-Message "fetching glTF-Sample-Assets' $($missing -join ', ')"
+				git -C $out sparse-checkout add @missing | ForEach-Object { Write-Message $_ }
+				if ($LASTEXITCODE -ne 0)
+				{
+					Write-Message 'failed to fetch glTF-Sample-Assets'
+					$failed = $true
+				}
+			}
+		}
+	}
+	else
 	{
 		Write-Message "fetching glTF-Sample-Assets at $kGltfCommit"
 		New-Item -ItemType Directory -Force -Path $out | Out-Null
 		$steps = @(
 			{ git -C $out init -q },
 			{ git -C $out remote get-url origin 2>$null | Out-Null; if ($LASTEXITCODE -ne 0) { git -C $out remote add origin $kGltfRepository } },
-			{ git -C $out sparse-checkout set Models },
+			{ git -C $out sparse-checkout set @wanted },
 			{ git -C $out fetch -q --depth 1 --filter=blob:none origin $kGltfCommit },
 			{ git -C $out checkout -q --detach FETCH_HEAD })
 		foreach ($step in $steps)
@@ -204,6 +249,10 @@ if ($Environments)
 		}
 		$name, $size, $hash = $line -split '\s+'
 		$file = Join-Path $out $name
+		if ($Minimal -and $quickEntries -notcontains "glTF-Sample-Environments/$name")
+		{
+			continue
+		}
 
 		if ((Test-Path -LiteralPath $file -PathType Leaf) -and (Get-Item -LiteralPath $file).Length -eq [int64]$size -and
 			(Get-Sha256 $file) -eq $hash)

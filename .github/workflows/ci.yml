@@ -1,0 +1,73 @@
+# CI: the cpu's work only (the user's call, 2026-11-06: the client's gpu workloads are too heavy for a hosted runner's
+# software Vulkan): setup, a build, and scripts/assettest.ps1's checks without -Client (the importers, images, environments,
+# the lens check). macOS first, the only platform the shared vcpkg binary cache (docs/notes/build.md) holds packages for:
+# setup restores them, LLVM too, rather than build them on a hosted runner. Windows and Linux follow once the cache holds
+# theirs. Reads the cache only (no credentials here).
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS arm64 (profile)
+    # GitHub's Xcode 27 image: macOS 27 on Apple silicon, whose SDK's major version is the deployment target the cache's
+    # packages are keyed by (macos-latest and macos-26 are macOS 26: every package would be built)
+    runs-on: xcode-27
+    timeout-minutes: 120
+    env:
+      PRESET: arm64-osx-clang-profile
+      SPEEDO_TEST_ASSETS: ${{ github.workspace }}/../test-assets
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # the quick tier's test assets, kept between runs (800 MB from their sites otherwise). The vcpkg packages come from
+      # the shared cache each run, 1.5 GB: vcpkg doesn't keep what it restored from it in its local archives, so caching
+      # those here would keep nothing
+      - name: Cache test assets
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SPEEDO_TEST_ASSETS }}
+          key: test-assets-${{ hashFiles('scripts/test-assets/**', 'scripts/fetch-test-assets.ps1') }}
+          restore-keys: test-assets-
+
+      # setup.ps1 directly: setup_osx.sh only installs PowerShell (the image has it) and upgrades all of Homebrew
+      - name: Setup
+        shell: pwsh
+        run: ./setup.ps1
+
+      - name: Configure
+        run: cmake --preset "$PRESET"
+
+      - name: Build
+        run: cmake --build "build/$PRESET"
+
+      - name: Asset checks
+        shell: pwsh
+        run: |
+          $paths = & scripts/fetch-test-assets.ps1 -Minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & scripts/assettest.ps1 -Preset $env:PRESET -Work "$env:RUNNER_TEMP/assettest" @paths
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-macos
+          path: |
+            vcpkg/buildtrees/*/*.log
+            ${{ runner.temp }}/assettest/logs
+          if-no-files-found: ignore
