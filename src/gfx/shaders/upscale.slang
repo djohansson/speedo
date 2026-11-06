@@ -1297,6 +1297,15 @@ void ComputeSharpen(uint3 dispatchThreadId : SV_DispatchThreadID)
 	ViewData view;
 	bool inView = UpscaleViewAtUv((float2(xy) + 0.5) / float2(size), view);
 	float exposure = view.exposure;
+	// a letterbox is black (outside the views the lookup falls back to the first, whose exposure made the composite's
+	// gray backdrop white at night: an anamorphic lens's bars in Bistro, 2026-11-06)
+	if (!inView && !DebugViewIsData(gPushConstants.debugView))
+	{
+		output.Store(uint2(xy), float4(0.0, 0.0, 0.0, 1.0));
+		if (gPushConstants.uiBlurRectCount != 0u && UiBlurReaches(uint2(xy)))
+			gRWTextures[SHADER_TYPES_UI_BLUR_SOURCE_RW_TEXTURE].Store(uint2(xy), float4(0.0, 0.0, 0.0, 1.0));
+		return;
+	}
 	// the lens's glare over its image (see SharpenGlare), within the views (not over a letterbox)
 	lensed = lensed && inView;
 	float3 e = SharpenMapped(SharpenLens(resolved.Load(int3(xy, 0)).rgb, lensed, xy, size, exposure), data, exposure, view.scotopic);

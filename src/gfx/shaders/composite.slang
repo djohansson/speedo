@@ -50,6 +50,10 @@ void ComputeMain(
 		bool data = DebugViewIsData(gPushConstants.debugView);
 		if (color.a == 0.0)
 			color.rgb = data ? 0.005 : 0.2;
+		// a letterbox is black (its gray, exposed as the first view, was white at night: an anamorphic lens's bars in
+		// Bistro, 2026-11-06)
+		if (color.a == 0.0 && !inView)
+			color.rgb = 0.0;
 		if (color.a == 0.0 && gPushConstants.environmentBackdrop != 0u && !data)
 		{
 			for (uint viewIt = 0; viewIt < gPushConstants.viewCount; viewIt++)

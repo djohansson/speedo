@@ -270,10 +270,14 @@ void ComputeDofGather(uint3 dispatchThreadId : SV_DispatchThreadID)
 		// clipped by the cat's eye
 		if (length(point - catEye * toCenter) > 1.0)
 			continue;
-		float2 offset = point * reach;
+		// an anamorphic lens's bokeh is an oval the squeeze taller than wide: its cylinders shrink the defocus across by
+		// the squeeze squared on the sensor (an afocal squeeze of the angles, so of the vergences squared), and the view
+		// shows the sensor's width the squeeze wider. the taps on the oval, and how far a tap is in the oval's measure
+		// (every circle is the same oval, so a tap covers the texel as a round one would)
+		float2 offset = float2(point.x / max(lens.squeeze, 1.0), point.y) * reach;
 		int2 at = clamp(int2(floor(float2(texel) + 0.5 + offset)), int2(0, 0), int2(size) - 1);
 		float4 tap = half.Load(int3(at, 0));
-		float distance = length(offset);
+		float distance = length(point) * reach;
 		float3 tapCircle = abs(0.5 * tap.a + circleShift);
 		float3 covers = saturate(tapCircle - distance + 1.0);
 		// behind the point: as much as the point is blurred itself

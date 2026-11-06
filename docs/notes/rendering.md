@@ -405,7 +405,11 @@ game can be played through) a 20 mm f/1.8 (`wide-20`), a 16 mm f/2.8 (`ultrawide
 (`ultrawide-12`), retrofocus as the 28 (on a 16:9 view of the full frame sensor 84, 97 and 113 degrees across, the
 fields games call 90 to 110; rectilinear as a game's projection, 2.5 to 3.5% barrel at the corner: at 15% the 12 mm
 looked a fisheye's), a 35 mm f/1.4 (`fast-35`, a Gauss's topology of six elements) and a 135 mm f/2 telephoto
-(`tele-135`). The retrofocus designs achromatize five glasses (the front's two negative elements, the positive before
+(`tele-135`); and anamorphics beside the 50 mm 2x (the user's ask, the same day): a 40 mm 2x (`anamorphic-40`, a 20 mm's
+field across) and a 75 mm 2x (`anamorphic-75`), the Gauss scaled to them behind the same cylinders, and a 50 mm 1.33x
+(`anamorphic-50-133`, a 2.39:1 frame squeezed onto a 16:9 sensor). An anamorphic's bokeh is an oval the squeeze taller
+than wide (see the depth of field), and its letterbox is black: the composite's gray backdrop there, exposed as the first
+view, came out white at night in Bistro (the final pass and Sharpen write black outside every view now). The retrofocus designs achromatize five glasses (the front's two negative elements, the positive before
 the stop, the flint and the positive after it): with two the glasses ran to the ends of their range and the 12 mm's
 red and blue images stood 1% apart at the corner, 10 pixels at 1440p, 0.15% now. `assettest` checks each
 (`CheckLenses`: the focal length it scales to, a positive back focus, the vignetting within 0.04 and 1, the aberration
@@ -521,7 +525,10 @@ circle of the one that spreads farthest, DOF Gather gathers each half texel over
 `kDofTapCount`, 48, taps on a spiral turned per texel by interleaved gradient noise, up to twice that the farther the
 reach, each on the blades' polygon, `DofBokehPoint`, and kept where the cat's eye leaves it, a disk of the same radius
 `catEye` radii toward the view's center, which `lens::Appear` solves per field angle from the mechanical share of the
-light, two disks' overlap by bisection; weighed by the bokeh's profile, `DofBokeh`, the light at the tap's share of its
+light, two disks' overlap by bisection; an anamorphic lens's taps on an oval the squeeze taller than wide, since its
+cylinders, an afocal squeeze of the angles across, shrink the defocus across by the squeeze squared on the sensor and
+the view shows the sensor's width the squeeze wider (a tap's distance taken in the oval's measure, every circle being
+the same oval; Bistro's far lamps through the 75 mm focused at 0.6 m are tall ovals); weighed by the bokeh's profile, `DofBokeh`, the light at the tap's share of its
 circle's radius: the lens's spherical aberration spreads a point's rays over its circle unevenly, so a point's disk has
 a bright rim on one side of the focus and a soft edge on the other (an undercorrected lens's far points soft, its near
 ones rimmed, an overcorrected lens's the other way), which `lens::Appear` finds by tracing 96 rays parallel to the axis

@@ -282,7 +282,32 @@ void Achromatize(Prescription& lens, size_t surface)
 		anamorphic.bladeCount = 10;
 		anamorphic.distortion = -0.02F;
 		anamorphic.transmittance = 0.9F;
-		lenses.push_back(std::move(anamorphic));
+		lenses.push_back(anamorphic);
+		// a cinema set's other primes (the user's ask, 2026-11-06): a 40 mm 2x, whose horizontal field is a 20 mm's, and
+		// a 75 mm 2x, the Gauss scaled to them (see Scale) behind the same cylinders; and a 1.33x, which squeezes a 2.39:1
+		// frame onto a 16:9 sensor, a modern one's lighter streak and rounder bokeh
+		auto wideAnamorphic = anamorphic;
+		wideAnamorphic.name = "40 mm 2x anamorphic";
+		wideAnamorphic.key = "anamorphic-40";
+		wideAnamorphic.focalLength = 40.0F;
+		wideAnamorphic.distortion = -0.04F;
+		wideAnamorphic.widestAperture = 2.2F;
+		lenses.push_back(std::move(wideAnamorphic));
+		auto longAnamorphic = anamorphic;
+		longAnamorphic.name = "75 mm 2x anamorphic";
+		longAnamorphic.key = "anamorphic-75";
+		longAnamorphic.focalLength = 75.0F;
+		longAnamorphic.distortion = -0.01F;
+		longAnamorphic.widestAperture = 2.0F;
+		lenses.push_back(std::move(longAnamorphic));
+		auto lightAnamorphic = anamorphic;
+		lightAnamorphic.name = "50 mm 1.33x anamorphic";
+		lightAnamorphic.key = "anamorphic-50-133";
+		lightAnamorphic.squeeze = 1.33F;
+		lightAnamorphic.bladeCount = 11;
+		lightAnamorphic.distortion = -0.015F;
+		lightAnamorphic.transmittance = 0.93F;
+		lenses.push_back(std::move(lightAnamorphic));
 	}
 	// the wide angles a first person game is played through (the user's ask, 2026-11-06: on a 16:9 window of a full
 	// frame sensor, 20 mm sees 84 degrees across, 16 mm 97 and 12 mm 113, the fields games call 90 to 110), each a
