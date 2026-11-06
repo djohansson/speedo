@@ -646,7 +646,7 @@ struct LensData
 // the motion blur's longest blur, in the output's pixels, and its tiles' size
 #define SHADER_TYPES_MOTION_BLUR_MAX 64.0
 #define SHADER_TYPES_MOTION_BLUR_TILE_SIZE 16u
-// the depth of field's circle of confusion at most, in the output's pixels, and its tiles' size (the gather's reach is
+// the depth of field's circle of confusion's radius at most, in the output's pixels, and its tiles' size (the gather's reach is
 // the tile's and its neighbors' largest circle)
 #define SHADER_TYPES_DOF_MAX_COC 48.0
 #define SHADER_TYPES_DOF_TILE_SIZE 16u

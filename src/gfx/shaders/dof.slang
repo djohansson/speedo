@@ -18,9 +18,11 @@ float DofNoise(float2 pixel)
 	return frac(52.9829189 * frac(0.06711056 * pixel.x + 0.00583715 * pixel.y));
 }
 
-// the distance along the view (mm) of what is at a depth of a view, and the circle of confusion of a point that far
-// (signed, in mm: positive beyond the focus, negative before it) for a channel whose focal length is shift from the
-// green's: the sensor at the green's image of the focus, the point's image at its own
+// the distance along the view (mm) of what is at a depth of a view, and the radius of the circle of confusion of a point
+// that far (signed, in mm: positive beyond the focus, negative before it) for a channel whose focal length is shift from
+// the green's: the sensor at the green's image of the focus, the point's image at its own; the aperture's diameter times
+// how far the image falls from the sensor over the image's distance is the circle's diameter, halved (the passes after
+// take the circles as radii: they spread over twice the thin lens's circle before, 2026-11-06)
 float DofDistanceMm(ViewData view, float depth)
 {
 	return UpscaleViewDepth(view, depth) * gPushConstants.metersPerUnit * 1000.0;
@@ -32,10 +34,11 @@ float DofCircleMm(LensData lens, float distanceMm, float shift)
 	float focusImage = 1.0 / max(1.0 / focal - 1.0 / max(lens.focusDistance, 1.01 * focal), 1e-6);
 	float pointFocal = focal + shift;
 	float pointImage = 1.0 / max(1.0 / pointFocal - 1.0 / max(distanceMm, 1.01 * pointFocal), 1e-6);
-	return lens.apertureDiameter * (focusImage - pointImage) / pointImage;
+	return 0.5 * lens.apertureDiameter * (focusImage - pointImage) / pointImage;
 }
 
-// the circles of the three channels in the output's pixels, clamped to SHADER_TYPES_DOF_MAX_COC (the green's sign)
+// the circles' radii of the three channels in the output's pixels, clamped to SHADER_TYPES_DOF_MAX_COC (the green's
+// sign)
 float3 DofCircles(LensData lens, float distanceMm, float mmPerPixel)
 {
 	float3 circles = float3(
@@ -248,8 +251,9 @@ void ComputeDofGather(uint3 dispatchThreadId : SV_DispatchThreadID)
 		catEye = DofCatEye(lens, sensor);
 		toCenter = length(sensor) > 1e-3 ? -normalize(sensor) : float2(0.0, 0.0);
 	}
-	// the red's and the blue's circles from the green's (see LensData::focusShiftRed), in half texels
-	float shiftScale = 0.5 * lens.apertureDiameter / max(lens.focalLength * mmPerPixel, 1e-6);
+	// the red's and the blue's circles from the green's (see LensData::focusShiftRed: a radius shifted by half the
+	// aperture's diameter times the focal length's shift over the focal length), in half texels
+	float shiftScale = 0.25 * lens.apertureDiameter / max(lens.focalLength * mmPerPixel, 1e-6);
 	float3 circleShift = float3(-lens.focusShiftRed, 0.0, -lens.focusShiftBlue) * shiftScale;
 	float3 centerCircle = abs(0.5 * center.a + circleShift);
 	float turn = DofNoise(float2(texel)) * 2.0 * 3.14159265;
@@ -275,8 +279,9 @@ void ComputeDofGather(uint3 dispatchThreadId : SV_DispatchThreadID)
 		// behind the point: as much as the point is blurred itself
 		bool behind = tap.a > center.a + 0.5;
 		float3 hidden = behind ? saturate(centerCircle / max(tapCircle, 1e-3)) : 1.0;
-		// the tap's circle's profile where it covers the texel (see DofBokeh)
-		float bokeh = DofBokeh(lens, distance / max(tapCircle.y, 1e-3), tap.a < 0.0, tapCircle.y * mmPerPixel);
+		// the tap's circle's profile where it covers the texel (see DofBokeh; its radius in mm, two output pixels a half
+		// texel)
+		float bokeh = DofBokeh(lens, distance / max(tapCircle.y, 1e-3), tap.a < 0.0, 2.0 * tapCircle.y * mmPerPixel);
 		float3 tapWeight = covers * hidden * bokeh;
 		sum += tap.rgb * tapWeight;
 		weight += tapWeight;

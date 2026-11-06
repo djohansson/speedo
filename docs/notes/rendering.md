@@ -506,8 +506,10 @@ Copy Pose writes where it isn't auto; `Scene::GetFocusDistance`; `LensData::dof`
 through it, `SHADER_TYPES_DOF_TEXTURE`, in place of the frame). The circle of confusion is the thin lens's
 (`DofCircleMm`: the sensor at the green's image of the focus, a point's image at its own distance along the view,
 `UpscaleViewDepth` times the scene's unit; the aperture's diameter, the focal length over the f-number the camera
-exposes with, times how far the point's image falls from the sensor over the image's distance; signed, in the output's
-pixels by the sensor's mm per pixel, at most `SHADER_TYPES_DOF_MAX_COC`, 48), so the depth of field follows the
+exposes with, times how far the point's image falls from the sensor over the image's distance, is the circle's
+diameter, and its radius half that; signed, in the output's pixels by the sensor's mm per pixel, at most
+`SHADER_TYPES_DOF_MAX_COC`, 48. Every pass after takes the circle as a radius, and until 2026-11-06 it was the diameter,
+so everything spread over twice the thin lens's circle), so the depth of field follows the
 exposure's aperture (wide open at night, shallow); the focus is what the autofocus mode picks (`gfx::FocusMode`, View > Camera > Focus, `SPEEDO_FOCUS=spot|zone|wide|<meters>`, as a system camera has them, the user's ask, 2026-11-05): the median distance of what is under the view's center spot (4% of the view each way, `SHADER_TYPES_FOCUS_SPOT`) or its center zone (20%, `SHADER_TYPES_FOCUS_ZONE`), binned by ComputeMain beside the distance bins (`SHADER_TYPES_FOCUS_BINS`), or the nearest tenth of the whole view (wide, an auto area's nearest subject), each read back and adapted as the look distance is, followed continuously (AF-C) or held as acquired (`Settings::focusContinuous`, Focus Now, `SPEEDO_FOCUS_CONTINUOUS=0`); the whole view's median at first, which focused on the board rather than the king under the center (the user's ABeautifulGame pose `-0.0303,0.2001,0.2945,29.066,0.046`): spot puts the king's cross sharp, zone the board behind it, wide the king's base
 (`myFocusDistances`, as a camera's single point autofocus) or the setting. The red's and
 the blue's circles are the green's less the aperture's diameter times their focal lengths' shift over the focal length
@@ -541,7 +543,8 @@ blurred, smooth (the taps' noise was dotty before the composite's tent and the t
 KosmicKrisp at 1440p by the draw thread's frame time, the helmet framed, the Gauss with its other passes skipped
 (`SPEEDO_SKIP_PASSES`; a pinhole run is no baseline, a prime's field of view being another scene): the Lens pass
 0.15 ms, the depth of field 1.1 at f/14 (little blurred; 2.5 before the view lookups were hoisted out of the tiles'
-and the prepare's pixels), about 4 wide open with everything blurred, the glare within the runs' noise there. Clean
+and the prepare's pixels), about 4 wide open focused at 1.2 m, 6.3 at f/1.8 focused at 0.3 m (31.8 ms skipped, 38.1
+with it, every circle at its limit, so the same before and after the radius's fix), the glare within the runs' noise there. Clean
 under the validation layer. Not yet: the bokeh's onion rings (an aspheric's polish) and a mirror lens's rings, the
 profile across the field (it is the axis's everywhere), the focus pulling smoothly over time, each split screen view's
 own focus (the first's serves all).
