@@ -667,7 +667,9 @@ struct LensGhost
 	alignas(16) FLOAT4(sensor[3]); // per channel: a, b, as, bs
 	alignas(16) FLOAT4(reflectance); // rgb: the two surfaces' reflectances' product per channel; w unused
 };
-#define SHADER_TYPES_LENS_GHOST_COUNT 64u
+// a lens's ghosts at most: its glass-air surfaces' pairs, n (n - 1) / 2, so 16 such surfaces (64 held 12 at most, and the
+// 35 mm f/1.4's 12 make 66: an assert, the user's, 2026-11-06; assettest's lens check holds every lens to it)
+#define SHADER_TYPES_LENS_GHOST_COUNT 120u
 
 // a source of glare the frame holds (see ComputeFlareSources: a bright compact blob, the sun's disk, a lamp's bulb, a
 // glint), which the Flare pass draws the ghosts and the starburst's far field of (its near field is every pixel's, see

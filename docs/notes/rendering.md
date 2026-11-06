@@ -413,7 +413,9 @@ view, came out white at night in Bistro (the final pass and Sharpen write black 
 the stop, the flint and the positive after it): with two the glasses ran to the ends of their range and the 12 mm's
 red and blue images stood 1% apart at the corner, 10 pixels at 1440p, 0.15% now. `assettest` checks each
 (`CheckLenses`: the focal length it scales to, a positive back focus, the vignetting within 0.04 and 1, the aberration
-under 2%, ghosts and their brightness, and that a ray near the axis and one at 0.7 of the pupil reach the sensor through
+under 2%, ghosts and their brightness, the ghosts and the streaks within the gpu's capacity (`SHADER_TYPES_LENS_GHOST_COUNT`,
+120, 16 glass-air surfaces' pairs: it was 64, and the 35 mm's 12 surfaces make 66, which `FrameLens` asserted on as soon
+as the user picked it, a case the quick tier's pinhole clients never reach), and that a ray near the axis and one at 0.7 of the pupil reach the sensor through
 `lens::TraceRay`, the exact trace, reporting the surface that cut it: the 35 mm's elements, a convex back against the
 next one's concave front at no spacing, overlapped off the axis, which the paraxial matrices don't see, and the 135's
 rear element stood at its front group's focus, scaling it to 4 mm of back focus): the Gauss's corner 0.276 of the axis

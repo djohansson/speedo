@@ -1388,6 +1388,11 @@ Report CheckLenses()
 			report.Fail("{}: a lateral chromatic aberration of {:.4f} and {:.4f}", lens.name, appearance.redScale, appearance.blueScale);
 		if (ghosts.empty() || brightest <= 0.0F || brightest > 0.1F)
 			report.Fail("{}: {} ghosts, the brightest {:.2e}", lens.name, ghosts.size(), brightest);
+		// the gpu's capacity for them (FrameLens fails hard past it)
+		if (ghosts.size() > SHADER_TYPES_LENS_GHOST_COUNT)
+			report.Fail("{}: {} ghosts, more than SHADER_TYPES_LENS_GHOST_COUNT ({})", lens.name, ghosts.size(), SHADER_TYPES_LENS_GHOST_COUNT);
+		if (Streaks(lens, lens.widestAperture).size() > SHADER_TYPES_LENS_STREAK_COUNT)
+			report.Fail("{}: more streaks than SHADER_TYPES_LENS_STREAK_COUNT ({})", lens.name, SHADER_TYPES_LENS_STREAK_COUNT);
 	}
 	return report;
 }
