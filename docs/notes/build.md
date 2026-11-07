@@ -359,8 +359,12 @@ Windows side's credentials (`AWS_SHARED_CREDENTIALS_FILE=/mnt/c/Users/<user>/.aw
 `AWS_PROFILE`) rather than a copy of the key, `SPEEDO_BINARY_CACHE_WRITE` set on the setup command itself.
 
 A run that fails partway has uploaded what it built, under hashes the fix makes stale (each triplet or toolchain edit
-changes every target package's): such objects were pruned by their upload time and absence from every platform's
-`install/vcpkg/status`, 315 of them (2.64 GB) after Linux's first runs. B2 keeps a deleted file's versions unless the
+changes every target package's), and every toolchain change leaves the previous packages behind: 587 such archives
+(4.6 GB) on 2026-11-07. `scripts/prune-binary-cache.ps1` deletes the archives no platform installs: `-Keep` takes every
+platform's list, a status file (`install/vcpkg/status`) or a list of ABIs that `-WriteKeepList <file>` writes on a machine
+whose status isn't at hand (the Mac, WSL); `-DryRun` lists what would go, by upload day; more than half of the bucket is
+refused without `-Force` (a platform's list left out). Allow it alone in Claude Code's permissions rather than `aws s3api
+delete-objects` (a bulk delete from the bucket was blocked without it). B2 keeps a deleted file's versions unless the
 bucket's lifecycle keeps only the last, so that setting decides whether pruning frees the storage.
 
 ## Linux: setup and the toolchain
