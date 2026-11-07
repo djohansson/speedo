@@ -120,7 +120,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		}
 	}
 
-	auto rpcTask = CreateTask(Rpc, socket, poller);
+	auto rpcTask = CreateTask(Rpc, std::ref(socket), std::ref(poller));
 	AddDependency(gRpcTask.handle, rpcTask.handle, true);
 	gRpcTask = rpcTask;
 }
@@ -338,7 +338,7 @@ Client::Client(std::string_view name, Environment&& env)
 		//std::cout << "socket flags: " << toString(ef) << std::endl;
 	});
 
-	gRpcTask = CreateTask(Rpc, mySocket, myPoller);
+	gRpcTask = CreateTask(Rpc, std::ref(mySocket), std::ref(myPoller));
 	gRpcTaskState = kTaskStateRunning;
 	gTickTask = CreateTask(client::Tick);
 	gTickTaskState = kTaskStateRunning;

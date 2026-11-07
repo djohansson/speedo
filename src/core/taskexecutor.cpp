@@ -72,9 +72,8 @@ bool TaskExecutor::InternalTryDelete(TaskHandle handle)
 
 	Task& task = *core::detail::InternalHandleToPtr(handle);
 	ENSURE(task);
-	auto& state = *std::atomic_load(&task.InternalState());
-	
-	if (std::atomic_ref(state.latch).load(std::memory_order_relaxed) == 0)
+
+	if (task.myState->latch.load(std::memory_order_relaxed) == 0)
 	{
 		std::destroy_at(&task);
 		core::detail::InternalFree(handle);
@@ -88,20 +87,28 @@ void TaskExecutor::InternalScheduleAdjacent(Task& task)
 {
 	ZoneScopedN("TaskExecutor::InternalScheduleAdjacent");
 
-	auto& state = *std::atomic_load(&task.InternalState());
-
-	for (auto adjIt = 0; adjIt < state.adjacenciesCount; adjIt++)
+	for (std::uint8_t dependentIt = 0; dependentIt < task.myDependentCount; dependentIt++)
 	{
-		TaskHandle adjacentHandle = state.adjacencies[adjIt];
-		Task& adjacent = *core::detail::InternalHandleToPtr(adjacentHandle);
-		ENSURE(adjacent);
-		auto& adjacentState = *std::atomic_load(&adjacent.InternalState());
-		auto adjacentLatch = std::atomic_ref(adjacentState.latch);
-		ENSUREF(adjacentLatch, "Latch needs to have been constructed!");
+		TaskHandle dependentHandle = task.myDependents[dependentIt];
+		Task& dependent = *core::detail::InternalHandleToPtr(dependentHandle);
+		ENSURE(dependent);
 
-		if (adjacentLatch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
-			Submit({&adjacentHandle, 1}, !adjacentState.continuation);
+		// its latch is 1 (itself) once the tasks it waits on are done
+		if (dependent.myState->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
+			Submit({&dependentHandle, 1}, !dependent.myContinuation);
 	}
+}
+
+void TaskExecutor::InternalCall(TaskHandle handle)
+{
+	ZoneScopedN("TaskExecutor::InternalCall");
+
+	Task& task = *core::detail::InternalHandleToPtr(handle);
+	ENSURE(task.myState->latch.load(std::memory_order_relaxed) == 1);
+
+	task();
+	InternalScheduleAdjacent(task);
+	myDeletionQueue.enqueue(handle);
 }
 
 bool TaskExecutor::InternalTryCallOne()

@@ -113,9 +113,9 @@ bool WindowedApplication::Main()
 {
 	ZoneScopedN("WindowedApplication::Main");
 
-	core::TaskHandle mainCall;
+	core::std_extra::move_only_function<void()> mainCall;
 	while (mainCalls.try_dequeue(mainCall))
-		GetExecutor().Call(mainCall);
+		mainCall();
 
 	return !IsExitRequested();
 }

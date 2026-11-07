@@ -38,8 +38,7 @@ public:
 		auto app = Application::Get();
 		ENSURE(app);
 
-		// the name and op are moved into the callable rather than passed as task arguments: CreateTask stores lvalue
-		// arguments by reference, and these die when we return
+		// the name and op are moved into the callable (CreateTask would copy them, as arguments)
 		auto [task, future] = CreateTask(
 			[this, name = std::move(name), loadOp = std::forward<LoadOp>(loadOp)]() mutable -> ResultType
 			{

@@ -62,13 +62,17 @@ public:
 
 } // namespace detail
 
+// a call for the draw thread, with its graphics queue's context (see RHI::drawCalls)
+template <GraphicsApi G>
+using DrawCall = core::std_extra::move_only_function<void(QueueTimelineContextData<G>&)>;
+
 template <GraphicsApi G>
 class RHI final
 {
 public:
-	// tasks to be called once on the draw thread (e.g. installing what was loaded). first: constructed before, and
-	// destroyed after, the rest
-	mutable core::ConcurrentQueue<core::TaskHandle> drawCalls;
+	// called once on the draw thread, in their order (e.g. installing what was loaded). functions rather than tasks: they
+	// have no dependencies, and nothing waits on them. first: constructed before, and destroyed after, the rest
+	mutable core::ConcurrentQueue<DrawCall<G>> drawCalls;
 
 	explicit RHI(RHIInitializationData&& initData);
 	RHI(const RHI&) = delete;

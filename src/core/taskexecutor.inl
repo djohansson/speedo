@@ -98,19 +98,4 @@ std::optional<typename Future<R>::value_t> TaskExecutor::InternalProcessReadyQue
 	return std::make_optional(future.Get());
 }
 
-template <typename... Params>
-void TaskExecutor::InternalCall(TaskHandle handle, Params&&... params)
-{
-	ZoneScopedN("TaskExecutor::InternalCall");
-
-	Task& task = *core::detail::InternalHandleToPtr(handle);
-	auto& state = *std::atomic_load(&task.InternalState());
-	
-	ENSURE(std::atomic_ref(state.latch).load(std::memory_order_relaxed) == 1);
-
-	task(params...);
-	InternalScheduleAdjacent(task);
-	myDeletionQueue.enqueue(handle);
-}
-
 } // namespace core

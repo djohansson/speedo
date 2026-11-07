@@ -70,6 +70,8 @@ using Semaphore = gfx::Semaphore;
 using SemaphoreCreateDesc = gfx::SemaphoreCreateDesc;
 using SemaphoreHandle = gfx::SemaphoreHandle;
 using RHI = gfx::RHI;
+using DrawCall = gfx::DrawCall;
+using QueueTimelineContextData = gfx::QueueTimelineContextData;
 
 namespace windowedapplication
 {

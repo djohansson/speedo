@@ -283,11 +283,11 @@ bool WindowedApplication::Draw()
 			profiler->Collect();
 		graphicsQueue.SwapAndResetPool();
 		
-		core::TaskHandle drawCall;
+		DrawCall drawCall;
 		while (rhi.drawCalls.try_dequeue(drawCall))
 		{
 			ZoneScopedN("WindowedApplication::Draw::drawCall");
-			GetExecutor().Call(drawCall, graphics.Get().get());
+			drawCall(*graphics.Get());
 		}
 
 		// the frame's exposure histogram, and instance and joint buffers, now that the frame's previous use of them is done
@@ -650,10 +650,10 @@ void WindowedApplication::Shutdown()
 		settled = true;
 		{
 			auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
-			core::TaskHandle drawCall;
+			DrawCall drawCall;
 			while (rhi.drawCalls.try_dequeue(drawCall))
 			{
-				executor.Call(drawCall, graphics.Get().get());
+				drawCall(*graphics.Get());
 				settled = false;
 			}
 		}

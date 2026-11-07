@@ -932,21 +932,19 @@ void WindowedApplication::InternalCopyPose()
 	}
 	std::println("{}", text);
 	// the clipboard is the window system's: on the main thread
-	auto [task, future] = core::CreateTask([text] { ImGui::SetClipboardText(text.c_str()); });
-	mainCalls.enqueue(task);
+	mainCalls.enqueue([text] { ImGui::SetClipboardText(text.c_str()); });
 }
 
 void WindowedApplication::InternalPastePose()
 {
 	// the clipboard is the window system's: read on the main thread, and applied by the next PrepareDraw
-	auto [task, future] = core::CreateTask(
+	mainCalls.enqueue(
 		[]
 		{
 			const char* text = ImGui::GetClipboardText();
 			std::scoped_lock lock(ui::gPastedPoseMutex);
 			ui::gPastedPose = std::string(text != nullptr ? text : "");
 		});
-	mainCalls.enqueue(task);
 }
 
 void WindowedApplication::PrepareDraw()
@@ -2069,41 +2067,37 @@ void WindowedApplication::PrepareDraw()
 		if (gAutoFrame)
 		{
 			// on the draw thread, as the Camera menu does
-			auto [task, future] = core::CreateTask([this] { myViews->UseSceneCamera(std::nullopt); });
-			rhi.drawCalls.enqueue(task);
+			rhi.drawCalls.enqueue([this](QueueTimelineContextData& /*graphics*/) { myViews->UseSceneCamera(std::nullopt); });
 		}
 		else if (gAutoCamera)
 		{
 			// on the draw thread too, after the install (which frames the views, or sets the model's camera), and for a
 			// few frames: the install may be queued after the scene names its file
 			auto values = *gAutoCamera;
-			auto [task, future] = core::CreateTask(
-				[this, values, views = gAutoViewCameras]
+			rhi.drawCalls.enqueue(
+				[this, values, views = gAutoViewCameras](QueueTimelineContextData& /*graphics*/)
 				{
 					myViews->Place(glm::vec3(values[0], values[1], values[2]), glm::vec3(glm::radians(values[3]), glm::radians(values[4]), 0.0F));
 					for (size_t viewIt = 0; viewIt < views.size(); viewIt++)
 						myViews->Place(viewIt + 1, glm::vec3(views[viewIt][0], views[viewIt][1], views[viewIt][2]), glm::vec3(glm::radians(views[viewIt][3]), glm::radians(views[viewIt][4]), 0.0F));
 				});
-			rhi.drawCalls.enqueue(task);
 		}
 		// and split screen's views turned apart (after the placement or the framing, in the draw calls' order on this thread)
 		if (gAutoViewsAround)
 		{
-			auto [task, future] = core::CreateTask(
-				[this]
+			rhi.drawCalls.enqueue(
+				[this](QueueTimelineContextData& /*graphics*/)
 				{
 					auto grid = myViews->GetGrid();
 					auto viewCount = static_cast<size_t>(grid.x) * grid.y;
 					for (size_t viewIt = 1; viewIt < viewCount; viewIt++)
 						myViews->Orbit(glm::two_pi<float>() * static_cast<float>(viewIt) / static_cast<float>(viewCount), 0.0F, viewIt);
 				});
-			rhi.drawCalls.enqueue(task);
 		}
 		// and the sensor and the focal length named (after the placement or the framing, which set the field of view)
 		if (gAutoLens)
 		{
-			auto [task, future] = core::CreateTask([this, lens = *gAutoLens] { lens.Apply(*myViews); });
-			rhi.drawCalls.enqueue(task);
+			rhi.drawCalls.enqueue([this, lens = *gAutoLens](QueueTimelineContextData& /*graphics*/) { lens.Apply(*myViews); });
 		}
 		if (--gAutoCameraRepeats == 0)
 		{
@@ -2268,9 +2262,8 @@ void WindowedApplication::PrepareDraw()
 		if (gSplitScreenGrid.width == width && gSplitScreenGrid.height == height)
 			return;
 		gSplitScreenGrid = {.width = width, .height = height};
-		auto [resizeTask, resizeFuture] = core::CreateTask(
-			[this, grid = gSplitScreenGrid] { myViews->OnResizeGrid({grid.width, grid.height}); });
-		rhi.drawCalls.enqueue(resizeTask);
+		rhi.drawCalls.enqueue(
+			[this, grid = gSplitScreenGrid](QueueTimelineContextData& /*graphics*/) { myViews->OnResizeGrid({grid.width, grid.height}); });
 	};
 	// SPEEDO_LAYOUT=<columns>x<rows> (1x1, 1x2, 2x1 or 2x2): the views' grid at startup, as View > Layout sets it
 	if (static bool gLayoutDone = false; !gLayoutDone)
@@ -2719,8 +2712,7 @@ void WindowedApplication::PrepareDraw()
 				// the installed model's cameras (see Views::SetScene), applied on the draw thread
 				auto useCamera = [this, &rhi](std::optional<size_t> camera)
 				{
-					auto [task, future] = core::CreateTask([this, camera] { myViews->UseSceneCamera(camera); });
-					rhi.drawCalls.enqueue(task);
+					rhi.drawCalls.enqueue([this, camera](QueueTimelineContextData& /*graphics*/) { myViews->UseSceneCamera(camera); });
 				};
 				if (MenuItem("Copy Pose", SHORTCUT_LABEL("Shift+C")))
 					InternalCopyPose();

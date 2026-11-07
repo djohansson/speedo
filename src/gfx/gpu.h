@@ -18,6 +18,7 @@ namespace gfx
 {
 
 using RHI = rhi::RHI<rhi::kGraphicsApi>;
+using DrawCall = rhi::DrawCall<rhi::kGraphicsApi>;
 using Device = rhi::Device<rhi::kGraphicsApi>;
 using Buffer = rhi::Buffer<rhi::kGraphicsApi>;
 using BufferCreateDesc = rhi::BufferCreateDesc<rhi::kGraphicsApi>;

@@ -240,13 +240,15 @@ a sharded node map (`phmap::parallel_node_hash_map`, where entries don't move an
   the exit behind them (BrainStem animating while the browser previewed Sponza: 3 runs in 3). So don't `Join` while
   holding a lock a task may take. The executor's are the only threads, the tools' included
   (`assettest` makes one executor for its checks, `CheckInOrder`, the environment kernels and zip extraction). Work for a
-  particular thread is a task too, queued for it: `mainCalls` (the main thread's, run by
-  `platform::WindowedApplication::Main`) and `RHI::drawCalls` (the draw thread's; `TransitionThenBind` makes its bind
-  one). Code that runs work in the background takes the executor (`FrameInputs::executor`, which background pipeline
-  creation, `Pipeline::RequestGraphicsPipeline`'s task, is submitted to).
+  particular thread is queued for it as a function, called once in order: `mainCalls` (the main thread's,
+  `move_only_function<void()>`, run by `platform::WindowedApplication::Main`) and `RHI::drawCalls` (the draw thread's,
+  `DrawCall`, called with its graphics queue's context; `TransitionThenBind` queues its bind). They were tasks, whose
+  futures nothing waited on, with the draw context passed as an unchecked parameter. Code that runs work in the background
+  takes the executor (`FrameInputs::executor`, which background pipeline creation, `Pipeline::RequestGraphicsPipeline`'s
+  task, is submitted to).
 - Take a callable as a template parameter (`template <typename Fn> void Foo(Fn&& fn)`); where it runs later, or on
-  another thread, as a task (`core::TaskHandle`, as `mainCalls` and `drawCalls` do; a header template can make it,
-  passing only the handle into the .cpp, see `TransitionThenBind`); where it is called during the call into a .cpp
+  another thread, as a task (`core::TaskHandle`, `core::CreateTask`) or a `move_only_function` queued for that thread
+  (`mainCalls`, `drawCalls`); where it is called during the call into a .cpp
   that a template can't reach, as a `core::std_extra::function_ref` (c++26's, else `tl::function_ref`: not owning,
   never empty, so an optional one has a default, `core::NeverCancelled`, `NoUi`, `NoMaterial`, or is a `std::optional`);
   and where it is stored and called again (the frame graph's passes) or may be dropped unrun (a task never is: the
@@ -277,19 +279,17 @@ a sharded node map (`phmap::parallel_node_hash_map`, where entries don't move an
   thread) left one per thread per loop queued, and Bistro's cold import on 32 threads ran the fixed pool (16384) out.
   `taskbench` (`src/tools`) measures the task system's overheads and the pool's peak.
 
-## Gotcha: `core::CreateTask` stores lvalue arguments by reference
+## Tasks: `core::CreateTask` copies its arguments
 
-`CreateTask(callable, args...)` keeps `args` in a `std::tuple<Args...>` with `Args` deduced as
-forwarding references, so an **lvalue argument is stored as a reference**, not copied. The task
-usually runs later, so passing a local or a function parameter as an lvalue leaves a dangling
-reference (typically read back as mimalloc's freed-memory pattern `0xdfdf...`). Pass arguments that
-must outlive the call as rvalues — `std::move(x)` or an explicit copy like `std::vector(x)` — or capture them by
-value in the callable, as `core::LoadQueue::Enqueue` does. Only pass lvalues when the reference is
-intended and the referee outlives the task (e.g. the `Rpc` tasks' socket/poller, which are members
-of the client/server object).
-
-This is easy to miss with lambdas: a captureless lambda passed by reference happens to work (there's
-nothing to read), but it breaks as soon as a capture is added.
+`CreateTask(callable, args...)` stores the callable and its arguments decayed (copied or moved), as `std::thread` and
+`std::bind` do, in a `move_only_function<void(TaskState&)>`, and calls it once as `callable(std::move(args)...)`: pass a
+reference as `std::ref` (the `Rpc` chains' socket and poller, members of the client and server). It stored lvalue
+arguments by reference (a `std::tuple` of forwarding references), which dangled once the task ran after the caller
+returned (read back as mimalloc's freed-memory pattern `0xdfdf...`), and kept the callable and its arguments in a fixed
+256 byte task (at most 128 and 80 bytes) behind hand-written invoke and delete functions. The callable's captures past
+`move_only_function`'s inline storage (the polyfill's 32 bytes) are allocated: `taskbench` measured the redesign at a
+task's call 336 to 424 ns before, 253 to 300 after (see its commit). A task's dependents are its own (at most 7, a hard
+failure past them), and its state, shared with its futures, is the latch alone (and a `Future<T>`'s value).
 
 ## The notes
 

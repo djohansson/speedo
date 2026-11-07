@@ -2175,10 +2175,9 @@ struct Scene::Impl
 			loaded.size(),
 			kModelTextureMaxCount);
 
-		auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData*>(
-			[this, &rhi, model, textures = std::move(textures), filePaths, arrangement](QueueTimelineContextData* graphics) mutable
-			{ InstallModel(rhi, *graphics, model, std::move(textures), std::move(filePaths), arrangement); });
-		rhi.drawCalls.enqueue(installTask);
+		rhi.drawCalls.enqueue(
+			[this, &rhi, model, textures = std::move(textures), filePaths, arrangement](QueueTimelineContextData& graphics) mutable
+			{ InstallModel(rhi, graphics, model, std::move(textures), std::move(filePaths), arrangement); });
 		return filePath;
 	}
 
@@ -2189,10 +2188,9 @@ struct Scene::Impl
 		if (!image) // cancelled or failed
 			return;
 
-		auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData*>(
-			[this, &rhi, image, imageView, upload](QueueTimelineContextData* graphics)
-			{ InstallImage(rhi, *graphics, image, imageView, upload); });
-		rhi.drawCalls.enqueue(installTask);
+		rhi.drawCalls.enqueue(
+			[this, &rhi, image, imageView, upload](QueueTimelineContextData& graphics)
+			{ InstallImage(rhi, graphics, image, imageView, upload); });
 	}
 
 
@@ -2285,10 +2283,9 @@ struct Scene::Impl
 			return;
 
 		auto name = filePath ? std::filesystem::path(*filePath).filename().string() : std::string("Physical sky");
-		auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData*>(
+		rhi.drawCalls.enqueue(
 			[this, &rhi, environment = std::move(environment), name = std::move(name), path = filePath.value_or(std::string())](
-				QueueTimelineContextData* graphics) { InstallEnvironment(rhi, *graphics, environment, name, path); });
-		rhi.drawCalls.enqueue(installTask);
+				QueueTimelineContextData& graphics) { InstallEnvironment(rhi, graphics, environment, name, path); });
 	}
 
 	// the size frames are rendered at (see Settings::upscaling): RenderScale of the output's each way, rounded

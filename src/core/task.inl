@@ -1,6 +1,6 @@
 #include <core/assert.h>//NOLINT(modernize-deprecated-headers)
 
-#include <atomic>
+#include <utility>
 
 namespace core
 {
@@ -12,93 +12,34 @@ Task* InternalHandleToPtr(TaskHandle handle) noexcept;
 TaskHandle InternalAllocate() noexcept;
 void InternalFree(TaskHandle handle) noexcept;
 
-template <typename C, typename ArgsTuple, typename ParamsTuple, typename R>
-static void InternalInvoke(void* callablePtr, const void* argsPtr, void* statePtr, const void* paramsPtr)
-{
-	auto& callable = *static_cast<C*>(callablePtr);
-	const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
-	const auto& params = *static_cast<const ParamsTuple*>(paramsPtr);
-
-	ENSUREF(statePtr, "Task::operator() called without any return state!");
-
-	auto& state = *static_cast<typename Future<R>::FutureState*>(statePtr);
-
-	if constexpr (std::is_void_v<R>)
-		std::apply(callable, std::tuple_cat(args, params));
-	else
-		state.value = std::apply(callable, std::tuple_cat(args, params));
-
-	auto latch = std::atomic_ref(state.latch);
-	auto counter = latch.fetch_sub(1, std::memory_order_release) - 1;
-	ENSUREF(counter == 0, "Latch counter should be zero!");
-
-	latch.notify_all();
-}
-
-template <typename C, typename ArgsTuple>
-static void InternalDelete(void* callablePtr, void* argsPtr)
-{
-	std::destroy_at(static_cast<C*>(callablePtr));
-	std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
-}
-
 } // namespace detail
 
-template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
-requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-constexpr Task::Task(PrivateTag /*tag*/, F&& callable, ParamsTuple&& params, Args&&... args) noexcept
-	: myInvokeFcn(core::detail::InternalInvoke<C, ArgsTuple, ParamsTuple, R>)
-	, myDeleteFcn(core::detail::InternalDelete<C, ArgsTuple>)
-//	, myState(std::static_pointer_cast<TaskState>(std::make_shared<typename Future<R>::FutureState>()))
+template <typename F, typename... Args>
+auto CreateTask(F&& callable, Args&&... args) noexcept
 {
-	std::atomic_store(&InternalState(), std::static_pointer_cast<TaskState>(std::make_shared<typename Future<R>::FutureState>()));
+	using C = std::decay_t<F>;
+	static_assert(
+		std::is_invocable_v<C&, std::decay_t<Args>&&...>,
+		"CreateTask: the callable can't be called with its arguments, decayed (pass a reference as std::ref)");
+	using R = std::invoke_result_t<C&, std::decay_t<Args>&&...>;
+	using State = typename Future<R>::FutureState;
 
-	static_assert(sizeof(C) <= kMaxCallableSizeBytes);
+	auto state = std::make_shared<State>();
+	auto handle = core::detail::InternalAllocate(); // grows the pool, or traps past its most
 	std::construct_at(
-		static_cast<C*>(static_cast<void*>(myCallableMemory.data())),//NOLINT(bugprone-casting-through-void)
-		std::forward<C>(callable));
+		core::detail::InternalHandleToPtr(handle),
+		Task::PrivateTag{},
+		Task::Function(
+			[callable = std::forward<F>(callable), ... args = std::forward<Args>(args)](TaskState& taskState) mutable
+			{
+				if constexpr (std::is_void_v<R>)
+					std::invoke(callable, std::move(args)...);
+				else
+					static_cast<State&>(taskState).value = std::invoke(callable, std::move(args)...);
+			}),
+		std::shared_ptr<TaskState>(state));
 
-	static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
-	std::construct_at(
-	 	static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),//NOLINT(bugprone-casting-through-void)
-	 	std::forward<Args>(args)...);
-
-	static_assert(sizeof(Task) == kTaskSize);
-	static_assert(kTaskSize >= std_extra::hardware_destructive_interference_size);
-	static_assert(kTaskSize % std_extra::hardware_destructive_interference_size == 0);
-}
-
-template <typename... Params>
-inline constexpr void Task::operator()(Params&&... params)
-{
-	ENSURE(*this);
-
-	auto taskParams = std::make_tuple(std::forward<Params>(params)...);
-	myInvokeFcn(myCallableMemory.data(), myArgsMemory.data(), std::atomic_load(&InternalState()).get(), &taskParams);
-}
-
-template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
-requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept
-{
-	if (auto handle = core::detail::InternalAllocate())
-	{
-		auto& task = *core::detail::InternalHandleToPtr(handle);
-
-		std::construct_at(
-			&task,
-			Task::PrivateTag{},
-			std::forward<F>(callable),
-			ParamsTuple{},
-			std::forward<Args>(args)...);
-
-		return { .handle = handle, .future = Future<R>(
-			std::static_pointer_cast<typename Future<R>::FutureState>(std::atomic_load(&task.InternalState()))) };
-	}
-
-	ENSUREF(false, "Task::InternalAllocate() failed, pool is full?");
-
-	return {};
+	return TaskCreateInfo<R>{.handle = handle, .future = Future<R>(std::move(state))};
 }
 
 } // namespace core

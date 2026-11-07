@@ -43,16 +43,14 @@ public:
 	void JoinAll();
 
 	// blocking call in current thread. dependency chain(s) will be executed asynchrounously in thread pool
-	template <typename... Params>
-	void Call(TaskHandle handle, Params&&... params) { InternalCall(handle, params...); }
+	void Call(TaskHandle handle) { InternalCall(handle); }
 
 	// async call. task + dependency chain(s) will be executed in thread pool.
 	// if wakeThreads is false, the task will be enqueued but not executed until it is picked up by a running thread.
 	void Submit(std::span<const TaskHandle> handles, bool wakeThreads = true);
 
 private:
-	template <typename... Params>
-	void InternalCall(TaskHandle handle, Params&&... params);
+	void InternalCall(TaskHandle handle);
 
 	void InternalSubmit(std::span<const TaskHandle> handles);
 

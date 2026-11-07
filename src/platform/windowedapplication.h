@@ -54,8 +54,7 @@ public:
 	template <typename Fn>
 	void CallOnMain(Fn&& fn)
 	{
-		auto [task, future] = core::CreateTask(std::forward<Fn>(fn));
-		mainCalls.enqueue(task);
+		mainCalls.enqueue(std::forward<Fn>(fn));
 		WakeMain();
 	}
 	static void WakeMain() noexcept;
@@ -64,8 +63,8 @@ public:
 	[[nodiscard]] Window& GetWindow(WindowHandle window);
 	[[nodiscard]] const Window& GetWindow(WindowHandle window) const;
 
-	// tasks called once on the main thread, by Main (e.g. dialogues, which the window system only allows there)
-	mutable core::ConcurrentQueue<core::TaskHandle> mainCalls;
+	// called once on the main thread, by Main, in their order (e.g. dialogues, which the window system only allows there)
+	mutable core::ConcurrentQueue<core::std_extra::move_only_function<void()>> mainCalls;
 
 protected:
 	// makes the window (see platform::glfw::CreateNativeWindow), the window system initialized (PlatformInit)

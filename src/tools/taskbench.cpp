@@ -213,7 +213,7 @@ int main(int argc, char* argv[])
 	if (options.benchmarks.empty())
 		options.benchmarks = {"submit", "call", "chain", "foreach", "nested"};
 
-	std::println("{} threads, median of {} iterations", options.threads, options.iterations);
+	std::println("{} threads, median of {} iterations, a task {} bytes", options.threads, options.iterations, sizeof(core::Task));
 	{
 		core::TaskExecutor executor(options.threads);
 		for (const auto& benchmark : options.benchmarks)

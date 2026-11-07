@@ -36,15 +36,15 @@ void InternalFree(TaskHandle handle) noexcept
 
 } // namespace detail
 
-Task::~Task() noexcept
+void Task::operator()()
 {
-	myDeleteFcn(myCallableMemory.data(), myArgsMemory.data());
-	std::atomic_store(&InternalState(), {});
-}
+	ENSURE(*this);
 
-Task::operator bool() const noexcept
-{
-	return !!InternalState();
+	myFunction(*myState);
+
+	auto counter = myState->latch.fetch_sub(1, std::memory_order_release) - 1;
+	ENSUREF(counter == 0, "a task called with {} tasks it waits on unfinished", counter);
+	myState->latch.notify_all();
 }
 
 void Task::AddDependency(Task& other, TaskHandle otherHandle, bool isContinuation) noexcept
@@ -53,14 +53,10 @@ void Task::AddDependency(Task& other, TaskHandle otherHandle, bool isContinuatio
 	ENSURE(other);
 	ENSURE(this != &other);
 
-	TaskState& aState = *InternalState();
-	TaskState& bState = *other.InternalState();
-
-	ENSUREF(aState.adjacenciesCount < aState.adjacencies.size(), "a task with more than {} dependents",
-		aState.adjacencies.size());
-	aState.adjacencies[aState.adjacenciesCount++] = otherHandle;
-	std::atomic_ref(bState.latch).fetch_add(1, std::memory_order_relaxed);
-	bState.continuation = isContinuation;
+	ENSUREF(myDependentCount < myDependents.size(), "a task with more than {} dependents", myDependents.size());
+	myDependents[myDependentCount++] = otherHandle;
+	other.myState->latch.fetch_add(1, std::memory_order_relaxed);
+	other.myContinuation = isContinuation;
 }
 
 void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation) noexcept

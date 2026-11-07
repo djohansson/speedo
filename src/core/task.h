@@ -3,8 +3,12 @@
 #include "std_extra.h"
 #include "utils.h"
 
+#include <array>
+#include <atomic>
+#include <concepts>
+#include <cstdint>
+#include <functional>
 #include <memory>
-#include <tuple>
 #include <type_traits>
 
 namespace core
@@ -17,74 +21,12 @@ static constexpr std::size_t kTaskPoolChunkSize = 1024;
 static constexpr std::size_t kTaskPoolMaxChunks = 1023;
 // an index and a generation, 32 bits (see MemoryPool::Handle, which it is)
 using TaskHandle = MinSizeIndex<(std::size_t{1} << 31) - 1>;
-template <typename T>
-struct TaskCreateInfo;
 
-class alignas (std::hardware_constructive_interference_size) Task final
-{
-	template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
-	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-	friend TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept;
-	friend class TaskExecutor;
-
-	// passkey: the constructor is public so that std::construct_at can call it, but only friends can name the tag
-	struct PrivateTag
-	{
-		explicit PrivateTag() = default;
-	};
-
-public:
-	template <
-		typename... Params,
-		typename... Args,
-		typename F,
-		typename C = std::decay_t<F>,
-		typename ArgsTuple = std::tuple<Args...>,
-		typename ParamsTuple = std::tuple<Params...>,
-		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
-	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-	constexpr Task(PrivateTag, F&& callable, ParamsTuple&& params, Args&&... args) noexcept;
-
-	constexpr Task() noexcept = delete;
-	Task(const Task&) = delete;
-	Task(Task&&) noexcept = delete;
-	~Task() noexcept;
-
-	Task& operator=(const Task&) = delete;
-	Task& operator=(Task&&) noexcept = delete;
-
-	[[nodiscard]] explicit operator bool() const noexcept;
-
-	template <typename... Params>
-	constexpr void operator()(Params&&... params);
-
-	void AddDependency(Task& other, TaskHandle otherHandle, bool isContinuation = false) noexcept;
-
-private:
-	[[nodiscard]] auto& InternalState() noexcept { return myState; }
-	[[nodiscard]] const auto& InternalState() const noexcept { return myState; }
-
-	static constexpr size_t kTaskSize = 256;
-	static constexpr size_t kMaxCallableSizeBytes = ((kTaskSize == 256) ? 128 : ((kTaskSize == 128) ? 48 : 0));
-	static constexpr size_t kMaxArgsSizeBytes = ((kTaskSize == 256) ? 80 : ((kTaskSize == 128) ? 32 : 0));
-
-	alignas(16) std::array<std::byte, kMaxCallableSizeBytes> myCallableMemory;
-	alignas(16) std::array<std::byte, kMaxArgsSizeBytes> myArgsMemory;
-
-	alignas(8) std_extra::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
-	alignas(8) std_extra::function_ref<void(void*, void*)> myDeleteFcn;
-	alignas(8) std::shared_ptr<struct TaskState> myState;
-};
-
-
+// what a task and its futures share: its latch, 1 until it has run, plus one for each task it waits on (AddDependency).
+// a future waits for it to reach 0, and a Future<T>'s state holds the value too (Future<T>::FutureState)
 struct TaskState
 {
-	// the tasks that wait on this one: one in practice (a chain's next), a hard failure past them
-	std::array<TaskHandle, 8> adjacencies;
-	static constexpr auto kAligmnent = std::atomic_ref<uint16_t>::required_alignment;
-	alignas(kAligmnent) uint16_t latch{1U};
-	uint8_t adjacenciesCount : 7;
-	uint8_t continuation : 1;
+	std::atomic_uint32_t latch{1};
 };
 
 template <typename T>
@@ -92,46 +34,87 @@ class Future
 {
 public:
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
-	struct FutureState : TaskState { value_t value; };
+	struct FutureState : TaskState
+	{
+		value_t value{};
+	};
 
-	constexpr Future() noexcept = default;
-	explicit Future(std::shared_ptr<FutureState>&& state) noexcept;
-	Future(Future&& other) noexcept;
-	Future(const Future& other) noexcept;
-	
-	[[nodiscard]] bool operator==(const Future& other) const noexcept;
-	[[maybe_unused]] Future& operator=(Future&& other) noexcept;
-	[[maybe_unused]] Future& operator=(const Future& other) noexcept;
+	Future() noexcept = default;
+	explicit Future(std::shared_ptr<FutureState>&& state) noexcept : myState(std::move(state)) {}
 
+	[[nodiscard]] bool operator==(const Future& other) const noexcept = default;
+
+	// waits, and returns a copy of the value
 	[[nodiscard]] value_t Get();
 	[[nodiscard]] bool IsReady() const noexcept;
-	[[nodiscard]] bool Valid() const noexcept;
+	[[nodiscard]] bool Valid() const noexcept { return !!myState; }
 	void Wait() const;
 
 private:
-	[[nodiscard]] auto& InternalState() noexcept { return myState; }
-	[[nodiscard]] const auto& InternalState() const noexcept { return myState; }
-
 	std::shared_ptr<FutureState> myState;
 };
 
 template <typename T>
-struct TaskCreateInfo 
+struct TaskCreateInfo
 {
 	TaskHandle handle;
 	Future<T> future;
 };
 
-template <
-	typename... Params,
-	typename... Args,
-	typename F,
-	typename C = std::decay_t<F>,
-	typename ArgsTuple = std::tuple<Args...>,
-	typename ParamsTuple = std::tuple<Params...>,
-	typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
-requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-[[nodiscard]] TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept;
+// a callable and the arguments it was made with, called once (by a TaskExecutor), with the tasks that wait on it. it was a
+// fixed 256 bytes holding the callable (at most 128) and its arguments (at most 80) behind hand-written invoke and delete
+// functions, its arguments stored as forwarding references (an lvalue's by reference, which dangled once the task ran
+// later), and parameters passed when called (TaskExecutor::Call's, as a tuple behind a void*, whose types nothing
+// checked: the draw calls', which are functions of their own queue now, RHI::drawCalls)
+class alignas (std::hardware_constructive_interference_size) Task final
+{
+	friend class TaskExecutor;
+
+	// passkey: the constructor is public so that std::construct_at can call it, but only CreateTask can name the tag
+	struct PrivateTag
+	{
+		explicit PrivateTag() = default;
+	};
+	template <typename F, typename... Args>
+	friend auto CreateTask(F&& callable, Args&&... args) noexcept;
+
+public:
+	// the callable and its arguments; it writes a Future<T>'s value into the state it's given (its FutureState)
+	using Function = std_extra::move_only_function<void(TaskState&)>;
+
+	Task(PrivateTag, Function&& function, std::shared_ptr<TaskState>&& state) noexcept
+		: myFunction(std::move(function))
+		, myState(std::move(state))
+	{}
+
+	Task(const Task&) = delete;
+	Task(Task&&) noexcept = delete;
+	~Task() noexcept = default;
+
+	Task& operator=(const Task&) = delete;
+	Task& operator=(Task&&) noexcept = delete;
+
+	[[nodiscard]] explicit operator bool() const noexcept { return !!myState; }
+
+	// calls it, once: then its latch is 0, and its futures are ready
+	void operator()();
+
+	void AddDependency(Task& other, TaskHandle otherHandle, bool isContinuation = false) noexcept;
+
+private:
+	Function myFunction;
+	std::shared_ptr<TaskState> myState;
+	// the tasks that wait on this one: one in practice (a chain's next), a hard failure past them
+	std::array<TaskHandle, 7> myDependents{};
+	std::uint8_t myDependentCount = 0;
+	// queued without waking a thread once its dependencies are done: the thread that finished them runs it next
+	bool myContinuation = false;
+};
+
+// makes a task of the callable and its arguments, copied or moved into it (decayed, as std::thread and std::bind take
+// them: a reference is passed as std::ref), called once as callable(std::move(args)...)
+template <typename F, typename... Args>
+[[nodiscard]] auto CreateTask(F&& callable, Args&&... args) noexcept;
 
 // b will start after a has finished
 void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false) noexcept;

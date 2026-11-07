@@ -43,27 +43,9 @@ void UpdateBufferOnGraphics(
 // far, and before all that follows. call on the draw thread.
 void RecordOnGraphics(QueueTimelineContextData& graphics, core::std_extra::function_ref<void(CommandBufferHandle)> record);
 
-namespace detail
-{
-
-// bind: a draw call (see RHI::drawCalls), queued once the transition has executed
-void TransitionThenBind(RHI& rhi, QueueTimelineContextData& graphics, const Uploads& uploads, core::TaskHandle bind);
-
-} // namespace detail
-
 // in a graphics queue submission that waits for the uploads, acquires the uploaded resources for the graphics queue
 // family and transitions the images to a shader readable layout. once that has executed, has the draw thread call
-// bind(QueueTimelineContextData& graphics). call on the draw thread.
-template <typename Bind>
-void TransitionThenBind(RHI& rhi, QueueTimelineContextData& graphics, const Uploads& uploads, Bind&& bind)
-{
-	detail::TransitionThenBind(
-		rhi,
-		graphics,
-		uploads,
-		core::CreateTask<QueueTimelineContextData*>(
-			[bind = std::forward<Bind>(bind)](QueueTimelineContextData* graphics) mutable { bind(*graphics); })
-			.handle);
-}
+// bind(QueueTimelineContextData& graphics), a draw call (see RHI::drawCalls). call on the draw thread.
+void TransitionThenBind(RHI& rhi, QueueTimelineContextData& graphics, const Uploads& uploads, DrawCall bind);
 
 } // namespace gfx

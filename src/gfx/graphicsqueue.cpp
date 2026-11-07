@@ -98,10 +98,7 @@ void RecordOnGraphics(QueueTimelineContextData& graphics, core::std_extra::funct
 	graphicsSubmits |= graphicsQueue.Submit();
 }
 
-namespace detail
-{
-
-void TransitionThenBind(RHI& rhi, QueueTimelineContextData& graphics, const Uploads& uploads, core::TaskHandle bind)
+void TransitionThenBind(RHI& rhi, QueueTimelineContextData& graphics, const Uploads& uploads, DrawCall bind)
 {
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 
@@ -157,7 +154,7 @@ void TransitionThenBind(RHI& rhi, QueueTimelineContextData& graphics, const Uplo
 	}
 	cmd.End();
 
-	auto [transitionDoneTask, transitionDoneFuture] = core::CreateTask([&rhi, bind] { rhi.drawCalls.enqueue(bind); });
+	auto [transitionDoneTask, transitionDoneFuture] = core::CreateTask([&rhi, bind = std::move(bind)]() mutable { rhi.drawCalls.enqueue(std::move(bind)); });
 
 	syncInfo.signalSemaphores = {graphics.semaphore};
 	syncInfo.signalSemaphoreValues = {++graphics.timeline};
@@ -166,7 +163,5 @@ void TransitionThenBind(RHI& rhi, QueueTimelineContextData& graphics, const Uplo
 
 	graphicsSubmits |= graphicsQueue.Submit();
 }
-
-} // namespace detail
 
 } // namespace gfx
