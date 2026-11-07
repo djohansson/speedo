@@ -16,6 +16,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace rhi
 {
@@ -188,6 +189,14 @@ public:
 		core::TaskHandle create{};
 	};
 	[[nodiscard]] GraphicsPipelineRequest RequestGraphicsPipeline(GraphicsPipelineVariant variant);
+	// compute pipelines for the bound compute layout, as BindPipelineAuto would create them, without waiting: for each
+	// variant not created (nor being created), a task that creates it from the layout and its entry point as they are
+	// now, for the caller to submit (any thread, several at once: until one has run, BindPipelineAuto for its variant
+	// waits for it). made ahead of their first dispatch, all at once: pipelines created and dispatched at once through
+	// Metal 4's queue restarted the gpu (FB25381275, see docs/notes/indirect-lighting.md)
+	[[nodiscard]] std::vector<core::TaskCreateInfo<void>> RequestComputePipelines(std::span<const ComputePipelineVariant> variants);
+	// how many compute entry points the bound compute layout has (ComputePipelineVariant::entryPoint below it)
+	[[nodiscard]] uint32_t GetComputeEntryPointCount() const noexcept;
 	// the thread group size (from the shader's reflection) of one of the bound compute layout's entry points, to dispatch
 	// it by threads (see CommandEncoder::DispatchThreads)
 	[[nodiscard]] const ComputeLaunchParameters& GetComputeLaunchParameters(ComputePipelineVariant variant = {}) const;
@@ -281,7 +290,9 @@ private:
 	[[nodiscard]] std::shared_ptr<const GraphicsSnapshot> InternalSnapshotGraphicsState() const;
 	[[nodiscard]] PipelineHandle<G> InternalCreateGraphicsPipeline(
 		uint64_t hashKey, GraphicsPipelineVariant variant, const GraphicsSnapshot& snapshot) const;
-	[[nodiscard]] PipelineHandle<G> InternalCreateComputePipeline(uint64_t hashKey, ComputePipelineVariant variant);
+	// from the layout and entry point given (copied when it was asked for: the bound ones may change meanwhile)
+	[[nodiscard]] PipelineHandle<G> InternalCreateComputePipeline(
+		uint64_t hashKey, ComputePipelineVariant variant, const PipelineShaderStageCreateInfo<G>& stage, PipelineLayoutHandle<G> layout);
 	[[nodiscard]] PipelineHandle<G> InternalGetPipeline(GraphicsPipelineVariant variant, ComputePipelineVariant computeVariant = {});
 	[[nodiscard]] auto InternalGetLayout() const noexcept { return myCurrentLayoutIt; }
 

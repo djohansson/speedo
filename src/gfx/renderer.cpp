@@ -184,6 +184,18 @@ constexpr uint32_t kCullViewCount = SHADER_TYPES_VIEW_COUNT + SHADER_TYPES_SHADO
 
 } // namespace renderer
 
+std::vector<ComputePipelineVariant> Renderer::ComputePipelineVariants(uint32_t entryPointCount)
+{
+	using namespace renderer;
+
+	std::vector<ComputePipelineVariant> variants;
+	for (uint32_t entryPointIt = 0; entryPointIt < entryPointCount; entryPointIt++)
+		variants.push_back(ComputePipelineVariant{.entryPoint = static_cast<uint16_t>(entryPointIt)});
+	variants.push_back(ComputePipelineVariant{.entryPoint = kMainVisibilityEntryPoint, .specialization = SHADER_TYPES_LAYERS_EXTENDED});
+	variants.push_back(ComputePipelineVariant{.entryPoint = kReflectionTraceEntryPoint, .specialization = SHADER_TYPES_LAYERS_GLASS});
+	return variants;
+}
+
 Renderer::Renderer(Device& device, RenderOutput& output)
 	: myRenderOutput(output)
 {

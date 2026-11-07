@@ -385,21 +385,13 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(
 }
 
 template <>
-PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKey, ComputePipelineVariant variant)
+PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(
+	uint64_t hashKey, ComputePipelineVariant variant, const PipelineShaderStageCreateInfo<kVk>& stage, PipelineLayoutHandle<kVk> layout)
 {
 	ZoneScopedN("Pipeline::InternalCreateComputePipeline");
 
-	const auto layoutIt = InternalGetLayout();
-	ENSURE(layoutIt != myPipelineLayouts.end());
-	const auto& layout = *layoutIt;
-
 	VkComputePipelineCreateInfo pipelineInfo{.sType=VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext=nullptr, .flags=0};
-	ENSUREF(
-		variant.entryPoint < myComputeState.shaderStages.size(),
-		"the layout has no compute entry point {} (it has {})",
-		variant.entryPoint,
-		myComputeState.shaderStages.size());
-	pipelineInfo.stage = myComputeState.shaderStages[variant.entryPoint];
+	pipelineInfo.stage = stage;
 	// the variant's specialization constant 0, where it has one (a layout without it ignores it anyway)
 	uint32_t specializationValue = variant.specialization;
 	VkSpecializationMapEntry specializationEntry{.constantID = 0, .offset = 0, .size = sizeof(specializationValue)};
@@ -460,8 +452,17 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(GraphicsPipelineVariant v
 			handle = InternalCreateGraphicsPipeline(key, variant, *InternalSnapshotGraphicsState());
 			break;
 		case PipelineBindPoint::kCompute:
-			handle = InternalCreateComputePipeline(key, computeVariant);
+		{
+			const auto layoutIt = InternalGetLayout();
+			ENSURE(layoutIt != myPipelineLayouts.end());
+			ENSUREF(
+				computeVariant.entryPoint < myComputeState.shaderStages.size(),
+				"the layout has no compute entry point {} (it has {})",
+				computeVariant.entryPoint,
+				myComputeState.shaderStages.size());
+			handle = InternalCreateComputePipeline(key, computeVariant, myComputeState.shaderStages[computeVariant.entryPoint], *layoutIt);
 			break;
+		}
 		default:
 			ASSERTF(false, "Not implemented");
 		}
@@ -503,6 +504,51 @@ Pipeline<kVk>::GraphicsPipelineRequest Pipeline<kVk>::RequestGraphicsPipeline(Gr
 				myPipelineMap.at(key) = handle;
 				sync.created.notify_all();
 			}).handle};
+}
+
+template <>
+std::vector<core::TaskCreateInfo<void>> Pipeline<kVk>::RequestComputePipelines(std::span<const ComputePipelineVariant> variants)
+{
+	ZoneScopedN("Pipeline::RequestComputePipelines");
+
+	ENSURE(myBindPoint == PipelineBindPoint::kCompute);
+	const auto layoutIt = InternalGetLayout();
+	ENSURE(layoutIt != myPipelineLayouts.end());
+	PipelineLayoutHandle<kVk> layout = *layoutIt;
+
+	std::vector<core::TaskCreateInfo<void>> tasks;
+	auto& sync = *myPipelineMapSync;
+	for (const auto& variant : variants)
+	{
+		ENSUREF(
+			variant.entryPoint < myComputeState.shaderStages.size(),
+			"the layout has no compute entry point {} (it has {})",
+			variant.entryPoint,
+			myComputeState.shaderStages.size());
+		auto key = InternalCalculateHashKey({}, variant);
+		{
+			std::unique_lock lock(sync.mutex);
+			if (auto [it, inserted] = myPipelineMap.try_emplace(key, PipelineHandle<kVk>{}); !inserted)
+				continue; // created, or being created
+		}
+		// its entry point's stage as it is now (the module and name are the layout's, which outlives the task)
+		tasks.push_back(core::CreateTask(
+			[this, key, variant, stage = myComputeState.shaderStages[variant.entryPoint], layout]
+			{
+				auto handle = InternalCreateComputePipeline(key, variant, stage, layout);
+				auto& sync = *myPipelineMapSync;
+				std::unique_lock lock(sync.mutex);
+				myPipelineMap.at(key) = handle;
+				sync.created.notify_all();
+			}));
+	}
+	return tasks;
+}
+
+template <>
+uint32_t Pipeline<kVk>::GetComputeEntryPointCount() const noexcept
+{
+	return static_cast<uint32_t>(myComputeState.shaderStages.size());
 }
 
 template <>

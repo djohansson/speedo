@@ -434,8 +434,15 @@ struct Scene::Impl
 	static constexpr float kDefaultShaderCompileSeconds = 30.0F; // about the M4 Pro's
 	// a layout's load past this compiled (a cache hit takes milliseconds)
 	static constexpr float kCachedShaderCompileSeconds = 1.0F;
-	// the progress shown until the compiles are done and Prepare has made the rest
+	// the progress shown until the compiles are done
 	static constexpr float kShaderProgressCap = 0.95F;
+	// the compute pipelines created ahead (see InternalRequestPipelines): asked for once the shaders compiled, their tasks'
+	// futures (draw thread), and how many there are and are done (for the ui)
+	bool myPipelinesRequested = false;
+	std::vector<core::Future<void>> myPipelineFutures;
+	std::atomic_uint32_t myPipelineCount{0};
+	std::atomic_uint32_t myPipelinesCreated{0};
+	std::chrono::steady_clock::time_point myPipelineRequestStart;
 	std::atomic_bool myReady{false};
 	std::unique_ptr<FrameGraph> myLoadingGraph;
 	FrameGraph::ImageId myLoadingOutput;
@@ -2690,10 +2697,13 @@ struct Scene::Impl
 
 	~Impl()
 	{
-		// the compiles use the scene (see InternalStartShaderCompiles): an application's exit has joined them
+		// the compiles and the pipelines' creation use the scene and its pipeline (see InternalStartShaderCompiles,
+		// InternalRequestPipelines): an application's exit has joined them
 		// (WindowedApplication::Shutdown), a preview's scene waits for its own
 		if (myShaderCompileFuture.Valid())
 			myShaderCompileFuture.Wait();
+		for (const auto& future : myPipelineFutures)
+			future.Wait();
 	}
 
 	Impl(const Impl&) = delete;
@@ -2885,33 +2895,82 @@ struct Scene::Impl
 		if (!myShaderCompileFuture.IsReady())
 			return false;
 
-		ZoneScopedN("Scene::Prepare");
-
-		InternalFinishInitialization();
-
-		// how long a cold compile took (the main layout's compiled, not cached), which the next one's progress is estimated by
-		auto all = myShaderCompiles->All();
-		float seconds = 0.0F;
-		bool cold = false;
-		for (size_t compileIt = 0; compileIt < all.size(); compileIt++)
+		if (!myPipelinesRequested)
 		{
-			float layoutSeconds = myShaderCompileProgress[compileIt]->seconds.load(std::memory_order_relaxed);
-			seconds += layoutSeconds;
-			cold = cold || (all[compileIt] == &myShaderCompiles->main && layoutSeconds > kCachedShaderCompileSeconds);
-		}
-		if (cold)
-			(void)core::file::Write(myShaderCompiles->intermediatePath / kShaderCompileSecondsFile, std::as_bytes(std::span(&seconds, 1)));
+			ZoneScopedN("Scene::Prepare");
 
+			InternalFinishInitialization();
+
+			// how long a cold compile took (the main layout's compiled, not cached), which the next one's progress is
+			// estimated by
+			auto all = myShaderCompiles->All();
+			float seconds = 0.0F;
+			bool cold = false;
+			for (size_t compileIt = 0; compileIt < all.size(); compileIt++)
+			{
+				float layoutSeconds = myShaderCompileProgress[compileIt]->seconds.load(std::memory_order_relaxed);
+				seconds += layoutSeconds;
+				cold = cold || (all[compileIt] == &myShaderCompiles->main && layoutSeconds > kCachedShaderCompileSeconds);
+			}
+			if (cold)
+				(void)core::file::Write(myShaderCompiles->intermediatePath / kShaderCompileSecondsFile, std::as_bytes(std::span(&seconds, 1)));
+
+			InternalRequestPipelines();
+			myPipelinesRequested = true;
+		}
+
+		auto created = static_cast<uint32_t>(std::ranges::count_if(myPipelineFutures, [](const auto& future) { return future.IsReady(); }));
+		myPipelinesCreated.store(created, std::memory_order_relaxed);
+		if (created < myPipelineFutures.size())
+			return false;
+
+		if (!myPipelineFutures.empty())
+			std::println(
+				"{} compute pipelines created ahead in {:.2f} s", myPipelineFutures.size(),
+				std::chrono::duration<double>(std::chrono::steady_clock::now() - myPipelineRequestStart).count());
+		myPipelineFutures.clear();
 		myReady.store(true, std::memory_order_release);
 		return true;
 	}
 
+	// the compute pipelines the scene dispatches (the environment filter's, and the renderer's: see
+	// Renderer::ComputePipelineVariants), created on the executor before its first frame, several at once: on KosmicKrisp,
+	// pipelines created on first use and dispatched at once restarted the gpu (FB25381275: release builds, from one
+	// client, in about half the cold starts with a model; see docs/notes/indirect-lighting.md), and a first launch's cold
+	// driver compiles took minutes of the draw thread, the window frozen. draw thread (in Prepare)
+	void InternalRequestPipelines()
+	{
+		ZoneScopedN("Scene::InternalRequestPipelines");
+
+		auto& pipeline = myPipeline;
+		std::vector<core::TaskCreateInfo<void>> tasks;
+		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Environment"), PipelineBindPoint::kCompute);
+		std::vector<ComputePipelineVariant> environment;
+		for (uint32_t entryPointIt = 0; entryPointIt < pipeline.GetComputeEntryPointCount(); entryPointIt++)
+			environment.push_back(ComputePipelineVariant{.entryPoint = static_cast<uint16_t>(entryPointIt)});
+		std::ranges::move(pipeline.RequestComputePipelines(environment), std::back_inserter(tasks));
+		// the main layout bound last, as InternalFinishInitialization left it
+		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
+		std::ranges::move(
+			pipeline.RequestComputePipelines(Renderer::ComputePipelineVariants(pipeline.GetComputeEntryPointCount())), std::back_inserter(tasks));
+
+		std::vector<core::TaskHandle> handles;
+		for (auto& task : tasks)
+		{
+			handles.push_back(task.handle);
+			myPipelineFutures.push_back(std::move(task.future));
+		}
+		myPipelineCount.store(static_cast<uint32_t>(handles.size()), std::memory_order_relaxed);
+		myPipelineRequestStart = std::chrono::steady_clock::now();
+		core::Application::Get()->GetExecutor().Submit(handles);
+	}
+
 	// how far the compiles are, 0 to 1 (see Scene::GetShaderProgress): the entry points of the layouts done, or the time
 	// taken against how long the last cold compile took, whichever is further (slang says nothing of a compile's progress,
-	// and the main layout is most of it); kShaderProgressCap until ready
+	// and the main layout is most of it); kShaderProgressCap until it is done
 	[[nodiscard]] float ShaderProgress() const
 	{
-		if (myReady.load(std::memory_order_relaxed))
+		if (myReady.load(std::memory_order_relaxed) || myShaderCompileFuture.IsReady())
 			return 1.0F;
 		auto elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - myShaderCompileStart).count();
 		uint32_t doneEntryPointCount = 0;
@@ -3420,6 +3479,11 @@ bool Scene::IsReady() const noexcept
 float Scene::GetShaderProgress() const noexcept
 {
 	return myImpl->ShaderProgress();
+}
+
+std::pair<uint32_t, uint32_t> Scene::GetPipelineProgress() const noexcept
+{
+	return {myImpl->myPipelinesCreated.load(std::memory_order_relaxed), myImpl->myPipelineCount.load(std::memory_order_relaxed)};
 }
 
 void Scene::Resize()

@@ -1080,11 +1080,23 @@ void WindowedApplication::PrepareDraw()
 	{
 		constexpr uint8_t kProgressMax = 255;
 		constexpr float kProgressBarWidth = 160.0F;
+		// the shaders' compile, then the pipelines' creation (the driver's compile: a first launch's take minutes on
+		// KosmicKrisp, see Scene::GetPipelineProgress)
 		if (compilingShaders)
 		{
-			ProgressBar(myScene->GetShaderProgress(), ImVec2(kProgressBarWidth, 0));
-			SameLine();
-			TextUnformatted("Compiling shaders");
+			if (auto [created, count] = myScene->GetPipelineProgress(); count > 0)
+			{
+				auto overlay = std::format("{} of {}", created, count);
+				ProgressBar(static_cast<float>(created) / static_cast<float>(count), ImVec2(kProgressBarWidth, 0), overlay.c_str());
+				SameLine();
+				TextUnformatted("Creating pipelines");
+			}
+			else
+			{
+				ProgressBar(myScene->GetShaderProgress(), ImVec2(kProgressBarWidth, 0));
+				SameLine();
+				TextUnformatted("Compiling shaders");
+			}
 		}
 		gLoads.ForEach([](const core::LoadQueue::Load& load)
 		{

@@ -209,6 +209,11 @@ public:
 	Renderer(Device& device, RenderOutput& output);
 	~Renderer();
 
+	// the compute pipelines its passes dispatch, of the main layout's entryPointCount compute entry points: each at
+	// specialization 0, and those with others (the visibility buffer's tiers, the Reflection Trace pass's glassless one),
+	// made ahead of the first frames (see Scene::Prepare, Pipeline::RequestComputePipelines)
+	[[nodiscard]] static std::vector<rhi::ComputePipelineVariant> ComputePipelineVariants(uint32_t entryPointCount);
+
 	// (re)creates the transients for the extent frames are rendered at, and outputExtent, the output's, which they are
 	// upscaled to (the same without upscaling, see FrameInputs::upscaling; the gpu must be done with the previous ones), and
 	// points the descriptors at them: the render target's color (in every frame's slot), the transmission texture and the

@@ -294,6 +294,17 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   where the constructor's compile took 27.4 s before any frame. The first frame after the switch takes 0.46 s (its
   pipelines, cold), and the frames until the sky is installed are white: auto exposure adapting from an empty scene, as at
   a warm startup.
+  Then the compute pipelines are made ahead, before the first frame (the user's ask, 2026-11-07: the driver's compile
+  shown, the window never frozen in it): `Scene::Prepare` requests the environment layout's and the renderer's
+  (`Renderer::ComputePipelineVariants`: every entry point at specialization 0, and the visibility buffer's extended tier
+  and the glassless Reflection Trace) through `Pipeline::RequestComputePipelines`, a task each, which copy the layout and
+  the entry point's stage when asked for (the bound ones change meanwhile), all at once on the executor; the scene is
+  ready once they are made, and the Loading window shows "Creating pipelines n of m". 83 of them, 0.5 s with Metal's
+  cache warm; a cold first launch took minutes of driver compiles where the draw thread made them on first use (495 s
+  for the packaged app's first run, the window frozen and the hang watch's 120 s for one pipeline tripped). Graphics
+  pipelines are still made on first use (three generic ones with a model: the main pass's, the prepass's and the
+  shadows'). It doesn't stop the release builds' gpu restarts (see indirect-lighting.md): 6 of 20 runs lost the device
+  with them made ahead, about half without.
 - The backend's type aliases (`DescriptorType<G>`, `PushConstantRange<G>`, ...) are in the *global* namespace (see
   `rhi/vulkan/types.inl`), so a neutral rhi type of the same name hides them inside `namespace rhi`, and is ambiguous
   in code with `using namespace rhi` (gfx's application). Pick another name, or qualify: `::DescriptorType<G>` in
