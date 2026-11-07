@@ -275,7 +275,7 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   lock, makes the rest once they are done (the layouts, from cache hits, their bindings, the environment filter and the
   renderer: 85 ms). Until then the scene isn't ready: `Record` draws a frame graph of its own (the output cleared, then the
   output's final passes: the ui over the swapchain's image, presented), `Update`, `Resize` and `NeedsResize` do nothing,
-  the loads wait (`WaitUntilReady`, polling, unless cancelled or exiting), the ui doesn't ask for the renderer (the
+  the loads import meanwhile and only their installs wait (`WaitUntilReady`), the ui doesn't ask for the renderer (the
   statistics, the lights window), and the file browser's preview isn't made (its scene compiles once the window's is
   ready, reading the cache). The Loading window shows "Compiling shaders" above the loads waiting: the entry points of the
   layouts done, or the time taken over the last cold compile's (`.slang.intermediate/compile-seconds`, else 30 s),

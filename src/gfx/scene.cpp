@@ -2234,6 +2234,9 @@ struct Scene::Impl
 			loaded.size(),
 			kModelTextureMaxCount);
 
+		// installed once the scene is (the import ran meanwhile: during a first launch's compile, see WaitUntilReady)
+		if (!WaitUntilReady(cancelled))
+			return std::nullopt;
 		rhi.drawCalls.enqueue(
 			[this, &rhi, model, textures = std::move(textures), filePaths, arrangement](QueueTimelineContextData& graphics) mutable
 			{ InstallModel(rhi, graphics, model, std::move(textures), std::move(filePaths), arrangement); });
@@ -2247,6 +2250,8 @@ struct Scene::Impl
 		if (!image) // cancelled or failed
 			return;
 
+		if (!WaitUntilReady(core::NeverCancelled))
+			return;
 		rhi.drawCalls.enqueue(
 			[this, &rhi, image, imageView, upload](QueueTimelineContextData& graphics)
 			{ InstallImage(rhi, graphics, image, imageView, upload); });
@@ -2341,6 +2346,8 @@ struct Scene::Impl
 		if (!*environment || cancelled()) // cancelled or failed
 			return;
 
+		if (!WaitUntilReady(cancelled))
+			return;
 		auto name = filePath ? std::filesystem::path(*filePath).filename().string() : std::string("Physical sky");
 		rhi.drawCalls.enqueue(
 			[this, &rhi, environment = std::move(environment), name = std::move(name), path = filePath.value_or(std::string())](
@@ -2985,8 +2992,9 @@ struct Scene::Impl
 		return std::min(std::max(done, elapsed / myShaderCompileSeconds), kShaderProgressCap);
 	}
 
-	// waits until Prepare has made the rest (for a load started before: its install needs it), unless cancelled or the
-	// application exits. returns whether the scene is ready
+	// waits until Prepare has made the rest (a load's install needs it, its import doesn't: a load imports during the
+	// compile and the pipelines' creation, and installs once ready), unless cancelled or the application exits. returns
+	// whether the scene is ready
 	[[nodiscard]] bool WaitUntilReady(core::CancelledFn cancelled) const
 	{
 		constexpr auto kPollInterval = std::chrono::milliseconds(10);
@@ -3425,8 +3433,6 @@ std::optional<std::string> Scene::LoadModels(
 	ModelGround ground,
 	core::CancelledFn cancelled)
 {
-	if (!myImpl->WaitUntilReady(cancelled))
-		return std::nullopt;
 	return myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, options, arrangement, ground, cancelled);
 }
 
@@ -3441,8 +3447,6 @@ std::optional<std::string> Scene::LoadVariants(
 {
 	ENSURE(!filePaths.empty() && filePaths.size() == variants.size());
 
-	if (!myImpl->WaitUntilReady(cancelled))
-		return std::nullopt;
 	auto optionsOf = [scene](std::optional<uint32_t> variant)
 	{ return mesh::ImportOptions{.scene = scene, .variant = variant ? std::optional<size_t>(*variant) : std::nullopt}; };
 	if (filePaths.size() == 1)
@@ -3456,14 +3460,12 @@ std::optional<std::string> Scene::LoadVariants(
 
 void Scene::LoadImage(std::string_view filePath, std::atomic_uint8_t& progress)
 {
-	if (myImpl->WaitUntilReady(core::NeverCancelled))
-		myImpl->LoadAndInstallImage(myImpl->myRHI, filePath, progress);
+	myImpl->LoadAndInstallImage(myImpl->myRHI, filePath, progress);
 }
 
 void Scene::LoadEnvironment(std::optional<std::string> filePath, std::atomic_uint8_t& progress, core::CancelledFn cancelled)
 {
-	if (myImpl->WaitUntilReady(cancelled))
-		myImpl->LoadAndInstallEnvironment(myImpl->myRHI, std::move(filePath), progress, cancelled);
+	myImpl->LoadAndInstallEnvironment(myImpl->myRHI, std::move(filePath), progress, cancelled);
 }
 
 bool Scene::Prepare()

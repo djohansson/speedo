@@ -344,7 +344,7 @@ public:
 	// sized after the output), and creates its compute pipelines on the executor: ready once they are all made. call before
 	// each frame until it returns true, on the draw thread, holding the draw lock and outside the graphics queue's (what
 	// it makes submits to the queue). until then the scene isn't ready: it draws the output cleared with the ui over it
-	// (Record), its loads wait (LoadModels and the others), and it has no renderer
+	// (Record), its loads import but wait to install (LoadModels and the others), and it has no renderer
 	bool Prepare();
 	[[nodiscard]] bool IsReady() const noexcept;
 	// how far the shaders' compile is, 0 to 1: the layouts done, and an estimate for those compiling (by how long the
