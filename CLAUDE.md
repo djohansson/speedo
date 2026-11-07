@@ -214,7 +214,7 @@ serially), which took a 2048 Bistro texture's compression from 62 to 23 ms; the 
 Measured on this machine (M4 Pro): `core::UpgradableSharedMutex` is the cheapest uncontended (~4-7 ns) and is the
 only one with upgrade locks, but every unlock wakes all waiters, so it degrades badly under contention (8 threads
 on one exclusive lock: ~430 ns vs `std::mutex`'s ~17 ns). So: `std::mutex` for exclusive-only locks
-(`gDrawMutex`, `MemoryPool`'s free list, the object tracking maps); `UpgradableSharedMutex` where upgrade locks are
+(`gDrawMutex`, `MemoryPool`'s free list and its shards', the object tracking maps); `UpgradableSharedMutex` where upgrade locks are
 used (descriptor set state in `Pipeline`) and as `ConcurrentAccess`'s default, whose locks are short and mostly
 uncontended (at 2-3 threads it and `std::shared_mutex` trade wins). Don't lock what can't change: `MemoryPool`'s
 `GetPointer` is address arithmetic on chunks that never move once made. The `TaskExecutor` wakes idle threads with
@@ -274,7 +274,8 @@ a sharded node map (`phmap::parallel_node_hash_map`, where entries don't move an
 - Tasks come from a pool that grows in chunks of 1024 (`core/memorypool.h`, `kTaskPoolChunkSize`), up to about a
   million (past which it's a leak, and traps), and a task stays allocated until it has run and the executor purges it
   (`JoinAll`, or after another task runs). Its handle holds its slot's generation, so a handle used after its task
-  was freed traps. `ForEach` makes workers for the threads idle at the call (at least one), each recruiting the next as
+  was freed traps. Its free slots are in shards, a thread's own, refilled from and drained to the shared free list in
+  batches: one free list under one mutex took 12 us an allocation on each of 32 threads (`taskbench alloc`). `ForEach` makes workers for the threads idle at the call (at least one), each recruiting the next as
   it starts: one per thread up front, nested loops on a busy executor (a model's textures, each compressing on every
   thread) left one per thread per loop queued, and Bistro's cold import on 32 threads ran the fixed pool (16384) out.
   `taskbench` (`src/tools`) measures the task system's overheads and the pool's peak.
