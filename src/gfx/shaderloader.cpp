@@ -1,19 +1,14 @@
 
 
-#include <core/application.h>
 #include <core/assert.h>
 #include <core/file.h>
 #include <gfx/shaderloader.h>
 #include <rhi/rhi.h>
 
-#include <algorithm>
 #include <array>
-#include <cstdlib>
+#include <atomic>
 #include <format>
-#include <iterator>
-#include <mutex>
 #include <print>
-#include <thread>
 #include <utility>
 
 #include <xxhash.h>
@@ -23,28 +18,6 @@ namespace gfx
 
 namespace shaderloader
 {
-
-// slang's sessions are made and destroyed one at a time, though they compile at once (see ShaderLoader::Load): every
-// global session holds the embedded SPIR-V grammar (SPIRVCoreGrammarInfo::getEmbeddedVersion, a static RefPtr), taking a
-// reference as it is made (Session::init) and dropping it when destroyed, and slang's reference counts aren't atomic.
-// sessions made and destroyed on several threads (the scene's layouts compiling at once, each in groups) counted it
-// wrong, and a session destroyed later freed it, or one already freed: 2 clients in 59 of the quick tier crashed in
-// ~Session, destroying the draw thread's loader (Scene::Prepare). compiles take the grammar by reference. 8 threads
-// making and destroying a session each, over and over, crashed within 1000 rounds 3 times in 3; under this lock, 300
-// rounds passed twice (a session made in 18 ms)
-static std::mutex gSessionMutex;
-
-static SlangSession* CreateSession()
-{
-	std::scoped_lock lock(gSessionMutex);
-	return spCreateSession();
-}
-
-static void DestroySession(SlangSession* session)
-{
-	std::scoped_lock lock(gSessionMutex);
-	spDestroySession(session);
-}
 
 // the slang target and profile that produce shaders of format
 static std::tuple<SlangCompileTarget, const char*> SlangTarget(rhi::ShaderFormat format)
@@ -355,6 +328,9 @@ static uint32_t CreateLayoutBindings(
 	return uniformsTotalSize;
 }
 
+// the loaders alive: at most one (see ShaderLoader)
+static std::atomic_uint32_t gLoaderCount{0};
+
 } // namespace shaderloader
 
 ShaderLoader::ShaderLoader(
@@ -364,8 +340,13 @@ ShaderLoader::ShaderLoader(
 	: myIncludePaths(std::forward<std::vector<std::filesystem::path>>(includePaths))
 	, myDownstreamCompilers(std::forward<std::vector<DownstreamCompiler>>(downstreamCompilers))
 	, myIntermediatePath(std::forward<std::optional<std::filesystem::path>>(intermediatePath))
-	, myCompilerSession(shaderloader::CreateSession(), shaderloader::DestroySession)
+	, myCompilerSession(nullptr, spDestroySession)
 {
+	ENSUREF(
+		shaderloader::gLoaderCount.fetch_add(1, std::memory_order_acq_rel) == 0,
+		"two ShaderLoaders alive at once: slang isn't thread safe, its users must take turns (see ShaderLoader)");
+	myCompilerSession.reset(spCreateSession());
+
 	for (const auto& [sourceLanguage, compilerId, compilerPath] : myDownstreamCompilers)
 	{
 		myCompilerSession->setDefaultDownstreamCompiler(sourceLanguage, compilerId);
@@ -380,6 +361,13 @@ ShaderLoader::ShaderLoader(
 
 		myCompilerSession->setDownstreamCompilerPath(compilerId, path.generic_string().c_str());
 	}
+}
+
+ShaderLoader::~ShaderLoader()
+{
+	// its session gone before the next loader may be made
+	myCompilerSession.reset();
+	shaderloader::gLoaderCount.fetch_sub(1, std::memory_order_acq_rel);
 }
 
 std::string ShaderLoader::SlangConfiguration::ToString() const
@@ -405,7 +393,7 @@ std::string ShaderLoader::SlangConfiguration::ToString() const
 		definitionsString);
 }
 
-rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const SlangConfiguration& config, std::atomic_uint32_t* groupsDone)
+rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const SlangConfiguration& config)
 {
 	auto shaderSet = rhi::ShaderSet{};
 
@@ -427,12 +415,13 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 
 	std::vector<std::filesystem::path> dependencies;
 
-	// one group's entry points (first to last) compiled by a request of session's into group: its shaders, and the
-	// module's layouts and dependencies where wanted (the same for every group)
-	auto compileGroup = [&intermediatePath = myIntermediatePath,
-						 &includePaths = myIncludePaths,
-						 &file,
-						 &config](SlangSession* slangSession, size_t first, size_t last, size_t groupIndex, rhi::ShaderSet& shaderSet, std::vector<std::filesystem::path>* dependencies)
+	auto loadSlang = [slangSession = myCompilerSession.get(),
+					  &intermediatePath = myIntermediatePath,
+					  &includePaths = myIncludePaths,
+					  &shaderSet,
+					  &dependencies,
+					  &file,
+					  &config](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
 
@@ -450,8 +439,7 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 
 			std::println("Set intermediate path: \"{}\"", path.string());
 			ENSURE(std::filesystem::is_directory(path));
-			// each group's dumps apart: the groups' sessions number them alike
-			spSetDumpIntermediatePrefix(slangRequest, (path.generic_string() + std::format("/group{}-", groupIndex)).c_str());
+			spSetDumpIntermediatePrefix(slangRequest, (path.generic_string() + "/").c_str());
 		}
 
 		spSetDumpIntermediates(slangRequest, true);
@@ -492,9 +480,8 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 			slangRequest, translationUnitIndex, file.generic_string().c_str());
 
 		std::vector<rhi::EntryPoint> entryPoints;
-		for (size_t entryPointIt = first; entryPointIt < last; entryPointIt++)
+		for (const auto& [entryPoint, stage] : config.entryPoints)
 		{
-			const auto& [entryPoint, stage] = config.entryPoints[entryPointIt];
 			ENSUREF(spAddEntryPoint(slangRequest, translationUnitIndex, entryPoint.c_str(), stage) == entryPoints.size(), "Failed to add entry point.");
 			entryPoints.emplace_back(entryPoint, shaderloader::GetStage(stage), std::nullopt);
 		}
@@ -511,12 +498,12 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 			ENSUREF(false, "Failed to compile slang file.");
 		}
 
-		int depCount = dependencies != nullptr ? spGetDependencyFileCount(slangRequest) : 0;
+		int depCount = spGetDependencyFileCount(slangRequest);
 		for (int dep = 0; dep < depCount; dep++)
 		{
 			char const* depPath = spGetDependencyFilePath(slangRequest, dep);
 			// recorded in the asset manifest, so editing an included/imported file recompiles. todo: hot reload
-			dependencies->emplace_back(depPath);
+			dependencies.emplace_back(depPath);
 			std::println("File include/import: {}", depPath);
 		}
 
@@ -582,46 +569,7 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 		}
 
 		spDestroyCompileRequest(slangRequest);
-	};
 
-	auto loadSlang = [this, &compileGroup, &shaderSet, &dependencies, &config, groupsDone](auto& /*todo: use me: in*/) -> std::error_code
-	{
-		auto groupCount = GroupCount(config);
-		auto entryPointCount = config.entryPoints.size();
-		std::vector<rhi::ShaderSet> groups(groupCount);
-		auto compile = [&](size_t groupIndex, SlangSession* session)
-		{
-			compileGroup(
-				session,
-				entryPointCount * groupIndex / groupCount,
-				entryPointCount * (groupIndex + 1) / groupCount,
-				groupIndex,
-				groups[groupIndex],
-				groupIndex == 0 ? &dependencies : nullptr);
-			if (groupsDone != nullptr)
-				groupsDone->fetch_add(1, std::memory_order_relaxed);
-		};
-		if (groupCount == 1)
-			compile(0, myCompilerSession.get());
-		else
-		{
-			// a session each (a slang session isn't for several threads at once), on the application's executor (the
-			// tools' have none: in turn)
-			auto body = [this, &compile](size_t groupIndex)
-			{
-				auto session = InternalCreateSession();
-				compile(groupIndex, session.get());
-			};
-			if (auto application = core::Application::Get())
-				application->GetExecutor().ForEach(groupCount, body);
-			else
-				for (size_t groupIndex = 0; groupIndex < groupCount; groupIndex++)
-					body(groupIndex);
-		}
-		// in the entry points' order; the layouts are the module's, the same in each group's
-		shaderSet = std::move(groups.front());
-		for (size_t groupIndex = 1; groupIndex < groupCount; groupIndex++)
-			std::ranges::move(groups[groupIndex].shaders, std::back_inserter(shaderSet.shaders));
 		return {};
 	};
 
@@ -636,44 +584,12 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	auto groupsBefore = groupsDone != nullptr ? groupsDone->load(std::memory_order_relaxed) : 0U;
 	auto loadResult = core::file::LoadAsset(
 		file, loadSlang, loadBin, saveBin, paramsHash, [&dependencies] { return dependencies; });
 
 	ENSUREF(loadResult && !shaderSet.shaders.empty(), "Failed to load shaders.");
 
-	// a cached load: its groups all done at once
-	if (groupsDone != nullptr && groupsDone->load(std::memory_order_relaxed) == groupsBefore)
-		groupsDone->fetch_add(GroupCount(config), std::memory_order_relaxed);
-
 	return shaderSet;
-}
-
-uint32_t ShaderLoader::GroupCount(const SlangConfiguration& config)
-{
-	static const uint32_t kOverride = []
-	{
-		const char* groups = std::getenv("SPEEDO_SHADER_COMPILE_GROUPS");
-		return groups != nullptr && *groups != '\0' ? static_cast<uint32_t>(std::max(std::atoi(groups), 1)) : 0U;
-	}();
-	auto entryPointCount = static_cast<uint32_t>(config.entryPoints.size());
-	if (entryPointCount < kGroupEntryPointCount)
-		return 1;
-	auto threads = std::max(std::thread::hardware_concurrency(), 1U);
-	auto groups = kOverride != 0 ? kOverride : std::min({threads, kMaxGroupCount, (entryPointCount + kGroupEntryPointCount - 1) / kGroupEntryPointCount});
-	return std::clamp(groups, 1U, entryPointCount);
-}
-
-std::unique_ptr<SlangSession, void (*)(SlangSession*)> ShaderLoader::InternalCreateSession() const
-{
-	std::unique_ptr<SlangSession, void (*)(SlangSession*)> session(shaderloader::CreateSession(), shaderloader::DestroySession);
-	for (const auto& [sourceLanguage, compilerId, compilerPath] : myDownstreamCompilers)
-	{
-		session->setDefaultDownstreamCompiler(sourceLanguage, compilerId);
-		if (compilerPath && !compilerPath->empty())
-			session->setDownstreamCompilerPath(compilerId, std::filesystem::canonical(compilerPath.value()).generic_string().c_str());
-	}
-	return session;
 }
 
 } // namespace gfx

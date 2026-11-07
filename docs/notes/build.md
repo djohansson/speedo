@@ -443,6 +443,6 @@ resource and profile directories either way. The environment's `ShaderPath` and 
 (compiled at startup, so an install ships them) and the test assets, which the scene, the ImGui renderer, the thumbnails'
 render version and the file browser took from the root before. A client copied into `bin/` with its data in
 `share/speedo`, run from `/tmp`, found its shaders there, compiled them into its profile and drew the helmet. A first
-launch's compile (about 15 s on the M4 Pro) runs in the background behind a progress bar, the ui drawn meanwhile (see
+launch's compile (about 25 s on the M4 Pro) runs in the background behind a progress bar, the ui drawn meanwhile (see
 layering.md's shaders), and it offers the test assets to download meanwhile (see assets.md: their manifests are installed
 with the resources, `resources/test-asset-manifests`).

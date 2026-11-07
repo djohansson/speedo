@@ -560,12 +560,13 @@ WindowedApplication::WindowedApplication(
 
 	myViews = std::make_unique<Views>(device, glm::uvec2(swapchain.GetDesc().extent.width, swapchain.GetDesc().extent.height));
 
-	myOutput = std::make_unique<gfx::SwapchainOutput>(rhi, GetCurrentWindow());
-	myScene = std::make_unique<Scene>(rhi, pipeline, *myViews, *myOutput);
-
-	// the ui: imgui's context and frames (platform's), and its renderer (gfx's)
+	// the ui: imgui's context and frames (platform's), and its renderer (gfx's), whose shaders compile before the scene's
+	// start in the background (slang is used by one thread at a time, see gfx::ShaderLoader)
 	myImGui = std::make_unique<platform::ImGuiLayer>(window, myImGuiIniSettings);
 	myImGuiRenderer = std::make_unique<gfx::ImGuiRenderer>(device);
+
+	myOutput = std::make_unique<gfx::SwapchainOutput>(rhi, GetCurrentWindow());
+	myScene = std::make_unique<Scene>(rhi, pipeline, *myViews, *myOutput);
 }
 
 WindowedApplication::~WindowedApplication()

@@ -411,14 +411,13 @@ struct Scene::Impl
 
 		[[nodiscard]] std::array<const ShaderCompile*, 4> All() const { return {&zPrepass, &main, &flare, &environment}; }
 	};
-	// how far a layout's compile is: its groups done of how many (see ShaderLoader::Load), and its entry points, which
-	// weigh it in the whole's progress (see ShaderProgress)
+	// a layout's compile: its entry points, which weigh it in the whole's progress (see ShaderProgress), whether it is done,
+	// and how long its load took
 	struct ShaderCompileProgress
 	{
-		uint32_t groupCount = 1;
 		uint32_t entryPointCount = 0;
-		std::atomic_uint32_t groupsDone{0};
-		std::atomic<float> seconds{0.0F}; // how long its load took, once it is done
+		std::atomic_bool done{false};
+		std::atomic<float> seconds{0.0F};
 	};
 	// the shaders compiling in the background from the constructor (see InternalStartShaderCompiles), each layout's
 	// progress, the task compiling them and when it started, until Prepare has made the rest from them (myReady). the
@@ -432,7 +431,7 @@ struct Scene::Impl
 	// kept with the shaders' cache (see kShaderCompileSecondsFile), else kDefaultShaderCompileSeconds
 	float myShaderCompileSeconds = 0.0F;
 	static constexpr const char* kShaderCompileSecondsFile = "compile-seconds";
-	static constexpr float kDefaultShaderCompileSeconds = 20.0F; // the M4 Pro's: 18 s (see ShaderLoader::kMaxGroupCount)
+	static constexpr float kDefaultShaderCompileSeconds = 30.0F; // about the M4 Pro's
 	// a layout's load past this compiled (a cache hit takes milliseconds)
 	static constexpr float kCachedShaderCompileSeconds = 1.0F;
 	// the progress shown until the compiles are done and Prepare has made the rest
@@ -2837,11 +2836,9 @@ struct Scene::Impl
 
 	// the shaders compiled on the executor (a cold cache's first launch, or a changed shader: tens of seconds; a warm one,
 	// milliseconds), into the cache that InternalFinishInitialization's loads then read (see ShaderLoader::Load): a task
-	// loading the layouts at once, each in groups of its entry points (the main layout's 78 in 4). the layouts in turn
-	// were a little slower (the client's cold first launch with the helmet, M4 Pro: 18.4 s, against 17.5 to 17.8) for a
-	// little less memory (a resident peak of 1.90 to 1.96 GB, against 2.01 to 2.04; 0.71 warm). its progress: the entry
-	// points of the groups done, and of those still compiling an estimate by the time they have taken against the last
-	// cold compile's (see ShaderProgress)
+	// loading the layouts in turn, with one loader (slang isn't thread safe: see ShaderLoader; compiling them at once, and
+	// a layout's entry points in groups, crashed). its progress: the entry points of the layouts done, and an estimate by
+	// the time taken against the last cold compile's (see ShaderProgress)
 	void InternalStartShaderCompiles()
 	{
 		myShaderCompiles = std::make_unique<ShaderCompileSet>(ShaderCompiles(myRHI.GetPrimaryDevice()));
@@ -2857,7 +2854,6 @@ struct Scene::Impl
 		for (const auto* compile : myShaderCompiles->All())
 		{
 			auto& progress = myShaderCompileProgress.emplace_back(std::make_unique<ShaderCompileProgress>());
-			progress->groupCount = ShaderLoader::GroupCount(compile->config);
 			progress->entryPointCount = static_cast<uint32_t>(compile->config.entryPoints.size());
 		}
 		auto task = core::CreateTask(
@@ -2865,19 +2861,16 @@ struct Scene::Impl
 			{
 				ZoneScopedN("Scene::ShaderCompiles");
 				const auto& compiles = *myShaderCompiles;
+				ShaderLoader loader({std::filesystem::path(compiles.includePath)}, {}, std::filesystem::path(compiles.intermediatePath));
 				auto all = compiles.All();
-				core::Application::Get()->GetExecutor().ForEach(
-					all.size(),
-					[this, &compiles, &all](size_t compileIt)
-					{
-						// a loader of its own: its slang session isn't for several threads
-						ShaderLoader loader({std::filesystem::path(compiles.includePath)}, {}, std::filesystem::path(compiles.intermediatePath));
-						auto& progress = *myShaderCompileProgress[compileIt];
-						auto start = std::chrono::steady_clock::now();
-						(void)loader.Load(all[compileIt]->file, all[compileIt]->config, &progress.groupsDone);
-						progress.seconds.store(
-							std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count(), std::memory_order_relaxed);
-					});
+				for (size_t compileIt = 0; compileIt < all.size(); compileIt++)
+				{
+					auto& progress = *myShaderCompileProgress[compileIt];
+					auto start = std::chrono::steady_clock::now();
+					(void)loader.Load(all[compileIt]->file, all[compileIt]->config);
+					progress.seconds.store(std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count(), std::memory_order_relaxed);
+					progress.done.store(true, std::memory_order_release);
+				}
 			});
 		myShaderCompileFuture = std::move(task.future);
 		core::Application::Get()->GetExecutor().Submit(std::span(&task.handle, 1));
@@ -2913,25 +2906,24 @@ struct Scene::Impl
 		return true;
 	}
 
-	// how far the compiles are, 0 to 1 (see Scene::GetShaderProgress): each layout's groups done, and of those still
-	// compiling, the time taken against how long the last cold compile took (slang says nothing of a compile's progress,
-	// and a layout's groups finish about together), weighed by its entry points; kShaderProgressCap until ready
+	// how far the compiles are, 0 to 1 (see Scene::GetShaderProgress): the entry points of the layouts done, or the time
+	// taken against how long the last cold compile took, whichever is further (slang says nothing of a compile's progress,
+	// and the main layout is most of it); kShaderProgressCap until ready
 	[[nodiscard]] float ShaderProgress() const
 	{
 		if (myReady.load(std::memory_order_relaxed))
 			return 1.0F;
 		auto elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - myShaderCompileStart).count();
-		float running = std::min(elapsed / myShaderCompileSeconds, kShaderProgressCap);
-		float done = 0.0F;
+		uint32_t doneEntryPointCount = 0;
 		uint32_t entryPointCount = 0;
 		for (const auto& progress : myShaderCompileProgress)
 		{
-			float groups = std::min(
-				static_cast<float>(progress->groupsDone.load(std::memory_order_relaxed)) / static_cast<float>(progress->groupCount), 1.0F);
-			done += static_cast<float>(progress->entryPointCount) * (groups + ((1.0F - groups) * running));
+			if (progress->done.load(std::memory_order_acquire))
+				doneEntryPointCount += progress->entryPointCount;
 			entryPointCount += progress->entryPointCount;
 		}
-		return std::min(done / static_cast<float>(std::max(entryPointCount, 1U)), kShaderProgressCap);
+		float done = static_cast<float>(doneEntryPointCount) / static_cast<float>(std::max(entryPointCount, 1U));
+		return std::min(std::max(done, elapsed / myShaderCompileSeconds), kShaderProgressCap);
 	}
 
 	// waits until Prepare has made the rest (for a load started before: its install needs it), unless cancelled or the

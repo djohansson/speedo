@@ -2,8 +2,6 @@
 
 #include <rhi/shaderset.h>
 
-#include <atomic>
-#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -44,36 +42,25 @@ public:
 	using DownstreamCompiler =
 		std::tuple<SlangSourceLanguage, SlangPassThrough, std::optional<std::filesystem::path>>;
 
+	// one at a time in the process (a hard failure if another is alive): slang isn't thread safe, even across global
+	// sessions, which share state (e.g. the embedded SPIR-V grammar, a static reference counted without atomics: sessions
+	// made and destroyed on several threads freed it, and a later ~Session crashed). its users take turns by design (the
+	// scene's compiles in the background, after the ImGui renderer's; the preview's once the window's scene is ready)
 	constexpr ShaderLoader() noexcept = delete;
 	ShaderLoader(
 		std::vector<std::filesystem::path>&& includePaths,
 		std::vector<DownstreamCompiler>&& downstreamCompilers,
 		std::optional<std::filesystem::path>&& intermediatePath = std::nullopt);
+	~ShaderLoader();
 	ShaderLoader(const ShaderLoader&) = delete;
 	ShaderLoader(ShaderLoader&&) noexcept = delete;
 
 	ShaderLoader& operator=(const ShaderLoader&) = delete;
 	ShaderLoader& operator=(ShaderLoader&&) noexcept = delete;
 
-	// the shaders of config's entry points in file, from the cache (see core::file::LoadAsset) or compiled: in groups of
-	// its entry points at once (GroupCount, each a compile request of its own slang session, on the application's
-	// executor). each group parses and checks the whole source (the main layout's: 0.55 s of its 22.7 s on one, M4 Pro)
-	// and generates the code of its entry points, what they share again in each: 4 groups took the scene's cold first load
-	// from 28.8 to 18.0 s, its resident peak from 850 MB to 1.8 GB (8: 17.0 s, 2.5 GB). each group done adds one to
-	// groupsDone (if given), and a cached load all of them at once
-	[[nodiscard]] rhi::ShaderSet Load(
-		const std::filesystem::path& file, const SlangConfiguration& config, std::atomic_uint32_t* groupsDone = nullptr);
-
-	// how many groups config's entry points compile in (see Load): one under kGroupEntryPointCount of them, else up to the
-	// executor's threads and kMaxGroupCount (SPEEDO_SHADER_COMPILE_GROUPS overrides it)
-	[[nodiscard]] static uint32_t GroupCount(const SlangConfiguration& config);
-	static constexpr uint32_t kGroupEntryPointCount = 8;
-	static constexpr uint32_t kMaxGroupCount = 4;
+	[[nodiscard]] rhi::ShaderSet Load(const std::filesystem::path& file, const SlangConfiguration& config);
 
 private:
-	// a slang session of its own, with the downstream compilers set (see the constructor)
-	[[nodiscard]] std::unique_ptr<SlangSession, void (*)(SlangSession*)> InternalCreateSession() const;
-
 	std::vector<std::filesystem::path> myIncludePaths;
 	std::vector<DownstreamCompiler> myDownstreamCompilers;
 	std::optional<std::filesystem::path> myIntermediatePath;

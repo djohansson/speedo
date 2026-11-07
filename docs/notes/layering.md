@@ -268,32 +268,32 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   declares, in any order. Slang's dependency list names every part, so editing one recompiles. Entry points are chosen
   by name and stage (`ShaderLoader`), not by their `[shader(...)]` attributes; one had strayed onto `TonemapAces`.
 - The shaders compile in the background (the user's ask, 2026-11-07: a first launch's compile behind a progress bar, the
-  ui running meanwhile, as the test assets' download will). `Scene`'s constructor makes the default resources and starts
+  ui running meanwhile, as the test assets' download does). `Scene`'s constructor makes the default resources and starts
   a task compiling its four layouts (the z prepass's, the main one, the flares' and the environment filter's:
-  `ShaderCompiles`, the configurations the layouts are then loaded with) at once into the shader cache, each in groups of
-  its entry points (`ShaderLoader::GroupCount`: the main layout's 78 in 4, each group a slang session and compile request
-  of its own). `Scene::Prepare`, which `WindowedApplication::Draw` calls before each frame outside the graphics queue's
+  `ShaderCompiles`, the configurations the layouts are then loaded with) in turn into the shader cache, with one
+  `ShaderLoader`. `Scene::Prepare`, which `WindowedApplication::Draw` calls before each frame outside the graphics queue's
   lock, makes the rest once they are done (the layouts, from cache hits, their bindings, the environment filter and the
   renderer: 85 ms). Until then the scene isn't ready: `Record` draws a frame graph of its own (the output cleared, then the
   output's final passes: the ui over the swapchain's image, presented), `Update`, `Resize` and `NeedsResize` do nothing,
   the loads wait (`WaitUntilReady`, polling, unless cancelled or exiting), the ui doesn't ask for the renderer (the
-  statistics, the lights window), and the file browser's preview isn't made (its scene would compile the same shaders at
-  once rather than read them cached). The Loading window shows "Compiling shaders" above the loads waiting: the layouts'
-  groups done, weighed by their entry points, and for those compiling the time taken over the last cold compile's
-  (`.slang.intermediate/compile-seconds`, else 20 s), at most 95% until ready, since slang reports no progress (a
-  layout's groups finish unevenly: 3 of the main layout's 4 at 9 s of 14.5).
-  Measured on the M4 Pro (KosmicKrisp, the helmet autoloaded on a fresh profile, the whole run): 27.4 s before, the
-  constructor compiling on one session, 17.5 to 17.8 s now (the compile 14.5 s, warm 3.3 s). A group parses and checks
-  the whole module (the main layout's front end alone: 0.55 s of its 22.7 s) and generates its entry points' code, what
-  they share again in each, so groups cost memory: the cold first load with 1, 4 and 8 groups took 28.8, 18.0 and 17.0 s,
-  its resident peak 850 MB, 1.8 and 2.5 GB. The layouts in turn rather than at once: 18.4 s, a resident peak of 1.90 to
-  1.96 GB against 2.01 to 2.04 (0.71 warm). The first frame after the switch takes 0.46 s (its pipelines, cold), and the
-  frames until the sky is installed are white: auto exposure adapting from an empty scene, as at a warm startup.
-  Slang's sessions are made and destroyed under one lock (`shaderloader::CreateSession`/`DestroySession`), though they
-  compile at once: each holds a reference to the embedded SPIR-V grammar, a static `RefPtr` whose count isn't atomic, and
-  sessions made and destroyed on several threads freed it early (2 clients of the quick tier's 59 crashed in `~Session`
-  at the draw thread's `Prepare`; a stress test of 8 threads crashed within 1000 rounds every time, and passed under the
-  lock).
+  statistics, the lights window), and the file browser's preview isn't made (its scene compiles once the window's is
+  ready, reading the cache). The Loading window shows "Compiling shaders" above the loads waiting: the entry points of the
+  layouts done, or the time taken over the last cold compile's (`.slang.intermediate/compile-seconds`, else 30 s),
+  whichever is further, at most 95% until ready, since slang reports no progress.
+  Slang is used by one thread at a time: it isn't thread safe, even across global sessions, which share state. The
+  compile was parallel at first (the layouts at once, and the main layout's 78 entry points in 4 groups, each a session
+  and compile request of its own: the cold first load 17.5 s rather than 28.8, its resident peak 2.0 GB rather than 0.85),
+  and 2 clients of the quick tier's 59 crashed in `~Session`: every global session holds the embedded SPIR-V grammar
+  (`SPIRVCoreGrammarInfo::getEmbeddedVersion`, a static `RefPtr`, slang's counts not atomic), sessions made and destroyed
+  on several threads counted it wrong, and a later destroy freed it (8 threads making and destroying sessions crashed
+  within 1000 rounds, 3 times in 3). A lock around that alone would have left whatever else they share; so a
+  `ShaderLoader` is the only one alive (`ENSUREF` in its constructor), and its users take turns by design: the ImGui
+  renderer compiles in the window's constructor before the scene starts its task, and the preview's scene after the
+  window's is ready. Measured on the M4 Pro (KosmicKrisp, the helmet autoloaded on a fresh profile, the whole run): 28.9
+  to 29.4 s (the compile 24.9 s, a resident peak of 1.0 GB; warm 3.3 s), the window drawn and the ui running throughout,
+  where the constructor's compile took 27.4 s before any frame. The first frame after the switch takes 0.46 s (its
+  pipelines, cold), and the frames until the sky is installed are white: auto exposure adapting from an empty scene, as at
+  a warm startup.
 - The backend's type aliases (`DescriptorType<G>`, `PushConstantRange<G>`, ...) are in the *global* namespace (see
   `rhi/vulkan/types.inl`), so a neutral rhi type of the same name hides them inside `namespace rhi`, and is ambiguous
   in code with `using namespace rhi` (gfx's application). Pick another name, or qualify: `::DescriptorType<G>` in
