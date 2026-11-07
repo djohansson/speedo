@@ -458,7 +458,7 @@ Khronos glTF-Sample-Environments panoramas (about 400 MB; Git LFS files, from Gi
 (gitignored; the client's file browser opens there; or `$SPEEDO_TEST_ASSETS`), and prints the paths to test:
 `scripts/assettest.ps1 -Client (scripts/fetch-test-assets.ps1)` (from pwsh; from another shell,
 `pwsh scripts/assettest.ps1 -Client $(pwsh scripts/fetch-test-assets.ps1)`). Each set is a manifest in
-`resources/test-asset-manifests` (`mcguire.txt`, `gltf.txt`, `environments.txt`): its
+`resources/test-asset-manifests` (`mcguire.txt`, `gltf.txt`, `environments.txt`; the client downloads the same): its
 directory, the url its files are under, the zips to extract (Bistro's parts, side by side), and each file's size and sha256,
 tab separated, the path last (some glTF paths have spaces, one UTF-8; the url escapes each segment). A file is downloaded
 unless it is there with its size and sha256, 8 at once, and one that doesn't match is kept as `.unverified` and reported
@@ -467,6 +467,25 @@ until the manifest is updated. The archive publishes no versions or checksums an
 pinned commit, now their 2494 files from raw.githubusercontent.com, the manifest written by `scripts/update-gltf-manifest.ps1`
 from a checkout (the commit's blobs: it fails on a checkout that converted line endings). The quick tier's 665 files (555
 MB) took 1 min 43 s into an empty directory; checking the full sets, all there, 4.5 s.
+
+The client downloads them too (the user's ask, 2026-11-07: a first launch's option to download the test assets, with a
+progress bar, beside the shader compile), into the environment's `TestAssetsPath` (a checkout's `resources/test-assets`,
+an install's in the user's data directory, or `$SPEEDO_TEST_ASSETS` as the script): `client/testassets.cpp`. A first launch
+without the quick set there offers the quick set (665 files, 556 MB) or everything (2547 files, 4.53 GB), with the sources'
+links (each model's license comes with it), or not now; File > Download Test Assets... offers them again. The choice is the
+user profile's `test-assets.txt`, and a chosen set unfinished resumes at startup (cancelling declines). Runs that are
+automated (`SPEEDO_AUTOLOAD_EXIT` or `SPEEDO_BACKGROUND=1`, as `assettest.ps1` sets) are never offered, and
+`SPEEDO_DOWNLOAD_TEST_ASSETS` tests it (`offer`; `quick` or `full` downloads that set and exits once done, printing what it
+did). A task on the executor runs libcurl's transfers 8 at once (curl comes with tracy's gui tools already; OpenSSL, which
+verifies against macOS's trust store there and is given the distribution's bundle on Linux; Schannel on Windows), each
+written into its `.part` as it comes, mapped at its size, and hashed (picosha2), then moved into place if its sha256
+matches (else kept as `.unverified`, as the script does); a file is there if it is at its size. A failed transfer is tried 3
+times; a cancel or the exit stops the transfers within 100 ms (`curl_multi_poll`'s wait), removing their `.part`s. Bistro's
+parts are extracted with `core::zip::ExtractAll` once they are all there (the same 415 files as the script's, which also
+makes the zips' empty directories). Measured: the quick set into an empty directory, beside a cold shader compile, in 60.7 s
+(the script's 103 s); the files then verified by the script. The Loading window's shader compile and the download's window
+(bottom right) are drawn together; the file browser opens in the test assets once they are there, if it had started in the
+resources for want of them.
 `resources/test-models/gltf` holds hand-made models for what no downloaded one covers (`SparseIndices.gltf`: index
 accessors that are sparse, with and without base values; cgltf's `cgltf_accessor_read_index` and
 `cgltf_accessor_unpack_indices` refuse sparse accessors, so `gltf::ReadIndices` applies them;

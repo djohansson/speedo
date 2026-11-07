@@ -104,6 +104,7 @@ find_package(draco CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
 find_package(mikktspace CONFIG REQUIRED)
 find_package(libdeflate CONFIG REQUIRED)
+find_package(CURL CONFIG REQUIRED)
 
 if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL "") AND SPEEDO_USE_MIMALLOC)
 	find_program(MINJECT NAMES minject.exe minject32.exe HINTS ENV PATH REQUIRED)
@@ -385,6 +386,7 @@ set(CLIENTLIB_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/client/client.cpp
 	${SPEEDO_SOURCE_DIR}/client/loading.cpp
 	${SPEEDO_SOURCE_DIR}/client/preview.cpp
+	${SPEEDO_SOURCE_DIR}/client/testassets.cpp
 	${SPEEDO_SOURCE_DIR}/client/thumbnails.cpp
 	${SPEEDO_SOURCE_DIR}/client/ui.cpp
 	${SPEEDO_SOURCE_DIR}/client/windowedapplication.cpp)
@@ -413,6 +415,7 @@ target_link_libraries(
 		gfx
 	PRIVATE
 		serverlib # todo: redesign so that we can remove this (quite unsafe) dependency
+		CURL::libcurl # the test assets' download (see client/testassets.h)
 )
 
 ###############################################################################

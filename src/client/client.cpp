@@ -14,6 +14,8 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <print>
 #include <thread>
@@ -415,8 +417,10 @@ void ClientCreate(const PathConfig* paths)
 	ENSURE(userPath);
 
 	// the test assets (scripts/fetch-test-assets.ps1's, or the client's download, see TestAssetsPath): a checkout's (or
-	// a chosen resource directory's) resources/test-assets, else the user's
+	// a chosen resource directory's) resources/test-assets, else the user's; or as the script, $SPEEDO_TEST_ASSETS
 	auto testAssetsPath = (checkout || paths->resourcePath != nullptr) ? resourcePath.value() / "test-assets" : userPath.value() / "test-assets";
+	if (const char* testAssets = std::getenv("SPEEDO_TEST_ASSETS"); testAssets != nullptr && *testAssets != '\0')
+		testAssetsPath = std::filesystem::absolute(testAssets);
 
 	auto& appPtrRef = gClientApplication.Write().Get();
 	appPtrRef = CreateApplication<Client>(

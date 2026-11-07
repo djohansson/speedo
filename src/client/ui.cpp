@@ -1,3 +1,4 @@
+#include "testassets.h"
 #include "windowedapplicationdetail.h"
 
 #include <core/file.h>
@@ -1515,6 +1516,8 @@ void WindowedApplication::PrepareDraw()
 	}
 
 	InternalDrawBrowser();
+	// the test assets' download: offered on a first launch, and its progress (see testassets.h)
+	testassets::Draw();
 
 	// the models of an archive with several (see LoadAndInstallArchive)
 	static std::optional<ArchiveChoice> gShownArchiveChoice;
@@ -2424,6 +2427,7 @@ void WindowedApplication::PrepareDraw()
 			}
 			if (recentChosen)
 				InternalOpen(*recentChosen);
+			testassets::DrawMenuItem();
 			Separator();
 			if (MenuItem("Exit", SHORTCUT_LABEL("Q")))
 				core::Application::Get()->RequestExit();

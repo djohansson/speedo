@@ -190,6 +190,9 @@ struct State
 	// unit's index in gfx::kSceneUnits, chosen for them as they install (ChooseSceneUnit) and remembered
 	int unit = 0;
 	bool listed = false;
+	// it started in the resource directory for want of the test assets, and hasn't been shown: it opens in them once they
+	// are there (File > Download Test Assets, see testassets.h)
+	bool awaitingTestAssets = false;
 	ListOptions options; // the current purpose's (see BrowserPurpose)
 	windowedapplication::BrowserPurpose purpose = windowedapplication::BrowserPurpose::kFiles;
 	// each purpose's, while another's are current: an environment's lists every panorama below the folder
@@ -352,9 +355,11 @@ void WindowedApplication::InternalDrawBrowser()
 		auto resourcePath = std::get<std::filesystem::path>(variables["ResourcePath"]);
 		std::error_code error;
 		auto testAssets = std::get<std::filesystem::path>(variables["TestAssetsPath"]);
-		state.directory = std::filesystem::is_directory(testAssets, error) ? testAssets : resourcePath;
+		state.awaitingTestAssets = !std::filesystem::is_directory(testAssets, error);
+		state.directory = state.awaitingTestAssets ? resourcePath : testAssets;
 		if (const char* browse = std::getenv("SPEEDO_BROWSE"); browse != nullptr && *browse != '\0')
 		{
+			state.awaitingTestAssets = false;
 			state.directory = resourcePath / browse;
 			gShowBrowser = true;
 		}
@@ -382,6 +387,16 @@ void WindowedApplication::InternalDrawBrowser()
 	{
 		SetPreviewVisible(false);
 		return;
+	}
+	if (std::exchange(state.awaitingTestAssets, false))
+	{
+		std::error_code error;
+		if (auto testAssets = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["TestAssetsPath"]);
+			std::filesystem::is_directory(testAssets, error))
+		{
+			state.directory = testAssets;
+			state.listed = false;
+		}
 	}
 
 	// a new purpose: its own options, and a new listing

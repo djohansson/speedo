@@ -3,10 +3,10 @@
 Downloads the asset sets that scripts/assettest.ps1 tests the model and image loaders on.
 
 .DESCRIPTION
-Each set is a manifest in resources/test-asset-manifests: its directory under <dir>, the url its files are under, and each
-file's size and sha256 (tab separated: <size> <sha256> <path>, and the path under the url where it differs). A file is
-downloaded unless it is there with its size and sha256, several at once, and checked: one that doesn't match is reported
-(and kept as <name>.unverified) rather than used.
+Each set is a manifest in resources/test-asset-manifests (the client downloads the same: File > Download Test Assets): its
+directory under <dir>, the url its files are under, and each file's size and sha256 (tab separated: <size> <sha256>
+<path>, and the path under the url where it differs). A file is downloaded unless it is there with its size and sha256,
+several at once, and checked: one that doesn't match is reported (and kept as <name>.unverified) rather than used.
 
 -McGuire: Morgan McGuire's Computer Graphics Archive (https://casual-effects.com/data), obj models with their materials
 and textures, as zip archives (about 2.7 GB), into <dir>/mcguire (mcguire.txt). The archive publishes no versions, so a

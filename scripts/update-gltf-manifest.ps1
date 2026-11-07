@@ -4,8 +4,8 @@ Writes resources/test-asset-manifests/gltf.txt: the Khronos glTF-Sample-Assets m
 and sha256s.
 
 .DESCRIPTION
-For whoever moves the pinned commit: scripts/fetch-test-assets.ps1 downloads the files the manifest names from
-raw.githubusercontent.com at its commit, each checked against its size and sha256.
+For whoever moves the pinned commit: scripts/fetch-test-assets.ps1 and the client (File > Download Test Assets) download
+the files the manifest names from raw.githubusercontent.com at its commit, each checked against its size and sha256.
 
 -Checkout: a checkout of https://github.com/KhronosGroup/glTF-Sample-Assets with Models checked out, at the commit to pin
 (its HEAD); without it, -Commit (by default the manifest's) is fetched into a temporary directory, Models alone (about
