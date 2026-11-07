@@ -1,6 +1,7 @@
 #pragma once
 
 #include <gfx/gpu.h>
+#include <gfx/shaderloader.h>
 #include <gfx/texture.h>
 
 #include <filesystem>
@@ -9,8 +10,6 @@
 namespace gfx
 {
 
-class ShaderLoader;
-
 // prefilters environments on the gpu (environment.slang's kernels, in a layout of their own: "Environment"): the source
 // pyramid, the GGX levels, the sheen levels and the irradiance, from the sky (drawn for the sun in gEnvironment, see
 // sky.h: its transmittance and multiple scattering tables made once, its view of itself each time) or a file's uploaded
@@ -18,6 +17,10 @@ class ShaderLoader;
 class EnvironmentFilter final
 {
 public:
+	// the layout's entry points (environment.slang's), which the constructor loads: the scene compiles them ahead (see
+	// Scene's shader compiles)
+	[[nodiscard]] static ShaderLoader::SlangConfiguration ShaderConfiguration();
+
 	EnvironmentFilter(Device& device, Pipeline& pipeline, ShaderLoader& loader, const std::filesystem::path& source);
 	~EnvironmentFilter();
 

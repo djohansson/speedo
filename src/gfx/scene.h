@@ -293,9 +293,11 @@ public:
 		core::TaskExecutor* executor = nullptr;
 	};
 
-	// creates the default resources and the pipeline layouts, binds them, and sizes the renderer after output. draws with
-	// pipeline (its descriptor sets hold the scene's bindings, so each scene needs its own), into views' viewports, and
-	// into output (the window's swapchain, or an image: see RenderOutput). views and output must outlive the scene.
+	// creates the default resources and starts compiling the shaders on the application's executor (tens of seconds on a
+	// cold cache, see ShaderLoader), from which Prepare makes the pipeline layouts, binds them, and sizes the renderer
+	// after output. draws with pipeline (its descriptor sets hold the scene's bindings, so each scene needs its own), into
+	// views' viewports, and into output (the window's swapchain, or an image: see RenderOutput). views and output must
+	// outlive the scene.
 	Scene(RHI& rhi, Pipeline& pipeline, Views& views, RenderOutput& output);
 	~Scene();
 
@@ -337,6 +339,16 @@ public:
 	// an environment panorama (or without one, the sky)
 	void LoadEnvironment(std::optional<std::string> filePath, std::atomic_uint8_t& progress, core::CancelledFn cancelled = core::NeverCancelled);
 
+	// makes the rest once the shaders have compiled (the layouts, their bindings, the environment filter and the renderer,
+	// sized after the output): call before each frame until it returns true, on the draw thread, holding the draw lock and
+	// outside the graphics queue's (what it makes submits to the queue). until then the scene isn't ready: it draws the
+	// output cleared with the ui over it (Record), its loads wait (LoadModels and the others), and it has no renderer
+	bool Prepare();
+	[[nodiscard]] bool IsReady() const noexcept;
+	// how far the shaders' compile is, 0 to 1: the layouts done, and an estimate for those compiling (by how long the
+	// last cold compile took)
+	[[nodiscard]] float GetShaderProgress() const noexcept;
+
 	// resizes what is sized after the output (its render targets), after the output was (re)created (the window's
 	// swapchain, or ImageOutput::Resize). call with the gpu idle, holding the draw lock.
 	void Resize();
@@ -345,10 +357,10 @@ public:
 	[[nodiscard]] bool NeedsResize() const noexcept;
 
 	// updates the frame's buffers for the frame about to be recorded, after its fence: the exposure histogram it read,
-	// the animation and what it moves, and the lights. draw thread.
+	// the animation and what it moves, and the lights (nothing until ready). draw thread.
 	void Update(QueueTimelineContextData& graphics, uint32_t frameIndex);
 
-	// records the frame into cmd (see Renderer::Record). draw thread.
+	// records the frame into cmd (see Renderer::Record; until ready, the output cleared and its final passes). draw thread.
 	void Record(CommandBufferHandle cmd, const FrameTarget& target);
 
 	[[nodiscard]] Settings& GetSettings() noexcept;
@@ -379,6 +391,7 @@ public:
 	// the bytes of device memory the renderer's transients take, and would take without aliasing
 	[[nodiscard]] uint64_t GetTransientMemory() const noexcept;
 	[[nodiscard]] uint64_t GetUnaliasedTransientMemory() const noexcept;
+	// once ready (see Prepare)
 	[[nodiscard]] const Renderer& GetRenderer() const noexcept;
 
 private:

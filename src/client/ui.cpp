@@ -1064,8 +1064,10 @@ void WindowedApplication::PrepareDraw()
 		}
 	}
 
-	// one row per load in progress
-	if (bool loading = !gLoads.Empty() &&
+	// one row per load in progress, after the shaders' compile until the scene is made from them (Scene::Prepare: a first
+	// launch's compile takes tens of seconds, the loads queued meanwhile wait for it)
+	bool compilingShaders = myScene && !myScene->IsReady();
+	if (bool loading = (compilingShaders || !gLoads.Empty()) &&
 				 Begin(
 					 "Loading",
 					 &loading,
@@ -1077,6 +1079,12 @@ void WindowedApplication::PrepareDraw()
 	{
 		constexpr uint8_t kProgressMax = 255;
 		constexpr float kProgressBarWidth = 160.0F;
+		if (compilingShaders)
+		{
+			ProgressBar(myScene->GetShaderProgress(), ImVec2(kProgressBarWidth, 0));
+			SameLine();
+			TextUnformatted("Compiling shaders");
+		}
 		gLoads.ForEach([](const core::LoadQueue::Load& load)
 		{
 			ProgressBar((1.F / kProgressMax) * static_cast<float>(load.progress), ImVec2(kProgressBarWidth, 0));
@@ -1136,7 +1144,7 @@ void WindowedApplication::PrepareDraw()
 				// the frame graph's passes, on the gpu (see GpuProfiler::Collect): only where the backend writes their timestamps
 				// (KosmicKrisp: at the beginning and end of its own command encoders). in two columns of passes, which keeps
 				// the window short enough for the sections below
-				if (myScene && CollapsingHeader("GPU Passes", ImGuiTreeNodeFlags_DefaultOpen) &&
+				if (myScene && myScene->IsReady() && CollapsingHeader("GPU Passes", ImGuiTreeNodeFlags_DefaultOpen) &&
 					BeginTable("GPU Passes", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV))
 				{
 					auto timings = myScene->GetRenderer().GetPassTimings();
@@ -1159,7 +1167,7 @@ void WindowedApplication::PrepareDraw()
 
 				// what the frame draws and how the culling did (the cpu's plan for the last frame recorded; the gpu's decisions
 				// of the last frame it finished, a frame or two behind), the lights and the indirect lighting
-				if (myScene)
+				if (myScene && myScene->IsReady())
 				{
 					const auto& renderer = myScene->GetRenderer();
 					auto frame = renderer.GetFrameStatistics();
@@ -1327,7 +1335,7 @@ void WindowedApplication::PrepareDraw()
 		return show != nullptr && std::string_view(show) == "1";
 	}();
 	App().GetScene().GetSettings().captureLights.store(gShowLights, std::memory_order_relaxed);
-	if (gShowLights)
+	if (gShowLights && App().GetScene().IsReady())
 	{
 		static bool gLightMarkers = true;
 		static bool gShadowFrusta = true;

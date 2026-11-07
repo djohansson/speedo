@@ -224,14 +224,21 @@ bool WindowedApplication::Draw()
 			.maxImageCount = maxImageCount}),
 		std::memory_order_relaxed);
 
+	// what the scene makes once its shaders have compiled in the background (see Scene::Prepare: the first launch's take
+	// tens of seconds, during which the frames are the ui alone), outside of the graphics queue's lock (it takes it)
+	myScene->Prepare();
+
 	// the file browser's preview, once the ui asks for it: made here, outside of the graphics queue's lock (its scene
-	// takes it), and published to the ui thread
-	if (!myPreview && myPreviewRequested.load(std::memory_order_relaxed))
+	// takes it), and published to the ui thread. once the window's scene is ready: its shaders, the same, are then
+	// cached, rather than compiled twice at once
+	if (!myPreview && myPreviewRequested.load(std::memory_order_relaxed) && myScene->IsReady())
 	{
 		constexpr rhi::Extent2d kPreviewExtent{.width = 768, .height = 768};
 		myPreview = std::make_unique<Preview>(rhi, kPreviewExtent);
 		myPreviewReady.store(true, std::memory_order_release);
 	}
+	if (myPreview)
+		myPreview->GetScene().Prepare();
 
 	auto [acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = swapchain.Flip();
 
@@ -505,7 +512,7 @@ bool WindowedApplication::Draw()
 		static uint64_t gFpsSubmitBatchCount = Queue::GetSubmitBatchCount();
 		static bool gFpsWarming = false;
 		gFpsFrameCount++;
-		gFpsWarming = gFpsWarming || (myScene && myScene->GetRenderer().IsLightingWarmingUp());
+		gFpsWarming = gFpsWarming || (myScene && myScene->IsReady() && myScene->GetRenderer().IsLightingWarmingUp());
 		gDrawnFrameCount.fetch_add(1, std::memory_order_relaxed);
 		if (auto now = std::chrono::steady_clock::now(); now - gFpsTime >= 500ms)
 		{

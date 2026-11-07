@@ -42,32 +42,35 @@ constexpr uint32_t kSet = 1;
 
 } // namespace environmentfilter
 
+ShaderLoader::SlangConfiguration EnvironmentFilter::ShaderConfiguration()
+{
+	return {
+		.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+		.entryPoints =
+			{
+				{"EnvironmentSky", SLANG_STAGE_COMPUTE},
+				{"EnvironmentDownsample", SLANG_STAGE_COMPUTE},
+				{"EnvironmentCopy", SLANG_STAGE_COMPUTE},
+				{"EnvironmentSpecular", SLANG_STAGE_COMPUTE},
+				{"EnvironmentSheen", SLANG_STAGE_COMPUTE},
+				{"EnvironmentIrradiance", SLANG_STAGE_COMPUTE},
+				{"EnvironmentSkyTransmittance", SLANG_STAGE_COMPUTE},
+				{"EnvironmentSkyMultipleScattering", SLANG_STAGE_COMPUTE},
+				{"EnvironmentSkyView", SLANG_STAGE_COMPUTE},
+				{"EnvironmentIrradianceRows", SLANG_STAGE_COMPUTE},
+			},
+		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+		.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+	};
+}
+
 EnvironmentFilter::EnvironmentFilter(Device& device, Pipeline& pipeline, ShaderLoader& loader, const std::filesystem::path& source)
 {
 	ZoneScopedN("EnvironmentFilter::EnvironmentFilter");
 
 	myLayout = pipeline.CreateLayout(
 		"Environment",
-		loader.Load(
-			source,
-			{
-				.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
-				.entryPoints =
-					{
-						{"EnvironmentSky", SLANG_STAGE_COMPUTE},
-						{"EnvironmentDownsample", SLANG_STAGE_COMPUTE},
-						{"EnvironmentCopy", SLANG_STAGE_COMPUTE},
-						{"EnvironmentSpecular", SLANG_STAGE_COMPUTE},
-						{"EnvironmentSheen", SLANG_STAGE_COMPUTE},
-						{"EnvironmentIrradiance", SLANG_STAGE_COMPUTE},
-						{"EnvironmentSkyTransmittance", SLANG_STAGE_COMPUTE},
-						{"EnvironmentSkyMultipleScattering", SLANG_STAGE_COMPUTE},
-						{"EnvironmentSkyView", SLANG_STAGE_COMPUTE},
-						{"EnvironmentIrradianceRows", SLANG_STAGE_COMPUTE},
-					},
-				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-			}),
+		loader.Load(source, ShaderConfiguration()),
 		// the resources' set is pushed at each dispatch (its images change at every one): a redraw took a descriptor set
 		// from the pool for each of its 22 kernels, handed back once the gpu was done (see Pipeline::CreateLayout)
 		std::array{environmentfilter::kSet});

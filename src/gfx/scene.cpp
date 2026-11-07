@@ -2,12 +2,15 @@
 
 #include <core/application.h>
 #include <core/assert.h>
+#include <core/file.h>
 #include <core/profiling.h>
 #include <core/task.h>
 #include <core/taskexecutor.h>
+#include <core/time.h>
 #include <gfx/accelerationstructures.h>
 #include <gfx/environment.h>
 #include <gfx/environmentfilter.h>
+#include <gfx/framegraph.h>
 #include <gfx/lens.h>
 #include <gfx/gpu.h>
 #include <gfx/graphicsqueue.h>
@@ -15,6 +18,7 @@
 #include <gfx/model.h>
 #include <gfx/rayquerywatch.h>
 #include <gfx/renderer.h>
+#include <gfx/renderoutput.h>
 #include <gfx/shaderloader.h>
 #include <gfx/shaders/capi.h>
 #include <gfx/texture.h>
@@ -388,6 +392,55 @@ struct Scene::Impl
 	RenderOutput& myOutput;
 	// prefilters the environments on the gpu (see InstallEnvironment)
 	std::unique_ptr<EnvironmentFilter> myEnvironmentFilter;
+
+	// what the scene compiles (see ShaderCompiles): each layout's source and configuration, the same for the compile in
+	// the background and the load that makes the layout from its cache
+	struct ShaderCompile
+	{
+		std::filesystem::path file;
+		ShaderLoader::SlangConfiguration config;
+	};
+	struct ShaderCompileSet
+	{
+		std::filesystem::path includePath;
+		std::filesystem::path intermediatePath;
+		ShaderCompile zPrepass;
+		ShaderCompile main;
+		ShaderCompile flare;
+		ShaderCompile environment;
+
+		[[nodiscard]] std::array<const ShaderCompile*, 4> All() const { return {&zPrepass, &main, &flare, &environment}; }
+	};
+	// how far a layout's compile is: its groups done of how many (see ShaderLoader::Load), and its entry points, which
+	// weigh it in the whole's progress (see ShaderProgress)
+	struct ShaderCompileProgress
+	{
+		uint32_t groupCount = 1;
+		uint32_t entryPointCount = 0;
+		std::atomic_uint32_t groupsDone{0};
+		std::atomic<float> seconds{0.0F}; // how long its load took, once it is done
+	};
+	// the shaders compiling in the background from the constructor (see InternalStartShaderCompiles), each layout's
+	// progress, the task compiling them and when it started, until Prepare has made the rest from them (myReady). the
+	// frame drawn meanwhile: the output cleared and the ui over it (see RecordLoadingFrame), and what its final passes see
+	// of it
+	std::unique_ptr<ShaderCompileSet> myShaderCompiles;
+	std::vector<std::unique_ptr<ShaderCompileProgress>> myShaderCompileProgress;
+	core::Future<void> myShaderCompileFuture;
+	std::chrono::steady_clock::time_point myShaderCompileStart;
+	// how long the last cold compile took (seconds), which the progress of the compiles still running is estimated by:
+	// kept with the shaders' cache (see kShaderCompileSecondsFile), else kDefaultShaderCompileSeconds
+	float myShaderCompileSeconds = 0.0F;
+	static constexpr const char* kShaderCompileSecondsFile = "compile-seconds";
+	static constexpr float kDefaultShaderCompileSeconds = 20.0F; // the M4 Pro's: 18 s (see ShaderLoader::kMaxGroupCount)
+	// a layout's load past this compiled (a cache hit takes milliseconds)
+	static constexpr float kCachedShaderCompileSeconds = 1.0F;
+	// the progress shown until the compiles are done and Prepare has made the rest
+	static constexpr float kShaderProgressCap = 0.95F;
+	std::atomic_bool myReady{false};
+	std::unique_ptr<FrameGraph> myLoadingGraph;
+	FrameGraph::ImageId myLoadingOutput;
+	RecordingFrame myLoadingFrame;
 	// the bytes of device memory its transients take, and would take without aliasing. written on resize, for the ui
 	std::atomic_uint64_t myTransientMemory;
 	std::atomic_uint64_t myUnaliasedTransientMemory;
@@ -2631,79 +2684,26 @@ struct Scene::Impl
 			graphicsSubmits |= graphicsQueue.Submit();
 		}
 
-		auto shaderIncludePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ShaderPath"]);
-		auto shaderIntermediatePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["UserProfilePath"]) / ".slang.intermediate";
+		// the shaders compile in the background (see InternalStartShaderCompiles), and the rest is made from them once they
+		// have (InternalFinishInitialization, on the draw thread): the first frames draw the ui alone (see Record)
+		InternalStartShaderCompiles();
+	}
 
-		ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
+	~Impl()
+	{
+		// the compiles use the scene (see InternalStartShaderCompiles): an application's exit has joined them
+		// (WindowedApplication::Shutdown), a preview's scene waits for its own
+		if (myShaderCompileFuture.Valid())
+			myShaderCompileFuture.Wait();
+	}
 
-		auto shaderSourceFile = shaderIncludePath / "shaders.slang";
+	Impl(const Impl&) = delete;
+	Impl& operator=(const Impl&) = delete;
 
-		// the device's ray queries where it has them (BVH_RAY_QUERY, see AccelerationStructures), else gfx's BVHs traversed
-		auto definitions = ShaderLoader::SlangConfiguration{}.preprocessorDefinitions;
-		if (device.GetLimits().rayQuery)
-			definitions.emplace_back("BVH_RAY_QUERY", "1");
-		if (device.GetLimits().rayQuery && RayQueryWatchOn())
-			definitions.emplace_back("BVH_RAY_QUERY_WATCH", "1");
-
-		auto zPrepassLayout = pipeline.CreateLayout(
-			"VertexZPrepass",
-			shaderLoader.Load(
-				shaderSourceFile,
-				{
-					.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
-					.entryPoints = {{"VertexZPrepass", SLANG_STAGE_VERTEX}},
-					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-					.preprocessorDefinitions = definitions,
-				}));
-
-		pipeline.BindLayoutAuto(zPrepassLayout, PipelineBindPoint::kGraphics);
-
-		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
-		{
-			pipeline.SetDescriptorData(
-				"gModelInstances",
-				BufferBinding{.buffer = *device.GetResource<Buffer>(myModelInstancesUuid), .offset = 0},
-				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
-				frameIt);
-			pipeline.SetDescriptorData(
-				"gJointMatrices",
-				BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultJointsUuid), .offset = 0},
-				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
-				frameIt);
-			pipeline.SetDescriptorData(
-				"gMorphWeights",
-				BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultMorphWeightsUuid), .offset = 0},
-				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
-				frameIt);
-			for (const char* binding : {"gBvhMovingNodes", "gBvhMovingTriangles"})
-				pipeline.SetDescriptorData(
-					binding,
-					BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultBvhUuid), .offset = 0},
-					DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
-					frameIt);
-		}
-		pipeline.SetDescriptorData(
-			"gSkinVertices",
-			BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultSkinVerticesUuid), .offset = 0},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-		pipeline.SetDescriptorData(
-			"gMorphDeltas",
-			BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultMorphDeltasUuid), .offset = 0},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-		for (const char* binding : {"gBvhNodes", "gBvhTriangles", "gEmitters", "gEmitterTree"})
-			pipeline.SetDescriptorData(
-				binding, BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultBvhUuid), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-
-		for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
-		{
-			pipeline.SetDescriptorData(
-				"gViewData",
-				BufferBinding{.buffer = myViews.GetBuffer(i), .offset = 0},
-				DESCRIPTOR_SET_CATEGORY_VIEW,
-				i);
-		}
-
+	// the main layout's entry points (the renderer's passes)
+	[[nodiscard]] static ShaderLoader::SlangConfiguration MainShaderConfiguration(
+		Device& device, const std::vector<std::pair<std::string, std::string>>& definitions)
+	{
 		ShaderLoader::SlangConfiguration mainConfiguration{
 			.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
 			.entryPoints = {
@@ -2794,23 +2794,256 @@ struct Scene::Impl
 		// kRayQueryReplayEntryPoint), where the shaders have the watch
 		if (device.GetLimits().rayQuery && RayQueryWatchOn())
 			mainConfiguration.entryPoints.emplace_back("ComputeRayQueryReplay", SLANG_STAGE_COMPUTE);
-		auto mainLayout = pipeline.CreateLayout("Main", shaderLoader.Load(shaderSourceFile, mainConfiguration));
+		return mainConfiguration;
+	}
 
+	[[nodiscard]] static ShaderCompileSet ShaderCompiles(Device& device)
+	{
+		auto& variables = core::Application::Get()->GetEnv().variables;
+		ShaderCompileSet compiles;
+		compiles.includePath = std::get<std::filesystem::path>(variables["ShaderPath"]);
+		compiles.intermediatePath = std::get<std::filesystem::path>(variables["UserProfilePath"]) / ".slang.intermediate";
+		auto shaderSourceFile = compiles.includePath / "shaders.slang";
+
+		// the device's ray queries where it has them (BVH_RAY_QUERY, see AccelerationStructures), else gfx's BVHs traversed
+		auto definitions = ShaderLoader::SlangConfiguration{}.preprocessorDefinitions;
+		if (device.GetLimits().rayQuery)
+			definitions.emplace_back("BVH_RAY_QUERY", "1");
+		if (device.GetLimits().rayQuery && RayQueryWatchOn())
+			definitions.emplace_back("BVH_RAY_QUERY_WATCH", "1");
+
+		compiles.zPrepass = {
+			.file = shaderSourceFile,
+			.config = {
+				.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+				.entryPoints = {{"VertexZPrepass", SLANG_STAGE_VERTEX}},
+				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+				.preprocessorDefinitions = definitions,
+			}};
+		compiles.main = {.file = shaderSourceFile, .config = MainShaderConfiguration(device, definitions)};
 		// the glare's flares' layout (see flare.slang, the renderer's Flare pass): a vertex and a fragment stage of its own
-		[[maybe_unused]] auto flareLayout = pipeline.CreateLayout(
-			"Flare",
-			shaderLoader.Load(
-				shaderIncludePath / "flare.slang",
-				{
-					.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
-					.entryPoints = {{"VertexFlare", SLANG_STAGE_VERTEX}, {"FragmentFlare", SLANG_STAGE_FRAGMENT}},
-					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-				}));
+		compiles.flare = {
+			.file = compiles.includePath / "flare.slang",
+			.config = {
+				.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+				.entryPoints = {{"VertexFlare", SLANG_STAGE_VERTEX}, {"FragmentFlare", SLANG_STAGE_FRAGMENT}},
+				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+			}};
+		compiles.environment = {.file = compiles.includePath / "environment.slang", .config = EnvironmentFilter::ShaderConfiguration()};
+		return compiles;
+	}
+
+	// the shaders compiled on the executor (a cold cache's first launch, or a changed shader: tens of seconds; a warm one,
+	// milliseconds), into the cache that InternalFinishInitialization's loads then read (see ShaderLoader::Load): a task
+	// loading the layouts at once, each in groups of its entry points (the main layout's 78 in 4). the layouts in turn
+	// were a little slower (the client's cold first launch with the helmet, M4 Pro: 18.4 s, against 17.5 to 17.8) for a
+	// little less memory (a resident peak of 1.90 to 1.96 GB, against 2.01 to 2.04; 0.71 warm). its progress: the entry
+	// points of the groups done, and of those still compiling an estimate by the time they have taken against the last
+	// cold compile's (see ShaderProgress)
+	void InternalStartShaderCompiles()
+	{
+		myShaderCompiles = std::make_unique<ShaderCompileSet>(ShaderCompiles(myRHI.GetPrimaryDevice()));
+		myShaderCompileStart = std::chrono::steady_clock::now();
+		myShaderCompileSeconds = kDefaultShaderCompileSeconds;
+		if (auto file = core::file::Map(myShaderCompiles->intermediatePath / kShaderCompileSecondsFile); file && file->size() == sizeof(float))
+		{
+			float seconds = 0.0F;
+			std::memcpy(&seconds, file->data(), sizeof(seconds));
+			if (std::isfinite(seconds) && seconds > 0.0F)
+				myShaderCompileSeconds = seconds;
+		}
+		for (const auto* compile : myShaderCompiles->All())
+		{
+			auto& progress = myShaderCompileProgress.emplace_back(std::make_unique<ShaderCompileProgress>());
+			progress->groupCount = ShaderLoader::GroupCount(compile->config);
+			progress->entryPointCount = static_cast<uint32_t>(compile->config.entryPoints.size());
+		}
+		auto task = core::CreateTask(
+			[this]
+			{
+				ZoneScopedN("Scene::ShaderCompiles");
+				const auto& compiles = *myShaderCompiles;
+				auto all = compiles.All();
+				core::Application::Get()->GetExecutor().ForEach(
+					all.size(),
+					[this, &compiles, &all](size_t compileIt)
+					{
+						// a loader of its own: its slang session isn't for several threads
+						ShaderLoader loader({std::filesystem::path(compiles.includePath)}, {}, std::filesystem::path(compiles.intermediatePath));
+						auto& progress = *myShaderCompileProgress[compileIt];
+						auto start = std::chrono::steady_clock::now();
+						(void)loader.Load(all[compileIt]->file, all[compileIt]->config, &progress.groupsDone);
+						progress.seconds.store(
+							std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count(), std::memory_order_relaxed);
+					});
+			});
+		myShaderCompileFuture = std::move(task.future);
+		core::Application::Get()->GetExecutor().Submit(std::span(&task.handle, 1));
+	}
+
+	// makes the rest once the compiles are done (see InternalFinishInitialization; Scene::Prepare). returns whether the
+	// scene is ready
+	bool Prepare()
+	{
+		if (myReady.load(std::memory_order_relaxed))
+			return true;
+		if (!myShaderCompileFuture.IsReady())
+			return false;
+
+		ZoneScopedN("Scene::Prepare");
+
+		InternalFinishInitialization();
+
+		// how long a cold compile took (the main layout's compiled, not cached), which the next one's progress is estimated by
+		auto all = myShaderCompiles->All();
+		float seconds = 0.0F;
+		bool cold = false;
+		for (size_t compileIt = 0; compileIt < all.size(); compileIt++)
+		{
+			float layoutSeconds = myShaderCompileProgress[compileIt]->seconds.load(std::memory_order_relaxed);
+			seconds += layoutSeconds;
+			cold = cold || (all[compileIt] == &myShaderCompiles->main && layoutSeconds > kCachedShaderCompileSeconds);
+		}
+		if (cold)
+			(void)core::file::Write(myShaderCompiles->intermediatePath / kShaderCompileSecondsFile, std::as_bytes(std::span(&seconds, 1)));
+
+		myReady.store(true, std::memory_order_release);
+		return true;
+	}
+
+	// how far the compiles are, 0 to 1 (see Scene::GetShaderProgress): each layout's groups done, and of those still
+	// compiling, the time taken against how long the last cold compile took (slang says nothing of a compile's progress,
+	// and a layout's groups finish about together), weighed by its entry points; kShaderProgressCap until ready
+	[[nodiscard]] float ShaderProgress() const
+	{
+		if (myReady.load(std::memory_order_relaxed))
+			return 1.0F;
+		auto elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - myShaderCompileStart).count();
+		float running = std::min(elapsed / myShaderCompileSeconds, kShaderProgressCap);
+		float done = 0.0F;
+		uint32_t entryPointCount = 0;
+		for (const auto& progress : myShaderCompileProgress)
+		{
+			float groups = std::min(
+				static_cast<float>(progress->groupsDone.load(std::memory_order_relaxed)) / static_cast<float>(progress->groupCount), 1.0F);
+			done += static_cast<float>(progress->entryPointCount) * (groups + ((1.0F - groups) * running));
+			entryPointCount += progress->entryPointCount;
+		}
+		return std::min(done / static_cast<float>(std::max(entryPointCount, 1U)), kShaderProgressCap);
+	}
+
+	// waits until Prepare has made the rest (for a load started before: its install needs it), unless cancelled or the
+	// application exits. returns whether the scene is ready
+	[[nodiscard]] bool WaitUntilReady(core::CancelledFn cancelled) const
+	{
+		constexpr auto kPollInterval = std::chrono::milliseconds(10);
+		while (!myReady.load(std::memory_order_acquire))
+		{
+			if (core::Application::Get()->IsExitRequested() || cancelled())
+				return false;
+			core::SleepUntil(std::chrono::steady_clock::now() + kPollInterval);
+		}
+		return true;
+	}
+
+	// the frame until the scene is ready: the output cleared, and its final passes (the ui over a window's frame, see
+	// RenderOutput::AddFinalPasses)
+	void RecordLoadingFrame(CommandBufferHandle cmd, const FrameTarget& target)
+	{
+		if (!myLoadingGraph)
+		{
+			myLoadingGraph = std::make_unique<FrameGraph>();
+			myLoadingOutput = myLoadingGraph->ImportImage("Output");
+			myLoadingGraph->AddPass(
+				"Clear",
+				[output = myLoadingOutput](FrameGraph::PassBuilder& builder)
+				{ builder.ColorAttachment(output, LoadOp::kClear, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 1.0F}}); },
+				[](FrameGraph::PassContext& /*context*/) {});
+			myOutput.AddFinalPasses(*myLoadingGraph, myLoadingOutput, myLoadingFrame);
+		}
+		FrameInputs inputs{
+			.frameIndex = target.frameIndex,
+			.outputIndex = target.outputIndex,
+			.graphicsQueue = target.graphicsQueue,
+			.graphicsTimeline = target.graphicsTimeline,
+			.prepareUi = target.prepareUi,
+			.drawUi = target.drawUi,
+			.executor = target.executor};
+		myLoadingFrame = {.inputs = &inputs, .pipeline = &myPipeline};
+		auto extent = myOutput.GetExtent();
+		(void)myLoadingGraph->Compile(myRHI.GetPrimaryDevice(), extent, extent);
+		myLoadingGraph->Bind(myLoadingOutput, myOutput.GetTarget(target.outputIndex), 0);
+		myLoadingGraph->Execute(cmd);
+		myLoadingFrame = {};
+	}
+
+	// the rest of what the constructor made, once the shaders have compiled (their loads read the cache): on the draw
+	// thread, outside the graphics queue's lock (see Scene::Prepare)
+	void InternalFinishInitialization()
+	{
+		auto& rhi = myRHI;
+		auto& device = rhi.GetPrimaryDevice();
+		auto& pipeline = myPipeline;
+		const auto& compiles = *myShaderCompiles;
+		ShaderLoader shaderLoader({std::filesystem::path(compiles.includePath)}, {}, std::filesystem::path(compiles.intermediatePath));
+
+		auto zPrepassLayout = pipeline.CreateLayout("VertexZPrepass", shaderLoader.Load(compiles.zPrepass.file, compiles.zPrepass.config));
+
+		pipeline.BindLayoutAuto(zPrepassLayout, PipelineBindPoint::kGraphics);
+
+		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+		{
+			pipeline.SetDescriptorData(
+				"gModelInstances",
+				BufferBinding{.buffer = *device.GetResource<Buffer>(myModelInstancesUuid), .offset = 0},
+				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+				frameIt);
+			pipeline.SetDescriptorData(
+				"gJointMatrices",
+				BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultJointsUuid), .offset = 0},
+				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+				frameIt);
+			pipeline.SetDescriptorData(
+				"gMorphWeights",
+				BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultMorphWeightsUuid), .offset = 0},
+				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+				frameIt);
+			for (const char* binding : {"gBvhMovingNodes", "gBvhMovingTriangles"})
+				pipeline.SetDescriptorData(
+					binding,
+					BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultBvhUuid), .offset = 0},
+					DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+					frameIt);
+		}
+		pipeline.SetDescriptorData(
+			"gSkinVertices",
+			BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultSkinVerticesUuid), .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+		pipeline.SetDescriptorData(
+			"gMorphDeltas",
+			BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultMorphDeltasUuid), .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+		for (const char* binding : {"gBvhNodes", "gBvhTriangles", "gEmitters", "gEmitterTree"})
+			pipeline.SetDescriptorData(
+				binding, BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultBvhUuid), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+
+		for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
+		{
+			pipeline.SetDescriptorData(
+				"gViewData",
+				BufferBinding{.buffer = myViews.GetBuffer(i), .offset = 0},
+				DESCRIPTOR_SET_CATEGORY_VIEW,
+				i);
+		}
+
+		auto mainLayout = pipeline.CreateLayout("Main", shaderLoader.Load(compiles.main.file, compiles.main.config));
+		[[maybe_unused]] auto flareLayout = pipeline.CreateLayout("Flare", shaderLoader.Load(compiles.flare.file, compiles.flare.config));
 
 		pipeline.BindLayoutAuto(mainLayout, PipelineBindPoint::kGraphics);
 
-		myEnvironmentFilter = std::make_unique<EnvironmentFilter>(device, pipeline, shaderLoader, shaderIncludePath / "environment.slang");
+		myEnvironmentFilter = std::make_unique<EnvironmentFilter>(device, pipeline, shaderLoader, compiles.environment.file);
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 		// the sky's view of itself, which the backdrop samples where the sky is the environment (see SkyRadiance), and its
 		// other tables, which the aerial perspective is made from (see ComputeAerialPerspective)
@@ -3141,6 +3374,8 @@ std::optional<std::string> Scene::LoadModels(
 	ModelGround ground,
 	core::CancelledFn cancelled)
 {
+	if (!myImpl->WaitUntilReady(cancelled))
+		return std::nullopt;
 	return myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, options, arrangement, ground, cancelled);
 }
 
@@ -3155,6 +3390,8 @@ std::optional<std::string> Scene::LoadVariants(
 {
 	ENSURE(!filePaths.empty() && filePaths.size() == variants.size());
 
+	if (!myImpl->WaitUntilReady(cancelled))
+		return std::nullopt;
 	auto optionsOf = [scene](std::optional<uint32_t> variant)
 	{ return mesh::ImportOptions{.scene = scene, .variant = variant ? std::optional<size_t>(*variant) : std::nullopt}; };
 	if (filePaths.size() == 1)
@@ -3168,32 +3405,55 @@ std::optional<std::string> Scene::LoadVariants(
 
 void Scene::LoadImage(std::string_view filePath, std::atomic_uint8_t& progress)
 {
-	myImpl->LoadAndInstallImage(myImpl->myRHI, filePath, progress);
+	if (myImpl->WaitUntilReady(core::NeverCancelled))
+		myImpl->LoadAndInstallImage(myImpl->myRHI, filePath, progress);
 }
 
 void Scene::LoadEnvironment(std::optional<std::string> filePath, std::atomic_uint8_t& progress, core::CancelledFn cancelled)
 {
-	myImpl->LoadAndInstallEnvironment(myImpl->myRHI, std::move(filePath), progress, cancelled);
+	if (myImpl->WaitUntilReady(cancelled))
+		myImpl->LoadAndInstallEnvironment(myImpl->myRHI, std::move(filePath), progress, cancelled);
+}
+
+bool Scene::Prepare()
+{
+	return myImpl->Prepare();
+}
+
+bool Scene::IsReady() const noexcept
+{
+	return myImpl->myReady.load(std::memory_order_acquire);
+}
+
+float Scene::GetShaderProgress() const noexcept
+{
+	return myImpl->ShaderProgress();
 }
 
 void Scene::Resize()
 {
-	myImpl->CreateOutputDependentObjects(myImpl->myRHI);
+	// before it is ready, Prepare makes what is sized after the output at its size then
+	if (IsReady())
+		myImpl->CreateOutputDependentObjects(myImpl->myRHI);
 }
 
 bool Scene::NeedsResize() const noexcept
 {
-	return myImpl->mySettings.upscaling.load(std::memory_order_relaxed) != myImpl->myUpscaling;
+	return IsReady() && myImpl->mySettings.upscaling.load(std::memory_order_relaxed) != myImpl->myUpscaling;
 }
 
 void Scene::Update(QueueTimelineContextData& graphics, uint32_t frameIndex)
 {
-	myImpl->Update(graphics, frameIndex);
+	if (IsReady())
+		myImpl->Update(graphics, frameIndex);
 }
 
 void Scene::Record(CommandBufferHandle cmd, const FrameTarget& target)
 {
-	myImpl->Record(cmd, target);
+	if (IsReady())
+		myImpl->Record(cmd, target);
+	else
+		myImpl->RecordLoadingFrame(cmd, target);
 }
 
 Scene::Settings& Scene::GetSettings() noexcept { return myImpl->mySettings; }
