@@ -12,6 +12,7 @@ vcpkg_from_github(
         0006-fix-ios-install.patch
         ktxread-libtool.diff
         0007-version-without-bash.patch # version.h from cmake: no msys2 bash, which IT policy may block
+        0008-basisu-sse-with-avx.patch # basisu's SSE kernels with the x64 baseline's AVX2 (their check passed on windows alone)
 )
 file(GLOB third_party "${SOURCE_PATH}/external/*" "${SOURCE_PATH}/external/basisu/zstd" "${SOURCE_PATH}/other_include/*")
 list(FILTER third_party EXCLUDE REGEX "/(astc-encoder|basisu|dfdutils|etcdec|imageio|glm|lodepng|SDL_gesture)\$")

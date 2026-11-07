@@ -1,8 +1,10 @@
 # CI: the cpu's work only (the user's call, 2026-11-06: the client's gpu workloads are too heavy for a hosted runner's
-# software Vulkan): setup, a build, and scripts/assettest.ps1's checks without -Client (the importers, images, environments,
-# the lens check). macOS and Windows, the platforms the shared vcpkg binary cache (docs/notes/build.md) holds packages for:
-# setup restores them, LLVM too, rather than build them on a hosted runner. Linux follows once the cache holds its. Reads
-# the cache only (no credentials here).
+# software Vulkan): setup, the profile, debug and release builds (the user's ask, 2026-11-07), and scripts/assettest.ps1's
+# checks without -Client (the importers, images, environments, the lens check) on the profile build. macOS, Windows and
+# Linux, which the shared vcpkg binary cache (docs/notes/build.md) holds packages for: setup restores them, LLVM too, rather
+# than build them on a hosted runner. Reads the cache only (no credentials here). A job per platform builds the three
+# configurations in turn: their packages are the same (each holds its debug and release builds), and a job per
+# configuration would restore them, about 2 GB, three times.
 name: CI
 
 on:
@@ -21,13 +23,16 @@ concurrency:
 
 jobs:
   macos:
-    name: macOS arm64 (profile)
+    name: macOS arm64
     # GitHub's Xcode 27 image: macOS 27 on Apple silicon, whose SDK's major version is the deployment target the cache's
     # packages are keyed by (macos-latest and macos-26 are macOS 26: every package would be built)
     runs-on: xcode-27
     timeout-minutes: 120
     env:
-      PRESET: arm64-osx-clang-profile
+      TRIPLET: arm64-osx-clang
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v7
         with:
@@ -46,23 +51,40 @@ jobs:
 
       # setup.ps1 directly: setup_osx.sh only installs PowerShell (the image has it) and upgrades all of Homebrew
       - name: Setup
-        shell: pwsh
+        id: setup
         run: ./setup.ps1
 
-      - name: Configure
-        run: cmake --preset "$PRESET"
+      - name: Build profile
+        id: profile
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          cmake --preset "$env:TRIPLET-profile"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "build/$env:TRIPLET-profile"
 
-      - name: Build
-        run: cmake --build "build/$PRESET"
+      - name: Build debug
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          cmake --preset "$env:TRIPLET-debug"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "build/$env:TRIPLET-debug"
 
+      - name: Build release
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          cmake --preset "$env:TRIPLET-release"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "build/$env:TRIPLET-release"
+
+      # on the profile build, whatever became of the others
       - name: Asset checks
-        shell: pwsh
+        if: ${{ !cancelled() && steps.profile.outcome == 'success' }}
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
         run: |
           $paths = & scripts/fetch-test-assets.ps1 -Minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & scripts/assettest.ps1 -Preset $env:PRESET -Work "$env:RUNNER_TEMP/assettest" @paths
+          & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/assettest" @paths
 
       - name: Upload logs
         if: failure()
@@ -75,14 +97,14 @@ jobs:
           if-no-files-found: ignore
 
   windows:
-    name: Windows x64 (profile)
+    name: Windows x64
     # GitHub's Windows Server 2025 image with Visual Studio 2026 (its components and Windows 11 SDK 26100 are what setup
     # requires, and its CMake is new enough; it has no winget, which setup only needs to install what is missing). The
     # packages' hashes don't track the toolset or SDK versions (docs/notes/build.md), so it restores those built with VS 2022
     runs-on: windows-2025-vs2026
     timeout-minutes: 120
     env:
-      PRESET: x64-windows-clang-profile
+      TRIPLET: x64-windows-clang
     defaults:
       run:
         shell: pwsh
@@ -101,27 +123,118 @@ jobs:
 
       # setup.ps1 directly: setup_windows.bat only installs PowerShell, which the image has
       - name: Setup
+        id: setup
         run: ./setup.ps1
 
-      - name: Configure
-        run: cmake --preset $env:PRESET
+      - name: Build profile
+        id: profile
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          cmake --preset "$env:TRIPLET-profile"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "build/$env:TRIPLET-profile"
 
-      - name: Build
-        run: cmake --build "build/$env:PRESET"
+      - name: Build debug
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          cmake --preset "$env:TRIPLET-debug"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "build/$env:TRIPLET-debug"
+
+      - name: Build release
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          cmake --preset "$env:TRIPLET-release"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "build/$env:TRIPLET-release"
 
       - name: Asset checks
+        if: ${{ !cancelled() && steps.profile.outcome == 'success' }}
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
         run: |
           $paths = & scripts/fetch-test-assets.ps1 -Minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & scripts/assettest.ps1 -Preset $env:PRESET -Work "$env:RUNNER_TEMP/assettest" @paths
+          & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/assettest" @paths
 
       - name: Upload logs
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: logs-windows
+          path: |
+            vcpkg/buildtrees/*/*.log
+            ${{ runner.temp }}/assettest/logs
+          if-no-files-found: ignore
+
+  linux:
+    name: Linux x64
+    # GitHub's Ubuntu 26.04 image, by its own label: the cache's Linux packages are keyed by the C library's version
+    # (GLIBC_VERSION, 2.43 there), and ubuntu-latest moves from 24.04 (2.39) to 26.04 over November and December 2026
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    env:
+      TRIPLET: x64-linux-clang
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Cache test assets
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/test-assets
+          key: test-assets-${{ hashFiles('scripts/test-assets/**', 'scripts/fetch-test-assets.ps1') }}
+          restore-keys: test-assets-
+
+      # setup.ps1 directly (setup_linux.sh only installs PowerShell, which the image has), after apt's package lists, which
+      # the image's may predate: linux.ps1 installs what the image lacks
+      - name: Setup
+        id: setup
+        run: |
+          sudo apt-get update
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./setup.ps1
+
+      - name: Build profile
+        id: profile
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          cmake --preset "$env:TRIPLET-profile"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "build/$env:TRIPLET-profile"
+
+      - name: Build debug
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          cmake --preset "$env:TRIPLET-debug"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "build/$env:TRIPLET-debug"
+
+      - name: Build release
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          cmake --preset "$env:TRIPLET-release"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "build/$env:TRIPLET-release"
+
+      - name: Asset checks
+        if: ${{ !cancelled() && steps.profile.outcome == 'success' }}
+        env:
+          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+        run: |
+          $paths = & scripts/fetch-test-assets.ps1 -Minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/assettest" @paths
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-linux
           path: |
             vcpkg/buildtrees/*/*.log
             ${{ runner.temp }}/assettest/logs

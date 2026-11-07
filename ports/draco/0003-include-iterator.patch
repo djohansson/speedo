@@ -1,0 +1,24 @@
+diff --git a/src/draco/compression/point_cloud/algorithms/float_points_tree_decoder.cc b/src/draco/compression/point_cloud/algorithms/float_points_tree_decoder.cc
+index dffaa4c..6ced41e 100644
+--- a/src/draco/compression/point_cloud/algorithms/float_points_tree_decoder.cc
++++ b/src/draco/compression/point_cloud/algorithms/float_points_tree_decoder.cc
+@@ -15,6 +15,7 @@
+ #include "draco/compression/point_cloud/algorithms/float_points_tree_decoder.h"
+ 
+ #include <algorithm>
++#include <iterator>
+ 
+ #include "draco/compression/point_cloud/algorithms/dynamic_integer_points_kd_tree_decoder.h"
+ #include "draco/compression/point_cloud/algorithms/quantize_points_3.h"
+diff --git a/src/draco/compression/point_cloud/algorithms/float_points_tree_encoder.h b/src/draco/compression/point_cloud/algorithms/float_points_tree_encoder.h
+index 44c1b3d..395c7d2 100644
+--- a/src/draco/compression/point_cloud/algorithms/float_points_tree_encoder.h
++++ b/src/draco/compression/point_cloud/algorithms/float_points_tree_encoder.h
+@@ -15,6 +15,7 @@
+ #ifndef DRACO_COMPRESSION_POINT_CLOUD_ALGORITHMS_FLOAT_POINTS_TREE_ENCODER_H_
+ #define DRACO_COMPRESSION_POINT_CLOUD_ALGORITHMS_FLOAT_POINTS_TREE_ENCODER_H_
+ 
++#include <iterator>
+ #include <memory>
+ #include <vector>
+ 

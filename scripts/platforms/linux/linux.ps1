@@ -2,7 +2,22 @@
 
 Write-Host "Installing Linux dependencies..."
 
+# a compiler and the tools vcpkg's bootstrap and builds take (a fresh distribution, e.g. WSL's Ubuntu, has none of them;
+# GitHub's images have most); the host triplets build with clang, lld and LLVM's archiver (see x64-linux-release.cmake)
+Install-AptPackage build-essential
+Install-AptPackage clang
+Install-AptPackage lld
+Install-AptPackage llvm
+Install-AptPackage curl
+Install-AptPackage zip
+Install-AptPackage unzip
+Install-AptPackage tar
+Install-AptPackage python3-venv # meson's ports (libsystemd) build in a python venv
+Install-AptPackage ninja-build # and meson's build with the ninja on the path
+
 Install-AptPackage autoconf
+Install-AptPackage autoconf-archive
+Install-AptPackage automake
 Install-AptPackage libtool
 Install-AptPackage coreutils
 Install-AptPackage pkg-config
@@ -24,8 +39,6 @@ Install-AptPackage cmake
 if ($env:SPEEDO_BINARY_CACHE_WRITE -and -not (Get-Command "aws" -ErrorAction SilentlyContinue))
 {
 	Write-Host "Installing the AWS CLI..."
-	Install-AptPackage curl
-	Install-AptPackage unzip
 
 	$AwsArchitecture = (uname -m) -match 'aarch64|arm64' ? 'aarch64' : 'x86_64'
 	$AwsTemp = New-Item -ItemType Directory -Path (Join-Path ([IO.Path]::GetTempPath()) "awscli-$PID")
@@ -35,6 +48,30 @@ if ($env:SPEEDO_BINARY_CACHE_WRITE -and -not (Get-Command "aws" -ErrorAction Sil
 	sudo "$AwsTemp/aws/install" --update
 	if ($LASTEXITCODE -ne 0) { throw "AWS CLI installation failed with exit code $LASTEXITCODE" }
 	Remove-Item -Recurse -Force $AwsTemp
+}
+
+# FASTBuild where vcpkg's builds look for it first (vcpkg_find_acquire_program(FASTBUILD), the fork's): its Linux zip was
+# made on Windows and holds no file modes, so what vcpkg extracts from it isn't executable, and the builds failed ("Unable
+# to find FASTBUILD"). A post-install chmod in the fork's script would change vcpkg-cmake's hash, which names that script,
+# and so every package's on every platform: setup extracts it there first, executable, by the script's url and hash
+$FastBuildScript = Get-Content -Raw -Path "$PSScriptRoot/../../../vcpkg/scripts/cmake/vcpkg_find_acquire_program(FASTBUILD).cmake"
+$FastBuildVersion = [regex]::Match($FastBuildScript, 'set\(program_version ([^)\s]+)\)').Groups[1].Value
+$FastBuildLinux = [regex]::Match($FastBuildScript, '(?s)"Linux".*?download_urls "([^"]+)".*?download_sha512 (\w+)')
+if ((uname -m) -match 'x86_64|amd64' -and $FastBuildVersion -and $FastBuildLinux.Success)
+{
+	$FastBuildDir = "$PSScriptRoot/../../../vcpkg/downloads/tools/fbuild/$FastBuildVersion-linux"
+	if (-not (Test-Path "$FastBuildDir/fbuild") -or -not ((Get-Item "$FastBuildDir/fbuild").UnixFileMode -band [IO.UnixFileMode]::UserExecute))
+	{
+		Write-Host "Installing FASTBuild $FastBuildVersion for vcpkg..."
+		$FastBuildZip = Join-Path ([IO.Path]::GetTempPath()) "fastbuild-$PID.zip"
+		curl -fsSL -o $FastBuildZip ($FastBuildLinux.Groups[1].Value -replace '\$\{program_version\}', $FastBuildVersion)
+		if ($LASTEXITCODE -ne 0) { throw "FASTBuild download failed with exit code $LASTEXITCODE" }
+		if ((Get-FileHash -Algorithm SHA512 $FastBuildZip).Hash -ne $FastBuildLinux.Groups[2].Value) { throw "FASTBuild's download doesn't match its SHA-512" }
+		New-Item -ItemType Directory -Force -Path $FastBuildDir | Out-Null
+		unzip -q -o $FastBuildZip -d $FastBuildDir
+		chmod +x "$FastBuildDir/fbuild" "$FastBuildDir/fbuildworker"
+		Remove-Item -Force $FastBuildZip
+	}
 }
 
 # the C library's version, which the linux clang triplets track in their packages' ABI: a package built against a newer

@@ -317,9 +317,9 @@ same install):
   the clang triplets: the target packages are built by that port's clang and link its static libc++, so after an LLVM
   update the shared cache must not hand out the old ones.
 - Linux's C library (`GLIBC_VERSION`, `getconf GNU_LIBC_VERSION`), tracked by the Linux triplets, the host's too (LLVM):
-  a package built against a newer glibc fails to load with an older one (not yet run on Linux); nothing is shared for
-  Linux yet. GitHub's `ubuntu-26.04` has glibc 2.43, `ubuntu-24.04` (`ubuntu-latest` until it moves to 26.04) 2.39: a
-  machine seeding the cache for CI runs the same Ubuntu release as the job.
+  a package built against a newer glibc fails to load with an older one. GitHub's `ubuntu-26.04` has glibc 2.43,
+  `ubuntu-24.04` (`ubuntu-latest` until it moves to 26.04) 2.39: a machine seeding the cache for CI runs the same Ubuntu
+  release as the job (WSL2's Ubuntu 26.04 here, see "Linux: setup and the toolchain").
 - not Windows' toolset and SDK versions (Visual Studio's MSVC tools and the Windows SDK, whose libraries the packages
   link): a package built with older ones links with newer ones (MSVC's binary compatibility runs that way, and the
   packages use only its runtime, libc++ being static), and GitHub's Windows image updates Visual Studio every few weeks,
@@ -348,7 +348,61 @@ On Windows x64 (2026-11-07, Ryzen 9 7950X) the cache holds 72 packages, 2.20 GB:
 by Visual Studio's clang-cl), the rest the target packages (`x64-windows-clang`). Pinning the hashed files' line endings
 rebuilt them all in 27 minutes, LLVM in 11 (FASTBuild's cache); `seed-binary-cache.ps1` uploaded them in 287 s. A fresh
 clone at another path (with `core.autocrlf` on, as Git for Windows installs it) and an empty local cache restored all 72
-from the bucket in 4.1 minutes, setup's whole run 286 s, and built none.
+from the bucket in 4.1 minutes, setup's whole run 286 s, and built none. The CI's first Windows job restored them all and
+passed in 7m43s. The Linux toolchain changes (below) rebuilt the target packages again, in 16 minutes with their uploads.
+
+On Linux x64 (2026-11-07, Ubuntu 26.04 in WSL2 on the same Ryzen, 32 threads and 48 GB, `.wslconfig`'s `memory`: half the
+machine's 63 GB, WSL's default, is tight for LLVM's ThinLTO links) the cache holds 88 packages: LLVM (`x64-linux-release`,
+built in 35 minutes, uploaded in 2) and the target packages (`x64-linux-clang`, about 20 minutes a rebuild). Seeded from
+a clone in the distribution's own filesystem (not `/mnt/d`: slow, and Windows' line endings), with the AWS CLI reading the
+Windows side's credentials (`AWS_SHARED_CREDENTIALS_FILE=/mnt/c/Users/<user>/.aws/credentials`, `AWS_CONFIG_FILE`,
+`AWS_PROFILE`) rather than a copy of the key, `SPEEDO_BINARY_CACHE_WRITE` set on the setup command itself.
+
+A run that fails partway has uploaded what it built, under hashes the fix makes stale (each triplet or toolchain edit
+changes every target package's): such objects were pruned by their upload time and absence from every platform's
+`install/vcpkg/status`, 315 of them (2.64 GB) after Linux's first runs. B2 keeps a deleted file's versions unless the
+bucket's lifecycle keeps only the last, so that setting decides whether pruning frees the storage.
+
+## Linux: setup and the toolchain
+
+Linux setup was first run from scratch on 2026-11-07 (it had only seen a Raspberry Pi, arm64, in 2025). What a fresh
+distribution needed, beyond what GitHub's image has:
+
+- `setup_linux.sh` installs the distribution's ICU (`libicu<version>`, found by name): PowerShell, on .NET, aborted
+  without it.
+- `linux.ps1` installs a compiler and what vcpkg's bootstrap and builds take: `build-essential`, `clang`, `lld`, `llvm`,
+  `curl`, `zip`, `unzip`, `tar`, `python3-venv` (meson's ports, libsystemd), `ninja-build` (meson builds with the one on the
+  path), `autoconf-archive` and `automake` (autotools' ports: libxcrypt, libmount, gperf), and the AWS CLI for a cache
+  writer (AWS's installer: Ubuntu's archive dropped `awscli` in 24.04).
+- FASTBuild: its Linux zip was made on Windows and holds no file modes, so the `fbuild` vcpkg extracted wasn't executable
+  ("Unable to find FASTBUILD"). The fix belongs in the fork's `vcpkg_find_acquire_program(FASTBUILD)` (a chmod after the
+  extraction), but `vcpkg-cmake`'s hash names that script, and so every package's on every platform: `linux.ps1` extracts
+  it where vcpkg looks first, executable, by the script's url and SHA-512. Move it into the fork with the next change that
+  rebuilds everything anyway (a vcpkg update).
+- The host triplets (`x64-linux-release`, `arm64-linux-release`) build with the system's clang, lld and LLVM's archiver,
+  as Apple's toolchain is on macOS: their `-flto=thin` is clang's, and ThinLTO's bitcode takes LLVM's linker and archiver.
+
+`clang.toolchain.cmake`'s Linux branch (which changes every target package's hash on every platform, so the Windows and
+macOS packages were rebuilt and seeded again after it):
+
+- libc++'s headers and libraries per target triple (`include/<triple>/c++/v1`, `lib/<triple>`), x86_64's or aarch64's:
+  it named aarch64's alone, and x64 found no libc++ to link.
+- libc++ static (`-Wl,-Bstatic,-lc++,-lc++abi,-Bdynamic -lm`), as on macOS, where LLVM ships it alone: LLVM builds it
+  shared too on Linux, and vcpkg makes its installed binaries' rpaths relative, so `slangc` couldn't load `libc++.so.1`.
+  One `-Wl` token, since vcpkg's autotools ports strip a library's `.a` and prefix `-l` (`-l:libc++.a` became `-l:libc++`).
+- no `CMAKE_BUILD_WITH_INSTALL_RPATH` (macOS has none): with it, what a port runs from its build tree (shader-slang's
+  `slang-embed`) couldn't load its dependencies' shared libraries (miniz, lz4).
+- the triplets' per configuration flags (`VCPKG_C_FLAGS_RELEASE`, ...) last, after the configuration's own, so a port's can
+  override them: libsystemd's meson build refuses `-ffinite-math-only`, which `-ffast-math` implies (`-fno-finite-math-only`
+  in its release flags).
+
+Per port, in the Linux target triplets: libpng without its linker version script (FASTBuild links it before the custom
+command writing `libpng.vers` has run; macOS's linker has none), zeromq with `<new>` force-included (`std::nothrow`
+without it; and `VCPKG_C_FLAGS` set whenever `VCPKG_CXX_FLAGS` is, as `vcpkg_cmake_configure` requires). Overlay patches,
+on every platform: draco's `<iterator>` (`std::back_inserter` without it, `0003-include-iterator.patch`), and basisu's SSE
+kernels in ktx built with the x64 baseline's AVX2 as the rest of the library (`0008-basisu-sse-with-avx.patch`: they
+`#error` with AVX unless `_MSC_VER`, which clang defines on Windows alone; the user's call to keep them, with the best
+instruction set, rather than turn SSE off). The project's profile, debug and release builds then pass on Linux.
 
 ## CI: GitHub Actions, the cpu's work only
 
@@ -365,6 +419,8 @@ first, on GitHub's `xcode-27` image (macOS 27 on Apple silicon, the SDK major ve
 Windows (2026-11-07) on GitHub's `windows-2025-vs2026` image (Visual Studio 2026 with the components setup requires and
 the Windows 11 SDK 26100, CMake 4.4, PowerShell 7.6), restoring the packages built here with VS 2022 (see the toolset
 above); the image has no winget, which setup only asks for when it must install something (CMake older than 4.2.3, no
-Visual Studio with the components, the AWS CLI for a cache writer). Linux follows once the cache holds its packages.
-It replaced three workflows from an early trial
+Visual Studio with the components, the AWS CLI for a cache writer). Linux (2026-11-07) on `ubuntu-26.04`, by its own label
+(see the glibc above), its apt lists updated before setup. Each job builds the profile, debug and release configurations
+in turn (the user's ask, 2026-11-07), the asset checks on the profile build: one job a platform, since the configurations
+share their packages and a job each would restore them, about 2 GB, three times. It replaced three workflows from an early trial
 (`lukka/run-vcpkg` templates, on a `main` branch this repository doesn't have, so they never ran).

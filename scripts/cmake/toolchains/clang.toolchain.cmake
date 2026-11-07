@@ -137,12 +137,24 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 	set(LINK_FLAGS "${LINK_FLAGS} -Xlinker /DEBUG -Xlinker /GUARD:CF")
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE) # vvl fails to compile with LTO on Windows. observed by others as well: https://github.com/llvm/llvm-project/issues/134725
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+	# LLVM installs libc++ per target triple on Linux (include/<triple>/c++/v1, lib/<triple>): x86_64's or aarch64's (it
+	# was aarch64's alone, and x64 found no libc++ to link)
+	if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64")
+		set(LIBCXX_TARGET_TRIPLE "aarch64-unknown-linux-gnu")
+	else()
+		set(LIBCXX_TARGET_TRIPLE "x86_64-unknown-linux-gnu")
+	endif()
 	set(C_DEFINES "${C_DEFINES} -D__LINUX__ -D__linux__ -D_GNU_SOURCE -pthread")
-	set(CXX_DEFINES "${CXX_DEFINES} -isystem \"${LLVM_ROOT}/include/aarch64-unknown-linux-gnu/c++/v1\"")
+	set(CXX_DEFINES "${CXX_DEFINES} -isystem \"${LLVM_ROOT}/include/${LIBCXX_TARGET_TRIPLE}/c++/v1\"")
 	set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lc -lpthread")
-	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-lc++ -lc++abi")
-	set(LINK_FLAGS "${LINK_FLAGS} -L\"${LLVM_ROOT}/lib/aarch64-unknown-linux-gnu\" -Wl,-rpath,\"${LLVM_ROOT}/lib/aarch64-unknown-linux-gnu\" -Wl,-rpath,\"${LLVM_ROOT}/lib\" -Wl,--undefined-version")
-	set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+	# libc++ static, as on macOS (where LLVM ships it alone): LLVM builds it shared too on Linux, and vcpkg makes its
+	# installed binaries' rpaths relative, so slangc couldn't load libc++.so.1 from LLVM's lib directory. One -Wl token:
+	# vcpkg's autotools ports strip a library's .a and prefix -l to the rest (-l:libc++.a became -l:libc++)
+	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-Wl,-Bstatic,-lc++,-lc++abi,-Bdynamic -lm")
+	set(LINK_FLAGS "${LINK_FLAGS} -L\"${LLVM_ROOT}/lib/${LIBCXX_TARGET_TRIPLE}\" -Wl,-rpath,\"${LLVM_ROOT}/lib/${LIBCXX_TARGET_TRIPLE}\" -Wl,-rpath,\"${LLVM_ROOT}/lib\" -Wl,--undefined-version")
+	# no CMAKE_BUILD_WITH_INSTALL_RPATH (as on macOS): with it, what a port runs from its build tree (shader-slang's
+	# slang-embed) couldn't load its dependencies' shared libraries (miniz, lz4); vcpkg makes the installed ones' rpaths
+	# relative, and the launch configurations set LD_LIBRARY_PATH
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 	set(C_DEFINES "${C_DEFINES} -D__APPLE__ -D__OSX__")
 	# clang 23 emits objc_msgSendClass$ stubs that ld64.lld cannot synthesize yet (llvm/llvm-project#203385).
@@ -169,15 +181,16 @@ set(CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_C_STANDARD_LIBRARIES_INIT} ${CMAKE_CXX
 
 set(CMAKE_USER_MAKE_RULES_OVERRIDE "${CMAKE_CURRENT_LIST_DIR}/clang.rules-override.cmake")
 
-# VCPKG_C(XX)_FLAGS come from the triplet during vcpkg port builds and are empty otherwise
+# VCPKG_C(XX)_FLAGS(_DEBUG|_RELEASE) come from the triplet during vcpkg port builds and are empty otherwise, last, so that a
+# port's can override the configuration's (libsystemd's -fno-finite-math-only over -ffast-math)
 set(CMAKE_C_FLAGS_INIT "${COMPILE_FLAGS} ${C_DEFINES} ${C_FLAGS} ${VCPKG_C_FLAGS}")
-set(CMAKE_C_FLAGS_DEBUG_INIT "${COMPILE_FLAGS_DEBUG} ${C_DEFINES_DEBUG} ${C_FLAGS_DEBUG}")
+set(CMAKE_C_FLAGS_DEBUG_INIT "${COMPILE_FLAGS_DEBUG} ${C_DEFINES_DEBUG} ${C_FLAGS_DEBUG} ${VCPKG_C_FLAGS_DEBUG}")
 set(CMAKE_C_FLAGS_PROFILE_INIT "${COMPILE_FLAGS_RELEASE} ${C_DEFINES_RELEASE} ${C_FLAGS_RELEASE}")
-set(CMAKE_C_FLAGS_RELEASE_INIT "${COMPILE_FLAGS_RELEASE} ${C_DEFINES_RELEASE} ${C_FLAGS_RELEASE}")
+set(CMAKE_C_FLAGS_RELEASE_INIT "${COMPILE_FLAGS_RELEASE} ${C_DEFINES_RELEASE} ${C_FLAGS_RELEASE} ${VCPKG_C_FLAGS_RELEASE}")
 set(CMAKE_CXX_FLAGS_INIT "${COMPILE_FLAGS} ${C_DEFINES} ${CXX_DEFINES} ${CXX_FLAGS} ${VCPKG_CXX_FLAGS}")
-set(CMAKE_CXX_FLAGS_DEBUG_INIT "${COMPILE_FLAGS_DEBUG} ${C_DEFINES_DEBUG} ${C_FLAGS_DEBUG} ${CXX_DEFINES_DEBUG} ${CXX_FLAGS_DEBUG}")
+set(CMAKE_CXX_FLAGS_DEBUG_INIT "${COMPILE_FLAGS_DEBUG} ${C_DEFINES_DEBUG} ${C_FLAGS_DEBUG} ${CXX_DEFINES_DEBUG} ${CXX_FLAGS_DEBUG} ${VCPKG_CXX_FLAGS_DEBUG}")
 set(CMAKE_CXX_FLAGS_PROFILE_INIT "${COMPILE_FLAGS_RELEASE} ${C_DEFINES_RELEASE} ${C_FLAGS_RELEASE} ${CXX_DEFINES_RELEASE} ${CXX_FLAGS_RELEASE}")
-set(CMAKE_CXX_FLAGS_RELEASE_INIT "${COMPILE_FLAGS_RELEASE} ${C_DEFINES_RELEASE} ${C_FLAGS_RELEASE} ${CXX_DEFINES_RELEASE} ${CXX_FLAGS_RELEASE}")
+set(CMAKE_CXX_FLAGS_RELEASE_INIT "${COMPILE_FLAGS_RELEASE} ${C_DEFINES_RELEASE} ${C_FLAGS_RELEASE} ${CXX_DEFINES_RELEASE} ${CXX_FLAGS_RELEASE} ${VCPKG_CXX_FLAGS_RELEASE}")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "${LINK_FLAGS}")
 set(CMAKE_EXE_LINKER_FLAGS_DEBUG_INIT "${LINK_FLAGS_DEBUG}")
 set(CMAKE_EXE_LINKER_FLAGS_PROFILE_INIT "${LINK_FLAGS_RELEASE}")

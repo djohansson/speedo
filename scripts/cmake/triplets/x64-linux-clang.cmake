@@ -48,3 +48,19 @@ if(PORT STREQUAL "ktx")
 	string(APPEND VCPKG_C_FLAGS " -Wno-overriding-complex-range")
 	string(APPEND VCPKG_CXX_FLAGS " -Wno-overriding-complex-range")
 endif()
+if(PORT STREQUAL "libpng")
+	# FASTBuild links it before the custom command that writes its linker version script (libpng.vers) has run: without
+	# one, as on macOS, whose linker has none
+	list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS -Dld-version-script=OFF)
+endif()
+if(PORT STREQUAL "zeromq")
+	# its polling_util.hpp uses std::nothrow without <new>, which linux's libc++ headers don't bring in on the way
+	string(APPEND VCPKG_CXX_FLAGS " -include new")
+	string(APPEND VCPKG_C_FLAGS "") # vcpkg_cmake_configure takes both or neither
+endif()
+if(PORT STREQUAL "libsystemd")
+	# its meson.build refuses -ffinite-math-only, which the toolchain's -ffast-math (release) implies; both or neither, as
+	# vcpkg_cmake_configure takes them
+	string(APPEND VCPKG_C_FLAGS_RELEASE " -fno-finite-math-only")
+	string(APPEND VCPKG_CXX_FLAGS_RELEASE " -fno-finite-math-only")
+endif()

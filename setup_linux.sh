@@ -18,7 +18,9 @@ if ! pwsh_ok pwsh; then
 	esac
 
 	sudo apt-get update
-	sudo apt-get install curl libunwind8 -y
+	# .NET, which PowerShell runs on, aborts without ICU: the distribution's libicu<version> (libicu78 on Ubuntu 26.04)
+	icu=$(apt-cache search --names-only '^libicu[0-9]+$' | cut -d' ' -f1 | sort -V | tail -n 1)
+	sudo apt-get install curl libunwind8 $icu -y
 
 	# resolve the latest version from the releases/latest redirect: the GitHub API rate limits unauthenticated
 	# requests per IP (60/h), which shared IPs (offices, CI) exhaust

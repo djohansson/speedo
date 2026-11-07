@@ -24,6 +24,7 @@ vcpkg_from_github(
         "${ALGORITHM_INCLUDE_PATCH}"
         0001-no-link-groups-on-apple.patch # speedo: ld64.lld (clang, not AppleClang) has no --start-group
         0002-no-posix-large-files-on-windows.patch # speedo: _FILE_OFFSET_BITS=64 picks ftello, which windows lacks
+        0003-include-iterator.patch # speedo: std::back_inserter without <iterator>, which libc++ on linux doesn't include
 )
 
 if(VCPKG_TARGET_IS_EMSCRIPTEN)

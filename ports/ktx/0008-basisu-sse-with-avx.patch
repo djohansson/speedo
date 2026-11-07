@@ -1,0 +1,15 @@
+diff --git a/external/basisu/encoder/basisu_kernels_sse.cpp b/external/basisu/encoder/basisu_kernels_sse.cpp
+index 4f15a5a..d60284a 100644
+--- a/external/basisu/encoder/basisu_kernels_sse.cpp
++++ b/external/basisu/encoder/basisu_kernels_sse.cpp
+@@ -23,9 +23,7 @@
+ #endif
+ 
+ #if !defined(_MSC_VER)
+-	#if __AVX__ || __AVX2__ || __AVX512F__
+-		#error Please check your compiler options
+-	#endif
++	// speedo: built for the x64 baseline (x86-64-v3, AVX2) as the rest of the library, which every cpu running it has
+ 	
+ 	#if CPPSPMD_SSE2
+ 		#if __SSE4_1__ || __SSE3__ || __SSE4_2__ || __SSSE3__
