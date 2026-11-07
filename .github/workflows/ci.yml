@@ -28,19 +28,19 @@ jobs:
     timeout-minutes: 120
     env:
       PRESET: arm64-osx-clang-profile
-      SPEEDO_TEST_ASSETS: ${{ github.workspace }}/../test-assets
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: true
 
-      # the quick tier's test assets, kept between runs (800 MB from their sites otherwise). The vcpkg packages come from
-      # the shared cache each run, 1.5 GB: vcpkg doesn't keep what it restored from it in its local archives, so caching
-      # those here would keep nothing
+      # the quick tier's test assets, kept between runs (800 MB from their sites otherwise), in the runner's temporary dir
+      # (the cache rejects a path with '..', so beside the checkout didn't save). The vcpkg packages come from the shared
+      # cache each run, 1.5 GB: vcpkg doesn't keep what it restored from it in its local archives, so caching those here
+      # would keep nothing
       - name: Cache test assets
         uses: actions/cache@v6
         with:
-          path: ${{ env.SPEEDO_TEST_ASSETS }}
+          path: ${{ runner.temp }}/test-assets
           key: test-assets-${{ hashFiles('scripts/test-assets/**', 'scripts/fetch-test-assets.ps1') }}
           restore-keys: test-assets-
 
@@ -57,6 +57,8 @@ jobs:
 
       - name: Asset checks
         shell: pwsh
+        env:
+          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
         run: |
           $paths = & scripts/fetch-test-assets.ps1 -Minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
