@@ -9,15 +9,21 @@
 //   <inner> rows of about a microsecond's work (gfx::image's CompressLevel): the time, and the pool's peak use, which on
 //   many threads ran out (Bistro's cold import on 32 threads: "Ensure failed: myAvailable > 0" in the task pool).
 //
+// - alloc: the task pool's free list alone (core::MemoryPool, a pool of its own): each thread allocating 16 slots and freeing
+//   them, over and over, at 1, 2, 4, ... threads released together; against the same loop on a vector of each thread's own,
+//   no lock and no sharing, what any free list's cost is above.
+//
 // usage: taskbench [--threads <n>] [--iterations <n>] [--tasks <n>] [--nested <outer>,<levels>,<inner>]
-//                  [submit|call|chain|foreach|nested ...]
+//                  [submit|call|chain|foreach|nested|alloc ...]
 //
 // each benchmark runs --iterations times (default 5), its median printed; the pool's peak is over the whole run.
 
+#include <core/memorypool.h>
 #include <core/task.h>
 #include <core/taskexecutor.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -161,6 +167,84 @@ void Nested(core::TaskExecutor& executor, const Options& options)
 		options.inner, work, seconds * 1e3, seconds * 1e6 / work);
 }
 
+// a slot of a task's size, which the pool holds as it would tasks
+struct alignas(64) Slot
+{
+	std::array<std::byte, 128> bytes;
+};
+using SlotPool = core::MemoryPool<Slot, core::kTaskPoolChunkSize, core::kTaskPoolMaxChunks>;
+
+constexpr uint32_t kAllocBatch = 16;
+
+// runs round(participant) on threadCount threads (the caller and the executor's) released together, and returns the median
+// seconds of a run
+template <typename Round>
+double ConcurrentSeconds(core::TaskExecutor& executor, uint32_t threadCount, uint32_t iterations, Round&& round)
+{
+	return MedianSeconds(iterations, [&]
+	{
+		std::atomic_uint32_t arrived = 0;
+		executor.ForEach(threadCount, [&](size_t participant)
+		{
+			arrived.fetch_add(1, std::memory_order_acq_rel);
+			while (arrived.load(std::memory_order_acquire) < threadCount)
+				; // every thread starts at once: the free list contended, or not, by all of them
+			round(participant);
+		});
+	});
+}
+
+void Alloc(core::TaskExecutor& executor, const Options& options)
+{
+	uint32_t rounds = std::max(1U, options.tasks / kAllocBatch) * 16; // allocations and frees per thread: tasks x 16
+	for (uint32_t threadCount = 1; threadCount <= options.threads; threadCount *= 2)
+	{
+		SlotPool pool;
+		{
+			// grown up front, as a running application's is: growing isn't what's measured
+			std::vector<SlotPool::Handle> warm(threadCount * kAllocBatch);
+			for (auto& handle : warm)
+				handle = pool.Allocate();
+			for (auto handle : warm)
+				pool.Free(handle);
+		}
+		auto pooled = ConcurrentSeconds(executor, threadCount, options.iterations, [&](size_t)
+		{
+			std::array<SlotPool::Handle, kAllocBatch> handles;
+			for (uint32_t roundIt = 0; roundIt < rounds; roundIt++)
+			{
+				for (auto& handle : handles)
+					handle = pool.Allocate();
+				for (auto handle : handles)
+					pool.Free(handle);
+			}
+		});
+		auto local = ConcurrentSeconds(executor, threadCount, options.iterations, [&](size_t)
+		{
+			std::vector<uint32_t> free(kAllocBatch);
+			for (uint32_t index = 0; index < kAllocBatch; index++)
+				free[index] = index;
+			std::array<uint32_t, kAllocBatch> taken;
+			uint64_t sum = 0;
+			for (uint32_t roundIt = 0; roundIt < rounds; roundIt++)
+			{
+				for (auto& index : taken)
+				{
+					index = free.back();
+					free.pop_back();
+					sum += index;
+				}
+				for (auto index : taken)
+					free.push_back(index);
+			}
+			gSink.fetch_add(sum, std::memory_order_relaxed);
+		});
+		auto pairs = double(rounds) * kAllocBatch;
+		std::println("alloc: {:2} threads, {:6.1f} ns an allocation and free on each (the per thread floor {:4.1f} ns), {:6.1f} M a second in all",
+			threadCount, pooled * 1e9 / pairs, local * 1e9 / pairs, pairs * threadCount / pooled / 1e6);
+	}
+}
+
 bool ParseNested(std::string_view text, Options& options)
 {
 	uint32_t values[3]{};//NOLINT(modernize-avoid-c-arrays)
@@ -201,12 +285,12 @@ int main(int argc, char* argv[])
 				return EXIT_FAILURE;
 			}
 		}
-		else if (arg == "submit" || arg == "call" || arg == "chain" || arg == "foreach" || arg == "nested")
+		else if (arg == "submit" || arg == "call" || arg == "chain" || arg == "foreach" || arg == "nested" || arg == "alloc")
 			options.benchmarks.emplace_back(arg);
 		else
 		{
 			std::println(stderr, "usage: taskbench [--threads <n>] [--iterations <n>] [--tasks <n>] "
-				"[--nested <outer>,<levels>,<inner>] [submit|call|chain|foreach|nested ...]");
+				"[--nested <outer>,<levels>,<inner>] [submit|call|chain|foreach|nested|alloc ...]");
 			return EXIT_FAILURE;
 		}
 	}
@@ -226,6 +310,8 @@ int main(int argc, char* argv[])
 				ChainBenchmark(executor, options);
 			else if (benchmark == "foreach")
 				ForEach(executor, options);
+			else if (benchmark == "alloc")
+				Alloc(executor, options);
 			else
 				Nested(executor, options);
 		}
