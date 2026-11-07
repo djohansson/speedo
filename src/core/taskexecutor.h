@@ -26,7 +26,8 @@ public:
 	[[maybe_unused]] std::optional<typename Future<R>::value_t> Join(Future<R>&& future);
 
 	// calls body(index) for each index below count, on the calling thread and worker tasks (one per thread in all, at most
-	// count) taking the indices in turn, and returns once all are done. body runs on any thread, concurrently with itself;
+	// count: made for the threads idle at the call, at least one, and each recruiting the next as it starts while indices
+	// are left) taking the indices in turn, and returns once all are done. body runs on any thread, concurrently with itself;
 	// to stop early, it can skip the indices left. it may be called from within a task: the caller takes indices as the
 	// workers do, then waits for the ones the workers are running, and never runs another task from the ready queue, since
 	// the caller may hold what that task needs: the draw thread holds the graphics queue's lock for its frame, and a texture
@@ -82,6 +83,8 @@ private:
 	// atomic rather than a condition variable, so submitting takes no lock, and a thread can't miss a wake between
 	// finding the ready queue empty and starting to wait (see InternalThreadMain).
 	std::atomic_uint32_t myWakeCount = 0;
+	// threads waiting for work, which ForEach makes its first workers for (see ForEach)
+	std::atomic_uint32_t myIdleThreadCount = 0;
 	mutable ConcurrentQueue<TaskHandle> myReadyQueue;
 	uint64_t myReadyQueueSize = 0;
 	uint64_t myActiveTaskCount = 0; // tasks dequeued (or about to be) and not yet finished, see InternalTryCallOne

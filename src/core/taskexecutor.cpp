@@ -187,9 +187,15 @@ void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 		// looks empty here, any later submit changes the count and the wait below returns right away.
 		auto wakeCount = myWakeCount.load(std::memory_order_acquire);
 		if (std::atomic_ref(myReadyQueueSize).load(std::memory_order_acquire) > 0)
+		{
 			InternalProcessReadyQueue();
+		}
 		else
+		{
+			myIdleThreadCount.fetch_add(1, std::memory_order_relaxed);
 			myWakeCount.wait(wakeCount, std::memory_order_acquire);
+			myIdleThreadCount.fetch_sub(1, std::memory_order_relaxed);
+		}
 	}
 }
 
