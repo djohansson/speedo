@@ -89,4 +89,12 @@ void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContin
 	aTask.AddDependency(bTask, isContinuation);
 }
 
+TaskPoolStatistics GetTaskPoolStatistics() noexcept
+{
+	return {
+		.used = core::detail::gTaskPool.Size(),
+		.peak = core::detail::gTaskPool.Peak(),
+		.capacity = core::detail::gTaskPool.Capacity()};
+}
+
 } // namespace core

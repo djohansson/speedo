@@ -568,6 +568,20 @@ target_link_libraries(
 		xxHash::xxhash
 )
 
+# the task system's overheads and the task pool's peak use, see src/tools/taskbench.cpp
+add_executable(taskbench ${SPEEDO_SOURCE_DIR}/tools/taskbench.cpp)
+target_compile_features(
+	taskbench
+	PUBLIC
+		cxx_std_26
+)
+target_link_libraries(
+	taskbench
+	PRIVATE
+		${SPEEDO_MIMALLOC}
+		core
+)
+
 # how long a still view takes to settle, from its captures (docs/performance-plan.md, step 1), see
 # src/tools/convergence.cpp
 add_executable(convergence ${SPEEDO_SOURCE_DIR}/tools/convergence.cpp)
@@ -591,7 +605,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	foreach(lang C CXX)
 		string(REPLACE "/MANIFEST:EMBED" "/MANIFEST:NO" CMAKE_${lang}_LINK_EXECUTABLE "${CMAKE_${lang}_LINK_EXECUTABLE}")
 	endforeach()
-	foreach(target server client assettest filebench convergence)
+	foreach(target server client assettest filebench taskbench convergence)
 		target_sources(${target} PRIVATE ${SPEEDO_SOURCE_DIR}/windows.rc)
 	endforeach()
 	# the resource compiler's includes aren't tracked: without this, a changed manifest wasn't embedded

@@ -35,6 +35,9 @@ MemoryPool<T, N>::Handle MemoryPool<T, N>::Allocate() noexcept
 
 	--myAvailable;
 
+	if (auto used = Capacity() - myAvailable; used > myPeak.load(std::memory_order_relaxed))
+		myPeak.store(used, std::memory_order_relaxed);
+
 	ENSURE(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
 
 	return handle;

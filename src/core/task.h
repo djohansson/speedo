@@ -133,6 +133,15 @@ requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>
 // b will start after a has finished
 void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false) noexcept;
 
+// the task pool's use: tasks allocated now, the most allocated at once, and how many it holds
+struct TaskPoolStatistics
+{
+	std::size_t used = 0;
+	std::size_t peak = 0;
+	std::size_t capacity = 0;
+};
+[[nodiscard]] TaskPoolStatistics GetTaskPoolStatistics() noexcept;
+
 } // namespace core
 
 #include "task.inl"

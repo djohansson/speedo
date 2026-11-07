@@ -31,6 +31,7 @@ public:
 	[[nodiscard]] constexpr Handle GetHandle(const T* ptr) noexcept;
 
 	[[nodiscard]] constexpr auto Size() const noexcept { return Capacity() - myAvailable; }
+	[[nodiscard]] constexpr auto Peak() const noexcept { return myPeak.load(std::memory_order_relaxed); } // most ever allocated at once
 	[[nodiscard]] static consteval auto Capacity() noexcept { return N; }
 
 private:
@@ -47,6 +48,7 @@ private:
 	std::array<Entry, N> myEntries;
 	std::mutex myMutex; // guards the free list (myEntries/myAvailable): GetPointer/GetHandle need no lock
 	std::atomic<std_extra::min_unsigned_t<N>> myAvailable{0};
+	std::atomic<std::size_t> myPeak{0};
 };
 
 } // namespace core
