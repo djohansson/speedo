@@ -415,8 +415,8 @@ heavy for a runner's software Vulkan; and not this machine as a runner) builds a
 `master`: setup (`setup.ps1` directly, reading the shared binary cache without credentials: `setup_osx.sh` only adds
 PowerShell, which the image has, and upgrades all of Homebrew), `cmake --preset`, the build, and `assettest.ps1` without
 `-Client` (the importers, images, environments, the lens check) on the quick tier's assets, fetched with
-`fetch-test-assets.ps1 -Minimal` (only what `quick.txt` names: 797 MB in 100 s where the full sets are about 5.4 GB; it
-never narrows a full glTF checkout) and kept between runs by `actions/cache`. vcpkg's packages come from the bucket each
+`fetch-test-assets.ps1 -Minimal` (only what `quick.txt` names: 555 MB in 103 s where the full sets are 4.5 GB; it
+never narrows what is there) and kept between runs by `actions/cache`. vcpkg's packages come from the bucket each
 run: vcpkg doesn't keep what it restored from a remote in its local archives, so caching those would keep nothing. macOS
 first, on GitHub's `xcode-27` image (macOS 27 on Apple silicon, the SDK major version the cache's packages target;
 `macos-latest` and `macos-26` are macOS 26, where every package would be built, LLVM too, past the job's two hours).

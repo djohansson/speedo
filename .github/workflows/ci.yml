@@ -46,7 +46,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/test-assets
-          key: test-assets-${{ hashFiles('scripts/test-assets/**', 'scripts/fetch-test-assets.ps1') }}
+          key: test-assets-${{ hashFiles('resources/test-asset-manifests/**', 'scripts/fetch-test-assets.ps1') }}
           restore-keys: test-assets-
 
       # setup.ps1 directly: setup_osx.sh only installs PowerShell (the image has it) and upgrades all of Homebrew
@@ -118,7 +118,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/test-assets
-          key: test-assets-${{ hashFiles('scripts/test-assets/**', 'scripts/fetch-test-assets.ps1') }}
+          key: test-assets-${{ hashFiles('resources/test-asset-manifests/**', 'scripts/fetch-test-assets.ps1') }}
           restore-keys: test-assets-
 
       # setup.ps1 directly: setup_windows.bat only installs PowerShell, which the image has
@@ -187,7 +187,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/test-assets
-          key: test-assets-${{ hashFiles('scripts/test-assets/**', 'scripts/fetch-test-assets.ps1') }}
+          key: test-assets-${{ hashFiles('resources/test-asset-manifests/**', 'scripts/fetch-test-assets.ps1') }}
           restore-keys: test-assets-
 
       # setup.ps1 directly (setup_linux.sh only installs PowerShell, which the image has), after apt's package lists, which

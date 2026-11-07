@@ -1,5 +1,6 @@
-# the quick tier: fetch-test-assets.ps1 -Quick prints these (under the test asset dir) and the hand-made models in
-# resources/test-models, for iterating: a model or two per feature. run the full sets before committing.
+# the quick tier: fetch-test-assets.ps1 -Quick prints these (under the test asset dir: files, or directories of them) and
+# the hand-made models in resources/test-models, for iterating: a model or two per feature. run the full sets before
+# committing. -Minimal fetches these alone
 # materials: the KHR_materials_* extensions
 glTF-Sample-Assets/Models/MetalRoughSpheres
 glTF-Sample-Assets/Models/ClearCoatTest

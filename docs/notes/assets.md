@@ -445,22 +445,28 @@ minutes to 5 or 6 (130 to 175 s profile, 180 s debug, warm). (Before each client
 display; it wakes it once now, and keeps it awake until it exits, `caffeinate -d -i -w` on itself: kept awake per client,
 nothing held it between two, and once every client after the first failed at window creation, `GLFW: No monitor
 connected?`, 57 of the quick tier's 58 with the user away.) For iterating, `fetch-test-assets.ps1 -Quick` prints a quick tier instead
-(`scripts/test-assets/quick.txt`: a model or two per feature, plus the hand-made ones; about a minute, three and a half with ray query clients one at a time on the mac, validated); the full sets run
+(`resources/test-asset-manifests/quick.txt`: a model or two per feature, plus the hand-made ones; about a minute, three and a half with ray query clients one at a time on the mac, validated); the full sets run
 before committing. `assettest.ps1` takes `.hdr` panoramas as inputs too, and runs a directory of one model's encodings
 given directly (a glTF sample model: its files all named after it) as one set, as when its parent is given. The client's
 main loop sleeps in `glfwWaitEvents()`, so anything that must end it from another thread goes through
 `RequestExit()`, which posts an empty event.
 
 The test sets come from their sources, not from local copies: `scripts/fetch-test-assets.ps1` downloads Morgan McGuire's
-Computer Graphics Archive (obj, about 2.7 GB), the Khronos glTF-Sample-Assets models (at a pinned commit, about
-2.3 GB) and the Khronos glTF-Sample-Environments panoramas (about 400 MB; Git LFS files, downloaded from GitHub's LFS
-media server at a pinned commit and checked against `scripts/test-assets/environments.txt`, the sizes and sha256s of
-their LFS pointers; `assettest` checks each, and `assettest.ps1 -Client` runs the client once per panorama) into `resources/test-assets` (gitignored; the client's file browser opens there; or `$SPEEDO_TEST_ASSETS`), and
-prints the paths to test:
+Computer Graphics Archive (obj, about 2.7 GB), the Khronos glTF-Sample-Assets models (at a pinned commit, 1.4 GB) and the
+Khronos glTF-Sample-Environments panoramas (about 400 MB; Git LFS files, from GitHub's LFS media server at a pinned commit;
+`assettest` checks each, and `assettest.ps1 -Client` runs the client once per panorama) into `resources/test-assets`
+(gitignored; the client's file browser opens there; or `$SPEEDO_TEST_ASSETS`), and prints the paths to test:
 `scripts/assettest.ps1 -Client (scripts/fetch-test-assets.ps1)` (from pwsh; from another shell,
-`pwsh scripts/assettest.ps1 -Client $(pwsh scripts/fetch-test-assets.ps1)`). The archive publishes no versions or checksums and
-does change (several files differ from a 2019 copy), so `scripts/test-assets/mcguire.txt` pins each file's size and
-sha256: a changed file is kept as `.unverified` and reported until the manifest is updated, after checking what changed.
+`pwsh scripts/assettest.ps1 -Client $(pwsh scripts/fetch-test-assets.ps1)`). Each set is a manifest in
+`resources/test-asset-manifests` (`mcguire.txt`, `gltf.txt`, `environments.txt`): its
+directory, the url its files are under, the zips to extract (Bistro's parts, side by side), and each file's size and sha256,
+tab separated, the path last (some glTF paths have spaces, one UTF-8; the url escapes each segment). A file is downloaded
+unless it is there with its size and sha256, 8 at once, and one that doesn't match is kept as `.unverified` and reported
+until the manifest is updated. The archive publishes no versions or checksums and does change (several files differ from a
+2019 copy); the environments' sizes and sha256s are their LFS pointers'; the glTF models were a sparse git checkout of the
+pinned commit, now their 2494 files from raw.githubusercontent.com, the manifest written by `scripts/update-gltf-manifest.ps1`
+from a checkout (the commit's blobs: it fails on a checkout that converted line endings). The quick tier's 665 files (555
+MB) took 1 min 43 s into an empty directory; checking the full sets, all there, 4.5 s.
 `resources/test-models/gltf` holds hand-made models for what no downloaded one covers (`SparseIndices.gltf`: index
 accessors that are sparse, with and without base values; cgltf's `cgltf_accessor_read_index` and
 `cgltf_accessor_unpack_indices` refuse sparse accessors, so `gltf::ReadIndices` applies them;

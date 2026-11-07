@@ -149,7 +149,7 @@ validation layers are found. The VS Code launch configurations set both.
 ## Testing
 
 The test sets are downloaded from their sources (Morgan McGuire's Computer Graphics Archive, and the Khronos
-glTF-Sample-Assets and glTF-Sample-Environments, about 5.4 GB), pinned and checked against checksums, into
+glTF-Sample-Assets and glTF-Sample-Environments, about 4.5 GB), pinned and checked against checksums, into
 `resources/test-assets/` (or `$SPEEDO_TEST_ASSETS`). `scripts/assettest.ps1` runs `assettest` over them, and with
 `-Client` opens each model in the client, failing on load errors, asserts and validation messages:
 
