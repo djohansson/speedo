@@ -38,7 +38,7 @@ MemoryPool<T, N>::Handle MemoryPool<T, N>::Allocate() noexcept
 	if (auto used = Capacity() - myAvailable; used > myPeak.load(std::memory_order_relaxed))
 		myPeak.store(used, std::memory_order_relaxed);
 
-	ENSURE(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
+	ASSERT(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
 
 	return handle;
 }
@@ -57,7 +57,7 @@ void MemoryPool<T, N>::Free(Handle handle) noexcept
 
 	std::push_heap(myEntries.begin(), myEntries.begin() + myAvailable);
 
-	ENSURE(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
+	ASSERT(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
 }
 
 template <typename T, std::size_t N>
