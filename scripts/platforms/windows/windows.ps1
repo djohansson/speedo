@@ -3,8 +3,6 @@
 
 Write-Host "Installing Windows dependencies..."
 
-Assert-WinGet
-
 $cmakeCmd = Get-Command "cmake" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"4.2.3.0")
 if (-not ($cmakeCmd))
 {
@@ -19,17 +17,31 @@ if (-not ($cmakeCmd))
 }
 
 # require components rather than the VCTools workload, which only exists in Build Tools (the IDE
-# editions call it NativeDesktop), so an existing Community/Professional/Enterprise install qualifies
-$VSComponents = @("Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "Microsoft.VisualStudio.Component.VC.ATL", "Microsoft.VisualStudio.Component.VC.Llvm.Clang", "Microsoft.VisualStudio.Component.Windows11SDK.22621")
-$VSInstance = Get-VSInstance -Require $VSComponents
+# editions call it NativeDesktop), so an existing Community/Professional/Enterprise install qualifies; and a Windows 11
+# SDK, 22621 or 26100 (GitHub's hosted Windows images have 26100 alone)
+$VSComponents = @("Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "Microsoft.VisualStudio.Component.VC.ATL", "Microsoft.VisualStudio.Component.VC.Llvm.Clang")
+$VSSdkComponents = @("Microsoft.VisualStudio.Component.Windows11SDK.22621", "Microsoft.VisualStudio.Component.Windows11SDK.26100")
+$VSInstance = Get-VSInstance -Require $VSComponents -RequireAny $VSSdkComponents
 if (-not ($VSInstance))
 {
 	Write-Host "Installing VisualStudio 2022 VC BuildTools..."
 
 	$ExitCode = Invoke-WinGetInstall -Id Microsoft.VisualStudio.2022.BuildTools -Override "--quiet --add Microsoft.VisualStudio.Workload.VCTools;includeRecommended --add Microsoft.VisualStudio.Component.VC.ATL --add Microsoft.VisualStudio.Component.VC.Llvm.Clang --add Microsoft.VisualStudio.Component.Windows11SDK.22621 --wait"
 
-	$VSInstance = Get-VSInstance -Require $VSComponents
+	$VSInstance = Get-VSInstance -Require $VSComponents -RequireAny $VSSdkComponents
 	if (-not ($VSInstance)) { Write-Error "Visual Studio 2022 VC BuildTools installation failed (winget exit code $ExitCode)" }
+}
+
+# writing to the shared binary cache (scripts/binarycache.ps1) takes the AWS CLI, which vcpkg's x-aws source runs
+if ($env:SPEEDO_BINARY_CACHE_WRITE -and -not (Get-Command "aws" -ErrorAction SilentlyContinue))
+{
+	Write-Host "Installing the AWS CLI..."
+
+	$ExitCode = Invoke-WinGetInstall -Id Amazon.AWSCLI
+
+	$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+	if (-not (Get-Command "aws" -ErrorAction SilentlyContinue)) { Write-Error "AWS CLI installation failed (winget exit code $ExitCode)" }
 }
 
 # the Windows SDK root is not necessarily under C:\Program Files (x86), read it from the registry

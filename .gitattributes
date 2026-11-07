@@ -1,3 +1,10 @@
+# vcpkg hashes the overlay ports' files and the triplets and toolchains (the post-portfile includes too) as checked out, into
+# the packages' ABI hashes, which key the shared binary cache (docs/notes/build.md): with core.autocrlf's CRLF on Windows a
+# clone's hashes depended on its Git settings, and one with it off would have missed every package. A file committed with
+# CRLF keeps it (text=auto leaves it as it is), the same bytes everywhere. First, so that the rules below take precedence
+ports/** text=auto eol=lf
+scripts/cmake/** text=auto eol=lf
+
 # cmd.exe misparses batch files with LF line endings, regardless of the cloning machine's core.autocrlf
 *.bat text eol=crlf
 

@@ -288,7 +288,7 @@ public: reading needs no account, key or tool, and a missing key answers `NoSuch
 
 Writing is a maintainer's: with `SPEEDO_BINARY_CACHE_WRITE` set, setup adds vcpkg's `x-aws` source
 (`x-aws,s3://danjo-artifacts/speedo/vcpkg/,write`, which runs the AWS CLI's `aws s3 cp` and `aws s3 ls`), installs the
-AWS CLI (Homebrew's `awscli`) and points it at B2 (`AWS_ENDPOINT_URL_S3`, `AWS_DEFAULT_REGION`); the credentials are the
+AWS CLI (Homebrew's `awscli`, winget's `Amazon.AWSCLI`) and points it at B2 (`AWS_ENDPOINT_URL_S3`, `AWS_DEFAULT_REGION`); the credentials are the
 AWS CLI's own, a B2 application key scoped to the bucket in `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or a profile
 (`AWS_PROFILE`), never in the repository. Both sources name an archive `<prefix><abi>.zip`, the package's ABI hash
 (vcpkg-tool's `make_object_path` for `x-aws`; `{sha}` is the same hash for `http`). vcpkg uploads what it builds, not
@@ -316,9 +316,23 @@ same install):
 - the compiler: the llvm port's version and port version (`LLVM_PORT_VERSION`, from `ports/llvm/vcpkg.json`), tracked by
   the clang triplets: the target packages are built by that port's clang and link its static libc++, so after an LLVM
   update the shared cache must not hand out the old ones.
-- Linux's C library (`GLIBC_VERSION`, `getconf GNU_LIBC_VERSION`), tracked by the Linux triplets: a package built against
-  a newer glibc fails to load with an older one (not yet run on Linux). Windows' toolset and SDK versions stay untracked;
-  nothing is shared for Windows or Linux yet.
+- Linux's C library (`GLIBC_VERSION`, `getconf GNU_LIBC_VERSION`), tracked by the Linux triplets, the host's too (LLVM):
+  a package built against a newer glibc fails to load with an older one (not yet run on Linux); nothing is shared for
+  Linux yet. GitHub's `ubuntu-26.04` has glibc 2.43, `ubuntu-24.04` (`ubuntu-latest` until it moves to 26.04) 2.39: a
+  machine seeding the cache for CI runs the same Ubuntu release as the job.
+- not Windows' toolset and SDK versions (Visual Studio's MSVC tools and the Windows SDK, whose libraries the packages
+  link): a package built with older ones links with newer ones (MSVC's binary compatibility runs that way, and the
+  packages use only its runtime, libc++ being static), and GitHub's Windows image updates Visual Studio every few weeks,
+  each of which would rebuild every package there, LLVM too. A machine whose Visual Studio is older than the one that
+  built the packages (VS 2022 Build Tools 17.14, tools 14.44, SDK 22621, on 2026-11-07) may fail to link them: update
+  it, or build them (`SPEEDO_BINARY_CACHE=0`). Setup accepts the Windows 11 SDK 22621 or 26100, the hosted image's.
+- not the line endings Git checked out: vcpkg hashes the overlay ports' files, the triplets and the toolchain (and the
+  post-portfile includes) as they are on disk, and Git for Windows' `core.autocrlf` checks them out with CRLF, so a
+  Windows clone's hashes depended on its Git settings (one with it off would have missed every package, LLVM included).
+  `.gitattributes` checks `ports/**` and `scripts/cmake/**` out with LF everywhere; the four files committed with CRLF
+  keep it (`text=auto`), the same bytes everywhere. The registry's ports are extracted as their blobs are (the fork's
+  `* -text`; checked, all 220 here), and vcpkg's own scripts too. The CMake and PowerShell in the hashes are vcpkg's
+  downloads, pinned by its tool, not the system's.
 
 The host packages (`arm64-osx-release`: LLVM, the toolchain itself, mesa's KosmicKrisp, the spirv tools) are built by the
 system's clang with no cpu flag, so the deployment target was what they lacked. On macOS arm64 the cache holds 86
@@ -329,6 +343,12 @@ A second clone at another path restored all 84 of its packages from the local ca
 don't depend on the clone's path); a fresh clone with an empty local cache (`VCPKG_DEFAULT_BINARY_CACHE` an empty dir)
 restored all 84 from the bucket in 2.4 minutes, setup's whole run 165 s, and built none. A fresh clone has no `.vscode`
 (it isn't tracked), which `setup.ps1` failed writing `launch.json` into until it created it.
+
+On Windows x64 (2026-11-07, Ryzen 9 7950X) the cache holds 72 packages, 2.20 GB: LLVM 1.8 GB (`x64-windows-clangcl`, built
+by Visual Studio's clang-cl), the rest the target packages (`x64-windows-clang`). Pinning the hashed files' line endings
+rebuilt them all in 27 minutes, LLVM in 11 (FASTBuild's cache); `seed-binary-cache.ps1` uploaded them in 287 s. A fresh
+clone at another path (with `core.autocrlf` on, as Git for Windows installs it) and an empty local cache restored all 72
+from the bucket in 4.1 minutes, setup's whole run 286 s, and built none.
 
 ## CI: GitHub Actions, the cpu's work only
 
@@ -342,5 +362,9 @@ never narrows a full glTF checkout) and kept between runs by `actions/cache`. vc
 run: vcpkg doesn't keep what it restored from a remote in its local archives, so caching those would keep nothing. macOS
 first, on GitHub's `xcode-27` image (macOS 27 on Apple silicon, the SDK major version the cache's packages target;
 `macos-latest` and `macos-26` are macOS 26, where every package would be built, LLVM too, past the job's two hours).
-Windows and Linux follow once the cache holds their packages. It replaced three workflows from an early trial
+Windows (2026-11-07) on GitHub's `windows-2025-vs2026` image (Visual Studio 2026 with the components setup requires and
+the Windows 11 SDK 26100, CMake 4.4, PowerShell 7.6), restoring the packages built here with VS 2022 (see the toolset
+above); the image has no winget, which setup only asks for when it must install something (CMake older than 4.2.3, no
+Visual Studio with the components, the AWS CLI for a cache writer). Linux follows once the cache holds its packages.
+It replaced three workflows from an early trial
 (`lukka/run-vcpkg` templates, on a `main` branch this repository doesn't have, so they never ran).

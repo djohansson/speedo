@@ -1,8 +1,8 @@
 # CI: the cpu's work only (the user's call, 2026-11-06: the client's gpu workloads are too heavy for a hosted runner's
 # software Vulkan): setup, a build, and scripts/assettest.ps1's checks without -Client (the importers, images, environments,
-# the lens check). macOS first, the only platform the shared vcpkg binary cache (docs/notes/build.md) holds packages for:
-# setup restores them, LLVM too, rather than build them on a hosted runner. Windows and Linux follow once the cache holds
-# theirs. Reads the cache only (no credentials here).
+# the lens check). macOS and Windows, the platforms the shared vcpkg binary cache (docs/notes/build.md) holds packages for:
+# setup restores them, LLVM too, rather than build them on a hosted runner. Linux follows once the cache holds its. Reads
+# the cache only (no credentials here).
 name: CI
 
 on:
@@ -69,6 +69,59 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: logs-macos
+          path: |
+            vcpkg/buildtrees/*/*.log
+            ${{ runner.temp }}/assettest/logs
+          if-no-files-found: ignore
+
+  windows:
+    name: Windows x64 (profile)
+    # GitHub's Windows Server 2025 image with Visual Studio 2026 (its components and Windows 11 SDK 26100 are what setup
+    # requires, and its CMake is new enough; it has no winget, which setup only needs to install what is missing). The
+    # packages' hashes don't track the toolset or SDK versions (docs/notes/build.md), so it restores those built with VS 2022
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 120
+    env:
+      PRESET: x64-windows-clang-profile
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      # as macOS's (actions/cache keeps each OS's apart)
+      - name: Cache test assets
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/test-assets
+          key: test-assets-${{ hashFiles('scripts/test-assets/**', 'scripts/fetch-test-assets.ps1') }}
+          restore-keys: test-assets-
+
+      # setup.ps1 directly: setup_windows.bat only installs PowerShell, which the image has
+      - name: Setup
+        run: ./setup.ps1
+
+      - name: Configure
+        run: cmake --preset $env:PRESET
+
+      - name: Build
+        run: cmake --build "build/$env:PRESET"
+
+      - name: Asset checks
+        env:
+          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+        run: |
+          $paths = & scripts/fetch-test-assets.ps1 -Minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & scripts/assettest.ps1 -Preset $env:PRESET -Work "$env:RUNNER_TEMP/assettest" @paths
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-windows
           path: |
             vcpkg/buildtrees/*/*.log
             ${{ runner.temp }}/assettest/logs

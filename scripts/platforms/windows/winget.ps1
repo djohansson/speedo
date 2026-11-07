@@ -16,6 +16,9 @@ function Invoke-WinGetInstall
 		[Parameter(Mandatory = $False)] [string] $Override
 	)
 
+	# only where something is missing: GitHub's hosted Windows images have no winget, and need nothing installed
+	Assert-WinGet
+
 	$WinGetArgs = @("install", "--exact", "--silent", "--id", $Id, "--source", "winget", "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity")
 	if ($Override)
 	{

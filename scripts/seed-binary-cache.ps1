@@ -3,8 +3,9 @@
 # have yet. vcpkg uploads what it builds where SPEEDO_BINARY_CACHE_WRITE is set, but not what it restored from the local
 # cache, so a machine whose packages were built before writing was set up seeds the bucket with this.
 #
-# Needs the AWS CLI (brew install awscli) and a B2 application key that can write to the bucket, in the AWS CLI's own
-# credentials (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or AWS_PROFILE). -DryRun lists what would be uploaded.
+# Needs the AWS CLI (which setup installs where SPEEDO_BINARY_CACHE_WRITE is set) and a B2 application key that can write
+# to the bucket, in the AWS CLI's own credentials (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or AWS_PROFILE). -DryRun
+# lists what would be uploaded.
 param(
 	[switch] $DryRun,
 	[string] $InstallRoot = (Join-Path $PSScriptRoot '../install')
@@ -19,7 +20,7 @@ if (-not (Test-Path $StatusFile))
 }
 if (-not $DryRun -and -not (Get-Command aws -ErrorAction SilentlyContinue))
 {
-	Write-Error 'The AWS CLI is not on the path (brew install awscli on macOS)'
+	Write-Error 'The AWS CLI is not on the path (setup installs it where SPEEDO_BINARY_CACHE_WRITE is set)'
 }
 
 # the installed packages: the status file's paragraphs with an ABI (a package, not a feature) that are installed
