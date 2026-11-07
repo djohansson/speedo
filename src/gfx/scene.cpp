@@ -2631,7 +2631,7 @@ struct Scene::Impl
 			graphicsSubmits |= graphicsQueue.Submit();
 		}
 
-		auto shaderIncludePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["RootPath"]) / "src/gfx/shaders";
+		auto shaderIncludePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ShaderPath"]);
 		auto shaderIntermediatePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["UserProfilePath"]) / ".slang.intermediate";
 
 		ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);

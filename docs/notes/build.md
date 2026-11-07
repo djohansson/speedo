@@ -428,3 +428,18 @@ Visual Studio with the components, the AWS CLI for a cache writer). Linux (2026-
 in turn (the user's ask, 2026-11-07), the asset checks on the profile build: one job a platform, since the configurations
 share their packages and a job each would restore them, about 2 GB, three times. It replaced three workflows from an early trial
 (`lukka/run-vcpkg` templates, on a `main` branch this repository doesn't have, so they never ran).
+
+## Releases
+
+The client runs from a checkout or from an install (the user's ask, 2026-11-07: releases on GitHub, packaged for each
+platform's installer; the client only, unsigned for now). `ClientCreate` tells them apart: run from a checkout's root
+(`resources/` and `src/gfx/shaders/shaders.slang` there), everything is as the scripts expect (the root the working
+directory, the user profile in `.speedo`, the test assets in `resources/test-assets`); otherwise the data is beside the
+executable (`core::file::GetExecutablePath`): a macOS bundle's `Contents/Resources`, else `<prefix>/share/speedo` (an
+AppImage's `usr/share/speedo`, Windows' install directory's `share/speedo`), holding `resources/` and `shaders/`, and the
+user's profile and test assets in the platform's user data directory (`core::file::GetUserDataPath`: `~/Library/Application
+Support/Speedo`, `%LOCALAPPDATA%\Speedo`, `$XDG_DATA_HOME/speedo` or `~/.local/share/speedo`). `-r` and `-u` choose the
+resource and profile directories either way. The environment's `ShaderPath` and `TestAssetsPath` name the shader sources
+(compiled at startup, so an install ships them) and the test assets, which the scene, the ImGui renderer, the thumbnails'
+render version and the file browser took from the root before. A client copied into `bin/` with its data in
+`share/speedo`, run from `/tmp`, found its shaders there, compiled them into its profile and drew the helmet.

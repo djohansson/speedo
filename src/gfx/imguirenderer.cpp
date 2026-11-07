@@ -319,7 +319,7 @@ ImGuiRenderer::ImGuiRenderer(Device& device)
 
 	auto& state = *myState;
 	auto& variables = core::Application::Get()->GetEnv().variables;
-	auto shaderIncludePath = std::get<std::filesystem::path>(variables["RootPath"]) / "src/gfx/shaders";
+	auto shaderIncludePath = std::get<std::filesystem::path>(variables["ShaderPath"]);
 	ShaderLoader loader({shaderIncludePath}, {}, std::get<std::filesystem::path>(variables["UserProfilePath"]) / ".slang.intermediate");
 	state.layout = state.pipeline.CreateLayout(
 		"ImGui",

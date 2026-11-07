@@ -348,9 +348,10 @@ void WindowedApplication::InternalDrawBrowser()
 	if (static bool gStarted = false; !gStarted)
 	{
 		gStarted = true;
-		auto resourcePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]);
+		auto& variables = core::Application::Get()->GetEnv().variables;
+		auto resourcePath = std::get<std::filesystem::path>(variables["ResourcePath"]);
 		std::error_code error;
-		auto testAssets = resourcePath / "test-assets";
+		auto testAssets = std::get<std::filesystem::path>(variables["TestAssetsPath"]);
 		state.directory = std::filesystem::is_directory(testAssets, error) ? testAssets : resourcePath;
 		if (const char* browse = std::getenv("SPEEDO_BROWSE"); browse != nullptr && *browse != '\0')
 		{

@@ -368,21 +368,65 @@ void ClientCreate(const PathConfig* paths)
 
 	ENSURE(paths != nullptr);
 
-	auto root = GetCanonicalPath(nullptr, "./");
-	auto resourcePath = GetCanonicalPath(paths->resourcePath, (root.value() / "resources").string().c_str());
-	auto userPath = GetCanonicalPath(paths->userProfilePath, (root.value() / ".speedo").string().c_str(), true);
+	// where the client's data is: a repository's checkout run from its root (resources/ and the shader sources beside
+	// it, the user profile in .speedo and the test assets in resources/test-assets, as the scripts expect), or an install
+	// (see CMakeLists.txt's install rules and docs/notes/build.md, "Releases"): the data beside the executable, a macOS
+	// bundle's Contents/Resources or <prefix>/share/speedo, the shaders in its shaders/, and the user's profile and test
+	// assets in the platform's user data directory. -r and -u choose the resource and the profile directories either way
+	auto cwd = GetCanonicalPath(nullptr, "./");
+	ENSURE(cwd);
+	std::error_code error;
+	bool checkout = std::filesystem::is_directory(cwd.value() / "resources", error) &&
+					std::filesystem::is_regular_file(cwd.value() / "src/gfx/shaders/shaders.slang", error);
+	std::filesystem::path root;
+	std::filesystem::path shaderPath;
+	std::filesystem::path defaultUserPath;
+	if (checkout)
+	{
+		root = cwd.value();
+		shaderPath = root / "src/gfx/shaders";
+		defaultUserPath = root / ".speedo";
+	}
+	else
+	{
+		auto executable = GetExecutablePath();
+		ENSUREF(executable, "the client's executable path couldn't be found");
+		auto bin = executable.value().parent_path();
+		for (const auto& candidate : {bin / "../Resources", bin / "../share/speedo"})
+			if (std::filesystem::is_regular_file(candidate / "shaders/shaders.slang", error))
+			{
+				root = std::filesystem::canonical(candidate, error);
+				break;
+			}
+		ENSUREF(!root.empty(), "the client's data (resources/ and shaders/) isn't beside it ({}), nor is it run from a checkout", bin.string());
+		shaderPath = root / "shaders";
+		defaultUserPath = GetUserDataPath(
+#if defined(__linux__)
+			"speedo"
+#else
+			"Speedo"
+#endif
+		);
+	}
+	auto resourcePath = GetCanonicalPath(paths->resourcePath, (root / "resources").string().c_str());
+	auto userPath = GetCanonicalPath(paths->userProfilePath, defaultUserPath.string().c_str(), true);
 
-	ENSURE(root);
 	ENSURE(resourcePath);
 	ENSURE(userPath);
+
+	// the test assets (scripts/fetch-test-assets.ps1's, or the client's download, see TestAssetsPath): a checkout's (or
+	// a chosen resource directory's) resources/test-assets, else the user's
+	auto testAssetsPath = (checkout || paths->resourcePath != nullptr) ? resourcePath.value() / "test-assets" : userPath.value() / "test-assets";
 
 	auto& appPtrRef = gClientApplication.Write().Get();
 	appPtrRef = CreateApplication<Client>(
 		"client",
 		Environment{{
-			{"RootPath", root.value()},
+			{"RootPath", root},
 			{"ResourcePath", resourcePath.value()},
+			{"ShaderPath", shaderPath},
 			{"UserProfilePath", userPath.value()},
+			{"TestAssetsPath", testAssetsPath},
 		},});
 
 	std::array<TaskHandle, 3> handles{gRpcTask.handle, gTickTask.handle, gDrawTask.handle};

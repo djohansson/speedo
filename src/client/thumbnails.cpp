@@ -115,10 +115,10 @@ struct CaptureId
 [[nodiscard]] std::string RenderVersion()
 {
 	constexpr std::string_view kRendererTag = "renderer-v3"; // v3: previews upscaled by default (FSR 3.1, balanced); v2: without the rays the BVHs serve
-	auto root = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["RootPath"]);
+	auto shaderPath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ShaderPath"]);
 	std::vector<std::filesystem::path> files;
 	std::error_code error;
-	for (auto it = std::filesystem::recursive_directory_iterator(root / "src/gfx/shaders", error);
+	for (auto it = std::filesystem::recursive_directory_iterator(shaderPath, error);
 		 !error && it != std::filesystem::recursive_directory_iterator();
 		 it.increment(error))
 		if (it->is_regular_file(error))

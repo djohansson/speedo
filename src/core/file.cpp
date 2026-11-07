@@ -15,6 +15,9 @@
 #if defined(__APPLE__) || defined(__linux__)
 #include <fcntl.h>
 #endif
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 namespace core
 {
@@ -93,6 +96,64 @@ GetCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfM
 		return std::unexpected(error);
 
 	return path;
+}
+
+std::expected<std::filesystem::path, std::error_code> GetExecutablePath() noexcept
+{
+	std::error_code error;
+#if defined(_WIN32)
+	std::wstring buffer(MAX_PATH, L'\0');
+	for (;;)
+	{
+		auto length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+		if (length == 0)
+			return std::unexpected(std::error_code(static_cast<int>(GetLastError()), std::system_category()));
+		if (length < buffer.size())
+		{
+			buffer.resize(length);
+			break;
+		}
+		buffer.resize(buffer.size() * 2);
+	}
+	auto path = std::filesystem::path(buffer);
+#elif defined(__APPLE__)
+	uint32_t size = 0;
+	_NSGetExecutablePath(nullptr, &size);
+	std::string buffer(size, '\0');
+	if (_NSGetExecutablePath(buffer.data(), &size) != 0)
+		return std::unexpected(std::make_error_code(std::errc::filename_too_long));
+	auto path = std::filesystem::path(buffer.c_str());
+#else
+	auto path = std::filesystem::read_symlink("/proc/self/exe", error);
+	if (error)
+		return std::unexpected(error);
+#endif
+	path = std::filesystem::canonical(path, error);
+	if (error)
+		return std::unexpected(error);
+	return path;
+}
+
+std::filesystem::path GetUserDataPath(std::string_view name)
+{
+	auto fromEnvironment = [](const char* variable) -> std::filesystem::path
+	{
+		const char* value = std::getenv(variable);
+		return (value != nullptr && *value != '\0') ? std::filesystem::path(value) : std::filesystem::path();
+	};
+#if defined(_WIN32)
+	auto base = fromEnvironment("LOCALAPPDATA");
+	if (base.empty())
+		base = fromEnvironment("APPDATA");
+	return base / name;
+#elif defined(__APPLE__)
+	return fromEnvironment("HOME") / "Library/Application Support" / name;
+#else
+	auto base = fromEnvironment("XDG_DATA_HOME");
+	if (base.empty())
+		base = fromEnvironment("HOME") / ".local/share";
+	return base / name;
+#endif
 }
 
 std::expected<Record, std::error_code> LoadAsset(
