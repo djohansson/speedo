@@ -446,3 +446,24 @@ render version and the file browser took from the root before. A client copied i
 launch's compile (about 25 s on the M4 Pro) runs in the background behind a progress bar, the ui drawn meanwhile (see
 layering.md's shaders), and it offers the test assets to download meanwhile (see assets.md: their manifests are installed
 with the resources, `resources/test-asset-manifests`).
+
+## Licenses
+
+Speedo's own code is proprietary, all rights reserved (`LICENSE`, the user's call, 2026-11-07: to keep every option open,
+commercial included); the project began in 2018 as a fork of slang, of which no line remains (the four files the history
+shares with it, `git blame`d, are all the user's). `THIRD-PARTY-NOTICES.md` lists what the client ships or compiles in,
+and under which license; a package carries each vcpkg port's copyright file (`licenses/<port>.txt`) and the fonts'
+licenses. Audited 2026-11-07 for a commercial release, from the ports' declared licenses checked against their copyright
+files: everything is permissive (MIT, BSD, Zlib, Apache-2.0, the LLVM exception's) but for
+- libdwarf, LGPL-2.1: macOS and Linux, cpptrace's symbolizer, shipped as its own shared library (replaceable, as the
+  LGPL asks: its text and source on offer, no terms forbidding the reverse engineering that replacing it needs). cpptrace
+  can symbolize without it (libbacktrace, BSD, or the platform's tools), which would leave nothing LGPL;
+- ZeroMQ, MPL-2.0: file-level copyleft, shipped unmodified as a shared library (changes to its own files would have to be
+  published), for the client and server's messages;
+- attribution: FreeType's FTL (chosen over its GPL) asks for credit in the documentation, the Twemoji font's art is
+  CC-BY-4.0, and the Apache-2.0 components' NOTICE files (where they have one) are to be reproduced;
+- glslang's generated parser is GPL-3.0 with Bison's exception, which lets it be distributed under any terms; zstd and
+  FreeType are taken under their permissive licenses rather than GPL; the fonts' OFL forbids selling them alone.
+The test assets aren't Speedo's nor shipped with it (the client downloads them from their sources), and their licenses
+vary: most are CC-BY or CC0, but some are for research or non-commercial use only (the Stanford models in McGuire's
+archive, for one), so a commercial build would have to review what it offers.

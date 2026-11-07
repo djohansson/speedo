@@ -1,0 +1,10 @@
+Copyright (c) 2018-2026 Daniel Johansson. All rights reserved.
+
+This software and its source code are proprietary. No license is granted to use, copy, modify, merge, publish,
+distribute, sublicense or sell copies of it, in whole or in part, without the prior written permission of the
+copyright holder, except where applicable law permits it regardless.
+
+The third-party components it includes, links or loads are licensed under their own terms, which this notice does not
+change: see THIRD-PARTY-NOTICES.md, and in a package the licenses directory beside the program's resources. The test
+assets it can download (Morgan McGuire's Computer Graphics Archive, the Khronos glTF sample models and environments)
+are not part of it, and each comes with its own license.
