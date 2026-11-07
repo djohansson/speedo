@@ -217,7 +217,7 @@ on one exclusive lock: ~430 ns vs `std::mutex`'s ~17 ns). So: `std::mutex` for e
 (`gDrawMutex`, `MemoryPool`'s free list, the object tracking maps); `UpgradableSharedMutex` where upgrade locks are
 used (descriptor set state in `Pipeline`) and as `ConcurrentAccess`'s default, whose locks are short and mostly
 uncontended (at 2-3 threads it and `std::shared_mutex` trade wins). Don't lock what can't change: `MemoryPool`'s
-`GetPointer`/`GetHandle` are plain address arithmetic on fixed storage. The `TaskExecutor` wakes idle threads with
+`GetPointer` is address arithmetic on chunks that never move once made. The `TaskExecutor` wakes idle threads with
 an atomic wake count (`myWakeCount`) rather than a condition variable: submitting takes no lock, and a thread
 can't miss a wake between finding the queue empty and waiting. `Pipeline`'s pipeline map is a `std::mutex` and a condition variable
 (`PipelineMapSync`): it is only touched when a draw changes pipeline variant (draws are sorted by variant), a few times
@@ -269,10 +269,13 @@ a sharded node map (`phmap::parallel_node_hash_map`, where entries don't move an
   spawned, running another partition meanwhile, which waits in turn), and the ui's tick landed on top (in a `ForEach`'s
   wait, then), its `PrepareDraw` frame big in a debug build. The task threads' stacks are a main thread's, 8 MB
   (`kThreadStackByteCount`).
-- Tasks come from a fixed pool (`kTaskPoolSize`), and a task stays allocated until its future is gone and the executor
-  purges it (`JoinAll`, or after another task runs). `ForEach`es nest, each holding a task per thread (a worker that
-  starts after its loop is done, finding no index left, holds its task until it runs): a model's texture loads, each
-  compressing on every thread, took about threads squared (see `kTaskPoolSize`).
+- Tasks come from a pool that grows in chunks of 1024 (`core/memorypool.h`, `kTaskPoolChunkSize`), up to about a
+  million (past which it's a leak, and traps), and a task stays allocated until it has run and the executor purges it
+  (`JoinAll`, or after another task runs). Its handle holds its slot's generation, so a handle used after its task
+  was freed traps. `ForEach` makes workers for the threads idle at the call (at least one), each recruiting the next as
+  it starts: one per thread up front, nested loops on a busy executor (a model's textures, each compressing on every
+  thread) left one per thread per loop queued, and Bistro's cold import on 32 threads ran the fixed pool (16384) out.
+  `taskbench` (`src/tools`) measures the task system's overheads and the pool's peak.
 
 ## Gotcha: `core::CreateTask` stores lvalue arguments by reference
 

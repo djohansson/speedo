@@ -9,7 +9,6 @@ namespace detail
 {
 
 Task* InternalHandleToPtr(TaskHandle handle) noexcept;
-TaskHandle InternalPtrToHandle(Task* ptr) noexcept;
 TaskHandle InternalAllocate() noexcept;
 void InternalFree(TaskHandle handle) noexcept;
 

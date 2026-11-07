@@ -7,30 +7,15 @@ namespace core
 namespace detail
 {
 
-static MemoryPool<Task, kTaskPoolSize> gTaskPool;
+using TaskPool = MemoryPool<Task, kTaskPoolChunkSize, kTaskPoolMaxChunks>;
+static_assert(std::is_same_v<TaskPool::Handle, TaskHandle>);
+static TaskPool gTaskPool;
 
 Task* InternalHandleToPtr(TaskHandle handle) noexcept
 {
 	ENSURE(!!handle);
-	ENSURE(handle.value < kTaskPoolSize);
-	
-	Task* ptr = gTaskPool.GetPointer(handle);
 
-	ENSURE(ptr != nullptr);
-	
-	return ptr;
-}
-
-TaskHandle InternalPtrToHandle(Task* ptr) noexcept
-{
-	ENSURE(ptr != nullptr);
-
-	auto handle = gTaskPool.GetHandle(ptr);
-
-	ENSURE(!!handle);
-	ENSURE(handle.value < kTaskPoolSize);
-
-	return handle;
+	return gTaskPool.GetPointer(handle);
 }
 
 TaskHandle InternalAllocate() noexcept
@@ -45,7 +30,6 @@ TaskHandle InternalAllocate() noexcept
 void InternalFree(TaskHandle handle) noexcept
 {
 	ENSURE(!!handle);
-	ENSURE(handle.value < kTaskPoolSize);
 
 	gTaskPool.Free(handle);
 }
@@ -63,7 +47,7 @@ Task::operator bool() const noexcept
 	return !!InternalState();
 }
 
-void Task::AddDependency(Task& other, bool isContinuation) noexcept
+void Task::AddDependency(Task& other, TaskHandle otherHandle, bool isContinuation) noexcept
 {
 	ENSURE(*this);
 	ENSURE(other);
@@ -72,7 +56,9 @@ void Task::AddDependency(Task& other, bool isContinuation) noexcept
 	TaskState& aState = *InternalState();
 	TaskState& bState = *other.InternalState();
 
-	aState.adjacencies[aState.adjacenciesCount++] = core::detail::InternalPtrToHandle(&other);
+	ENSUREF(aState.adjacenciesCount < aState.adjacencies.size(), "a task with more than {} dependents",
+		aState.adjacencies.size());
+	aState.adjacencies[aState.adjacenciesCount++] = otherHandle;
 	std::atomic_ref(bState.latch).fetch_add(1, std::memory_order_relaxed);
 	bState.continuation = isContinuation;
 }
@@ -86,7 +72,7 @@ void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContin
 	Task& aTask = *core::detail::InternalHandleToPtr(aTaskHandle);
 	Task& bTask = *core::detail::InternalHandleToPtr(bTaskHandle);
 
-	aTask.AddDependency(bTask, isContinuation);
+	aTask.AddDependency(bTask, bTaskHandle, isContinuation);
 }
 
 TaskPoolStatistics GetTaskPoolStatistics() noexcept
@@ -94,7 +80,8 @@ TaskPoolStatistics GetTaskPoolStatistics() noexcept
 	return {
 		.used = core::detail::gTaskPool.Size(),
 		.peak = core::detail::gTaskPool.Peak(),
-		.capacity = core::detail::gTaskPool.Capacity()};
+		.capacity = core::detail::gTaskPool.Capacity(),
+		.maxCapacity = core::detail::TaskPool::MaxCapacity()};
 }
 
 } // namespace core

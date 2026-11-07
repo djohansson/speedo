@@ -1,81 +1,88 @@
 #include <core/assert.h>//NOLINT(modernize-deprecated-headers)
 
-#include <mutex>
+#include <new>
 
 namespace core
 {
 
-template <typename T, std::size_t N>
-constexpr MemoryPool<T, N>::MemoryPool() noexcept
+template <typename T, std::size_t ChunkSize, std::size_t MaxChunks>
+MemoryPool<T, ChunkSize, MaxChunks>::~MemoryPool() noexcept
 {
-	static_assert(Capacity() > 0);
-
-	for (auto& entry : myEntries)
-		entry.index = myAvailable++;
-
-	ENSURE(myAvailable == Capacity());
-
-	std::make_heap(myEntries.begin(), myEntries.end());
+	// the objects still allocated are the owners' to destroy: only their storage goes
+	for (auto& chunk : myChunks)
+		delete chunk.load(std::memory_order_relaxed);
 }
 
-template <typename T, std::size_t N>
-MemoryPool<T, N>::Handle MemoryPool<T, N>::Allocate() noexcept
+template <typename T, std::size_t ChunkSize, std::size_t MaxChunks>
+void MemoryPool<T, ChunkSize, MaxChunks>::InternalGrow() noexcept
 {
-	std::unique_lock lock(myMutex);
+	auto chunkIndex = myChunkCount.load(std::memory_order_relaxed);
+	ENSUREF(chunkIndex < MaxChunks, "MemoryPool: all {} chunks of {} are in use ({} objects): a leak?", MaxChunks, ChunkSize,
+		MaxCapacity());
 
-	ENSURE(myAvailable > 0);
-	ENSURE(myAvailable <= Capacity());
+	myChunks[chunkIndex].store(new Chunk, std::memory_order_release);
+	myChunkCount.store(chunkIndex + 1, std::memory_order_relaxed);
 
-	if (myAvailable == 0 || myAvailable > Capacity())
-		return Handle{};
-
-	Handle handle{myEntries[0].index};
-
-	std::pop_heap(myEntries.begin(), myEntries.begin() + myAvailable);
-
-	--myAvailable;
-
-	if (auto used = Capacity() - myAvailable; used > myPeak.load(std::memory_order_relaxed))
-		myPeak.store(used, std::memory_order_relaxed);
-
-	ASSERT(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
-
-	return handle;
+	// the chunk's lowest index on top
+	auto first = static_cast<std::uint32_t>(chunkIndex * ChunkSize);
+	for (auto index = first + ChunkSize; index-- > first;)
+		myFree.push_back(index);
 }
 
-template <typename T, std::size_t N>
-void MemoryPool<T, N>::Free(Handle handle) noexcept
+template <typename T, std::size_t ChunkSize, std::size_t MaxChunks>
+MemoryPool<T, ChunkSize, MaxChunks>::Handle MemoryPool<T, ChunkSize, MaxChunks>::Allocate() noexcept
 {
-	std::unique_lock lock(myMutex);
+	std::uint32_t index;
+	{
+		std::unique_lock lock(myMutex);
 
-	ENSURE(!!handle);
-	ENSURE(myAvailable < Capacity());
+		if (myFree.empty())
+			InternalGrow();
 
-	myEntries[myAvailable].index = handle.value;
+		index = myFree.back();
+		myFree.pop_back();
+	}
 
-	myAvailable++;
+	if (auto size = mySize.fetch_add(1, std::memory_order_relaxed) + 1; size > myPeak.load(std::memory_order_relaxed))
+		myPeak.store(size, std::memory_order_relaxed); // a peak another thread raises at once may be lost: statistics
 
-	std::push_heap(myEntries.begin(), myEntries.begin() + myAvailable);
+	const auto& chunk = *myChunks[index / ChunkSize].load(std::memory_order_acquire);
+	std::uint32_t generation = chunk.generations[index % ChunkSize].load(std::memory_order_relaxed);
 
-	ASSERT(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
+	return Handle{(generation << kIndexBits) | index};
 }
 
-template <typename T, std::size_t N>
-constexpr T* MemoryPool<T, N>::GetPointer(Handle handle) noexcept
+template <typename T, std::size_t ChunkSize, std::size_t MaxChunks>
+void MemoryPool<T, ChunkSize, MaxChunks>::Free(Handle handle) noexcept
 {
-	// no lock: the pool never moves, so this is just address arithmetic
 	ENSURE(!!handle);
 
-	return reinterpret_cast<T*>(&myPool[handle.value * sizeof(T)]);
+	std::uint32_t index = handle.value & kIndexMask;
+	auto& chunk = *myChunks[index / ChunkSize].load(std::memory_order_acquire);
+	auto& generation = chunk.generations[index % ChunkSize];
+	auto handleGeneration = handle.value >> kIndexBits;
+	ENSUREF(generation.load(std::memory_order_relaxed) == handleGeneration, "MemoryPool: a handle freed twice");
+	generation.store((handleGeneration + 1) & kGenerationMask, std::memory_order_relaxed);
+
+	mySize.fetch_sub(1, std::memory_order_relaxed);
+
+	std::unique_lock lock(myMutex);
+	myFree.push_back(index);
 }
 
-template <typename T, std::size_t N>
-constexpr MemoryPool<T, N>::Handle MemoryPool<T, N>::GetHandle(const T* ptr) noexcept
+template <typename T, std::size_t ChunkSize, std::size_t MaxChunks>
+T* MemoryPool<T, ChunkSize, MaxChunks>::GetPointer(Handle handle) const noexcept
 {
-	// no lock: see GetPointer
-	ENSURE(ptr != nullptr);
+	// no lock: chunks never move, and the one a handle names was published before the handle was handed out
+	ENSURE(!!handle);
 
-	return Handle{static_cast<std_extra::min_unsigned_t<N>>(ptr - reinterpret_cast<const T*>(myPool.data()))};
+	std::uint32_t index = handle.value & kIndexMask;
+	auto* chunk = myChunks[index / ChunkSize].load(std::memory_order_acquire);
+	ENSURE(chunk != nullptr);
+	ENSUREF(chunk->generations[index % ChunkSize].load(std::memory_order_relaxed) == handle.value >> kIndexBits,
+		"MemoryPool: a handle used after its object was freed");
+
+	return std::launder(reinterpret_cast<T*>(chunk->storage.data() + ((index % ChunkSize) * sizeof(T))));
 }
 
 } // namespace core

@@ -1131,6 +1131,9 @@ void WindowedApplication::PrepareDraw()
 				// gpu submits per frame, averaged over half a second as the frame rate is (see Draw)
 				Text("Queue Submits: %.1f/frame", gSubmitsPerFrame.load(std::memory_order_relaxed));
 				Text("Submit Batches: %.1f/frame", gSubmitBatchesPerFrame.load(std::memory_order_relaxed));
+				// the task pool (core::GetTaskPoolStatistics): tasks allocated now, the most at once, what its chunks hold
+				auto taskPool = core::GetTaskPoolStatistics();
+				Text("Tasks: %zu (peak %zu, of %zu)", taskPool.used, taskPool.peak, taskPool.capacity);
 
 				// the frame graph's passes, on the gpu (see GpuProfiler::Collect): only where the backend writes their timestamps
 				// (KosmicKrisp: at the beginning and end of its own command encoders). in two columns of passes, which keeps

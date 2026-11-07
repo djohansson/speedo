@@ -10,6 +10,13 @@
 namespace core
 {
 
+// the task pool (core/memorypool.h) grows in chunks of 1024 tasks as it needs them, up to about a million, past which it's
+// a leak. it was a fixed 16384, which nested ForEachs ran out of on 32 threads (Bistro's cold import: a model's textures
+// each compressing on every thread, one worker per thread per loop queued, see TaskExecutor::ForEach)
+static constexpr std::size_t kTaskPoolChunkSize = 1024;
+static constexpr std::size_t kTaskPoolMaxChunks = 1023;
+// an index and a generation, 32 bits (see MemoryPool::Handle, which it is)
+using TaskHandle = MinSizeIndex<(std::size_t{1} << 31) - 1>;
 template <typename T>
 struct TaskCreateInfo;
 
@@ -51,7 +58,7 @@ public:
 	template <typename... Params>
 	constexpr void operator()(Params&&... params);
 
-	void AddDependency(Task& other, bool isContinuation = false) noexcept;
+	void AddDependency(Task& other, TaskHandle otherHandle, bool isContinuation = false) noexcept;
 
 private:
 	[[nodiscard]] auto& InternalState() noexcept { return myState; }
@@ -69,15 +76,11 @@ private:
 	alignas(8) std::shared_ptr<struct TaskState> myState;
 };
 
-// ForEachs nest: a model's texture loads (a task per thread) each compress on a task per thread, about threads squared
-// tasks per model load (900 on 30 threads; a worker that starts after its loop is done holds its task until it runs), and
-// the browser's preview and opening the model load it at once: 1024 ran out (todo: make this configurable)
-static constexpr std::size_t kTaskPoolSize = (1 << 14);
-using TaskHandle = MinSizeIndex<kTaskPoolSize>;
 
 struct TaskState
 {
-	std::array<TaskHandle, 128> adjacencies;
+	// the tasks that wait on this one: one in practice (a chain's next), a hard failure past them
+	std::array<TaskHandle, 8> adjacencies;
 	static constexpr auto kAligmnent = std::atomic_ref<uint16_t>::required_alignment;
 	alignas(kAligmnent) uint16_t latch{1U};
 	uint8_t adjacenciesCount : 7;
@@ -133,12 +136,13 @@ requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>
 // b will start after a has finished
 void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false) noexcept;
 
-// the task pool's use: tasks allocated now, the most allocated at once, and how many it holds
+// the task pool's use: tasks allocated now, the most allocated at once, how many its chunks hold, and the most they may
 struct TaskPoolStatistics
 {
 	std::size_t used = 0;
 	std::size_t peak = 0;
 	std::size_t capacity = 0;
+	std::size_t maxCapacity = 0;
 };
 [[nodiscard]] TaskPoolStatistics GetTaskPoolStatistics() noexcept;
 
