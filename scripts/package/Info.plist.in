@@ -8,6 +8,8 @@
 	<string>Speedo</string>
 	<key>CFBundleExecutable</key>
 	<string>client</string>
+	<key>CFBundleIconFile</key>
+	<string>speedo</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.djohansson.speedo</string>
 	<key>CFBundleInfoDictionaryVersion</key>

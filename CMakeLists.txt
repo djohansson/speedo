@@ -675,8 +675,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	foreach(target server client assettest filebench taskbench convergence)
 		target_sources(${target} PRIVATE ${SPEEDO_SOURCE_DIR}/windows.rc)
 	endforeach()
-	# the resource compiler's includes aren't tracked: without this, a changed manifest wasn't embedded
-	set_source_files_properties(${SPEEDO_SOURCE_DIR}/windows.rc PROPERTIES OBJECT_DEPENDS ${SPEEDO_SOURCE_DIR}/windows.manifest)
+	# the resource compiler's includes aren't tracked: without this, a changed manifest (or icon) wasn't embedded
+	set_source_files_properties(${SPEEDO_SOURCE_DIR}/windows.rc PROPERTIES OBJECT_DEPENDS
+		"${SPEEDO_SOURCE_DIR}/windows.manifest;${CMAKE_CURRENT_SOURCE_DIR}/scripts/package/speedo.ico")
 
 	# the modules slang loads at run time from beside the executable (the build copies only the dlls it imports):
 	# without them, compiling the shaders (a new user profile, or a changed shader) fails to load spirv-opt. Copied by
@@ -843,6 +844,8 @@ if(APPLE)
 	endif()
 	configure_file("${CMAKE_CURRENT_SOURCE_DIR}/scripts/package/Info.plist.in" "${CMAKE_CURRENT_BINARY_DIR}/package/Info.plist" @ONLY)
 	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/package/Info.plist" DESTINATION . COMPONENT Client EXCLUDE_FROM_ALL)
+	# the icon Info.plist names (CFBundleIconFile), made from speedo.svg by scripts/package/make-icons.ps1
+	install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/scripts/package/speedo.icns" DESTINATION Resources COMPONENT Client EXCLUDE_FROM_ALL)
 endif()
 # Windows' installer: CPack's WiX generator (WiX 4 or later, the wix .NET tool), the Client component into Program
 # Files\Speedo, a Start menu shortcut, and LICENSE shown to accept (as a .txt, which CPack converts to RTF). The upgrade
@@ -864,5 +867,7 @@ if(WIN32)
 	set(CPACK_WIX_ARCHITECTURE x64)
 	set(CPACK_WIX_UPGRADE_GUID B1FBF828-95A9-4239-B39B-63F5209BB3EE)
 	set(CPACK_WIX_PROGRAM_MENU_FOLDER Speedo)
+	# Add or remove programs' icon (the executables and their Start menu shortcut have theirs from windows.rc)
+	set(CPACK_WIX_PRODUCT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/scripts/package/speedo.ico")
 	include(CPack)
 endif()

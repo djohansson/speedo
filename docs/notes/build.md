@@ -488,7 +488,16 @@ place of the sources; no slang nor shader compiler ships, see layering.md's shad
 their licenses, the test assets' manifests, `LICENSE`,
 `THIRD-PARTY-NOTICES.md` and each vcpkg port's license as `licenses/<port>.txt`; on macOS also KosmicKrisp (the mesa
 port's, with its patches) and its manifest in the bundle's `Resources/vulkan/icd.d`, where the loader looks, the loader
-as `Frameworks/libvulkan.1.dylib` (GLFW loads it by that name) and `Info.plist`. The macOS bundle's absolute rpaths (the
+as `Frameworks/libvulkan.1.dylib` (GLFW loads it by that name) and `Info.plist`. The icon (the user's design, 2026-11-08:
+green swim briefs, no logo, with eyes either side of the pouch, on a pool floor's caustics) is `scripts/package/speedo.svg`,
+drawn on macOS's icon grid: the AppImage takes it as it is, and `scripts/package/make-icons.ps1` (macOS: AppKit renders
+it, through `src/tools/macos/svgrender.swift`, no librsvg or ImageMagick) makes the bundle's `speedo.icns` (Info.plist's
+`CFBundleIconFile`) and Windows' `speedo.ico` (PNG images, 16 to 256 pixels, from the tile with a thin margin), which
+`windows.rc` embeds as `GLFW_ICON` (the executables' icon in Explorer and the Start menu, and GLFW's windows') and the
+installer shows in Add or remove programs (`CPACK_WIX_PRODUCT_ICON`); the three are committed. A package's code is built
+for the toolchain's fixed cpu, not the build machine's: the presets' `SPEEDO_TARGET_CPU=native` is `-march=native` on
+arm64, so the workflow configures with `-DSPEEDO_TARGET_CPU=baseline` (`-mcpu=apple-m1`), and `package.ps1` refuses an
+arm64 build configured for native (x86-64 is always `x86-64-v3`). The macOS bundle's absolute rpaths (the
 toolchain's LLVM) are deleted and it is signed ad hoc (Apple silicon runs only signed code); nothing is signed by a
 developer id yet (the user's call, 2026-11-07), so Gatekeeper and SmartScreen ask at first (System Settings > Privacy &
 Security > Open Anyway, or `xattr -dr com.apple.quarantine`; More info > Run anyway). Tracy isn't in it (release links
@@ -512,7 +521,10 @@ by hand (Actions > Release > Run workflow, no tag) it packages alone, the packag
 the packaging. To release: `scripts/release.ps1 -Bump patch|minor|major` (or `-Version <x.y.z>`), on a clean `master`,
 sets `src/version.h`, commits it ("release: v<version>") and tags the commit `v<version>` (annotated); `-Push` pushes
 `master` and the tag, else it prints the push command. Tested in a scratch repository (bumps, an older version and a
-dirty tree refused); the first real release is its first run against GitHub.
+dirty tree refused). The workflow's first runs (2026-11-08): by hand, all three packages but Linux's (appimagetool
+needs `desktop-file-validate`, which the job now installs), then all three (the .dmg 19.3 MB, the .msi 9.6, the AppImage
+59.3, as artifacts); `scripts/release.ps1 -Version 1.0.0 -Push` then tagged v1.0.0, whose run made the draft release with
+the three packages and their `.sha256`.
 
 ## Licenses
 

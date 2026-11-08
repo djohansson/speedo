@@ -1,3 +1,7 @@
 // the executables' manifest (CREATEPROCESS_MANIFEST_RESOURCE_ID, RT_MANIFEST), see windows.manifest. lld-link can only
 // merge one into its own with libxml2 or mt.exe, so the executables link with /MANIFEST:NO and embed this instead
 1 24 "windows.manifest"
+
+// the application's icon (scripts/package/make-icons.ps1 makes it from speedo.svg): Explorer shows an executable's first
+// icon, and GLFW gives its windows the one named GLFW_ICON
+GLFW_ICON ICON "../scripts/package/speedo.ico"

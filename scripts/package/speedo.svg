@@ -1,8 +1,130 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <!-- a placeholder icon for the packages (an AppImage needs one): a speedometer's dial -->
-  <rect width="256" height="256" rx="48" fill="#1b1f2a"/>
-  <path d="M48 176 A88 88 0 1 1 208 176" fill="none" stroke="#3b4458" stroke-width="20" stroke-linecap="round"/>
-  <path d="M48 176 A88 88 0 0 1 176 61" fill="none" stroke="#4f8cff" stroke-width="20" stroke-linecap="round"/>
-  <line x1="128" y1="152" x2="180" y2="92" stroke="#f2f4f8" stroke-width="12" stroke-linecap="round"/>
-  <circle cx="128" cy="152" r="14" fill="#f2f4f8"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Speedo's icon (the user's design, 2026-11-08): green swim briefs, no logo, a pouch with eyes either side of it, on a
+       pool's floor, whose caustics are the light a wavy surface focuses there (the gaps between inset Voronoi cells). Drawn
+       for macOS's icon grid (an 824 tile, rounded 185, on a 1024 canvas); scripts/package/make-icons.ps1 makes the .icns
+       and .ico from it, and the AppImage takes it as it is -->
+  <defs>
+    <linearGradient id="water" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#39c2ea"/>
+      <stop offset="1" stop-color="#0a5ea8"/>
+    </linearGradient>
+    <linearGradient id="light" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9fe6fb"/>
+      <stop offset="1" stop-color="#2f8ad6"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="12"/></filter>
+    <filter id="crease" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="9"/></filter>
+    <clipPath id="tile">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+    <clipPath id="fabric">
+      <path d="M 236 340 Q 512 384 788 340 L 772 452 C 694 468 622 540 604 636 C 594 700 562 744 512 744 C 462 744 430 700 420 636 C 402 540 330 468 252 452 Z"/>
+    </clipPath>
+    <linearGradient id="cloth" x1="236" y1="0" x2="788" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f7a3a"/>
+      <stop offset="0.4" stop-color="#27c068"/>
+      <stop offset="0.6" stop-color="#27c068"/>
+      <stop offset="1" stop-color="#0f7a3a"/>
+    </linearGradient>
+    <linearGradient id="depth" x1="0" y1="340" x2="0" y2="744" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.22"/>
+    </linearGradient>
+    <radialGradient id="pouch" cx="492" cy="560" r="150" fx="478" fy="530" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7af0ae"/>
+      <stop offset="0.45" stop-color="#3ad57e"/>
+      <stop offset="1" stop-color="#1a9a50"/>
+    </radialGradient>
+    <radialGradient id="eye" cx="0.4" cy="0.35" r="0.75">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d8e4ea"/>
+    </radialGradient>
+    <linearGradient id="band" x1="0" y1="340" x2="0" y2="442" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3fe08a"/>
+      <stop offset="1" stop-color="#139447"/>
+    </linearGradient>
+  </defs>
+
+  <g clip-path="url(#tile)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#light)"/>
+    <g fill="url(#water)" stroke="url(#water)" stroke-width="34" stroke-linejoin="round">
+      <polygon points="-160,-160 14,-160 210,163 -160,129"/>
+      <polygon points="70,-160 404,-160 279,167 269,169"/>
+      <polygon points="456,-160 522,-160 495,157 356,208 325,182"/>
+      <polygon points="570,-160 666,-160 651,189 543,159"/>
+      <polygon points="714,-160 768,-160 804,202 699,191"/>
+      <polygon points="816,-160 1184,-160 1184,196 852,204"/>
+      <polygon points="-160,214 -160,177 221,213 161,315"/>
+      <polygon points="199,344 275,216 289,214 330,249 354,330 335,371 219,384"/>
+      <polygon points="398,309 380,250 499,207 514,313"/>
+      <polygon points="564,326 548,210 639,235 619,331 612,337"/>
+      <polygon points="671,317 688,238 802,250 795,291 782,308"/>
+      <polygon points="1184,244 1184,466 1139,457 844,288 850,252"/>
+      <polygon points="-160,543 -160,264 155,363 179,411 168,440"/>
+      <polygon points="212,459 222,432 336,419 376,509 351,539 249,536"/>
+      <polygon points="420,489 377,393 394,356 516,362 442,489"/>
+      <polygon points="489,505 564,375 600,383 635,495 540,534"/>
+      <polygon points="684,492 646,370 650,367 774,357 788,459 754,487 684,492"/>
+      <polygon points="834,446 820,338 824,332 1034,453"/>
+      <polygon points="-160,646 -160,594 173,489 207,558 158,641 -89,657"/>
+      <polygon points="208,652 247,583 340,587 352,690 331,709"/>
+      <polygon points="399,678 387,571 415,537 449,538 513,574 509,681 491,692"/>
+      <polygon points="557,678 561,577 656,538 658,656 630,701"/>
+      <polygon points="706,639 704,538 750,535 807,643"/>
+      <polygon points="865,650 794,516 821,493 1128,504 1154,509"/>
+      <polygon points="-18,700 149,690 177,823 172,827"/>
+      <polygon points="222,803 201,701 309,752 303,782 300,787"/>
+      <polygon points="353,778 358,750 385,725 472,737 470,838"/>
+      <polygon points="518,836 520,730 535,721 624,750 649,798 611,843"/>
+      <polygon points="694,781 668,731 696,687 833,692 813,798 804,805"/>
+      <polygon points="1184,548 1184,874 862,794 881,695"/>
+      <polygon points="117,1184 -160,1184 -160,695 -99,704 149,870"/>
+      <polygon points="330,1184 166,1184 197,869 214,853 294,837"/>
+      <polygon points="371,1116 341,826 452,883"/>
+      <polygon points="618,1184 398,1184 502,884 503,883 598,890"/>
+      <polygon points="768,1184 666,1184 646,876 686,828 785,850"/>
+      <polygon points="1184,924 1184,1184 816,1184 833,843 840,838"/>
+    </g>
+  </g>
+
+  <!-- the briefs' shadow on the water -->
+  <path d="M 250 366 Q 526 410 802 366 L 786 478 C 708 494 636 566 618 662 C 608 726 576 770 526 770 C 476 770 444 726 434 662 C 416 566 344 494 266 478 Z" fill="#022a52" fill-opacity="0.55" filter="url(#shadow)"/>
+
+  <!-- the briefs: shaded lycra, a pouch in front, a waistband with its stitching, bound leg openings and a tied drawstring -->
+  <path d="M 236 340 Q 512 384 788 340 L 772 452 C 694 468 622 540 604 636 C 594 700 562 744 512 744 C 462 744 430 700 420 636 C 402 540 330 468 252 452 Z" fill="url(#cloth)"/>
+  <g clip-path="url(#fabric)">
+    <rect x="200" y="300" width="624" height="460" fill="url(#depth)"/>
+    <!-- the leg openings' binding (half of it inside the clip), under the pouch -->
+    <path d="M 252 452 C 330 468 402 540 420 636" fill="none" stroke="#0b5c2c" stroke-opacity="0.8" stroke-width="14"/>
+    <path d="M 772 452 C 694 468 622 540 604 636" fill="none" stroke="#0b5c2c" stroke-opacity="0.8" stroke-width="14"/>
+    <!-- the shadow the pouch casts on the cloth around it -->
+    <path d="M 434 440 C 388 536 390 664 440 720 C 474 760 550 760 584 720 C 634 664 636 536 590 440" fill="none" stroke="#043d1c" stroke-opacity="0.5" stroke-width="30" filter="url(#crease)"/>
+    <!-- the pouch, rounded out toward the light -->
+    <path d="M 438 436 C 394 532 398 660 446 714 C 478 750 546 750 578 714 C 626 660 630 532 586 436 Z" fill="url(#pouch)"/>
+    <path d="M 438 436 C 394 532 398 660 446 714 C 478 750 546 750 578 714 C 626 660 630 532 586 436" fill="none" stroke="#0b5c2c" stroke-opacity="0.75" stroke-width="5"/>
+    <path d="M 454 440 C 414 532 418 652 460 700 C 488 730 536 730 564 700 C 606 652 610 532 570 440" fill="none" stroke="#c9ffe0" stroke-opacity="0.55" stroke-width="3.5" stroke-dasharray="12 9"/>
+    <path d="M 220 330 Q 512 374 804 330 L 804 400 Q 512 444 220 400 Z" fill="url(#band)"/>
+    <path d="M 220 400 Q 512 444 804 400" fill="none" stroke="#0b5c2c" stroke-opacity="0.55" stroke-width="6"/>
+    <path d="M 220 388 Q 512 432 804 388" fill="none" stroke="#c9ffe0" stroke-opacity="0.7" stroke-width="4" stroke-dasharray="14 10"/>
+    <path d="M 220 344 Q 512 388 804 344" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="5"/>
+  </g>
+  <path d="M 236 340 Q 512 384 788 340 L 772 452 C 694 468 622 540 604 636 C 594 700 562 744 512 744 C 462 744 430 700 420 636 C 402 540 330 468 252 452 Z" fill="none" stroke="#0a4f26" stroke-width="6" stroke-linejoin="round"/>
+
+  <g fill="none" stroke="#f6f8f4" stroke-width="10" stroke-linecap="round">
+    <path d="M 512 394 C 470 360 446 400 476 412 C 490 418 504 404 512 394"/>
+    <path d="M 512 394 C 554 360 578 400 548 412 C 534 418 520 404 512 394"/>
+    <path d="M 506 400 C 500 430 488 452 484 476"/>
+    <path d="M 518 400 C 526 428 536 448 542 470"/>
+  </g>
+  <circle cx="512" cy="396" r="10" fill="#f6f8f4"/>
+
+  <!-- its eyes, either side of the pouch, looking at it -->
+  <g stroke="#0a4f26" stroke-width="6">
+    <ellipse cx="364" cy="484" rx="46" ry="51" fill="url(#eye)"/>
+    <ellipse cx="660" cy="484" rx="46" ry="51" fill="url(#eye)"/>
+  </g>
+  <circle cx="380" cy="497" r="22" fill="#1b1f2a"/>
+  <circle cx="644" cy="497" r="22" fill="#1b1f2a"/>
+  <circle cx="372" cy="488" r="7" fill="#ffffff"/>
+  <circle cx="636" cy="488" r="7" fill="#ffffff"/>
 </svg>
