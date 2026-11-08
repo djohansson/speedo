@@ -178,7 +178,16 @@ bool RayQueriesEnabled()
 	static const bool kEnabled = []
 	{
 		const char* rayQuery = std::getenv("SPEEDO_RAY_QUERY");
+#if defined(__APPLE__)
+		// opt in (SPEEDO_RAY_QUERY=1), the user's call (2026-11-08): Metal's ray tracing, which KosmicKrisp's ray queries
+		// are, makes the gpu restart beside other gpu work (Apple's bug, reported 2026-11-08), which the mesa port's
+		// workaround makes rare rather than impossible (the packaged app lost its device 55 s into a session, its window
+		// in front and the browser making previews), and the BVHs perform about the same on the M4. look again once
+		// `rtrepro frame 60 rtpudxb` (src/tools/macos) no longer restarts the gpu (docs/notes/indirect-lighting.md)
+		return rayQuery != nullptr && std::string_view(rayQuery) == "1";
+#else
 		return rayQuery == nullptr || std::string_view(rayQuery) != "0";
+#endif
 	}();
 	return kEnabled;
 }

@@ -615,10 +615,14 @@ textures (the voxelizer, the rays' alpha masks and emission, the emitters) index
 Vulkan requires it of an index that varies across a wave's threads, and without it a driver may sample one thread's
 texture for all. On the mac, the mesa port's KosmicKrisp has them behind `MESA_KK_EXPERIMENTAL=ray_query` (the
 djohansson/mesa fork, see "vcpkg": Metal 4's acceleration structures and intersection queries), which the client sets
-as it makes its instance (the driver reads it then) unless it is set or `SPEEDO_RAY_QUERY=0`: on by default since
-2026-11-04, the user's call, once each kernel traced from one call site (see "Traced reflections and refractions"), its
-pipelines then made in seconds; a single client still restarted the gpu now and then (Apple's, below: ABeautifulGame 2 runs
-in 6 that day, before the change and after; the release builds most runs, until the mesa port's workaround of 2026-11-08). Against the BVHs on it,
+as it makes its instance (the driver reads it then) where ray queries are asked for and it isn't set: on by default from
+2026-11-04 (the user's call, once each kernel traced from one call site, see "Traced reflections and refractions", its
+pipelines then made in seconds), opt in since 2026-11-08 (`SPEEDO_RAY_QUERY=1`, `RayQueriesEnabled` in rhi, the user's
+call): a single client still restarted the gpu now and then (Apple's, below: ABeautifulGame 2 runs in 6 on 2026-11-04;
+the release builds most runs, until the mesa port's workaround of 2026-11-08), and with the workaround the packaged app
+lost its device 55 s into the user's session (its window in front, the browser making previews of the test assets just
+downloaded, the kernel's GPURestart type 1 at that moment), where the BVHs never restarted it and perform about the same
+(below). Elsewhere ray queries are on where the device has them, unless `SPEEDO_RAY_QUERY=0`. Against the BVHs on it,
 frame by frame as above: ShadowScene's traced rays identical, its lit frame within 0.012 of 255; CesiumMan 0.004,
 DiffuseTransmissionPlant 0.002, Sponza 0.002 and Bistro 0.010 at their benchmark poses; San Miguel 0.066, its leaves'
 dappled sunlight, where the CWBVH's compressed triangles lose precision; clean under the validation layer and Metal's
@@ -637,7 +641,7 @@ against 14.5: the BVHs' draw thread waits on the moving tree's refit and copy on
 leaves' dappled light, the CWBVH's precision). NVIDIA compacts Bistro's structure 189.5 to 82.9 MB (its CWBVH is 214.6
 MB), San Miguel's 666.8 to 212.9. Clean under the validation layer (Sponza, BrainStem, DiffuseTransmissionPlant, logged
 to a file, see the presentation test's paragraph), and the quick tier passes, profile. Never run several ray query clients at once on KosmicKrisp (`assettest.ps1` runs them one at a time where the
-driver is KosmicKrisp and ray queries are on, the default: `SPEEDO_RAY_QUERY=0` runs the BVHs four at a time): four, or a small model beside a big one, made the gpu restart ("CDM Kill
+driver is KosmicKrisp and ray queries are asked for, `SPEEDO_RAY_QUERY=1`; the BVHs, the default, go four at a time): four, or a small model beside a big one, made the gpu restart ("CDM Kill
 timeout" in `/Library/Logs/DiagnosticReports/gpuEvent-client-*.ips`, the clients losing the device with
 `MTL4CommandQueueErrorTimeout`), clients stuck exiting, and an hour later the machine panicked (IOKit's termination queue
 backed up behind them); one at a time never did, nor the BVHs in parallel, and not with the structures built but no ray

@@ -375,7 +375,7 @@ struct DeviceLimits
 	// Metal has no draw count indirect, see CLAUDE.md, "The gpu's culling")
 	bool drawIndirectCountEmulated = false;
 	// ray queries against acceleration structures (VK_KHR_ray_query, see AccelerationStructure), where the device has them
-	// and SPEEDO_RAY_QUERY isn't 0
+	// and SPEEDO_RAY_QUERY isn't 0 (on macOS, where it is 1: opt in, see rhi::vk RayQueriesEnabled)
 	bool rayQuery = false;
 	uint32_t accelerationStructureScratchAlignment = 0; // of a build's scratch address, in bytes
 };

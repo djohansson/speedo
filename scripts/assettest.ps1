@@ -25,8 +25,8 @@ its log, which is checked as above): without a messenger of the client's the lay
 file once the crash reports make one (on NVIDIA). What a debug client checks besides (asserts, rhi's object tracking) it
 doesn't. The quick tier runs so, a profile preset with -Validate, rather than profile and then debug.
 
-Client runs go -Jobs at once (default 4; one with KosmicKrisp's ray queries, which the client asks for unless
-SPEEDO_RAY_QUERY=0, and which made the gpu restart and the machine panic when several clients traced at once), each worker with a user profile dir of its own under <work> (user-1 to
+Client runs go -Jobs at once (default 4; one with KosmicKrisp's ray queries, which the client asks for only with
+SPEEDO_RAY_QUERY=1 on macOS, and which made the gpu restart and the machine panic when several clients traced at once), each worker with a user profile dir of its own under <work> (user-1 to
 user-N), and a model to the same worker (by a hash of its name), whose caches stay warm, each worker's longest first (by
 what they took last time, <work>/logs/<preset>/durations.tsv); a worker with none of its own left takes the shortest
 of the busiest worker's (the most time left), so that the end of a run isn't one worker's alone. On macOS a new worker's
@@ -182,15 +182,15 @@ if ($IsMacOS -and -not $env:VK_DRIVER_FILES -and -not $env:VK_ICD_FILENAMES)
 	$icd = Get-ChildItem -Path (Join-Path $root 'install/*/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json') -ErrorAction SilentlyContinue | Select-Object -First 1
 	if ($icd) { $env:VK_DRIVER_FILES = $icd.FullName }
 }
-# KosmicKrisp's ray queries, which the client asks for unless SPEEDO_RAY_QUERY=0 or MESA_KK_EXPERIMENTAL is set without
-# them: several clients tracing at once made the gpu restart ("CDM Kill timeout"), clients stuck exiting and the machine
-# panic, where one at a time never did
+# KosmicKrisp's ray queries, which the client asks for only with SPEEDO_RAY_QUERY=1 (opt in on macOS since 2026-11-08,
+# see RayQueriesEnabled) unless MESA_KK_EXPERIMENTAL is set without them: several clients tracing at once made the gpu
+# restart ("CDM Kill timeout"), clients stuck exiting and the machine panic, where one at a time rarely does
 $kosmicKrisp = "$env:VK_DRIVER_FILES$env:VK_ICD_FILENAMES" -match 'kosmickrisp'
-$rayQueries = $kosmicKrisp -and $env:SPEEDO_RAY_QUERY -ne '0' -and
+$rayQueries = $kosmicKrisp -and $env:SPEEDO_RAY_QUERY -eq '1' -and
 	($null -eq $env:MESA_KK_EXPERIMENTAL -or $env:MESA_KK_EXPERIMENTAL -match 'ray_query|all')
 if ($rayQueries -and $Jobs -gt 1)
 {
-	[Console]::Error.WriteLine("KosmicKrisp's ray queries: running the clients one at a time (-Jobs $Jobs asked for; SPEEDO_RAY_QUERY=0 for the BVHs, at once)")
+	[Console]::Error.WriteLine("KosmicKrisp's ray queries (SPEEDO_RAY_QUERY=1): running the clients one at a time (-Jobs $Jobs asked for)")
 	$Jobs = 1
 }
 # a sanitize or tsan preset's reports: with stacks, symbolized by the host llvm's llvm-symbolizer. tsan reports and goes

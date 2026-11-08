@@ -37,9 +37,11 @@ Details: docs/notes/layering.md.
   rebuild, while client runs are in flight (a batch would mix two versions).
 - Test with the quick tier before committing: `pwsh -Command '$p = & scripts/fetch-test-assets.ps1 -Quick; &
   scripts/assettest.ps1 -Preset <preset> -Client -Validate -Work <scratch>/quick @p'` (a profile preset, validated;
-  the full sets, `fetch-test-assets.ps1` without `-Quick`, before a commit that touches many models). On macOS the
-  ray query clients run one at a time (several at once restart the gpu, see docs/notes/indirect-lighting.md): never
-  run several ray query clients yourself, and never start experiments with several gpu processes without asking.
+  the full sets, `fetch-test-assets.ps1` without `-Quick`, before a commit that touches many models). On macOS ray
+  queries are opt in (`SPEEDO_RAY_QUERY=1`, since 2026-11-08: Metal's ray tracing restarts the gpu now and then); test a
+  change to them with that set as well, where the ray query clients run one at a time (several at once restart the gpu,
+  see docs/notes/indirect-lighting.md): never run several ray query clients yourself, and never start experiments with
+  several gpu processes without asking.
 - Commit only after the validated quick tier passes, each change its own commit, with the message saying what was
   measured; a fix for a bug the user reported waits for the user's confirmation.
 - Measure on warm pipelines (the first run after a shader change draws with generic pipelines), interleaving the

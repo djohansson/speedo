@@ -58,7 +58,9 @@ Each links to the notes that describe it in depth: how it works, what was tried,
 - **Indirect lighting:** irradiance probes over a voxel clipmap, a surface cache and a ray traced near field, and emissive
   surfaces lighting the scene as area lights. [indirect lighting](docs/notes/indirect-lighting.md)
 - **Ray tracing,** through hardware ray queries where the device has them (else BVHs on the GPU): soft shadows from lights
-  with a size, glossy reflections, refractions through glass, and caustics. [rendering](docs/notes/rendering.md)
+  with a size, glossy reflections, refractions through glass, and caustics. On macOS the BVHs are the default and ray
+  queries opt in (`SPEEDO_RAY_QUERY=1`) until Apple fixes a GPU restart in Metal's ray tracing.
+  [rendering](docs/notes/rendering.md)
 - **Rendering:** a frame graph, a visibility buffer, GPU culling with two-phase occlusion, clustered lighting, a cached
   shadow atlas, order independent transparency, transmission and subsurface scattering, reversed depth.
   [rendering](docs/notes/rendering.md)
