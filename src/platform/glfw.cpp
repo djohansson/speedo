@@ -17,6 +17,7 @@
 #if defined(__APPLE__)
 #	define GLFW_EXPOSE_NATIVE_COCOA
 #	include <GLFW/glfw3native.h>
+#	include <CoreFoundation/CoreFoundation.h>
 #	include <objc/message.h>
 #	include <objc/runtime.h>
 #elif defined(_WIN32)
@@ -34,6 +35,7 @@
 #	include <GLFW/glfw3native.h>
 #endif
 
+#include <array>
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
@@ -228,6 +230,29 @@ void Init()
 	using namespace detail;
 
 	glfwSetErrorCallback(OnError);
+
+#if defined(__APPLE__)
+	// AppKit restores an app's windows when it launches again, and after a launch that quit or crashed it asks first ("it
+	// unexpectedly quit while reopening windows. Do you want to try to reopen its windows again?"), holding the launch until
+	// answered: a test run of the packaged app, stopped while it launched, held the next one for minutes. the client keeps
+	// its own state (its profile), so AppKit's is off: ignored and not kept, in this process's registered defaults (nothing
+	// written to the user's preferences), before glfwInit finishes launching the application
+	{
+		std::array<const void*, 2> keys{CFSTR("ApplePersistenceIgnoreState"), CFSTR("NSQuitAlwaysKeepsWindows")};
+		std::array<const void*, 2> values{kCFBooleanTrue, kCFBooleanFalse};
+		CFDictionaryRef registered = CFDictionaryCreate(
+			kCFAllocatorDefault,
+			keys.data(),
+			values.data(),
+			static_cast<CFIndex>(keys.size()),
+			&kCFTypeDictionaryKeyCallBacks,
+			&kCFTypeDictionaryValueCallBacks);
+		id defaults =
+			reinterpret_cast<id (*)(Class, SEL)>(objc_msgSend)(objc_getClass("NSUserDefaults"), sel_registerName("standardUserDefaults"));
+		reinterpret_cast<void (*)(id, SEL, CFDictionaryRef)>(objc_msgSend)(defaults, sel_registerName("registerDefaults:"), registered);
+		CFRelease(registered);
+	}
+#endif
 
 	ENSUREF(glfwInit(), "GLFW: Failed to initialize.");
 	gInitialized = true;

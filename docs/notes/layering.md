@@ -6,7 +6,10 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
 
 - `platform` is the window system, and the only code that calls glfw: its backend (`platform/glfw.cpp`, `glfw.h`:
   initializing and terminating glfw, the window's creation and destruction, its callbacks, the event loop's wait and
-  wake up, and the Vulkan surface), the windows (`platform::Window`: a native handle, its `WindowState` and whether it
+  wake up, and the Vulkan surface; on macOS, before `glfwInit`, AppKit's window restoration off in the process's
+  registered defaults, `ApplePersistenceIgnoreState` and `NSQuitAlwaysKeepsWindows`: after a launch of the packaged app
+  that crashed or was stopped, AppKit asked at the next whether to reopen its windows, holding that launch for minutes
+  until answered, 2026-11-08), the windows (`platform::Window`: a native handle, its `WindowState` and whether it
   is minimized; `WindowHandle`/`WindowState` in `platform/capi.h`, with `GetCurrentWindow`/`SetCurrentWindow` and the
   C entry points `main.c` calls: `PlatformInit`, `PlatformWaitEvents`, `PlatformWakeMain`, `PlatformTerminate`, and
   `PlatformCreateVulkanSurface` for rhi, its types opaque, `void*`), `platform::WindowedApplication` (makes its window
