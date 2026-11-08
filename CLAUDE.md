@@ -64,7 +64,12 @@ dir). The auto re-run of CMake doesn't have the preset environment, so vcpkg com
 the installed packages from the shared `install/` tree, and then fails rebuilding them (`Apple-clang.cmake`
 case warning, glfw3 configure error). Every build dir then misses its dylibs (`Library not loaded:
 @rpath/libcargs.dylib`). Recover with `cmake --preset <name>`, which restores the packages from the binary
-cache. From a shell, always run `cmake --preset <name>` right before building that preset.
+cache. From a shell, always run `cmake --preset <name> && cmake --build build/<name>` as one command, joined by
+`&&`, however recently the directory was configured. Two guards hold it since 2026-11-08 (three wiped install/ trees
+in a day): `CMakeLists.txt` stops any configure without the presets' environment (`LLVM_ROOT`,
+`LLVM_TOOLS_BINARY_DIR`) before `project()` runs vcpkg, so a bare build that reconfigures fails with that message
+instead; and a Claude Code hook (`.claude/settings.json`, `.claude/hooks/require-preset.ps1`) refuses a command that
+runs `cmake --build build/<name>` without `cmake --preset <name> &&` before it.
 
 The source files are listed explicitly in `CMakeLists.txt` (`CORE_SOURCE_FILES`, `GFX_SOURCE_FILES`, ...): add a new
 `.cpp` there. That changes `CMakeLists.txt`, which reconfigures the build dir (VS Code's CMake Tools does it with the

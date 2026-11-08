@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(cmake *)",
+            "command": "pwsh -NoProfile -File \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-preset.ps1\"",
+            "timeout": 30,
+            "statusMessage": "Checking cmake --build has its preset"
+          }
+        ]
+      }
+    ]
+  }
+}

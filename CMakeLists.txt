@@ -23,6 +23,19 @@ message("SPEEDO - VERSION ${SPEEDO_VERSION_STRING}")
 
 ###############################################################################
 
+# configured only through a preset (cmake --preset <name>, or VS Code's CMake Tools, which applies them): they carry the
+# environment setup.ps1 generated (CMakeUserPresets.json's llvm-build: LLVM_ROOT, LLVM_TOOLS_BINARY_DIR and the rest),
+# which the toolchain and vcpkg's package hashes depend on. without it, a raw cmake command, or a build that reconfigures
+# by itself (a bare cmake --build after another preset's vcpkg install changed the shared install/ tree, or FASTBuild's
+# regenerate during a build), had vcpkg compute other hashes, remove every package from install/ and start building LLVM
+# (2026-11-08, three times in a day): stop here, before project() runs vcpkg's install
+if(NOT DEFINED ENV{LLVM_ROOT} OR NOT DEFINED ENV{LLVM_TOOLS_BINARY_DIR})
+	message(FATAL_ERROR
+		"Configure with a preset, then build: cmake --preset <name> && cmake --build build/<name>\n"
+		"(this build directory needs to reconfigure, and without the preset's environment vcpkg would remove the shared "
+		"install/ tree's packages and rebuild them, LLVM included; see CLAUDE.md, \"Always configure via cmake --preset\")")
+endif()
+
 # SDKROOT is baked into CMakeUserPresets.json by setup.ps1. Fail before vcpkg install runs if the
 # installed macOS SDK has changed since then (e.g. after an OS or Command Line Tools update).
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND DEFINED ENV{SDKROOT})
