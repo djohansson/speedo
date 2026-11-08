@@ -665,3 +665,159 @@ install(
 )
 
 ###############################################################################
+
+# the client's package (scripts/package.ps1, see docs/notes/build.md's releases), as the Client component (not in a plain
+# install): the executable, the shared libraries it loads (vcpkg's), the modules slang loads at run time (beside its library),
+# the shader sources (compiled at startup), the resources the client reads, and the dependencies' licenses. on macOS an app
+# bundle's Contents (MacOS, Frameworks, Resources, Info.plist: installed with the prefix Speedo.app/Contents), with the mesa
+# port's KosmicKrisp as its Vulkan driver (the loader looks in the bundle's Resources/vulkan/icd.d); elsewhere a prefix's
+# bin, lib (Windows: bin, beside the executable) and share/speedo. the client finds its data from its executable (see
+# ClientCreate)
+set(SPEEDO_PACKAGE_VCPKG "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
+if(APPLE)
+	set(SPEEDO_PACKAGE_BIN MacOS)
+	set(SPEEDO_PACKAGE_LIB Frameworks)
+	set(SPEEDO_PACKAGE_DATA Resources)
+	set_target_properties(client PROPERTIES INSTALL_RPATH "@executable_path/../Frameworks")
+elseif(WIN32)
+	set(SPEEDO_PACKAGE_BIN bin)
+	set(SPEEDO_PACKAGE_LIB bin)
+	set(SPEEDO_PACKAGE_DATA share/speedo)
+else()
+	set(SPEEDO_PACKAGE_BIN bin)
+	set(SPEEDO_PACKAGE_LIB lib)
+	set(SPEEDO_PACKAGE_DATA share/speedo)
+	set_target_properties(client PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
+endif()
+install(
+	TARGETS client
+	RUNTIME_DEPENDENCY_SET clientRuntime
+	RUNTIME DESTINATION ${SPEEDO_PACKAGE_BIN}
+	COMPONENT Client
+	EXCLUDE_FROM_ALL
+)
+# the system's libraries stay the system's (glibc and the like, macOS's, Windows')
+install(
+	RUNTIME_DEPENDENCY_SET clientRuntime
+	DESTINATION ${SPEEDO_PACKAGE_LIB}
+	COMPONENT Client
+	EXCLUDE_FROM_ALL
+	PRE_EXCLUDE_REGEXES "^api-ms-" "^ext-ms-"
+	POST_EXCLUDE_REGEXES "^/usr/lib/" "^/System/" "^/lib/" "^/lib64/" "^/usr/lib64/" "[Ss]ystem32" "[Ww][Ii][Nn][Dd][Oo][Ww][Ss]/"
+	DIRECTORIES "${SPEEDO_PACKAGE_VCPKG}/bin" "${SPEEDO_PACKAGE_VCPKG}/lib" "${LLVM_ROOT}/bin" "${LLVM_ROOT}/lib"
+)
+# what slang loads by name (glslang, its glsl module), and its standard modules (beside its library, for a shader's import
+# neural and the like: none of ours, so not on macOS, where a bundle's Frameworks holds only code, or codesign refuses it)
+if(WIN32)
+	file(GLOB SPEEDO_PACKAGE_SLANG_FILES "${SPEEDO_PACKAGE_VCPKG}/bin/slang-glsl*.dll" "${SPEEDO_PACKAGE_VCPKG}/bin/slang-rt.dll")
+	file(GLOB SPEEDO_PACKAGE_SLANG_DIRS LIST_DIRECTORIES true "${SPEEDO_PACKAGE_VCPKG}/bin/slang-standard-module-*")
+else()
+	file(GLOB SPEEDO_PACKAGE_SLANG_FILES "${SPEEDO_PACKAGE_VCPKG}/lib/libslang-glsl*${CMAKE_SHARED_LIBRARY_SUFFIX}*")
+	set(SPEEDO_PACKAGE_SLANG_DIRS)
+	if(NOT APPLE)
+		file(GLOB SPEEDO_PACKAGE_SLANG_DIRS LIST_DIRECTORIES true "${SPEEDO_PACKAGE_VCPKG}/lib/slang-standard-module-*")
+	endif()
+endif()
+install(FILES ${SPEEDO_PACKAGE_SLANG_FILES} DESTINATION ${SPEEDO_PACKAGE_LIB} COMPONENT Client EXCLUDE_FROM_ALL)
+install(DIRECTORY ${SPEEDO_PACKAGE_SLANG_DIRS} DESTINATION ${SPEEDO_PACKAGE_LIB} COMPONENT Client EXCLUDE_FROM_ALL)
+install(
+	DIRECTORY ${SPEEDO_SOURCE_DIR}/gfx/shaders/
+	DESTINATION ${SPEEDO_PACKAGE_DATA}/shaders
+	COMPONENT Client
+	EXCLUDE_FROM_ALL
+	FILES_MATCHING PATTERN "*.slang" PATTERN "*.h"
+)
+# the fonts the client loads (platform/imguilayer.cpp) with their licenses, and the test assets' manifests (the download)
+set(SPEEDO_PACKAGE_FONTS Roboto-Medium.ttf Roboto-LICENSE.txt Twemoji.Mozilla.ttf Twemoji.Mozilla-LICENSE.md NotoSansSymbols2-Regular.ttf NotoSansSymbols2-OFL.txt)
+list(TRANSFORM SPEEDO_PACKAGE_FONTS PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/resources/fonts/")
+install(FILES ${SPEEDO_PACKAGE_FONTS} DESTINATION ${SPEEDO_PACKAGE_DATA}/resources/fonts COMPONENT Client EXCLUDE_FROM_ALL)
+install(
+	DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/resources/test-asset-manifests
+	DESTINATION ${SPEEDO_PACKAGE_DATA}/resources
+	COMPONENT Client
+	EXCLUDE_FROM_ALL
+)
+# Speedo's license and the third-party notices (with the attributions their licenses ask for, FreeType's and Twemoji's)
+install(
+	FILES ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE ${CMAKE_CURRENT_SOURCE_DIR}/THIRD-PARTY-NOTICES.md
+	DESTINATION ${SPEEDO_PACKAGE_DATA}
+	COMPONENT Client
+	EXCLUDE_FROM_ALL
+)
+# each port's license, as <port>.txt (the host's too: LLVM's libc++, statically linked, and on macOS mesa's driver)
+file(GLOB SPEEDO_PACKAGE_LICENSES "${SPEEDO_PACKAGE_VCPKG}/share/*/copyright")
+if(DEFINED VCPKG_HOST_TRIPLET)
+	file(GLOB SPEEDO_PACKAGE_HOST_LICENSES "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}/share/llvm/copyright" "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}/share/mesa/copyright")
+	list(APPEND SPEEDO_PACKAGE_LICENSES ${SPEEDO_PACKAGE_HOST_LICENSES})
+endif()
+# Tracy is in the builds that profile only (see core), not the package's
+list(FILTER SPEEDO_PACKAGE_LICENSES EXCLUDE REGEX "/share/tracy/copyright$")
+foreach(license ${SPEEDO_PACKAGE_LICENSES})
+	get_filename_component(port "${license}" DIRECTORY)
+	get_filename_component(port "${port}" NAME)
+	install(FILES "${license}" DESTINATION ${SPEEDO_PACKAGE_DATA}/licenses RENAME "${port}.txt" COMPONENT Client EXCLUDE_FROM_ALL)
+endforeach()
+if(APPLE)
+	# KosmicKrisp (the mesa port's, a host tool's triplet) and the zstd it loads, and its manifest pointing at it from the
+	# bundle's Resources/vulkan/icd.d
+	set(SPEEDO_PACKAGE_MESA "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}")
+	file(GLOB SPEEDO_PACKAGE_ICD "${SPEEDO_PACKAGE_MESA}/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json")
+	if(SPEEDO_PACKAGE_ICD)
+		file(READ "${SPEEDO_PACKAGE_ICD}" icd)
+		string(JSON icd SET "${icd}" ICD library_path "\"../../../Frameworks/libvulkan_kosmickrisp.dylib\"")
+		file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/package/kosmickrisp_mesa_icd.json" "${icd}")
+		file(GLOB SPEEDO_PACKAGE_ZSTD "${SPEEDO_PACKAGE_MESA}/lib/libzstd.*.dylib")
+		install(
+			FILES "${SPEEDO_PACKAGE_MESA}/lib/libvulkan_kosmickrisp.dylib" ${SPEEDO_PACKAGE_ZSTD}
+			DESTINATION Frameworks
+			COMPONENT Client
+			EXCLUDE_FROM_ALL
+		)
+		install(
+			FILES "${CMAKE_CURRENT_BINARY_DIR}/package/kosmickrisp_mesa_icd.json"
+			DESTINATION Resources/vulkan/icd.d
+			COMPONENT Client
+			EXCLUDE_FROM_ALL
+		)
+	endif()
+	# GLFW loads the Vulkan loader itself, from a bundle's Frameworks/libvulkan.1.dylib (the client links it by its full
+	# version's name): without it, "GLFW: Vulkan not supported"
+	file(GLOB SPEEDO_PACKAGE_VULKAN_LOADER "${SPEEDO_PACKAGE_VCPKG}/lib/libvulkan.1.*.dylib")
+	if(SPEEDO_PACKAGE_VULKAN_LOADER)
+		get_filename_component(loaderName "${SPEEDO_PACKAGE_VULKAN_LOADER}" NAME)
+		install(
+			CODE "file(CREATE_LINK \"${loaderName}\" \"\${CMAKE_INSTALL_PREFIX}/Frameworks/libvulkan.1.dylib\" SYMBOLIC)"
+			COMPONENT Client
+			EXCLUDE_FROM_ALL
+		)
+	endif()
+	# the macOS the binaries need (MACOSX_DEPLOYMENT_TARGET, the presets': the SDK's major version, see build.md's binary cache)
+	set(SPEEDO_PACKAGE_MACOS_MINIMUM "$ENV{MACOSX_DEPLOYMENT_TARGET}")
+	if(CMAKE_OSX_DEPLOYMENT_TARGET)
+		set(SPEEDO_PACKAGE_MACOS_MINIMUM "${CMAKE_OSX_DEPLOYMENT_TARGET}")
+	endif()
+	configure_file("${CMAKE_CURRENT_SOURCE_DIR}/scripts/package/Info.plist.in" "${CMAKE_CURRENT_BINARY_DIR}/package/Info.plist" @ONLY)
+	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/package/Info.plist" DESTINATION . COMPONENT Client EXCLUDE_FROM_ALL)
+endif()
+# Windows' installer: CPack's WiX generator (WiX 4 or later, the wix .NET tool), the Client component into Program
+# Files\Speedo, a Start menu shortcut, and LICENSE shown to accept (as a .txt, which CPack converts to RTF). The upgrade
+# code is the product's for good: an installer with a newer version replaces an older one instead of installing beside it
+if(WIN32)
+	configure_file("${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${CMAKE_CURRENT_BINARY_DIR}/package/LICENSE.txt" COPYONLY)
+	set(CPACK_GENERATOR WIX)
+	set(CPACK_PACKAGE_NAME Speedo)
+	set(CPACK_PACKAGE_VENDOR "Daniel Johansson")
+	set(CPACK_PACKAGE_VERSION ${SPEEDO_VERSION_STRING})
+	set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Speedo, a real-time renderer")
+	set(CPACK_PACKAGE_INSTALL_DIRECTORY Speedo)
+	set(CPACK_PACKAGE_EXECUTABLES client Speedo)
+	set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_BINARY_DIR}/package/LICENSE.txt")
+	set(CPACK_COMPONENTS_ALL Client)
+	set(CPACK_COMPONENT_CLIENT_DISPLAY_NAME Speedo)
+	set(CPACK_COMPONENT_CLIENT_REQUIRED ON)
+	set(CPACK_WIX_VERSION 4)
+	set(CPACK_WIX_ARCHITECTURE x64)
+	set(CPACK_WIX_UPGRADE_GUID B1FBF828-95A9-4239-B39B-63F5209BB3EE)
+	set(CPACK_WIX_PROGRAM_MENU_FOLDER Speedo)
+	include(CPack)
+endif()

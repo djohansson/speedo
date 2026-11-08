@@ -311,4 +311,5 @@ Each as deep as the subsystem's history: what was tried, what it cost, the user'
 - docs/notes/assets.md: the importers (obj, gltf and its extensions, images), caches, the ground plane, the scene's
   unit, archives and sets, material variants, auto exposure, tonemapping, the test sets and `assettest.ps1`.
 - docs/notes/build.md: sanitizers, `<windows.h>`, `setup.ps1`, FASTBuild, libc++, the clang toolchain, vcpkg's
-  overlay ports and the mesa fork, vcpkg's shared binary cache (a public B2 bucket, what keeps its packages' hashes portable).
+  overlay ports and the mesa fork, vcpkg's shared binary cache (a public B2 bucket, what keeps its packages' hashes portable),
+  releases (installs, the packages, `scripts/package.ps1`, the release workflow on `v*` tags) and the licenses.

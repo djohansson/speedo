@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- a placeholder icon for the packages (an AppImage needs one): a speedometer's dial -->
+  <rect width="256" height="256" rx="48" fill="#1b1f2a"/>
+  <path d="M48 176 A88 88 0 1 1 208 176" fill="none" stroke="#3b4458" stroke-width="20" stroke-linecap="round"/>
+  <path d="M48 176 A88 88 0 0 1 176 61" fill="none" stroke="#4f8cff" stroke-width="20" stroke-linecap="round"/>
+  <line x1="128" y1="152" x2="180" y2="92" stroke="#f2f4f8" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="128" cy="152" r="14" fill="#f2f4f8"/>
+</svg>

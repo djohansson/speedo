@@ -457,6 +457,34 @@ launch's compile (about 25 s on the M4 Pro) runs in the background behind a prog
 layering.md's shaders), and it offers the test assets to download meanwhile (see assets.md: their manifests are installed
 with the resources, `resources/test-asset-manifests`).
 
+**Packages.** `scripts/package.ps1 [-Preset <release preset>] [-Out <dir>]` packages a built release preset into this
+platform's installer, in `build/package`: `Speedo-<version>-macos-arm64.dmg` (Speedo.app beside a link to
+/Applications), `Speedo-<version>-windows-x64.msi` (CPack's WiX generator: Program Files\Speedo, a Start menu shortcut,
+LICENSE to accept; WiX 5, the `wix` .NET tool, and its UI extension, which the script adds; 6 and later ask for the Open
+Source Maintenance Fee's EULA) or `Speedo-<version>-linux-x86_64.AppImage` (appimagetool, fetched into `build/tools`).
+What goes in is `CMakeLists.txt`'s Client component (installed only by a component install, `EXCLUDE_FROM_ALL`): the
+client and the shared libraries it loads (its runtime dependency set, the system's left out), slang's glsl modules, the
+shader sources, the fonts the client loads with their licenses, the test assets' manifests, `LICENSE`,
+`THIRD-PARTY-NOTICES.md` and each vcpkg port's license as `licenses/<port>.txt`; on macOS also KosmicKrisp (the mesa
+port's, with its patches) and its manifest in the bundle's `Resources/vulkan/icd.d`, where the loader looks, the loader
+as `Frameworks/libvulkan.1.dylib` (GLFW loads it by that name) and `Info.plist`. The macOS bundle's absolute rpaths (the
+toolchain's LLVM) are deleted and it is signed ad hoc (Apple silicon runs only signed code); nothing is signed by a
+developer id yet (the user's call, 2026-11-07), so Gatekeeper and SmartScreen ask at first (System Settings > Privacy &
+Security > Open Anyway, or `xattr -dr com.apple.quarantine`; More info > Run anyway). Tracy isn't in it (release links
+no Tracy, see "Licenses"). The AppImage runs where the C library is at least the build's (Ubuntu 26.04's 2.43).
+Tested 2026-11-08 on the M4 Pro: the .dmg (30 MiB) mounted, its app copied out and run from elsewhere on a fresh profile,
+the helmet autoloaded for 600 frames with ray queries: a cold first launch (the app's Metal cache, under its bundle id
+in `getconf DARWIN_USER_CACHE_DIR`, emptied) took 80 s, the shaders' compile and the 83 compute pipelines (1 to 12 s each
+cold, on the executor, shown in the Loading window) then a generic graphics pipeline made on first use (FragmentMain,
+16.5 s, the draw thread busy and the window frozen meanwhile: graphics pipelines aren't made ahead yet); the second
+launch took 16 s; no gpu restart in either.
+
+**The release workflow** (`.github/workflows/release.yml`): pushing a tag `v<major>.<minor>.<patch>` checks it against
+`src/version.h`, makes the tag's draft release, and on CI's three runners (the binary cache's) builds the release preset,
+packages it and attaches the package and its `.sha256` (`<hash>  <name>`) to the draft, which is published by hand. Run
+by hand (Actions > Release > Run workflow, no tag) it packages alone, the packages kept as the run's artifacts: a test of
+the packaging. To release: set `src/version.h`, commit, `git tag v<version>` and `git push origin v<version>`.
+
 ## Licenses
 
 Speedo's own code is proprietary, all rights reserved (`LICENSE`, the user's call, 2026-11-07: to keep every option open,

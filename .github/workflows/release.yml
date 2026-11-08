@@ -1,0 +1,119 @@
+# Releases (the user's ask, 2026-11-07; docs/notes/build.md's releases): a tag v<major>.<minor>.<patch> builds each
+# platform's release preset on CI's runners, packages it (scripts/package.ps1: a .dmg, an .msi, an AppImage) and attaches
+# each package and its sha256 to a draft release of the tag, published by hand once checked. Run by hand (no tag), it
+# packages alone, the packages kept as the run's artifacts: a test of the packaging. Reads the vcpkg binary cache only, as
+# CI does (a port the cache lacks for a platform is built on its runner).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # the draft release and its assets
+
+jobs:
+  # the tag names src/version.h's version (the packages' names and the client's crash reports carry it), and the draft
+  # release the packages are attached to
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-26.04
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Draft release
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          $header = Get-Content -Raw src/version.h
+          $version = (@('Major', 'Minor', 'Patch') | ForEach-Object { if ($header -match "$_ = ([0-9]+)") { $Matches[1] } else { throw "no $_ version in src/version.h" } }) -join '.'
+          if ($env:TAG -ne "v$version") { throw "the tag $env:TAG isn't src/version.h's version, v$version" }
+          gh release create $env:TAG --draft --verify-tag --title "Speedo $version" --generate-notes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  package:
+    name: Package ${{ matrix.name }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the runners CI uses, for the binary cache's packages (see ci.yml)
+          - name: macOS arm64
+            runner: xcode-27
+            triplet: arm64-osx-clang
+          - name: Windows x64
+            runner: windows-2025-vs2026
+            triplet: x64-windows-clang
+          - name: Linux x64
+            runner: ubuntu-26.04
+            triplet: x64-linux-clang
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup
+        run: |
+          if ($IsLinux) { sudo apt-get update; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+          ./setup.ps1
+
+      # the WiX .NET tool for CPack's WiX generator (package.ps1 adds its UI extension), at the version package.ps1 expects
+      - name: WiX
+        if: ${{ runner.os == 'Windows' }}
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
+
+      - name: Build release
+        run: |
+          cmake --preset "${{ matrix.triplet }}-release"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "build/${{ matrix.triplet }}-release"
+
+      - name: Package
+        id: package
+        run: |
+          $package = & scripts/package.ps1 -Preset "${{ matrix.triplet }}-release" | Select-Object -Last 1
+          $name = Split-Path -Leaf $package
+          $hash = (Get-FileHash -Algorithm SHA256 $package).Hash.ToLowerInvariant()
+          "$hash  $name" | Set-Content -NoNewline "$package.sha256"
+          "path=$package" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-${{ matrix.triplet }}
+          path: |
+            ${{ steps.package.outputs.path }}
+            ${{ steps.package.outputs.path }}.sha256
+
+      - name: Attach to the release
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.ref_name }}" "${{ steps.package.outputs.path }}" "${{ steps.package.outputs.path }}.sha256" --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-${{ matrix.triplet }}
+          path: |
+            vcpkg/buildtrees/*/*.log
+            build/package/stage/**/*.log
+            build/package/stage/**/*.wxs
+          if-no-files-found: ignore

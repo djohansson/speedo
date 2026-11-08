@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Speedo
+Comment=A physically based renderer for glTF and obj scenes
+Exec=client
+Icon=speedo
+Categories=Graphics;3DGraphics;Viewer;
+Terminal=false
