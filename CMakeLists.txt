@@ -679,25 +679,26 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	set_source_files_properties(${SPEEDO_SOURCE_DIR}/windows.rc PROPERTIES OBJECT_DEPENDS ${SPEEDO_SOURCE_DIR}/windows.manifest)
 
 	# the modules slang loads at run time from beside the executable (the build copies only the dlls it imports):
-	# without them, compiling the shaders (a new user profile, or a changed shader) fails to load spirv-opt
+	# without them, compiling the shaders (a new user profile, or a changed shader) fails to load spirv-opt. Copied by
+	# shadercompiler alone, the one binary that loads slang, into the directory the executables share: client,
+	# assettest and filebench each copied them there, and FASTBuild ran their copies at once, which collided (a CI
+	# profile build on Windows, 2026-11-08: "Error copying directory ... slang-standard-module-2026.3.1")
 	set(SLANG_BIN_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/$<IF:$<CONFIG:debug>,debug/bin,bin>")
 	file(GLOB SLANG_STANDARD_MODULE_DIRS LIST_DIRECTORIES true RELATIVE "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
 		"${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/slang-standard-module-*")
-	foreach(target client assettest filebench)
+	add_custom_command(
+		TARGET shadercompiler POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			${SLANG_BIN_DIR}/slang-glslang.dll ${SLANG_BIN_DIR}/slang-glsl-module.dll ${SLANG_BIN_DIR}/slang-rt.dll
+			$<TARGET_FILE_DIR:shadercompiler>
+		VERBATIM
+	)
+	foreach(moduleDir ${SLANG_STANDARD_MODULE_DIRS})
 		add_custom_command(
-			TARGET ${target} POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy_if_different
-				${SLANG_BIN_DIR}/slang-glslang.dll ${SLANG_BIN_DIR}/slang-glsl-module.dll ${SLANG_BIN_DIR}/slang-rt.dll
-				$<TARGET_FILE_DIR:${target}>
+			TARGET shadercompiler POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different ${SLANG_BIN_DIR}/${moduleDir} $<TARGET_FILE_DIR:shadercompiler>/${moduleDir}
 			VERBATIM
 		)
-		foreach(moduleDir ${SLANG_STANDARD_MODULE_DIRS})
-			add_custom_command(
-				TARGET ${target} POST_BUILD
-				COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different ${SLANG_BIN_DIR}/${moduleDir} $<TARGET_FILE_DIR:${target}>/${moduleDir}
-				VERBATIM
-			)
-		endforeach()
 	endforeach()
 endif()
 
