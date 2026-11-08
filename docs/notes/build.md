@@ -252,6 +252,14 @@ version) is static, as LLVM is (a shared one with LLVM linked in would register 
 the SPIRV-Headers commit it pins (`spirv-headers-tag.conf`), put ahead of LLVM's include directory, the install tree's,
 which holds vcpkg's older spirv-headers (`0001-*`).
 
+The port patches the fork's source, locally, with `0001-kk-workaround-63-encoder-end-resolve.patch`: a workaround for an
+Apple bug (Metal ray tracing beside other gpu work restarts the gpu, see "Hardware ray queries"), until Apple fixes it,
+numbered 63 to keep clear of upstream's `KK_WORKAROUND_#` (18 at the end of October 2026), its reason in the portfile's
+comment rather than in Mesa's code. It isn't for upstream as it is: Mesa wants such a change's commit, its code comments and
+its entry in `docs/drivers/kosmickrisp/workarounds.rst` in the contributor's own words, and an AI written one labelled
+(`Generated-by: LLM`, the tree's `AGENTS.md`). A change to the patch or the portfile changes the port's hash, so every
+build directory rebuilds mesa (`cmake --preset <name>`), and the binary cache holds it once seeded again.
+
 **Updating the mesa fork from upstream.** The fork's `main` is upstream's alone, and `kk-ray-query` is our commits on
 top of it. The checkout is `~/Repos/mesa`, with the remotes `origin` (gitlab.freedesktop.org/mesa/mesa, fetched
 anonymously: no token needed) and `github` (github.com/djohansson/mesa, which `kk-ray-query` tracks). GitHub can't follow
@@ -262,7 +270,9 @@ a GitLab project, so it is updated by hand:
    `git push --force-with-lease github kk-ray-query`.
 3. In `ports/mesa`: `REF` the branch's new head (`git rev-parse kk-ray-query`); `SHA512` its archive's
    (`curl -sL https://github.com/djohansson/mesa/archive/<REF>.tar.gz | shasum -a 512`, or the hash vcpkg's mismatch
-   error prints); and `version` in `vcpkg.json` mesa's `VERSION` file's, without its `-devel`.
+   error prints); and `version` in `vcpkg.json` mesa's `VERSION` file's, without its `-devel` (`port-version` back to 0
+   or out). The port's patches must still apply (vcpkg stops at one that doesn't): refresh them against the new source,
+   and drop a workaround once its bug is fixed.
 4. `cmake --preset <preset>` builds the port again (the host triplet's tree); run the quick tier on it (the scripts take
    its driver by default), and the ray query checks of "Hardware ray queries" one client at a time.
 5. Commit the port and push.

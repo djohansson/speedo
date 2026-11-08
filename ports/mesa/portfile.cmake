@@ -11,6 +11,14 @@ vcpkg_from_github(
 	REF 93dc1b0ddc03666814b7c7b6cab9b03b38e58962
 	SHA512 ab10ddaff9d19a00d1f4d61f56ff9ed08b6bad85257baf80dcc41e0fa8d118b7510de280fd989dfe3328311afc0370404365507b250acd72df3f177ca943dce9
 	HEAD_REF kk-ray-query
+	PATCHES
+		# KK_WORKAROUND_63, local until Apple fixes its bug: a compute kernel with Metal ray tracing, beside other gpu work
+		# (another queue or process, WindowServer), hangs the gpu until its firmware restarts it ("CDM Kill timeout"; macOS
+		# 27.2, M4 Pro; src/tools/macos/rtrepro.mm `frame 60 rtpudxb` reproduces it in pure Metal, reported to Apple
+		# 2026-11-08, beside FB25381275). A counter heap resolve of one entry never written, after every encoder, makes it
+		# rare: on devices with ray queries only, off with MESA_KK_DISABLE_WORKAROUNDS=63 (numbered from the top, clear of
+		# upstream's). Rarer, not gone: it narrows a race of unknown mechanism. See docs/notes/indirect-lighting.md
+		0001-kk-workaround-63-encoder-end-resolve.patch
 )
 
 x_vcpkg_get_python_packages(PYTHON_VERSION "3" OUT_PYTHON_VAR "PYTHON3" PACKAGES mako packaging pyyaml)

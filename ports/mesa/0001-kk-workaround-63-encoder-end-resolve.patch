@@ -1,0 +1,85 @@
+diff --git a/src/kosmickrisp/vulkan/kk_cmd_buffer.c b/src/kosmickrisp/vulkan/kk_cmd_buffer.c
+--- a/src/kosmickrisp/vulkan/kk_cmd_buffer.c
++++ b/src/kosmickrisp/vulkan/kk_cmd_buffer.c
+@@ -345,6 +345,14 @@
+    }
+ 
+    util_dynarray_clear(&cmd->ts_resolves);
++
++   /* KK_WORKAROUND_63 */
++   struct kk_device *dev = kk_cmd_buffer_device(cmd);
++   if (dev->encoder_end_heap) {
++      mtl_command_resolve_counter_heap(cmd->metal.cmd_buf,
++                                       dev->encoder_end_heap, 0u, 1u,
++                                       dev->encoder_end_bo->gpu);
++   }
+ }
+ 
+ static void
+diff --git a/src/kosmickrisp/vulkan/kk_device.c b/src/kosmickrisp/vulkan/kk_device.c
+--- a/src/kosmickrisp/vulkan/kk_device.c
++++ b/src/kosmickrisp/vulkan/kk_device.c
+@@ -345,6 +345,21 @@
+          dev, dev->empty_acceleration_structure);
+    }
+ 
++   /* KK_WORKAROUND_63 */
++   if (dev->vk.enabled_features.rayQuery &&
++       !(pdev->settings.disabled_workarounds & BITFIELD64_BIT(63))) {
++      dev->encoder_end_heap =
++         mtl_new_timestamp_counter_heap(dev->mtl_handle, 1u);
++      if (dev->encoder_end_heap == NULL) {
++         result = vk_error(dev, VK_ERROR_INITIALIZATION_FAILED);
++         goto fail_acceleration_structure;
++      }
++      result = kk_alloc_bo(dev, &dev->vk.base, sizeof(uint64_t), 0u,
++                           &dev->encoder_end_bo);
++      if (result != VK_SUCCESS)
++         goto fail_encoder_end_heap;
++   }
++
+    if (pdev->settings.gpu_capture_enabled) {
+       const char *capture_directory =
+          debug_get_option("MESA_KK_GPU_CAPTURE_DIRECTORY", NULL);
+@@ -355,6 +370,14 @@
+ 
+    return VK_SUCCESS;
+ 
++fail_encoder_end_heap:
++   mtl_release(dev->encoder_end_heap);
++fail_acceleration_structure:
++   if (dev->empty_acceleration_structure) {
++      kk_device_remove_allocation_from_residency_set(
++         dev, dev->empty_acceleration_structure);
++      mtl_release(dev->empty_acceleration_structure);
++   }
+ fail_lib:
+    kk_device_finish_lib(dev);
+ fail_sampler_heap:
+@@ -416,6 +439,12 @@
+       dev->has_queue = false;
+    }
+ 
++   /* KK_WORKAROUND_63 */
++   if (dev->encoder_end_heap) {
++      kk_destroy_bo(dev, dev->encoder_end_bo);
++      mtl_release(dev->encoder_end_heap);
++   }
++
+    /* Release the residency set last once all BOs are released. */
+    mtl_release(dev->residency_set.handle);
+    simple_mtx_destroy(&dev->residency_set.mutex);
+diff --git a/src/kosmickrisp/vulkan/kk_device.h b/src/kosmickrisp/vulkan/kk_device.h
+--- a/src/kosmickrisp/vulkan/kk_device.h
++++ b/src/kosmickrisp/vulkan/kk_device.h
+@@ -109,6 +109,10 @@
+     * acceleration structure of nothing, with acceleration structures */
+    mtl_acceleration_structure *empty_acceleration_structure;
+    uint64_t empty_acceleration_structure_id;
++
++   /* KK_WORKAROUND_63 */
++   mtl_counter_heap *encoder_end_heap;
++   struct kk_bo *encoder_end_bo;
+ };
+ 
+ VK_DEFINE_HANDLE_CASTS(kk_device, vk.base, VkDevice, VK_OBJECT_TYPE_DEVICE)

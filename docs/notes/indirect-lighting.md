@@ -617,8 +617,8 @@ texture for all. On the mac, the mesa port's KosmicKrisp has them behind `MESA_K
 djohansson/mesa fork, see "vcpkg": Metal 4's acceleration structures and intersection queries), which the client sets
 as it makes its instance (the driver reads it then) unless it is set or `SPEEDO_RAY_QUERY=0`: on by default since
 2026-11-04, the user's call, once each kernel traced from one call site (see "Traced reflections and refractions"), its
-pipelines then made in seconds; a single client still restarts the gpu now and then (Apple's, below: ABeautifulGame 2 runs
-in 6 that day, before the change and after). Against the BVHs on it,
+pipelines then made in seconds; a single client still restarted the gpu now and then (Apple's, below: ABeautifulGame 2 runs
+in 6 that day, before the change and after; the release builds most runs, until the mesa port's workaround of 2026-11-08). Against the BVHs on it,
 frame by frame as above: ShadowScene's traced rays identical, its lit frame within 0.012 of 255; CesiumMan 0.004,
 DiffuseTransmissionPlant 0.002, Sponza 0.002 and Bistro 0.010 at their benchmark poses; San Miguel 0.066, its leaves'
 dappled sunlight, where the CWBVH's compressed triangles lose precision; clean under the validation layer and Metal's
@@ -678,6 +678,29 @@ second each; compiling for real, 50 a second, they survived), one alone sometime
 (`MTL4Compiler` or `MTLDevice`'s); through an `MTLCommandQueue` they never did (4000 to 6000 a second), nor made but
 not dispatched. speedo's restarts came in its clients' first frames, where KosmicKrisp (Metal 4 throughout) makes their
 pipelines, from a warm pipeline cache, and the ray queries' processes with them. Reported to Apple as FB25381275 (2026-10-31), with `rtrepro`.
+A second bug of Apple's (found 2026-11-08) is what restarted single release clients (about half of the cold helmet
+runs on 2026-11-07, still 6 of 20 once the pipelines were made up front, and every run on a warm profile; the profile
+builds' timestamps, each resolved after its pass, mostly hid it): a compute kernel compiled with Metal ray tracing, beside other gpu work (another queue of the
+process, another process, WindowServer), hangs the gpu until its firmware restarts it ("CDM Kill timeout"), whether its
+queries run or not. `rtrepro frame` (a pre-pass, a kernel tracing a ray a pixel from it, a pass into the drawable, every
+refresh; its header lists the flags) reproduces it in pure Metal: `rtrepro frame 60 rtpudxb` (with an ALU load on a
+second queue of the process) restarted the gpu in 3 runs of 3, within 6 to 30 s, and never without ray tracing in the
+kernel (0 of 2 runs of 60 s); the classic `MTLCommandQueue` hangs too. In speedo it took a ray tracing kernel after the
+frame's first render pass (Shadow Trace, GI Near or Main Visibility alone, the last with no query run; the GI kernels,
+before the prepass, never did, until moved after it), the hang showing in the next frame's first compute kernel with every
+query ended. Not KosmicKrisp's barriers, fences or command buffer splits, the structures' builds or compaction, nor
+pipelines made during the frame. Reported to Apple on 2026-11-08 (the draft: claude.ai/artifact/Se7CGaP9B3RtfkuSBwXPyt).
+Until it is fixed, the mesa port patches KosmicKrisp (`KK_WORKAROUND_63`, see "vcpkg"): after every encoder, a counter
+heap resolve of one entry never written, on devices with ray queries. That makes the restart rare, not impossible: the
+protection grew with the number of resolves (after the ray tracing encoders only, Sponza lost the device in 1 of 2 runs
+of 2000 frames; after every render encoder, the helmet 0 of 12), so it narrows a race whose mechanism is Apple's. A blit
+encoder, an empty debug group or the command buffer's timestamp in its place didn't help. With it the release client lost
+no run (Sponza 0 of 4 and, before, 0 of 3, at 2000 frames; the helmet 0 of 6 and 0 of 4 at 600), where without it
+(`MESA_KK_DISABLE_WORKAROUNDS=63`) every run lost the device within 1 to 10 s. It costs 0.21 ms a frame at Sponza's
+default camera (2560x1440, GI on, unthrottled: 9.93 against 9.72 ms, the BVHs with the resolves forced on in a build of
+the driver, 4 interleaved runs each, every run within 0.02 ms of its variant's others); ray queries with it took 10.31 to
+10.36 ms there, the BVHs 9.68 to 9.73. Check each macOS update with `rtrepro frame 60 rtpudxb` (a gpu restart within a
+minute: still there), and drop the patch once it no longer restarts.
 Don't run such experiments without asking. Metal's shader validation (`MTL_SHADER_VALIDATION=1`) crashes in
 MetalTools at the first commit with KosmicKrisp, with or without ray queries; Metal 4 has no encoder execution status,
 and a restart's kernel log says only its type. What doesn't move is built
