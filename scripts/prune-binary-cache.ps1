@@ -30,7 +30,8 @@ function Get-InstalledAbis
 
 	foreach ($Paragraph in ((Get-Content -Path $StatusFile -Raw) -split "\r?\n\r?\n"))
 	{
-		if ($Paragraph -match '(?m)^Status:.*installed\s*$' -and $Paragraph -match '(?m)^Abi:\s*([0-9a-f]{64})\s*$')
+		# "install ok installed": a removed package's paragraph stays, "purge ok not-installed", which ends in "installed" too
+		if ($Paragraph -match '(?m)^Status:\s*install\s+ok\s+installed\s*$' -and $Paragraph -match '(?m)^Abi:\s*([0-9a-f]{64})\s*$')
 		{
 			$Matches[1] # the last match's: the ABI's
 		}
