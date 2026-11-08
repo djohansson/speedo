@@ -483,7 +483,10 @@ launch took 16 s; no gpu restart in either.
 `src/version.h`, makes the tag's draft release, and on CI's three runners (the binary cache's) builds the release preset,
 packages it and attaches the package and its `.sha256` (`<hash>  <name>`) to the draft, which is published by hand. Run
 by hand (Actions > Release > Run workflow, no tag) it packages alone, the packages kept as the run's artifacts: a test of
-the packaging. To release: set `src/version.h`, commit, `git tag v<version>` and `git push origin v<version>`.
+the packaging. To release: `scripts/release.ps1 -Bump patch|minor|major` (or `-Version <x.y.z>`), on a clean `master`,
+sets `src/version.h`, commits it ("release: v<version>") and tags the commit `v<version>` (annotated); `-Push` pushes
+`master` and the tag, else it prints the push command. Tested in a scratch repository (bumps, an older version and a
+dirty tree refused); the first real release is its first run against GitHub.
 
 ## Licenses
 

@@ -2,12 +2,22 @@
 
 [![CI](https://github.com/djohansson/speedo/actions/workflows/ci.yml/badge.svg)](https://github.com/djohansson/speedo/actions/workflows/ci.yml)
 
-speedo is a real-time 3D renderer and asset viewer built on Vulkan 1.4. Open a glTF or OBJ model, a zip archive of
-models, an HDR panorama or an image, and fly around it under a physical sky, lit by ray traced shadows and reflections and
-by indirect light, through a camera that behaves like a real one. It is also a playground for engine architecture: a task
-system, a frame graph, a graphics abstraction layer and a client/server split.
+speedo is a real-time renderer built on Vulkan 1.4 for physically based images at interactive frame rates.
 
-It runs on macOS (Apple silicon, through KosmicKrisp or MoltenVK), Windows and Linux, and builds with clang everywhere.
+Light bounces through the scene from irradiance probes over a voxel clipmap, sharpened by a surface cache and a ray traced
+near field, and every emissive surface lights its surroundings as an area light. Hardware ray queries trace soft shadows
+from lights with a real size, glossy reflections, refraction through glass, and caustics; where a GPU has no ray tracing
+hardware, BVHs on the GPU take their place. The sky is Earth's atmosphere, with the sun, moon and stars where the date and
+time of day put them, aerial perspective and fog.
+
+You see it all through a camera modeled on a real one: a physical sensor and exposure, lenses designed element by element
+with their aberrations, distortion, ghosts and glare (anamorphic ones too), depth of field, motion blur and film grain,
+and temporal upscaling by a port of AMD's FSR 3.1. Underneath are a visibility buffer, GPU culling with two-phase
+occlusion, clustered lighting, order independent transparency, transmission and subsurface scattering, all scheduled by a
+frame graph on a task based engine.
+
+It runs on macOS (Apple silicon, through KosmicKrisp or MoltenVK), Windows and Linux, built with the same LLVM toolchain
+on all three.
 
 ![A glass dragon against a sunset, the sun's anamorphic streak across it and the cloth behind it seen through its body](docs/screenshots/dragonattenuation.jpg)
 
@@ -82,6 +92,14 @@ Each links to the notes that describe it in depth: how it works, what was tried,
   variables, which start the client in the same state, or Paste Pose applies to a running one: the way to report what
   you see.
 
+## Installing
+
+Each release on GitHub has an installer for every platform: a `.dmg` for macOS on Apple silicon, an `.msi` for Windows x64,
+and an AppImage for Linux x64 (glibc 2.43 or newer, as on Ubuntu 26.04), each with its sha256. They aren't signed by a
+developer yet, so the system asks the first time: on macOS, System Settings > Privacy & Security > Open Anyway (or
+`xattr -dr com.apple.quarantine /Applications/Speedo.app`); on Windows, SmartScreen's More info > Run anyway. The first
+launch offers to download the test models, beside its shader compile.
+
 ## Getting started
 
 ### 1. Set up the machine
@@ -94,13 +112,16 @@ Run the bootstrap script for your platform from the repository root:
 | Linux    | `./setup_linux.sh` |
 | Windows  | `setup_windows.bat` |
 
-The bootstrap script installs PowerShell 7.5+ if it's missing, then hands over to `setup.ps1`, which installs the system
-packages (Homebrew, apt or winget, and Visual Studio on Windows), bootstraps the `vcpkg` submodule, and generates
-`CMakeUserPresets.json` and the VS Code launch and task configurations. Re-run it after OS or SDK updates.
+The bootstrap script installs PowerShell 7.5+ if it's missing, then hands over to `setup.ps1`. It installs the system
+compilers and SDKs (the Xcode Command Line Tools on macOS, the C++ build tools and the Windows SDK on Windows, the
+distribution's build packages on Linux) and the other system packages (Homebrew, apt or winget), bootstraps the `vcpkg`
+submodule, and generates `CMakeUserPresets.json` and the VS Code launch and task configurations. Re-run it after OS or SDK
+updates.
 
-Setup restores the dependencies, the LLVM toolchain included, from the project's shared binary cache, a public bucket
-read over https: for macOS 27 on Apple silicon, Windows x64, and Linux x64 on Ubuntu 26.04. Whatever it doesn't find, it
-builds, which takes a long time the first time (LLVM alone is most of an hour). See
+speedo builds with its own LLVM toolchain on every platform: clang, lld and libc++ from vcpkg's LLVM, one version
+everywhere, with the system tools providing the platform's SDKs and libraries. Setup downloads the toolchain prebuilt, along with every
+other dependency, from the project's shared binary cache, a public bucket read over https: for macOS 27 on Apple silicon,
+Windows x64, and Linux x64 on Ubuntu 26.04. A package the cache doesn't hold yet is built locally. See
 [build](docs/notes/build.md) ("vcpkg's shared binary cache").
 
 ### 2. Configure and build
@@ -112,7 +133,7 @@ Every build directory comes from a preset named `<triplet>-<config>`, e.g. `arm6
 |-----------|------------|
 | `debug`   | Debugging. Vulkan validation and asserts are on, and it's slow. |
 | `profile` | Optimized, with profiling (Tracy and GPU pass timings) and asserts. The best default for testing. |
-| `release` | Optimized, without profiling. |
+| `release` | Optimized, without profiling (no Tracy): what the installers ship. |
 
 ```sh
 cmake --preset arm64-osx-clang-profile
@@ -120,7 +141,8 @@ cmake --build build/arm64-osx-clang-profile
 ```
 
 Always configure with `cmake --preset <name>` before building from a shell: the presets carry the toolchain's
-environment, and a raw `cmake` command copied out of an IDE log fails in confusing ways. In VS Code, the CMake Tools
+environment, which the dependencies' hashes depend on. A configure without it, from a raw `cmake` command or a build
+that reconfigures by itself, stops with a message telling you to run the preset. In VS Code, the CMake Tools
 extension picks up the presets, and the generated launch configurations start the client, the server or the Tracy
 profiler with the right environment.
 
@@ -137,7 +159,13 @@ Run the programs from the repository root:
 | `-r <dir>`: the resource directory (fonts, shaders, test assets) | `resources/` |
 | `-u <dir>`: the user profile directory (settings, caches, logs) | `.speedo/` |
 
-On macOS, point the Vulkan loader at KosmicKrisp, which setup builds from the djohansson/mesa fork:
+The shaders compile from their sources at startup. A first launch compiles them in the background (about 25 s on an M4
+Pro) and then has the driver create the pipelines, with the progress shown in a Loading window while the interface stays
+responsive; later launches take them from the profile's caches and start in seconds.
+
+On macOS, point the Vulkan loader at KosmicKrisp, which setup restores from the binary cache (built from the
+djohansson/mesa fork, with a workaround for a GPU restart in Apple's ray tracing, see
+[indirect lighting](docs/notes/indirect-lighting.md)):
 
 ```sh
 export VK_DRIVER_FILES=$(ls $PWD/install/*/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json | head -1)
@@ -169,9 +197,20 @@ describe each where its feature is.
 
 ## Profiling
 
-Debug and profile builds are instrumented with [Tracy](https://github.com/wolfpld/tracy): start the profiler from
+Debug and profile builds are instrumented with [Tracy](https://github.com/wolfpld/tracy) (release builds, which the
+installers ship, have none of it): start the profiler from
 `install/<triplet>/tools/tracy/` or its VS Code launch configuration, then the client. The GPU side has a zone per render
 pass, from the same timestamps as View > Statistics. [rendering](docs/notes/rendering.md) ("GPU timings")
+
+## Releasing
+
+`scripts/release.ps1` makes a release from a clean `master`: `-Bump patch` (the default), `-Bump minor` or `-Bump major`
+raises `src/version.h`'s version (or `-Version <x.y.z>` sets it), commits it and tags the commit `v<version>`. With `-Push`
+it pushes `master` and the tag; without, it prints the push command. The tag starts the release workflow, which checks it
+against `src/version.h`, builds and packages the release preset on each platform's CI runner, and attaches the installers
+and their checksums to a draft release, published by hand once checked. Running the workflow by hand (Actions > Release)
+packages without releasing, the installers kept as the run's artifacts. `scripts/package.ps1` makes this platform's
+installer from a local release build. See [build](docs/notes/build.md) ("Releases").
 
 ## Documentation
 
@@ -192,6 +231,7 @@ pass, from the same timestamps as View > Statistics. [rendering](docs/notes/rend
 | `src/gfx` | Everything above the rhi: importers, the scene, the renderer and frame graph, the shaders (Slang). |
 | `src/client`, `src/server` | The two programs. |
 | `src/tools` | `assettest` and `filebench`. |
-| `scripts/` | Setup, test and asset scripts (PowerShell), CMake toolchains and vcpkg triplets. |
+| `scripts/` | Setup, test, asset, packaging and release scripts (PowerShell), CMake toolchains and vcpkg triplets. |
+| `.github/workflows/` | CI on every push, and the release workflow on `v*` tags. |
 | `ports/` | vcpkg overlay ports: patched dependencies. |
 | `resources/` | Fonts and hand-made test models; test assets are downloaded here. |
