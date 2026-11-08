@@ -60,7 +60,7 @@ ShaderLoader::SlangConfiguration EnvironmentFilter::ShaderConfiguration()
 				{"EnvironmentIrradianceRows", SLANG_STAGE_COMPUTE},
 			},
 		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-		.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+		.debugInfoLevel = kShaderDebugInfoLevel,
 	};
 }
 

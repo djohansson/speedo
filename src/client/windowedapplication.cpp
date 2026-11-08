@@ -13,6 +13,9 @@ bool WindowedApplication::gShowTps = false;
 namespace windowedapplication
 {
 
+// about when the process started (its static initialization, before main), which the first frame's time counts from
+const auto gStartTime = std::chrono::steady_clock::now();
+
 // with SPEEDO_GPU_TIMINGS=1, the frame time of each half second the frame rate is measured over (milliseconds), and
 // whether the lighting warmed up in it (Renderer::IsLightingWarmingUp), whose medians Shutdown prints: the settled
 // frames' and the warm-up's. unthrottled (SPEEDO_PRESENT_MODE=immediate) the gpu's whole frame, where a backend doesn't
@@ -513,7 +516,12 @@ bool WindowedApplication::Draw()
 		static bool gFpsWarming = false;
 		gFpsFrameCount++;
 		gFpsWarming = gFpsWarming || (myScene && myScene->IsReady() && myScene->GetRenderer().IsLightingWarmingUp());
-		gDrawnFrameCount.fetch_add(1, std::memory_order_relaxed);
+		// how long the window took to show its first frame (the startup's cost before anything is drawn: the ImGui
+		// renderer's shaders, compiled or precompiled, and the window's pipelines)
+		if (gDrawnFrameCount.fetch_add(1, std::memory_order_relaxed) == 0)
+			std::println(
+				"first frame presented {:.2f} s after start",
+				std::chrono::duration<double>(std::chrono::steady_clock::now() - windowedapplication::gStartTime).count());
 		if (auto now = std::chrono::steady_clock::now(); now - gFpsTime >= 500ms)
 		{
 			auto submitCount = Queue::GetSubmitCount();

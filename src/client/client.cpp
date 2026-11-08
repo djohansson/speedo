@@ -394,8 +394,9 @@ void ClientCreate(const PathConfig* paths)
 		auto executable = GetExecutablePath();
 		ENSUREF(executable, "the client's executable path couldn't be found");
 		auto bin = executable.value().parent_path();
+		// an install's shaders/ holds them precompiled (see gfx::ShaderLoader), not their sources
 		for (const auto& candidate : {bin / "../Resources", bin / "../share/speedo"})
-			if (std::filesystem::is_regular_file(candidate / "shaders/shaders.slang", error))
+			if (std::filesystem::is_directory(candidate / "shaders", error) && std::filesystem::is_directory(candidate / "resources", error))
 			{
 				root = std::filesystem::canonical(candidate, error);
 				break;

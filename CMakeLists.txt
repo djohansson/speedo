@@ -127,6 +127,7 @@ endif()
 
 set(CORE_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/core/application.cpp
+	${SPEEDO_SOURCE_DIR}/core/dynamiclibrary.cpp
 	${SPEEDO_SOURCE_DIR}/core/eventhandlers.cpp
 	${SPEEDO_SOURCE_DIR}/core/file.cpp
 	${SPEEDO_SOURCE_DIR}/core/math.cpp
@@ -297,7 +298,6 @@ target_link_libraries(
 		xxHash::xxhash
 		imgui::imgui
 		glm::glm
-		slang::slang
 	PRIVATE
 		WebP::webpdecoder
 		WebP::webpdemux
@@ -305,6 +305,30 @@ target_link_libraries(
 		draco::draco
 		meshoptimizer::meshoptimizer
 		mikktspace::mikktspace
+)
+# slang's headers alone (a shader's configuration names its enums, see gfx/shaderloader.h): the compiling is the shader
+# compiler library's (shadercompiler, below), which the client loads only when it must compile, so it links no slang and
+# a package ships none. its version names a compile in the shaders' cache, and the library is found by its file's name
+get_target_property(SPEEDO_SLANG_INCLUDE_DIRS slang::slang INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(gfx SYSTEM PUBLIC $<BUILD_INTERFACE:${SPEEDO_SLANG_INCLUDE_DIRS}>)
+target_compile_definitions(
+	gfx
+	PRIVATE
+		SPEEDO_SLANG_VERSION="${slang_VERSION}"
+		SPEEDO_SHADERCOMPILER_FILE="$<TARGET_FILE_NAME:shadercompiler>"
+)
+
+# the shader compiler library (gfx/shadercompiler.h): slang and the code that calls it, loaded by the client at its first
+# compile from beside the executable. core's headers only (its compiled code would be a second copy of its globals)
+add_library(shadercompiler SHARED ${SPEEDO_SOURCE_DIR}/gfx/shadercompiler.cpp)
+target_compile_features(shadercompiler PRIVATE cxx_std_26)
+target_include_directories(shadercompiler PRIVATE ${SPEEDO_SOURCE_DIR})
+target_link_libraries(
+	shadercompiler
+	PRIVATE
+		slang::slang
+		cpptrace::cpptrace # core/assert.h's
+		xxHash::xxhash
 )
 
 ###############################################################################
@@ -498,6 +522,8 @@ target_link_libraries(
 		clientlib
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
+# the shader compiler beside it, which it loads (not links) to compile its shaders in a checkout
+add_dependencies(client shadercompiler)
 if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL "") AND SPEEDO_USE_MIMALLOC)
 	add_custom_command(
 		TARGET client POST_BUILD
@@ -572,6 +598,23 @@ target_link_libraries(
 		${SPEEDO_MIMALLOC}
 		gfx
 )
+
+# compiles every shader layout an installed client loads into the precompiled sets a package ships (see
+# src/tools/shaderprecompile.cpp, scripts/package.ps1), through the shader compiler beside it
+add_executable(shaderprecompile ${SPEEDO_SOURCE_DIR}/tools/shaderprecompile.cpp)
+target_compile_features(
+	shaderprecompile
+	PUBLIC
+		cxx_std_26
+)
+target_link_libraries(
+	shaderprecompile
+	PRIVATE
+		${SPEEDO_MIMALLOC}
+		gfx
+		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
+)
+add_dependencies(shaderprecompile shadercompiler)
 
 ###############################################################################
 
@@ -680,8 +723,8 @@ install(
 ###############################################################################
 
 # the client's package (scripts/package.ps1, see docs/notes/build.md's releases), as the Client component (not in a plain
-# install): the executable, the shared libraries it loads (vcpkg's), the modules slang loads at run time (beside its library),
-# the shader sources (compiled at startup), the resources the client reads, and the dependencies' licenses. on macOS an app
+# install): the executable, the shared libraries it loads (vcpkg's), its shaders precompiled (no slang nor shader compiler,
+# see gfx/shaderloader.h), the resources the client reads, and the dependencies' licenses. on macOS an app
 # bundle's Contents (MacOS, Frameworks, Resources, Info.plist: installed with the prefix Speedo.app/Contents), with the mesa
 # port's KosmicKrisp as its Vulkan driver (the loader looks in the bundle's Resources/vulkan/icd.d); elsewhere a prefix's
 # bin, lib (Windows: bin, beside the executable) and share/speedo. the client finds its data from its executable (see
@@ -719,26 +762,14 @@ install(
 	POST_EXCLUDE_REGEXES "^/usr/lib/" "^/System/" "^/lib/" "^/lib64/" "^/usr/lib64/" "[Ss]ystem32" "[Ww][Ii][Nn][Dd][Oo][Ww][Ss]/"
 	DIRECTORIES "${SPEEDO_PACKAGE_VCPKG}/bin" "${SPEEDO_PACKAGE_VCPKG}/lib" "${LLVM_ROOT}/bin" "${LLVM_ROOT}/lib"
 )
-# what slang loads by name (glslang, its glsl module), and its standard modules (beside its library, for a shader's import
-# neural and the like: none of ours, so not on macOS, where a bundle's Frameworks holds only code, or codesign refuses it)
-if(WIN32)
-	file(GLOB SPEEDO_PACKAGE_SLANG_FILES "${SPEEDO_PACKAGE_VCPKG}/bin/slang-glsl*.dll" "${SPEEDO_PACKAGE_VCPKG}/bin/slang-rt.dll")
-	file(GLOB SPEEDO_PACKAGE_SLANG_DIRS LIST_DIRECTORIES true "${SPEEDO_PACKAGE_VCPKG}/bin/slang-standard-module-*")
-else()
-	file(GLOB SPEEDO_PACKAGE_SLANG_FILES "${SPEEDO_PACKAGE_VCPKG}/lib/libslang-glsl*${CMAKE_SHARED_LIBRARY_SUFFIX}*")
-	set(SPEEDO_PACKAGE_SLANG_DIRS)
-	if(NOT APPLE)
-		file(GLOB SPEEDO_PACKAGE_SLANG_DIRS LIST_DIRECTORIES true "${SPEEDO_PACKAGE_VCPKG}/lib/slang-standard-module-*")
-	endif()
-endif()
-install(FILES ${SPEEDO_PACKAGE_SLANG_FILES} DESTINATION ${SPEEDO_PACKAGE_LIB} COMPONENT Client EXCLUDE_FROM_ALL)
-install(DIRECTORY ${SPEEDO_PACKAGE_SLANG_DIRS} DESTINATION ${SPEEDO_PACKAGE_LIB} COMPONENT Client EXCLUDE_FROM_ALL)
+# the shaders precompiled, every variant the client may load (shaderprecompile, which package.ps1 runs into this directory
+# first), where their sources would be: an installed client compiles nothing
 install(
-	DIRECTORY ${SPEEDO_SOURCE_DIR}/gfx/shaders/
+	DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/precompiled-shaders/
 	DESTINATION ${SPEEDO_PACKAGE_DATA}/shaders
 	COMPONENT Client
 	EXCLUDE_FROM_ALL
-	FILES_MATCHING PATTERN "*.slang" PATTERN "*.h"
+	FILES_MATCHING PATTERN "*.shaderset"
 )
 # the fonts the client loads (platform/imguilayer.cpp) with their licenses, and the test assets' manifests (the download)
 set(SPEEDO_PACKAGE_FONTS Roboto-Medium.ttf Roboto-LICENSE.txt Twemoji.Mozilla.ttf Twemoji.Mozilla-LICENSE.md NotoSansSymbols2-Regular.ttf NotoSansSymbols2-OFL.txt)

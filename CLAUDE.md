@@ -33,8 +33,9 @@ Details: docs/notes/layering.md.
   `SPEEDO_BACKGROUND=1 SPEEDO_PRESENT_MODE=fifo SPEEDO_AUTOLOAD_EXIT=<frames> SPEEDO_CAPTURE=<file.bmp> SPEEDO_UI=0
   SPEEDO_WINDOW_SIZE=<w>x<h> SPEEDO_CAMERA=x,y,z,pitch,yaw`; a report of an artifact starts from View > Camera > Copy
   Pose's text (SPEEDO_* variables), which Paste Pose and the autoloads take back.
-- The shaders compile at the client's startup from their sources: don't edit `.slang` files or `capi.h`, and don't
-  rebuild, while client runs are in flight (a batch would mix two versions).
+- The shaders compile at the client's startup from their sources (through the `shadercompiler` library beside it, which
+  holds slang; an install's come precompiled, see docs/notes/layering.md): don't edit `.slang` files or `capi.h`, and
+  don't rebuild, while client runs are in flight (a batch would mix two versions).
 - Test with the quick tier before committing: `pwsh -Command '$p = & scripts/fetch-test-assets.ps1 -Quick; &
   scripts/assettest.ps1 -Preset <preset> -Client -Validate -Work <scratch>/quick @p'` (a profile preset, validated;
   the full sets, `fetch-test-assets.ps1` without `-Quick`, before a commit that touches many models). On macOS ray

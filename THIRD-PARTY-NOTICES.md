@@ -9,9 +9,6 @@ choice of licenses, the one Speedo uses is named.
 
 | Component | License | Notes |
 | --- | --- | --- |
-| Slang (shader-slang) | Apache-2.0 WITH LLVM-exception | the shader compiler, and its glslang module |
-| glslang | BSD-3-Clause, MIT, Apache-2.0; GPL-3.0 with the Bison special exception (its generated parser) | inside slang's glslang module |
-| SPIRV-Tools | Apache-2.0 | inside slang's glslang module |
 | Vulkan-Loader | Apache-2.0 | |
 | Mesa (KosmicKrisp) | MIT | macOS only: the Vulkan driver |
 | GLFW | Zlib | |

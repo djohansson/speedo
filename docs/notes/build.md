@@ -463,8 +463,10 @@ platform's installer, in `build/package`: `Speedo-<version>-macos-arm64.dmg` (Sp
 LICENSE to accept; WiX 5, the `wix` .NET tool, and its UI extension, which the script adds; 6 and later ask for the Open
 Source Maintenance Fee's EULA) or `Speedo-<version>-linux-x86_64.AppImage` (appimagetool, fetched into `build/tools`).
 What goes in is `CMakeLists.txt`'s Client component (installed only by a component install, `EXCLUDE_FROM_ALL`): the
-client and the shared libraries it loads (its runtime dependency set, the system's left out), slang's glsl modules, the
-shader sources, the fonts the client loads with their licenses, the test assets' manifests, `LICENSE`,
+client and the shared libraries it loads (its runtime dependency set, the system's left out), its shaders precompiled
+(the script runs `shaderprecompile` into the build's `precompiled-shaders` first: every variant the client may load, in
+place of the sources; no slang nor shader compiler ships, see layering.md's shaders), the fonts the client loads with
+their licenses, the test assets' manifests, `LICENSE`,
 `THIRD-PARTY-NOTICES.md` and each vcpkg port's license as `licenses/<port>.txt`; on macOS also KosmicKrisp (the mesa
 port's, with its patches) and its manifest in the bundle's `Resources/vulkan/icd.d`, where the loader looks, the loader
 as `Frameworks/libvulkan.1.dylib` (GLFW loads it by that name) and `Info.plist`. The macOS bundle's absolute rpaths (the
@@ -478,7 +480,9 @@ DARWIN_USER_CACHE_DIR`, emptied) first took 80 s with the window frozen twice: t
 every executor thread (no frame for 20 s, the hang watch tripped) and the generic main pass pipeline was made on first
 use (`FragmentMain`, 16.5 s). With the pipelines made in chains and a pass's graphics pipelines made in the background
 (see layering.md's shaders), it took 69 s with the hang watch at 15 s and never tripped it, the capture with the helmet;
-a second launch 5 to 6 s; no gpu restart. Test a package from its mounted .dmg, run outside the checkout with a scratch
+a second launch 5 to 6 s; no gpu restart. With the shaders precompiled (no slang): the bundle 54 MB rather than 79, the
+.dmg 19.9 MiB rather than 30.3, and the cold first launch 33 s (BVHs, the macOS default since then), its first frame
+1.76 s after start. Test a package from its mounted .dmg, run outside the checkout with a scratch
 `-u` profile (an installed client's default is the user data directory), with the display awake (`caffeinate -u`: glfw
 finds no monitor on a sleeping display and the client stops).
 
@@ -506,8 +510,10 @@ files: everything is permissive (MIT, BSD, Zlib, Apache-2.0, the LLVM exception'
   published), for the client and server's messages;
 - attribution: FreeType's FTL (chosen over its GPL) asks for credit in the documentation, the Twemoji font's art is
   CC-BY-4.0, and the Apache-2.0 components' NOTICE files (where they have one) are to be reproduced;
-- glslang's generated parser is GPL-3.0 with Bison's exception, which lets it be distributed under any terms; zstd and
-  FreeType are taken under their permissive licenses rather than GPL; the fonts' OFL forbids selling them alone;
+- slang, and the glslang and SPIRV-Tools inside its glslang module, don't ship since 2026-11-08 (a package's shaders
+  come precompiled, see layering.md's shaders); glslang's generated parser is GPL-3.0 with Bison's exception, which let
+  it be distributed under any terms when it did; zstd and FreeType are taken under their permissive licenses rather
+  than GPL; the fonts' OFL forbids selling them alone;
 - KTX-Software's ETC decoder (`etcdec.cxx`) isn't open source: an Ericsson license, for products of OpenGL, OpenGL ES and
   WebGL only, which a Vulkan renderer's isn't plainly among. Only KTX's OpenGL loader used it (speedo reads KTX2 and
   transcodes Basis), so `ports/ktx` builds without it (`KTX_FEATURE_ETC_UNPACK=OFF`, its source removed; found

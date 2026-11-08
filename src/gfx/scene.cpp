@@ -19,6 +19,7 @@
 #include <gfx/rayquerywatch.h>
 #include <gfx/renderer.h>
 #include <gfx/renderoutput.h>
+#include <gfx/shaderlayouts.h>
 #include <gfx/shaderloader.h>
 #include <gfx/shaders/capi.h>
 #include <gfx/texture.h>
@@ -376,6 +377,131 @@ static void ApplyMaterialProperty(MaterialData& data, const ModelMaterial& desc,
 	material.roughness = 1.0F;
 	material.specular = 1.0F;
 	return material;
+}
+
+std::vector<ShaderLayout> SceneShaderLayouts(const std::filesystem::path& shaderPath, bool rayQuery, bool rayQueryWatch)
+{
+	auto shaderSourceFile = shaderPath / "shaders.slang";
+
+	// the device's ray queries where it has them (BVH_RAY_QUERY, see AccelerationStructures), else gfx's BVHs traversed
+	auto definitions = ShaderLoader::SlangConfiguration{}.preprocessorDefinitions;
+	if (rayQuery)
+		definitions.emplace_back("BVH_RAY_QUERY", "1");
+	if (rayQuery && rayQueryWatch)
+		definitions.emplace_back("BVH_RAY_QUERY_WATCH", "1");
+
+	// the main layout's entry points (the renderer's passes)
+	ShaderLoader::SlangConfiguration mainConfiguration{
+		.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+		.entryPoints = {
+			{"VertexMain", SLANG_STAGE_VERTEX},
+			{"FragmentMain", SLANG_STAGE_FRAGMENT},
+			{"FragmentTransparent", SLANG_STAGE_FRAGMENT}, // see kTransparentFragmentShader
+			{"FragmentShadow", SLANG_STAGE_FRAGMENT}, // see kShadowFragmentShader
+			{"FragmentScatter", SLANG_STAGE_FRAGMENT}, // see kScatterFragmentShader
+			{"FragmentPrepass", SLANG_STAGE_FRAGMENT}, // see kPrepassFragmentShader
+			{"FragmentShadowTransmittance", SLANG_STAGE_FRAGMENT}, // see kShadowTransmittanceFragmentShader
+			{"ComputeMain", SLANG_STAGE_COMPUTE},
+			{"ComputeScatter", SLANG_STAGE_COMPUTE}, // see the Scatter Blur pass
+			{"ComputeScatterDenoise", SLANG_STAGE_COMPUTE}, // see the Scatter Denoise pass
+			{"ComputeUiBlurX", SLANG_STAGE_COMPUTE}, // see the UI Blur passes
+			{"ComputeUiBlurY", SLANG_STAGE_COMPUTE},
+			{"ComputeCull", SLANG_STAGE_COMPUTE}, // see the Cull passes
+			{"ComputeDepthPyramid", SLANG_STAGE_COMPUTE}, // see the Depth Pyramid pass
+			{"ComputeDepthSave", SLANG_STAGE_COMPUTE}, // see the depth reprojection passes
+			{"ComputeDepthReproject", SLANG_STAGE_COMPUTE},
+			{"ComputeGiShift", SLANG_STAGE_COMPUTE}, // see the GI passes
+			{"ComputeGiVoxelize", SLANG_STAGE_COMPUTE},
+			{"ComputeGiLightStatic", SLANG_STAGE_COMPUTE},
+			{"ComputeGiLight", SLANG_STAGE_COMPUTE},
+			{"ComputeGiFlags", SLANG_STAGE_COMPUTE},
+			{"ComputeGiTrace", SLANG_STAGE_COMPUTE},
+			{"ComputeGiProbeUpdate", SLANG_STAGE_COMPUTE},
+			{"ComputeGiResolve", SLANG_STAGE_COMPUTE},
+			{"ComputeGiRestore", SLANG_STAGE_COMPUTE},
+			{"ComputeShadowClassify", SLANG_STAGE_COMPUTE}, // see the Shadow Classify, Trace and Denoise passes
+			{"ComputeShadowTrace", SLANG_STAGE_COMPUTE},
+			{"ComputeShadowDenoiseX", SLANG_STAGE_COMPUTE},
+			{"ComputeShadowDenoiseY", SLANG_STAGE_COMPUTE},
+			{"ComputeGiCacheFilter", SLANG_STAGE_COMPUTE}, // the GI pass's, after the resolve (last: the indices before stay)
+			{"ComputeGiCachePrepare", SLANG_STAGE_COMPUTE}, // and before it: the free pages,
+			{"ComputeGiCacheRelease", SLANG_STAGE_COMPUTE}, // and those of the blocks no longer near a surface
+			{"ComputeGiNear", SLANG_STAGE_COMPUTE}, // see the GI Near passes
+			{"ComputeGiNearX", SLANG_STAGE_COMPUTE},
+			{"ComputeGiNearY", SLANG_STAGE_COMPUTE},
+			{"ComputeGiNearTemporal", SLANG_STAGE_COMPUTE},
+			{"ComputeEmitterSample", SLANG_STAGE_COMPUTE}, // see the Emitter passes
+			{"ComputeEmitterShade", SLANG_STAGE_COMPUTE},
+			{"ComputeEmitterX", SLANG_STAGE_COMPUTE},
+			{"ComputeEmitterY", SLANG_STAGE_COMPUTE},
+			{"ComputeEmitterTemporal", SLANG_STAGE_COMPUTE},
+			{"ComputeUpscalePrepareInputs", SLANG_STAGE_COMPUTE}, // see the Upscale passes (temporal upscaling)
+			{"ComputeUpscaleShadingChangePyramid", SLANG_STAGE_COMPUTE},
+			{"ComputeUpscaleShadingChange", SLANG_STAGE_COMPUTE},
+			{"ComputeUpscalePrepareReactivity", SLANG_STAGE_COMPUTE},
+			{"ComputeUpscaleLumaInstability", SLANG_STAGE_COMPUTE},
+			{"ComputeUpscaleAccumulate", SLANG_STAGE_COMPUTE},
+			{"ComputeSharpen", SLANG_STAGE_COMPUTE},
+			{"ComputeGiResolveTraced", SLANG_STAGE_COMPUTE}, // see the GI Resolve step
+			{"ComputeMainVisibility", SLANG_STAGE_COMPUTE}, // see the Main Visibility pass
+			{"ComputeMainVisibilityClassify", SLANG_STAGE_COMPUTE}, // see the Main Visibility Classify pass
+			{"ComputeReflectionX", SLANG_STAGE_COMPUTE}, // see the Reflection passes (the traced glossy reflections)
+			{"ComputeReflectionY", SLANG_STAGE_COMPUTE},
+			{"ComputeReflectionTemporal", SLANG_STAGE_COMPUTE},
+			{"ComputeTransmissionCopy", SLANG_STAGE_COMPUTE}, // see the Transmission pass
+			{"ComputeCaustics", SLANG_STAGE_COMPUTE}, // see the Caustics pass
+			{"ComputeCausticsResolve", SLANG_STAGE_COMPUTE},
+			{"ComputeReflectionTrace", SLANG_STAGE_COMPUTE}, // see the Reflection Trace pass
+			{"ComputeAerialPerspective", SLANG_STAGE_COMPUTE}, // see the Aerial Perspective pass
+			{"ComputeSkyEyeView", SLANG_STAGE_COMPUTE}, // see the Sky Eye View pass
+			{"ComputeLens", SLANG_STAGE_COMPUTE}, // see the Lens pass
+			{"ComputeBloomDown", SLANG_STAGE_COMPUTE}, // see the Bloom pass
+			{"ComputeBloomUp", SLANG_STAGE_COMPUTE},
+			{"ComputeFlareSources", SLANG_STAGE_COMPUTE}, // see the Flare Sources pass
+			{"ComputeDofTiles", SLANG_STAGE_COMPUTE}, // see the DOF passes
+			{"ComputeDofTilesDilate", SLANG_STAGE_COMPUTE},
+			{"ComputeDofPrepare", SLANG_STAGE_COMPUTE},
+			{"ComputeDofGather", SLANG_STAGE_COMPUTE},
+			{"ComputeDofComposite", SLANG_STAGE_COMPUTE},
+			{"ComputeMotionVelocity", SLANG_STAGE_COMPUTE}, // see the Motion passes
+			{"ComputeMotionTiles", SLANG_STAGE_COMPUTE},
+			{"ComputeMotionTilesDilate", SLANG_STAGE_COMPUTE},
+			{"ComputeMotionBlur", SLANG_STAGE_COMPUTE},
+			{"ComputeFlareTrack", SLANG_STAGE_COMPUTE}, // see the Flare Track pass
+			{"ComputeStarTiles", SLANG_STAGE_COMPUTE}, // see the Starburst pass
+			{"ComputeStarburst", SLANG_STAGE_COMPUTE},
+			{"ComputeFlareSize", SLANG_STAGE_COMPUTE}, // see the Flare Track pass
+			{"ComputeStreakScan", SLANG_STAGE_COMPUTE}, // see the Streak Scan pass
+		},
+		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+		.debugInfoLevel = kShaderDebugInfoLevel,
+		.preprocessorDefinitions = definitions,
+	};
+	// diagnostic: the ray query replay's kernel (see gfx/rayquerywatch.h), after the others (the renderer's
+	// kRayQueryReplayEntryPoint), where the shaders have the watch
+	if (rayQuery && rayQueryWatch)
+		mainConfiguration.entryPoints.emplace_back("ComputeRayQueryReplay", SLANG_STAGE_COMPUTE);
+
+	return {
+		{.file = shaderSourceFile,
+		 .config = {
+			 .sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+			 .entryPoints = {{"VertexZPrepass", SLANG_STAGE_VERTEX}},
+			 .optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+			 .debugInfoLevel = kShaderDebugInfoLevel,
+			 .preprocessorDefinitions = definitions,
+		 }},
+		{.file = shaderSourceFile, .config = std::move(mainConfiguration)},
+		// the glare's flares' layout (see flare.slang, the renderer's Flare pass): a vertex and a fragment stage of its own
+		{.file = shaderPath / "flare.slang",
+		 .config = {
+			 .sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+			 .entryPoints = {{"VertexFlare", SLANG_STAGE_VERTEX}, {"FragmentFlare", SLANG_STAGE_FRAGMENT}},
+			 .optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+			 .debugInfoLevel = kShaderDebugInfoLevel,
+		 }},
+		{.file = shaderPath / "environment.slang", .config = EnvironmentFilter::ShaderConfiguration()},
+	};
 }
 
 struct Scene::Impl
@@ -2716,138 +2842,19 @@ struct Scene::Impl
 	Impl(const Impl&) = delete;
 	Impl& operator=(const Impl&) = delete;
 
-	// the main layout's entry points (the renderer's passes)
-	[[nodiscard]] static ShaderLoader::SlangConfiguration MainShaderConfiguration(
-		Device& device, const std::vector<std::pair<std::string, std::string>>& definitions)
-	{
-		ShaderLoader::SlangConfiguration mainConfiguration{
-			.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
-			.entryPoints = {
-				{"VertexMain", SLANG_STAGE_VERTEX},
-				{"FragmentMain", SLANG_STAGE_FRAGMENT},
-				{"FragmentTransparent", SLANG_STAGE_FRAGMENT}, // see kTransparentFragmentShader
-				{"FragmentShadow", SLANG_STAGE_FRAGMENT}, // see kShadowFragmentShader
-				{"FragmentScatter", SLANG_STAGE_FRAGMENT}, // see kScatterFragmentShader
-				{"FragmentPrepass", SLANG_STAGE_FRAGMENT}, // see kPrepassFragmentShader
-				{"FragmentShadowTransmittance", SLANG_STAGE_FRAGMENT}, // see kShadowTransmittanceFragmentShader
-				{"ComputeMain", SLANG_STAGE_COMPUTE},
-				{"ComputeScatter", SLANG_STAGE_COMPUTE}, // see the Scatter Blur pass
-				{"ComputeScatterDenoise", SLANG_STAGE_COMPUTE}, // see the Scatter Denoise pass
-				{"ComputeUiBlurX", SLANG_STAGE_COMPUTE}, // see the UI Blur passes
-				{"ComputeUiBlurY", SLANG_STAGE_COMPUTE},
-				{"ComputeCull", SLANG_STAGE_COMPUTE}, // see the Cull passes
-				{"ComputeDepthPyramid", SLANG_STAGE_COMPUTE}, // see the Depth Pyramid pass
-				{"ComputeDepthSave", SLANG_STAGE_COMPUTE}, // see the depth reprojection passes
-				{"ComputeDepthReproject", SLANG_STAGE_COMPUTE},
-				{"ComputeGiShift", SLANG_STAGE_COMPUTE}, // see the GI passes
-				{"ComputeGiVoxelize", SLANG_STAGE_COMPUTE},
-				{"ComputeGiLightStatic", SLANG_STAGE_COMPUTE},
-				{"ComputeGiLight", SLANG_STAGE_COMPUTE},
-				{"ComputeGiFlags", SLANG_STAGE_COMPUTE},
-				{"ComputeGiTrace", SLANG_STAGE_COMPUTE},
-				{"ComputeGiProbeUpdate", SLANG_STAGE_COMPUTE},
-				{"ComputeGiResolve", SLANG_STAGE_COMPUTE},
-				{"ComputeGiRestore", SLANG_STAGE_COMPUTE},
-				{"ComputeShadowClassify", SLANG_STAGE_COMPUTE}, // see the Shadow Classify, Trace and Denoise passes
-				{"ComputeShadowTrace", SLANG_STAGE_COMPUTE},
-				{"ComputeShadowDenoiseX", SLANG_STAGE_COMPUTE},
-				{"ComputeShadowDenoiseY", SLANG_STAGE_COMPUTE},
-				{"ComputeGiCacheFilter", SLANG_STAGE_COMPUTE}, // the GI pass's, after the resolve (last: the indices before stay)
-				{"ComputeGiCachePrepare", SLANG_STAGE_COMPUTE}, // and before it: the free pages,
-				{"ComputeGiCacheRelease", SLANG_STAGE_COMPUTE}, // and those of the blocks no longer near a surface
-				{"ComputeGiNear", SLANG_STAGE_COMPUTE}, // see the GI Near passes
-				{"ComputeGiNearX", SLANG_STAGE_COMPUTE},
-				{"ComputeGiNearY", SLANG_STAGE_COMPUTE},
-				{"ComputeGiNearTemporal", SLANG_STAGE_COMPUTE},
-				{"ComputeEmitterSample", SLANG_STAGE_COMPUTE}, // see the Emitter passes
-				{"ComputeEmitterShade", SLANG_STAGE_COMPUTE},
-				{"ComputeEmitterX", SLANG_STAGE_COMPUTE},
-				{"ComputeEmitterY", SLANG_STAGE_COMPUTE},
-				{"ComputeEmitterTemporal", SLANG_STAGE_COMPUTE},
-				{"ComputeUpscalePrepareInputs", SLANG_STAGE_COMPUTE}, // see the Upscale passes (temporal upscaling)
-				{"ComputeUpscaleShadingChangePyramid", SLANG_STAGE_COMPUTE},
-				{"ComputeUpscaleShadingChange", SLANG_STAGE_COMPUTE},
-				{"ComputeUpscalePrepareReactivity", SLANG_STAGE_COMPUTE},
-				{"ComputeUpscaleLumaInstability", SLANG_STAGE_COMPUTE},
-				{"ComputeUpscaleAccumulate", SLANG_STAGE_COMPUTE},
-				{"ComputeSharpen", SLANG_STAGE_COMPUTE},
-				{"ComputeGiResolveTraced", SLANG_STAGE_COMPUTE}, // see the GI Resolve step
-				{"ComputeMainVisibility", SLANG_STAGE_COMPUTE}, // see the Main Visibility pass
-				{"ComputeMainVisibilityClassify", SLANG_STAGE_COMPUTE}, // see the Main Visibility Classify pass
-				{"ComputeReflectionX", SLANG_STAGE_COMPUTE}, // see the Reflection passes (the traced glossy reflections)
-				{"ComputeReflectionY", SLANG_STAGE_COMPUTE},
-				{"ComputeReflectionTemporal", SLANG_STAGE_COMPUTE},
-				{"ComputeTransmissionCopy", SLANG_STAGE_COMPUTE}, // see the Transmission pass
-				{"ComputeCaustics", SLANG_STAGE_COMPUTE}, // see the Caustics pass
-				{"ComputeCausticsResolve", SLANG_STAGE_COMPUTE},
-				{"ComputeReflectionTrace", SLANG_STAGE_COMPUTE}, // see the Reflection Trace pass
-				{"ComputeAerialPerspective", SLANG_STAGE_COMPUTE}, // see the Aerial Perspective pass
-				{"ComputeSkyEyeView", SLANG_STAGE_COMPUTE}, // see the Sky Eye View pass
-				{"ComputeLens", SLANG_STAGE_COMPUTE}, // see the Lens pass
-				{"ComputeBloomDown", SLANG_STAGE_COMPUTE}, // see the Bloom pass
-				{"ComputeBloomUp", SLANG_STAGE_COMPUTE},
-				{"ComputeFlareSources", SLANG_STAGE_COMPUTE}, // see the Flare Sources pass
-				{"ComputeDofTiles", SLANG_STAGE_COMPUTE}, // see the DOF passes
-				{"ComputeDofTilesDilate", SLANG_STAGE_COMPUTE},
-				{"ComputeDofPrepare", SLANG_STAGE_COMPUTE},
-				{"ComputeDofGather", SLANG_STAGE_COMPUTE},
-				{"ComputeDofComposite", SLANG_STAGE_COMPUTE},
-				{"ComputeMotionVelocity", SLANG_STAGE_COMPUTE}, // see the Motion passes
-				{"ComputeMotionTiles", SLANG_STAGE_COMPUTE},
-				{"ComputeMotionTilesDilate", SLANG_STAGE_COMPUTE},
-				{"ComputeMotionBlur", SLANG_STAGE_COMPUTE},
-				{"ComputeFlareTrack", SLANG_STAGE_COMPUTE}, // see the Flare Track pass
-				{"ComputeStarTiles", SLANG_STAGE_COMPUTE}, // see the Starburst pass
-				{"ComputeStarburst", SLANG_STAGE_COMPUTE},
-				{"ComputeFlareSize", SLANG_STAGE_COMPUTE}, // see the Flare Track pass
-				{"ComputeStreakScan", SLANG_STAGE_COMPUTE}, // see the Streak Scan pass
-			},
-			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-			.preprocessorDefinitions = definitions,
-		};
-		// diagnostic: the ray query replay's kernel (see gfx/rayquerywatch.h), after the others (the renderer's
-		// kRayQueryReplayEntryPoint), where the shaders have the watch
-		if (device.GetLimits().rayQuery && RayQueryWatchOn())
-			mainConfiguration.entryPoints.emplace_back("ComputeRayQueryReplay", SLANG_STAGE_COMPUTE);
-		return mainConfiguration;
-	}
-
+	// the layouts the scene compiles (see SceneShaderLayouts), for this device: with its ray queries where it has them
 	[[nodiscard]] static ShaderCompileSet ShaderCompiles(Device& device)
 	{
 		auto& variables = core::Application::Get()->GetEnv().variables;
 		ShaderCompileSet compiles;
 		compiles.includePath = std::get<std::filesystem::path>(variables["ShaderPath"]);
 		compiles.intermediatePath = std::get<std::filesystem::path>(variables["UserProfilePath"]) / ".slang.intermediate";
-		auto shaderSourceFile = compiles.includePath / "shaders.slang";
-
-		// the device's ray queries where it has them (BVH_RAY_QUERY, see AccelerationStructures), else gfx's BVHs traversed
-		auto definitions = ShaderLoader::SlangConfiguration{}.preprocessorDefinitions;
-		if (device.GetLimits().rayQuery)
-			definitions.emplace_back("BVH_RAY_QUERY", "1");
-		if (device.GetLimits().rayQuery && RayQueryWatchOn())
-			definitions.emplace_back("BVH_RAY_QUERY_WATCH", "1");
-
-		compiles.zPrepass = {
-			.file = shaderSourceFile,
-			.config = {
-				.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
-				.entryPoints = {{"VertexZPrepass", SLANG_STAGE_VERTEX}},
-				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-				.preprocessorDefinitions = definitions,
-			}};
-		compiles.main = {.file = shaderSourceFile, .config = MainShaderConfiguration(device, definitions)};
-		// the glare's flares' layout (see flare.slang, the renderer's Flare pass): a vertex and a fragment stage of its own
-		compiles.flare = {
-			.file = compiles.includePath / "flare.slang",
-			.config = {
-				.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
-				.entryPoints = {{"VertexFlare", SLANG_STAGE_VERTEX}, {"FragmentFlare", SLANG_STAGE_FRAGMENT}},
-				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-			}};
-		compiles.environment = {.file = compiles.includePath / "environment.slang", .config = EnvironmentFilter::ShaderConfiguration()};
+		auto layouts = SceneShaderLayouts(compiles.includePath, device.GetLimits().rayQuery, RayQueryWatchOn());
+		ENSURE(layouts.size() == 4);
+		compiles.zPrepass = {.file = layouts[0].file, .config = layouts[0].config};
+		compiles.main = {.file = layouts[1].file, .config = layouts[1].config};
+		compiles.flare = {.file = layouts[2].file, .config = layouts[2].config};
+		compiles.environment = {.file = layouts[3].file, .config = layouts[3].config};
 		return compiles;
 	}
 
@@ -2878,7 +2885,7 @@ struct Scene::Impl
 			{
 				ZoneScopedN("Scene::ShaderCompiles");
 				const auto& compiles = *myShaderCompiles;
-				ShaderLoader loader({std::filesystem::path(compiles.includePath)}, {}, std::filesystem::path(compiles.intermediatePath));
+				ShaderLoader loader({std::filesystem::path(compiles.includePath)}, std::filesystem::path(compiles.intermediatePath));
 				auto all = compiles.All();
 				for (size_t compileIt = 0; compileIt < all.size(); compileIt++)
 				{
@@ -3061,7 +3068,7 @@ struct Scene::Impl
 		auto& device = rhi.GetPrimaryDevice();
 		auto& pipeline = myPipeline;
 		const auto& compiles = *myShaderCompiles;
-		ShaderLoader shaderLoader({std::filesystem::path(compiles.includePath)}, {}, std::filesystem::path(compiles.intermediatePath));
+		ShaderLoader shaderLoader({std::filesystem::path(compiles.includePath)}, std::filesystem::path(compiles.intermediatePath));
 
 		auto zPrepassLayout = pipeline.CreateLayout("VertexZPrepass", shaderLoader.Load(compiles.zPrepass.file, compiles.zPrepass.config));
 

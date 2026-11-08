@@ -161,9 +161,11 @@ Run the programs from the repository root:
 | `-r <dir>`: the resource directory (fonts, shaders, test assets) | `resources/` |
 | `-u <dir>`: the user profile directory (settings, caches, logs) | `.speedo/` |
 
-The shaders compile from their sources at startup. A first launch compiles them in the background (about 25 s on an M4
-Pro) and then has the driver create the pipelines, with the progress shown in a Loading window while the interface stays
-responsive; later launches take them from the profile's caches and start in seconds.
+From a checkout the shaders compile from their sources at startup, through a shader compiler library the client loads
+only for that; an installed client gets them precompiled, and its package ships neither the compiler nor slang. A first
+launch compiles them in the background (from a checkout) and has the driver create the pipelines, with the progress
+shown in a Loading window while the interface stays responsive; later launches take them from the profile's caches and
+start in seconds.
 
 On macOS, point the Vulkan loader at KosmicKrisp, which setup restores from the binary cache (built from the
 djohansson/mesa fork, with a workaround for a GPU restart in Apple's ray tracing, see

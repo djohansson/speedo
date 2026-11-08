@@ -297,6 +297,28 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   where the constructor's compile took 27.4 s before any frame. The first frame after the switch takes 0.46 s (its
   pipelines, cold), and the frames until the sky is installed are white: auto exposure adapting from an empty scene, as at
   a warm startup.
+  The client links no slang (the user's call, 2026-11-08: an install compiles nothing, so a package needn't ship slang,
+  31 MB of the macOS bundle's 79). Everything that calls slang is the shader compiler library (`shadercompiler`,
+  `gfx/shadercompiler.h`/`.cpp`), a shared library built beside the client, which `ShaderLoader` loads at its first
+  compile (`core::DynamicLibrary`: dlopen, LoadLibraryW; `SPEEDO_SHADERCOMPILER_FILE` names it) and calls through two C
+  entry points, a compile's request and response serialized with zpp::bits (each side has its own static libc++); it uses
+  core's headers (assertions, containers) but none of its compiled code, which would be a second copy of core's globals.
+  gfx keeps slang's headers alone (a configuration names its enums), and a compile's cache key names slang's version from
+  its port (`SPEEDO_SLANG_VERSION`) rather than asking the library. `ShaderLoader::Load` reads an install's shaders
+  precompiled, where their source would be (`<stem>-<parameters hash>.shaderset`, the hash of the configuration, slang's
+  version and the format: `ShaderLoader::PrecompiledPath`), else the profile's cache, else compiles through the library,
+  a hard failure where it can't be loaded (an install missing a variant). `tools/shaderprecompile` writes them, every
+  layout the client may load (`gfx/shaderlayouts.h`: the ImGui renderer's and the scene's, with and without ray queries:
+  7 sets, the flares' and environment filter's the same either way), and `scripts/package.ps1` runs it into the build's
+  `precompiled-shaders`, which the Client component installs in place of the sources. The shaders' debug information
+  follows the build (`kShaderDebugInfoLevel`): all of it where profiling is on (for gpu captures), none in release, the
+  package's build, whose main layout took 81 MB a variant with it and 3.8 MB without (the 7 sets 7.2 MB, compiled in
+  24 s). Measured (M4 Pro, the helmet): the packaged app's cold first launch (its Metal cache emptied, a fresh profile)
+  33 s with no shader compile, its first frame 1.76 s after start (the UI's pipelines cold in Metal), where it took 69 s
+  with the sources compiled; a checkout's release client on a fresh profile compiles through the library, its first
+  frame 0.48 s after start (the ImGui shader compiled in release, without debug information), 37 s in all. slang dumps
+  its intermediates only where given a directory (the profile's `.slang.intermediate`): without one it wrote them into
+  the working directory, which left 344 numbered `.spv` files in the checkout's root when the tool ran there.
   Then the compute pipelines are made ahead, before the first frame (the user's ask, 2026-11-07: the driver's compile
   shown, the window never frozen in it): `Scene::Prepare` requests the environment layout's and the renderer's
   (`Renderer::ComputePipelineVariants`: every entry point at specialization 0, and the visibility buffer's extended tier

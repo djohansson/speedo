@@ -1,5 +1,6 @@
 #include "imguirenderer.h"
 
+#include <gfx/shaderlayouts.h>
 #include <gfx/shaderloader.h>
 #include <gfx/shaders/capi.h>
 
@@ -310,6 +311,18 @@ struct ImGuiRenderer::State
 	}
 };
 
+ShaderLayout ImGuiShaderLayout(const std::filesystem::path& shaderPath)
+{
+	return {
+		.file = shaderPath / "imgui.slang",
+		.config = {
+			.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+			.entryPoints = {{"VertexImGui", SLANG_STAGE_VERTEX}, {"FragmentImGui", SLANG_STAGE_FRAGMENT}},
+			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+			.debugInfoLevel = kShaderDebugInfoLevel,
+		}};
+}
+
 ImGuiRenderer::ImGuiRenderer(Device& device)
 	: myState(std::make_unique<State>(device))
 {
@@ -320,17 +333,9 @@ ImGuiRenderer::ImGuiRenderer(Device& device)
 	auto& state = *myState;
 	auto& variables = core::Application::Get()->GetEnv().variables;
 	auto shaderIncludePath = std::get<std::filesystem::path>(variables["ShaderPath"]);
-	ShaderLoader loader({shaderIncludePath}, {}, std::get<std::filesystem::path>(variables["UserProfilePath"]) / ".slang.intermediate");
-	state.layout = state.pipeline.CreateLayout(
-		"ImGui",
-		loader.Load(
-			shaderIncludePath / "imgui.slang",
-			{
-				.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
-				.entryPoints = {{"VertexImGui", SLANG_STAGE_VERTEX}, {"FragmentImGui", SLANG_STAGE_FRAGMENT}},
-				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-			}));
+	ShaderLoader loader({shaderIncludePath}, std::get<std::filesystem::path>(variables["UserProfilePath"]) / ".slang.intermediate");
+	auto layout = ImGuiShaderLayout(shaderIncludePath);
+	state.layout = state.pipeline.CreateLayout("ImGui", loader.Load(layout.file, layout.config));
 	state.pipeline.BindLayoutAuto(state.layout, PipelineBindPoint::kGraphics);
 	state.pipeline.SetDescriptorData("gImGuiSampler", ImageBinding{.sampler = state.sampler[0]}, kSet);
 

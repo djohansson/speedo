@@ -61,6 +61,16 @@ $stage = Join-Path $Out 'stage'
 Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
+# the shaders precompiled, every variant the client may load, into the build's precompiled-shaders, which the Client
+# component installs in place of their sources: an installed client compiles nothing, so it ships no slang nor shader
+# compiler (see src/tools/shaderprecompile.cpp)
+$precompile = Join-Path $build "shaderprecompile$(if ($IsWindows) { '.exe' })"
+if (-not (Test-Path $precompile))
+{
+	throw "$precompile is missing: cmake --preset $Preset && cmake --build build/$Preset"
+}
+Invoke-Native $precompile (Join-Path $root 'src/gfx/shaders') (Join-Path $build 'precompiled-shaders')
+
 if ($IsMacOS)
 {
 	$app = Join-Path $stage 'Speedo.app'
