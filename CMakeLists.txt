@@ -524,6 +524,14 @@ target_link_libraries(
 )
 # the shader compiler beside it, which it loads (not links) to compile its shaders in a checkout
 add_dependencies(client shadercompiler)
+# on Windows the release client (the packages') is a windowed program, which opens no console window (the user's ask,
+# 2026-11-08: the installed client's console popped up behind its window), still entered at main through the CRT's
+# mainCRTStartup rather than a WinMain; started from a terminal it writes to that one (AttachParentConsole). debug and
+# profile builds stay console programs, for their logs
+if(WIN32)
+	set_target_properties(client PROPERTIES WIN32_EXECUTABLE $<CONFIG:Release>)
+	target_link_options(client PRIVATE $<$<CONFIG:Release>:LINKER:/ENTRY:mainCRTStartup>)
+endif()
 if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL "") AND SPEEDO_USE_MIMALLOC)
 	add_custom_command(
 		TARGET client POST_BUILD

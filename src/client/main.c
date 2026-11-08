@@ -17,6 +17,10 @@ int main(int argc, char* argv[], char* envp[])
 	mi_version(); // if not called first thing in main(), malloc will not be redirected correctly on windows
 #endif
 
+	// the release client is a windowed program on windows (no console window of its own): started from a terminal, it
+	// writes to that one
+	AttachParentConsole();
+
 	// an interrupt (ctrl-c) wakes the main loop, which sleeps in PlatformWaitEvents() until the next window event
 	InstallSignalHandlers(PlatformWakeMain);
 

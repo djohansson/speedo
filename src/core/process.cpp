@@ -15,7 +15,10 @@
 
 #include <cargs.h>
 
-#if !defined(_WIN32)
+#if defined(_WIN32)
+#	define WIN32_LEAN_AND_MEAN
+#	include <windows.h>
+#else
 #	include <pthread.h>
 #	include <unistd.h>
 #endif
@@ -119,6 +122,32 @@ void InstallSignalHandlers(InterruptFunc onInterrupt)
 bool IsInterrupted(void)
 {
 	return core::process::detail::gInterrupted.load();
+}
+
+void AttachParentConsole(void)
+{
+#if defined(_WIN32)
+	// a windowed program starts with no standard handles unless its parent gave it some (a redirect): the C runtime's
+	// stdout and stderr then write nowhere until reopened on the console
+	auto unconnected = [](DWORD which)
+	{
+		HANDLE handle = GetStdHandle(which);
+		return handle == nullptr || handle == INVALID_HANDLE_VALUE;
+	};
+	const bool outUnconnected = unconnected(STD_OUTPUT_HANDLE);
+	const bool errUnconnected = unconnected(STD_ERROR_HANDLE);
+	if (!outUnconnected && !errUnconnected)
+		return; // a console program, or redirected
+	if (!AttachConsole(ATTACH_PARENT_PROCESS))
+		return; // started from Explorer or the Start menu: no console to write to
+
+	if (outUnconnected)
+		(void)std::freopen("CONOUT$", "w", stdout);
+	if (errUnconnected)
+		(void)std::freopen("CONOUT$", "w", stderr);
+	// the shell didn't wait for a windowed program: its prompt is back, and ctrl-c there is for it, not for the client
+	SetConsoleCtrlHandler(nullptr, TRUE);
+#endif
 }
 
 bool ParseArguments(int argc, char* argv[], const char* programName, struct PathConfig* paths)

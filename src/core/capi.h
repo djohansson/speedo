@@ -153,6 +153,10 @@ CORE_API const char* GetApplicationName(void);
 typedef void (*InterruptFunc)(void);//NOLINT(modernize-use-using)
 CORE_API void InstallSignalHandlers(InterruptFunc onInterrupt);
 CORE_API bool IsInterrupted(void);
+// a windowed program's console (Windows: the release client, which has none of its own): where it was started from one
+// and its stdout or stderr goes nowhere (a script's redirects are kept), they write to that console, whose ctrl-c, the
+// shell's again, it ignores. nothing elsewhere, or in a console program. call it first in main, before any output
+CORE_API void AttachParentConsole(void);
 // the arguments every executable takes: -r <resource dir>, -u <user profile dir> (into paths), -h (prints the usage, of
 // programName, and returns false: exit)
 CORE_API bool ParseArguments(int argc, char* argv[], const char* programName, struct PathConfig* paths);

@@ -494,7 +494,12 @@ drawn on macOS's icon grid: the AppImage takes it as it is, and `scripts/package
 it, through `src/tools/macos/svgrender.swift`, no librsvg or ImageMagick) makes the bundle's `speedo.icns` (Info.plist's
 `CFBundleIconFile`) and Windows' `speedo.ico` (PNG images, 16 to 256 pixels, from the tile with a thin margin), which
 `windows.rc` embeds as `GLFW_ICON` (the executables' icon in Explorer and the Start menu, and GLFW's windows') and the
-installer shows in Add or remove programs (`CPACK_WIX_PRODUCT_ICON`); the three are committed. A package's code is built
+installer shows in Add or remove programs (`CPACK_WIX_PRODUCT_ICON`); the three are committed. On Windows the release
+client is a windowed program (`WIN32_EXECUTABLE` in release, still entered at `main` through `/ENTRY:mainCRTStartup`), so
+the installed one opens no console window behind its own (the user's report on v1.0.0, 2026-11-08: a console program's
+console popped up); started from a terminal it writes to it (`AttachParentConsole`, core/process.cpp: where stdout or
+stderr has no handle, so a script's redirects, `assettest.ps1`'s and `perfbaseline.ps1`'s `Start-Process`, stay theirs),
+though the shell doesn't wait for it, and ignores that console's ctrl-c. Debug and profile clients stay console programs. A package's code is built
 for the toolchain's fixed cpu, not the build machine's: the presets' `SPEEDO_TARGET_CPU=native` is `-march=native` on
 arm64, so the workflow configures with `-DSPEEDO_TARGET_CPU=baseline` (`-mcpu=apple-m1`), and `package.ps1` refuses an
 arm64 build configured for native (x86-64 is always `x86-64-v3`). The macOS bundle's absolute rpaths (the
