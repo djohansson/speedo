@@ -541,4 +541,23 @@ void Thumbnails::Update()
 	}
 }
 
+std::expected<std::unique_ptr<ImTextureData>, std::string> LoadUiImage(const std::filesystem::path& path)
+{
+	auto pixels = gfx::image::Decode(path, {.usage = gfx::image::Usage::kColor});
+	if (!pixels)
+		return std::unexpected(pixels.error());
+
+	auto texture = std::make_unique<ImTextureData>();
+	texture->Create(ImTextureFormat_RGBA32, static_cast<int>(pixels->width), static_cast<int>(pixels->height));
+	ENSUREF(
+		pixels->rgba.size() == static_cast<size_t>(texture->GetSizeInBytes()),
+		"{}: {} bytes of rgba, not {}",
+		path.string(),
+		pixels->rgba.size(),
+		texture->GetSizeInBytes());
+	std::memcpy(texture->GetPixels(), pixels->rgba.data(), pixels->rgba.size());
+	ImGui::RegisterUserTexture(texture.get());
+	return texture;
+}
+
 } // namespace client

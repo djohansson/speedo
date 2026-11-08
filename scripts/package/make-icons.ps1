@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
 Makes the application's icons from scripts/package/speedo.svg: speedo.icns (the macOS bundle's) and speedo.ico (the Windows
-executables', their windows' and the installer's), beside it. macOS only; the outputs are committed.
+executables', their windows' and the installer's), beside it, and resources/icons/speedo.png (the client's About window).
+macOS only; the outputs are committed.
 
 .DESCRIPTION
 Renders the SVG through src/tools/macos/svgrender.swift (AppKit's SVG support, built with swiftc into build/tools), then:
@@ -11,7 +12,9 @@ Renders the SVG through src/tools/macos/svgrender.swift (AppKit's SVG support, b
 - speedo.ico: 16 to 256 pixels, each a PNG (as Windows reads them since Vista), from the SVG's tile with a thin margin
   rather than macOS's grid, whose margins would shrink the small sizes Windows shows most.
 
-The AppImage takes speedo.svg as it is. Run it after changing the SVG, and commit the three files.
+- resources/icons/speedo.png: the tile as Windows', 256 pixels.
+
+The AppImage takes speedo.svg as it is. Run it after changing the SVG, and commit the four files.
 
 .EXAMPLE
 scripts/package/make-icons.ps1
@@ -63,6 +66,11 @@ if ($narrowed -eq $text)
 }
 [System.IO.File]::WriteAllText($tileSvg, $narrowed)
 
+# the client's About window shows the tile too (resources/icons/speedo.png, which the package installs with the resources)
+$aboutIcon = Join-Path $root 'resources/icons/speedo.png'
+New-Item -ItemType Directory -Force -Path (Split-Path $aboutIcon) | Out-Null
+Invoke-Native $renderer $tileSvg 256 $aboutIcon
+
 $sizes = 16, 20, 24, 32, 40, 48, 64, 128, 256
 $images = foreach ($size in $sizes)
 {
@@ -98,4 +106,4 @@ foreach ($image in $images)
 $writer.Flush()
 [System.IO.File]::WriteAllBytes((Join-Path $PSScriptRoot 'speedo.ico'), $stream.ToArray())
 
-Write-Host "made speedo.icns and speedo.ico from speedo.svg ($($sizes.Count) Windows sizes)"
+Write-Host "made speedo.icns, speedo.ico ($($sizes.Count) Windows sizes) and resources/icons/speedo.png from speedo.svg"

@@ -100,6 +100,11 @@ private:
 	// imgui's renderer, which destroys their textures
 	std::unique_ptr<Thumbnails> myThumbnails;
 	std::unique_ptr<Thumbnails> myImagePreview;
+	// the About window's icon (resources/icons/speedo.png), loaded when it first opens (once tried: a missing file isn't
+	// read again each frame), ui thread. registered with imgui, whose renderer destroys its texture: destroyed after it,
+	// as the thumbnails are
+	std::unique_ptr<ImTextureData> myAboutIcon;
+	bool myAboutIconTried = false;
 	std::atomic_bool myPreviewRequested = false;
 	std::atomic_bool myPreviewReady = false;
 	std::atomic_bool myPreviewVisible = false;
@@ -158,7 +163,6 @@ private:
 	static std::mutex gDrawMutex; //NOLINT(readability-identifier-naming) only ever locked exclusively
 	static core::LoadQueue gLoads; //NOLINT(readability-identifier-naming) asset loads, shown with their progress
 	static bool gShowAbout; //NOLINT(readability-identifier-naming)
-	static bool gShowDemoWindow; //NOLINT(readability-identifier-naming)
 	static bool gShowFps; //NOLINT(readability-identifier-naming)
 	static bool gShowTps; //NOLINT(readability-identifier-naming)
 };

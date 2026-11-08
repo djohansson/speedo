@@ -785,6 +785,8 @@ install(
 set(SPEEDO_PACKAGE_FONTS Roboto-Medium.ttf Roboto-LICENSE.txt Twemoji.Mozilla.ttf Twemoji.Mozilla-LICENSE.md NotoSansSymbols2-Regular.ttf NotoSansSymbols2-OFL.txt)
 list(TRANSFORM SPEEDO_PACKAGE_FONTS PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/resources/fonts/")
 install(FILES ${SPEEDO_PACKAGE_FONTS} DESTINATION ${SPEEDO_PACKAGE_DATA}/resources/fonts COMPONENT Client EXCLUDE_FROM_ALL)
+# the icon the About window shows (scripts/package/make-icons.ps1 makes it)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/speedo.png DESTINATION ${SPEEDO_PACKAGE_DATA}/resources/icons COMPONENT Client EXCLUDE_FROM_ALL)
 install(
 	DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/resources/test-asset-manifests
 	DESTINATION ${SPEEDO_PACKAGE_DATA}/resources

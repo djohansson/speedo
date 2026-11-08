@@ -5,8 +5,12 @@ namespace client
 
 std::mutex WindowedApplication::gDrawMutex{};
 core::LoadQueue WindowedApplication::gLoads{};
-bool WindowedApplication::gShowAbout = false;
-bool WindowedApplication::gShowDemoWindow = false;
+// About > About Speedo (SPEEDO_SHOW_ABOUT=1 at startup, for a capture of it)
+bool WindowedApplication::gShowAbout = []
+{
+	const char* show = std::getenv("SPEEDO_SHOW_ABOUT");
+	return show != nullptr && std::string_view(show) == "1";
+}();
 bool WindowedApplication::gShowFps = false;
 bool WindowedApplication::gShowTps = false;
 
@@ -710,6 +714,7 @@ void WindowedApplication::Shutdown()
 	myImGui.reset();
 	myThumbnails.reset();
 	myImagePreview.reset();
+	myAboutIcon.reset();
 
 	// what holds gpu objects, before the rhi they belong to
 	myPreview.reset();

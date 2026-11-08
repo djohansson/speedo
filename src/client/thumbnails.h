@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include <deque>
+#include <expected>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -136,5 +137,10 @@ private:
 	};
 	std::shared_ptr<Shared> myShared = std::make_shared<Shared>();
 };
+
+// an image file shown whole in the ui (the About window's icon): its pixels (rgba8, srgb encoded) in a texture registered
+// with imgui, whose renderer creates it, or why it couldn't be read. ui thread, with imgui's context current. destroy it
+// after imgui's renderer, as the thumbnails' atlases are
+[[nodiscard]] std::expected<std::unique_ptr<ImTextureData>, std::string> LoadUiImage(const std::filesystem::path& path);
 
 } // namespace client

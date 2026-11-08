@@ -494,7 +494,10 @@ drawn on macOS's icon grid: the AppImage takes it as it is, and `scripts/package
 it, through `src/tools/macos/svgrender.swift`, no librsvg or ImageMagick) makes the bundle's `speedo.icns` (Info.plist's
 `CFBundleIconFile`) and Windows' `speedo.ico` (PNG images, 16 to 256 pixels, from the tile with a thin margin), which
 `windows.rc` embeds as `GLFW_ICON` (the executables' icon in Explorer and the Start menu, and GLFW's windows') and the
-installer shows in Add or remove programs (`CPACK_WIX_PRODUCT_ICON`); the three are committed. On Windows the release
+installer shows in Add or remove programs (`CPACK_WIX_PRODUCT_ICON`), and `resources/icons/speedo.png` (the tile, 256
+pixels), which the client's About window shows beside its text (`LoadUiImage`, client/thumbnails.h: an imgui texture,
+loaded when the window first opens; `SPEEDO_SHOW_ABOUT=1` opens it at startup, for a capture) and the package installs
+with the resources; the four are committed. On Windows the release
 client is a windowed program (`WIN32_EXECUTABLE` in release, still entered at `main` through `/ENTRY:mainCRTStartup`), so
 the installed one opens no console window behind its own (the user's report on v1.0.0, 2026-11-08: a console program's
 console popped up); started from a terminal it writes to it (`AttachParentConsole`, core/process.cpp: where stdout or

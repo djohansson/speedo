@@ -1672,15 +1672,33 @@ void WindowedApplication::PrepareDraw()
 		EndPopup();
 	}
 
-	if (gShowDemoWindow)
-		ShowDemoWindow(&gShowDemoWindow);
+	auto resourcePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]);
 
 	if (gShowAbout)
 	{
-		if (Begin("About client", &gShowAbout, ImGuiWindowFlags_AlwaysAutoResize))
+		// the application's icon (scripts/package/make-icons.ps1 renders it), loaded the first time the window opens: a
+		// 256 pixel png, decoded in a millisecond. without it (a resource directory that lacks it) the window has no icon
+		if (!myAboutIcon && !myAboutIconTried)
+		{
+			myAboutIconTried = true;
+			if (auto icon = LoadUiImage(resourcePath / "icons" / "speedo.png"))
+				myAboutIcon = std::move(*icon);
+			else
+				std::println(stderr, "About: no icon, {}", icon.error());
+		}
+
+		if (Begin("About Speedo", &gShowAbout, ImGuiWindowFlags_AlwaysAutoResize))
 		{
 			CloseOnEscape(gShowAbout);
-			Text("speedo %d.%d.%d", speedo::version::Major, speedo::version::Minor, speedo::version::Patch);
+			// the icon beside the text, as tall as its five lines
+			if (myAboutIcon)
+			{
+				const float side = GetTextLineHeightWithSpacing() * 5.0F; //NOLINT(readability-magic-numbers)
+				ImGui::Image(myAboutIcon->GetTexRef(), ImVec2(side, side));
+				SameLine();
+			}
+			BeginGroup();
+			Text("Speedo %d.%d.%d", speedo::version::Major, speedo::version::Minor, speedo::version::Patch);
 			TextDisabled("A real-time renderer and asset viewer, built on Vulkan.");
 			Separator();
 			auto name = device.GetName();
@@ -1692,11 +1710,10 @@ void WindowedApplication::PrepareDraw()
 #else
 			Text("Build: release");
 #endif
+			EndGroup();
 		}
 		End();
 	}
-
-	auto resourcePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]);
 
 
 	// automation: SPEEDO_AUTOLOAD_MODEL (a model, or a zip archive or directory, whose models are loaded side by side)
@@ -3196,10 +3213,7 @@ void WindowedApplication::PrepareDraw()
 		}
 		if (ui::BeginMenu("About"))
 		{
-			if (MenuItem("Show IMGUI Demo..."))
-				gShowDemoWindow = !gShowDemoWindow;
-			Separator();
-			if (MenuItem("About client..."))
+			if (MenuItem("About Speedo..."))
 				gShowAbout = !gShowAbout;
 			ImGui::EndMenu();
 		}
