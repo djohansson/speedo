@@ -156,6 +156,12 @@ else
 		Pop-Location
 	}
 
+	# appimagetool validates the .desktop file with desktop-file-validate, and stops without it
+	if (-not (Get-Command desktop-file-validate -ErrorAction SilentlyContinue))
+	{
+		throw 'appimagetool needs desktop-file-validate: sudo apt-get install desktop-file-utils'
+	}
+
 	# appimagetool, at a release (an AppImage itself: extracted and run, as a runner has no FUSE)
 	$kAppImageToolVersion = '1.9.0'
 	$tools = Join-Path $root 'build/tools'

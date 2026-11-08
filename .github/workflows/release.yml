@@ -64,9 +64,16 @@ jobs:
         with:
           submodules: true
 
+      # on Linux also desktop-file-validate, which appimagetool runs on the AppImage's .desktop file (it stopped without it)
       - name: Setup
         run: |
-          if ($IsLinux) { sudo apt-get update; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+          if ($IsLinux)
+          {
+            sudo apt-get update
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            sudo apt-get install -y desktop-file-utils
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
           ./setup.ps1
 
       # the WiX .NET tool for CPack's WiX generator (package.ps1 adds its UI extension), at the version package.ps1 expects
