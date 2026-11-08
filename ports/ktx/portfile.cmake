@@ -15,7 +15,9 @@ vcpkg_from_github(
         0008-basisu-sse-with-avx.patch # basisu's SSE kernels with the x64 baseline's AVX2 (their check passed on windows alone)
 )
 file(GLOB third_party "${SOURCE_PATH}/external/*" "${SOURCE_PATH}/external/basisu/zstd" "${SOURCE_PATH}/other_include/*")
-list(FILTER third_party EXCLUDE REGEX "/(astc-encoder|basisu|dfdutils|etcdec|imageio|glm|lodepng|SDL_gesture)\$")
+# etcdec (the software ETC decoder of KTX's OpenGL loader, which speedo doesn't use) removed with the rest: it is under an
+# Ericsson license, not open source, for OpenGL, OpenGL ES and WebGL products only (docs/notes/build.md's licenses)
+list(FILTER third_party EXCLUDE REGEX "/(astc-encoder|basisu|dfdutils|imageio|glm|lodepng|SDL_gesture)\$")
 file(REMOVE_RECURSE ${third_party})
 
 vcpkg_list(SET OPTIONS)
@@ -35,6 +37,7 @@ vcpkg_cmake_configure(
         -DKTX_GIT_VERSION_FULL=v${VERSION}-vcpkg
         -DKTX_FEATURE_TESTS=OFF
         -DKTX_FEATURE_LOADTEST_APPS=OFF
+        -DKTX_FEATURE_ETC_UNPACK=OFF
         ${FEATURE_OPTIONS}
         ${OPTIONS}
     OPTIONS_DEBUG

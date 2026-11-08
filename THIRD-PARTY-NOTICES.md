@@ -21,7 +21,7 @@ choice of licenses, the one Speedo uses is named.
 | bzip2 | bzip2-1.0.6 | |
 | Brotli | MIT | |
 | libwebp | BSD-3-Clause | |
-| KTX-Software | Apache-2.0 | with its Basis Universal and astc-encoder, Apache-2.0 |
+| KTX-Software | Apache-2.0 | with its Basis Universal and astc-encoder, Apache-2.0; built without its ETC decoder (etcdec, under an Ericsson license) |
 | Draco | Apache-2.0 | |
 | meshoptimizer | MIT | |
 | libdeflate | MIT | |

@@ -473,7 +473,11 @@ files: everything is permissive (MIT, BSD, Zlib, Apache-2.0, the LLVM exception'
 - attribution: FreeType's FTL (chosen over its GPL) asks for credit in the documentation, the Twemoji font's art is
   CC-BY-4.0, and the Apache-2.0 components' NOTICE files (where they have one) are to be reproduced;
 - glslang's generated parser is GPL-3.0 with Bison's exception, which lets it be distributed under any terms; zstd and
-  FreeType are taken under their permissive licenses rather than GPL; the fonts' OFL forbids selling them alone.
+  FreeType are taken under their permissive licenses rather than GPL; the fonts' OFL forbids selling them alone;
+- KTX-Software's ETC decoder (`etcdec.cxx`) isn't open source: an Ericsson license, for products of OpenGL, OpenGL ES and
+  WebGL only, which a Vulkan renderer's isn't plainly among. Only KTX's OpenGL loader used it (speedo reads KTX2 and
+  transcodes Basis), so `ports/ktx` builds without it (`KTX_FEATURE_ETC_UNPACK=OFF`, its source removed; found
+  2026-11-08 in the package's `licenses/ktx.txt`, which says so).
 The test assets aren't Speedo's nor shipped with it (the client downloads them from their sources), and their licenses
 vary: most are CC-BY or CC0, but some are for research or non-commercial use only (the Stanford models in McGuire's
 archive, for one), so a commercial build would have to review what it offers.
