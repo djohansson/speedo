@@ -449,13 +449,15 @@ executable (`core::file::GetExecutablePath`): a macOS bundle's `Contents/Resourc
 AppImage's `usr/share/speedo`, Windows' install directory's `share/speedo`), holding `resources/` and `shaders/`, and the
 user's profile and test assets in the platform's user data directory (`core::file::GetUserDataPath`: `~/Library/Application
 Support/Speedo`, `%LOCALAPPDATA%\Speedo`, `$XDG_DATA_HOME/speedo` or `~/.local/share/speedo`). `-r` and `-u` choose the
-resource and profile directories either way. The environment's `ShaderPath` and `TestAssetsPath` name the shader sources
-(compiled at startup, so an install ships them) and the test assets, which the scene, the ImGui renderer, the thumbnails'
-render version and the file browser took from the root before. A client copied into `bin/` with its data in
-`share/speedo`, run from `/tmp`, found its shaders there, compiled them into its profile and drew the helmet. A first
-launch's compile (about 25 s on the M4 Pro) runs in the background behind a progress bar, the ui drawn meanwhile (see
-layering.md's shaders), and it offers the test assets to download meanwhile (see assets.md: their manifests are installed
-with the resources, `resources/test-asset-manifests`).
+resource and profile directories either way. The environment's `ShaderPath` and `TestAssetsPath` name the shaders (a
+checkout's sources, compiled at startup through the shader compiler library; an install's precompiled, since
+2026-11-08: see layering.md's shaders) and the test assets, which the scene, the ImGui renderer, the thumbnails' render
+version and the file browser took from the root before. A client copied into `bin/` with its data in `share/speedo`, run
+from `/tmp`, found its shaders there and drew the helmet. A first launch shows its progress in the Loading window, the ui
+drawn meanwhile: from a checkout the shader compile (about 25 s on the M4 Pro in profile), then from either the driver's
+pipelines (about 20 s cold on the M4 Pro), made in the background (see layering.md's shaders), and it offers the test
+assets to download meanwhile (see assets.md: their manifests are installed with the resources,
+`resources/test-asset-manifests`).
 
 **Packages.** `scripts/package.ps1 [-Preset <release preset>] [-Out <dir>]` packages a built release preset into this
 platform's installer, in `build/package`: `Speedo-<version>-macos-arm64.dmg` (Speedo.app beside a link to

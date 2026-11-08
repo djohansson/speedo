@@ -305,7 +305,8 @@ failure past them), and its state, shared with its futures, is the latch alone (
 Each as deep as the subsystem's history: what was tried, what it cost, the user's poses.
 
 - docs/notes/layering.md: the platform (windows, fullscreen and presentation modes, the presentation test, the hangs
-  fixed), the file browser, thumbnails and the preview, the ImGui renderer, the shader module's parts.
+  fixed), the file browser, thumbnails and the preview, the ImGui renderer, the shader module's parts, the shaders'
+  background compile, the shader compiler library and the precompiled shaders, the pipelines made without waiting.
 - docs/notes/rhi.md: Vulkan 1.4, crash reports and hangs, the `Object`/`DeviceObject` base classes and their macros,
   the swap idiom, specialization ordering, delegating constructors, object identity and tracking, frame slots,
   command buffers' ownership, the queues' shared locks, descriptor sets and the pool, layouts by name.

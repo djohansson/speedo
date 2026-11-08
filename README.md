@@ -7,7 +7,7 @@ speedo is a real-time renderer built on Vulkan 1.4 for physically based images a
 Light bounces through the scene from irradiance probes over a voxel clipmap, sharpened by a surface cache and a ray traced
 near field, and every emissive surface lights its surroundings as an area light. Hardware ray queries trace soft shadows
 from lights with a real size, glossy reflections, refraction through glass, and caustics; where a GPU has no ray tracing
-hardware, BVHs on the GPU take their place. The sky is Earth's atmosphere, with the sun, moon and stars where the date and
+hardware (and on macOS by default), BVHs on the GPU take their place. The sky is Earth's atmosphere, with the sun, moon and stars where the date and
 time of day put them, aerial perspective and fog.
 
 You see it all through a camera modeled on a real one: a physical sensor and exposure, lenses designed element by element
@@ -80,6 +80,7 @@ Each links to the notes that describe it in depth: how it works, what was tried,
 | `server`    | A small companion process the client talks to over ZeroMQ: the start of a distributed task system. |
 | `assettest` | Imports every model, image and environment it's given and checks the results: the main automated test. |
 | `filebench` | A benchmark of file reading, the importers (`--import <files>`) and zip extraction (`--zip <archives>`). |
+| `shaderprecompile` | Compiles every shader variant the client may load into the precompiled sets an installer ships (run by `scripts/package.ps1`). |
 
 ### Using the client
 
@@ -100,7 +101,8 @@ Each release on GitHub has an installer for every platform: a `.dmg` for macOS o
 and an AppImage for Linux x64 (glibc 2.43 or newer, as on Ubuntu 26.04), each with its sha256. They aren't signed by a
 developer yet, so the system asks the first time: on macOS, System Settings > Privacy & Security > Open Anyway (or
 `xattr -dr com.apple.quarantine /Applications/Speedo.app`); on Windows, SmartScreen's More info > Run anyway. The first
-launch offers to download the test models, beside its shader compile.
+launch offers to download the test models while the driver creates its pipelines. An installed client's shaders come
+precompiled: the installers ship no shader compiler.
 
 ## Getting started
 
@@ -234,7 +236,7 @@ installer from a local release build. See [build](docs/notes/build.md) ("Release
 | `src/rhi` | The graphics abstraction over Vulkan. |
 | `src/gfx` | Everything above the rhi: importers, the scene, the renderer and frame graph, the shaders (Slang). |
 | `src/client`, `src/server` | The two programs. |
-| `src/tools` | `assettest` and `filebench`. |
+| `src/tools` | `assettest`, `shaderprecompile`, the benchmarks (`filebench`, `taskbench`, `convergence`), and macOS's Metal repros (`src/tools/macos`). |
 | `scripts/` | Setup, test, asset, packaging and release scripts (PowerShell), CMake toolchains and vcpkg triplets. |
 | `.github/workflows/` | CI on every push, and the release workflow on `v*` tags. |
 | `ports/` | vcpkg overlay ports: patched dependencies. |
