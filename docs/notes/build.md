@@ -478,6 +478,8 @@ files: everything is permissive (MIT, BSD, Zlib, Apache-2.0, the LLVM exception'
   WebGL only, which a Vulkan renderer's isn't plainly among. Only KTX's OpenGL loader used it (speedo reads KTX2 and
   transcodes Basis), so `ports/ktx` builds without it (`KTX_FEATURE_ETC_UNPACK=OFF`, its source removed; found
   2026-11-08 in the package's `licenses/ktx.txt`, which says so).
+Tracy is in the debug and profile builds only (the user's call, 2026-11-08): release, the package's build, compiles its
+macros away and links no library (`core`'s link), so it doesn't ship, nor its license.
 The test assets aren't Speedo's nor shipped with it (the client downloads them from their sources), and their licenses
 vary: most are CC-BY or CC0, but some are for research or non-commercial use only (the Stanford models in McGuire's
 archive, for one), so a commercial build would have to review what it offers.

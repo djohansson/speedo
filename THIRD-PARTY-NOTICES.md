@@ -32,7 +32,6 @@ choice of licenses, the one Speedo uses is named.
 | xxHash | BSD-2-Clause | |
 | cpptrace | MIT | |
 | libdwarf | LGPL-2.1 | macOS and Linux, through cpptrace: a shared library, replaceable |
-| Tracy (client) | BSD-3-Clause | |
 | ZeroMQ (libzmq) | MPL-2.0 | a shared library, unmodified |
 | curl | curl | |
 | OpenSSL | Apache-2.0 | macOS and Linux (Windows' curl uses Schannel) |

@@ -153,7 +153,15 @@ target_link_libraries(
 		SHA-Intrinsics
 		cpptrace::cpptrace
 		stduuid
-		Tracy::TracyClient
+		$<$<NOT:$<CONFIG:release>>:Tracy::TracyClient>
+)
+# Tracy in the builds that profile (debug and profile); release has its headers alone, whose macros its profiling level
+# compiles away (core/profiling.h), so the library (whose worker thread starts as it loads) isn't linked, nor packaged
+get_target_property(SPEEDO_TRACY_INCLUDE_DIRS Tracy::TracyClient INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(
+	core
+	SYSTEM PUBLIC
+		$<$<CONFIG:release>:$<BUILD_INTERFACE:${SPEEDO_TRACY_INCLUDE_DIRS}>>
 )
 
 ###############################################################################
