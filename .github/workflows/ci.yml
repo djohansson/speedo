@@ -2,9 +2,14 @@
 # software Vulkan): setup, the profile, debug and release builds (the user's ask, 2026-11-07), and scripts/assettest.ps1's
 # checks without -Client (the importers, images, environments, the lens check) on the profile build. macOS, Windows and
 # Linux, which the shared vcpkg binary cache (docs/notes/build.md) holds packages for: setup restores them, LLVM too, rather
-# than build them on a hosted runner. Reads the cache only (no credentials here). A job per platform builds the three
-# configurations in turn: their packages are the same (each holds its debug and release builds), and a job per
-# configuration would restore them, about 2 GB, three times.
+# than build them on a hosted runner. A job per platform builds the three configurations in turn: their packages are the
+# same (each holds its debug and release builds), and a job per configuration would restore them, about 2 GB, three times.
+#
+# The cache is written too where the repository holds a B2 application key (the user's ask, 2026-11-08): the secrets
+# B2_APPLICATION_KEY_ID and B2_APPLICATION_KEY, a key for the bucket's speedo/vcpkg/ prefix alone, read, write and delete.
+# Never in a pull request's run: setup adds vcpkg's x-aws source (scripts/binarycache.ps1), which uploads what a runner
+# builds, and after a push whose jobs all passed the prune job deletes what no platform installs any more. Without the
+# secrets, every run reads the cache only.
 name: CI
 
 on:
@@ -16,6 +21,11 @@ on:
 
 permissions:
   contents: read
+
+env:
+  SPEEDO_BINARY_CACHE_WRITE: ${{ github.event_name != 'pull_request' && secrets.B2_APPLICATION_KEY_ID != '' && '1' || '' }}
+  AWS_ACCESS_KEY_ID: ${{ github.event_name != 'pull_request' && secrets.B2_APPLICATION_KEY_ID || '' }}
+  AWS_SECRET_ACCESS_KEY: ${{ github.event_name != 'pull_request' && secrets.B2_APPLICATION_KEY || '' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -85,6 +95,18 @@ jobs:
           $paths = & scripts/fetch-test-assets.ps1 -Minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/assettest" @paths
+
+      # the packages this platform installs (the three configurations share them), which the prune job keeps
+      - name: Keep list
+        if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
+        run: ./scripts/prune-binary-cache.ps1 -WriteKeepList "$env:RUNNER_TEMP/abis-macos.txt"
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
+        with:
+          name: abis-macos
+          path: ${{ runner.temp }}/abis-macos.txt
+          retention-days: 1
 
       - name: Upload logs
         if: failure()
@@ -156,6 +178,17 @@ jobs:
           $paths = & scripts/fetch-test-assets.ps1 -Minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/assettest" @paths
+
+      - name: Keep list
+        if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
+        run: ./scripts/prune-binary-cache.ps1 -WriteKeepList "$env:RUNNER_TEMP/abis-windows.txt"
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
+        with:
+          name: abis-windows
+          path: ${{ runner.temp }}/abis-windows.txt
+          retention-days: 1
 
       - name: Upload logs
         if: failure()
@@ -230,6 +263,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/assettest" @paths
 
+      - name: Keep list
+        if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
+        run: ./scripts/prune-binary-cache.ps1 -WriteKeepList "$env:RUNNER_TEMP/abis-linux.txt"
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
+        with:
+          name: abis-linux
+          path: ${{ runner.temp }}/abis-linux.txt
+          retention-days: 1
+
       - name: Upload logs
         if: failure()
         uses: actions/upload-artifact@v7
@@ -239,3 +283,33 @@ jobs:
             vcpkg/buildtrees/*/*.log
             ${{ runner.temp }}/assettest/logs
           if-no-files-found: ignore
+
+  # the shared cache's archives that no platform installs any more (scripts/prune-binary-cache.ps1), after a push to master
+  # whose jobs all passed: by the three platforms' lists, sparing what was uploaded in the last week (a maintainer's packages
+  # for a change not pushed yet, which a runner would build again once it is). With more than half of the bucket stale (a
+  # toolchain change) the script refuses, and this job fails: prune that by hand, with -Force
+  prune:
+    name: Prune binary cache
+    needs: [macos, windows, linux]
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+        if: ${{ env.SPEEDO_BINARY_CACHE_WRITE != '' }}
+
+      - uses: actions/download-artifact@v8
+        if: ${{ env.SPEEDO_BINARY_CACHE_WRITE != '' }}
+        with:
+          pattern: abis-*
+          path: ${{ runner.temp }}/abis
+          merge-multiple: true
+
+      - name: Prune
+        if: ${{ env.SPEEDO_BINARY_CACHE_WRITE != '' }}
+        run: |
+          $lists = @('macos', 'windows', 'linux') | ForEach-Object { "$env:RUNNER_TEMP/abis/abis-$_.txt" }
+          ./scripts/prune-binary-cache.ps1 -Keep $lists -MinAgeDays 7

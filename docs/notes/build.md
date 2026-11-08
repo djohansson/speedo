@@ -296,9 +296,10 @@ vcpkg's `http` source (`https://s3.us-west-001.backblazeb2.com/danjo-artifacts/s
 public: reading needs no account, key or tool, and a missing key answers `NoSuchKey`, a 404, which vcpkg takes as a miss.
 `SPEEDO_BINARY_CACHE=0` keeps to the local cache.
 
-Writing is a maintainer's: with `SPEEDO_BINARY_CACHE_WRITE` set, setup adds vcpkg's `x-aws` source
+Writing is a maintainer's and CI's: with `SPEEDO_BINARY_CACHE_WRITE` set, setup adds vcpkg's `x-aws` source
 (`x-aws,s3://danjo-artifacts/speedo/vcpkg/,write`, which runs the AWS CLI's `aws s3 cp` and `aws s3 ls`), installs the
-AWS CLI (Homebrew's `awscli`, winget's `Amazon.AWSCLI`) and points it at B2 (`AWS_ENDPOINT_URL_S3`, `AWS_DEFAULT_REGION`); the credentials are the
+AWS CLI where it is missing (Homebrew's `awscli`, winget's `Amazon.AWSCLI`, AWS's installer on Linux; GitHub's images
+have it) and points it at B2 (`AWS_ENDPOINT_URL_S3`, `AWS_DEFAULT_REGION`); the credentials are the
 AWS CLI's own, a B2 application key scoped to the bucket in `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` or a profile
 (`AWS_PROFILE`), never in the repository. Both sources name an archive `<prefix><abi>.zip`, the package's ABI hash
 (vcpkg-tool's `make_object_path` for `x-aws`; `{sha}` is the same hash for `http`). vcpkg uploads what it builds, not
@@ -377,6 +378,21 @@ refused without `-Force` (a platform's list left out). Allow it alone in Claude 
 delete-objects` (a bulk delete from the bucket was blocked without it). B2 keeps a deleted file's versions unless the
 bucket's lifecycle keeps only the last, so that setting decides whether pruning frees the storage.
 
+CI writes and prunes the cache where the repository holds a B2 application key (the user's ask, 2026-11-08): the secrets
+`B2_APPLICATION_KEY_ID` and `B2_APPLICATION_KEY`, a key for the bucket's `speedo/vcpkg/` prefix alone with read, write and
+delete (B2's `listBuckets,listFiles,readFiles,writeFiles,deleteFiles`), never in the repository. `ci.yml` and
+`release.yml` set `SPEEDO_BINARY_CACHE_WRITE` and the AWS CLI's `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` from them, on
+every run but a pull request's, so a runner uploads the packages it had to build (a port or toolchain change pushed
+without seeding the bucket first), and the next run on the platform restores them. After a push whose three platform jobs
+passed, each having written its installed packages' list (`-WriteKeepList`; one triplet and one set of manifest features a
+platform, so its CI job installs what its machines do), CI's prune job runs `prune-binary-cache.ps1` by those lists with
+`-MinAgeDays 7`: an archive no list names is kept for a week from its upload, since master's lists don't name a
+maintainer's packages for a change not pushed yet (a port's, the toolchain's), which a runner would otherwise build again
+once it is (LLVM on a hosted runner: hours, past the job's timeout). The dry run with the Mac's list alone kept the other
+platforms' 162 archives, all uploaded within the week. A toolchain change makes more than half of the bucket stale a
+week later, which the script refuses without `-Force`: the prune job fails then, and the maintainer prunes by hand. Without
+the secrets every run reads the cache only, and the prune job does nothing.
+
 ## Linux: setup and the toolchain
 
 Linux setup was first run from scratch on 2026-11-07 (it had only seen a Raspberry Pi, arm64, in 2025). What a fresh
@@ -422,7 +438,8 @@ instruction set, rather than turn SSE off). The project's profile, debug and rel
 
 `.github/workflows/ci.yml` (the user's call, 2026-11-06: hosted runners only, no gpu workloads, since the client's are too
 heavy for a runner's software Vulkan; and not this machine as a runner) builds and checks on pushes and pull requests to
-`master`: setup (`setup.ps1` directly, reading the shared binary cache without credentials: `setup_osx.sh` only adds
+`master`: setup (`setup.ps1` directly, reading the shared binary cache, and writing it where the repository holds its key,
+see "vcpkg's shared binary cache": `setup_osx.sh` only adds
 PowerShell, which the image has, and upgrades all of Homebrew), `cmake --preset`, the build, and `assettest.ps1` without
 `-Client` (the importers, images, environments, the lens check) on the quick tier's assets, fetched with
 `fetch-test-assets.ps1 -Minimal` (only what `quick.txt` names: 555 MB in 103 s where the full sets are 4.5 GB; it

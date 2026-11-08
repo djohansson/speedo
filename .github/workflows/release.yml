@@ -1,8 +1,9 @@
 # Releases (the user's ask, 2026-11-07; docs/notes/build.md's releases): a tag v<major>.<minor>.<patch> builds each
 # platform's release preset on CI's runners, packages it (scripts/package.ps1: a .dmg, an .msi, an AppImage) and attaches
 # each package and its sha256 to a draft release of the tag, published by hand once checked. Run by hand (no tag), it
-# packages alone, the packages kept as the run's artifacts: a test of the packaging. Reads the vcpkg binary cache only, as
-# CI does (a port the cache lacks for a platform is built on its runner).
+# packages alone, the packages kept as the run's artifacts: a test of the packaging. Uses the vcpkg binary cache as CI does
+# (a port the cache lacks for a platform is built on its runner, and uploaded where the repository holds the cache's key:
+# see ci.yml; CI alone prunes it).
 name: Release
 
 on:
@@ -12,6 +13,11 @@ on:
 
 permissions:
   contents: write # the draft release and its assets
+
+env:
+  SPEEDO_BINARY_CACHE_WRITE: ${{ secrets.B2_APPLICATION_KEY_ID != '' && '1' || '' }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.B2_APPLICATION_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APPLICATION_KEY }}
 
 jobs:
   # the tag names src/version.h's version (the packages' names and the client's crash reports carry it), and the draft

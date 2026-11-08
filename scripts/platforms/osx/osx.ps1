@@ -10,7 +10,7 @@ $(xcode-select --install) 2>&1
 Install-HomebrewPackage pkg-config
 Install-HomebrewPackage cmake
 # where this machine writes to the shared binary cache (see scripts/binarycache.ps1), vcpkg's x-aws source runs the AWS CLI
-if ($env:SPEEDO_BINARY_CACHE_WRITE)
+if ($env:SPEEDO_BINARY_CACHE_WRITE -and -not (Get-Command "aws" -ErrorAction SilentlyContinue))
 {
 	Install-HomebrewPackage awscli
 }

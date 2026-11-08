@@ -6,7 +6,9 @@
 #
 # Needs the AWS CLI and a B2 application key that can delete from the bucket, as seed-binary-cache.ps1 does. -DryRun lists
 # what would be deleted. More than half of the bucket is refused without -Force: the likeliest cause is a platform's list
-# left out.
+# left out. -MinAgeDays keeps what was uploaded more recently whatever the lists say: CI prunes by master's lists after
+# each push (.github/workflows/ci.yml), and a maintainer's packages for a change not pushed yet (a port's, the toolchain's)
+# would otherwise go, and a hosted runner build them again (LLVM, hours) once it is.
 #
 #   pwsh scripts/prune-binary-cache.ps1 -WriteKeepList ~/mac-abis.txt     (on each other machine)
 #   pwsh scripts/prune-binary-cache.ps1 -Keep install/vcpkg/status,mac-abis.txt,linux-abis.txt -DryRun
@@ -15,6 +17,7 @@ param(
 	[string] $WriteKeepList,
 	[switch] $DryRun,
 	[switch] $Force,
+	[double] $MinAgeDays = 0,
 	[string] $InstallRoot = (Join-Path $PSScriptRoot '../install')
 )
 $ErrorActionPreference = 'Stop'
@@ -86,9 +89,15 @@ if ($Missing.Count -gt 0)
 	Write-Warning "$($Missing.Count) kept packages aren't in the bucket (seed them: seed-binary-cache.ps1)"
 }
 
-$Stale = @($Objects | Where-Object { -not $Kept.ContainsKey($_.Abi) } | Sort-Object Modified)
+$Unlisted = @($Objects | Where-Object { -not $Kept.ContainsKey($_.Abi) })
+$Cutoff = (Get-Date).ToUniversalTime().AddDays(-$MinAgeDays)
+$Stale = @($Unlisted | Where-Object { $_.Modified -lt $Cutoff } | Sort-Object Modified)
 $StaleBytes = ($Stale | Measure-Object Size -Sum).Sum
 Write-Host ('{0} archives in the bucket, {1} kept, {2} stale ({3:N2} GB)' -f $Objects.Count, ($Objects.Count - $Stale.Count), $Stale.Count, ($StaleBytes / 1GB))
+if ($Unlisted.Count -gt $Stale.Count)
+{
+	Write-Host ('  {0} no list names kept as uploaded in the last {1} days' -f ($Unlisted.Count - $Stale.Count), $MinAgeDays)
+}
 foreach ($Day in ($Stale | Group-Object { $_.Modified.ToString('yyyy-MM-dd') }))
 {
 	Write-Host ('  uploaded {0}: {1} ({2:N0} MB)' -f $Day.Name, $Day.Count, (($Day.Group | Measure-Object Size -Sum).Sum / 1MB))
