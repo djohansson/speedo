@@ -8,11 +8,11 @@ namespace version
 
 enum
 {
-	Major = 0
+	Major = 1
 };
 enum
 {
-	Minor = 1
+	Minor = 0
 };
 enum
 {
