@@ -473,11 +473,14 @@ developer id yet (the user's call, 2026-11-07), so Gatekeeper and SmartScreen as
 Security > Open Anyway, or `xattr -dr com.apple.quarantine`; More info > Run anyway). Tracy isn't in it (release links
 no Tracy, see "Licenses"). The AppImage runs where the C library is at least the build's (Ubuntu 26.04's 2.43).
 Tested 2026-11-08 on the M4 Pro: the .dmg (30 MiB) mounted, its app copied out and run from elsewhere on a fresh profile,
-the helmet autoloaded for 600 frames with ray queries: a cold first launch (the app's Metal cache, under its bundle id
-in `getconf DARWIN_USER_CACHE_DIR`, emptied) took 80 s, the shaders' compile and the 83 compute pipelines (1 to 12 s each
-cold, on the executor, shown in the Loading window) then a generic graphics pipeline made on first use (FragmentMain,
-16.5 s, the draw thread busy and the window frozen meanwhile: graphics pipelines aren't made ahead yet); the second
-launch took 16 s; no gpu restart in either.
+the helmet autoloaded with ray queries: a cold first launch (the app's Metal cache, under its bundle id in `getconf
+DARWIN_USER_CACHE_DIR`, emptied) first took 80 s with the window frozen twice: the 83 compute pipelines made ahead took
+every executor thread (no frame for 20 s, the hang watch tripped) and the generic main pass pipeline was made on first
+use (`FragmentMain`, 16.5 s). With the pipelines made in chains and a pass's graphics pipelines made in the background
+(see layering.md's shaders), it took 69 s with the hang watch at 15 s and never tripped it, the capture with the helmet;
+a second launch 5 to 6 s; no gpu restart. Test a package from its mounted .dmg, run outside the checkout with a scratch
+`-u` profile (an installed client's default is the user data directory), with the display awake (`caffeinate -u`: glfw
+finds no monitor on a sleeping display and the client stops).
 
 **The release workflow** (`.github/workflows/release.yml`): pushing a tag `v<major>.<minor>.<patch>` checks it against
 `src/version.h`, makes the tag's draft release, and on CI's three runners (the binary cache's) builds the release preset,

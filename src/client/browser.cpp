@@ -824,8 +824,10 @@ void WindowedApplication::InternalDrawBrowser()
 
 			// a model without a bundled screenshot, or an archive, gets its thumbnail from the preview, once it has been
 			// drawn a while (counted from its install: a failed load installs nothing, and the previous model would be
-			// captured as this one's)
-			bool captureReady = previewReady && focus->kind != Kind::kEnvironment;
+			// captured as this one's; and from when its passes' graphics pipelines are made, which they wait for, not
+			// drawing it meanwhile)
+			auto [graphicsCreated, graphicsCount] = previewReady ? preview->GetScene().GetGraphicsPipelineProgress() : std::pair<uint32_t, uint32_t>{0, 0};
+			bool captureReady = previewReady && focus->kind != Kind::kEnvironment && graphicsCreated >= graphicsCount;
 			state.previewReadyFrames = captureReady ? state.previewReadyFrames + 1 : 0;
 			constexpr uint32_t kCaptureAfterFrames = 20;
 			if (captureReady && state.previewReadyFrames == kCaptureAfterFrames && myThumbnails->NeedsCapture(focus->path))

@@ -1068,7 +1068,10 @@ void WindowedApplication::PrepareDraw()
 	// one row per load in progress, after the shaders' compile until the scene is made from them (Scene::Prepare: a first
 	// launch's compile takes tens of seconds, the loads queued meanwhile wait for it)
 	bool compilingShaders = myScene && !myScene->IsReady();
-	if (bool loading = (compilingShaders || !gLoads.Empty()) &&
+	// once ready, the graphics pipelines its passes wait for (a first launch's, cold, take seconds each)
+	auto [graphicsCreated, graphicsCount] = myScene ? myScene->GetGraphicsPipelineProgress() : std::pair<uint32_t, uint32_t>{0, 0};
+	bool creatingPipelines = graphicsCreated < graphicsCount;
+	if (bool loading = (compilingShaders || creatingPipelines || !gLoads.Empty()) &&
 				 Begin(
 					 "Loading",
 					 &loading,
@@ -1097,6 +1100,13 @@ void WindowedApplication::PrepareDraw()
 				SameLine();
 				TextUnformatted("Compiling shaders");
 			}
+		}
+		else if (creatingPipelines)
+		{
+			auto overlay = std::format("{} of {}", graphicsCreated, graphicsCount);
+			ProgressBar(static_cast<float>(graphicsCreated) / static_cast<float>(graphicsCount), ImVec2(kProgressBarWidth, 0), overlay.c_str());
+			SameLine();
+			TextUnformatted("Creating pipelines");
 		}
 		gLoads.ForEach([](const core::LoadQueue::Load& load)
 		{
@@ -2252,6 +2262,13 @@ void WindowedApplication::PrepareDraw()
 	// install: a big model's came late in a count of the ui's frames from the loads, and a capture showed the frame before
 	// the placement
 	static std::optional<uint64_t> gAutoLoadExitStart;
+	// nor while the scene's passes wait for their graphics pipelines, not drawing the model meanwhile (a first run after a
+	// shader change makes them for seconds): counted from when they are made
+	if (myScene)
+	{
+		if (auto [created, count] = myScene->GetGraphicsPipelineProgress(); created < count)
+			gAutoLoadExitStart.reset();
+	}
 	if (gAutoLoadExitFrames && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) && !gAutoCamera &&
 		!gAutoFrame && modelInstalled && (gAutoPath.empty() || (gAutoPathFollowed && !myViews->OnPath())) && presentationTestDone)
 	{

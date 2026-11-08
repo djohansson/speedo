@@ -298,13 +298,30 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   shown, the window never frozen in it): `Scene::Prepare` requests the environment layout's and the renderer's
   (`Renderer::ComputePipelineVariants`: every entry point at specialization 0, and the visibility buffer's extended tier
   and the glassless Reflection Trace) through `Pipeline::RequestComputePipelines`, a task each, which copy the layout and
-  the entry point's stage when asked for (the bound ones change meanwhile), all at once on the executor; the scene is
-  ready once they are made, and the Loading window shows "Creating pipelines n of m". 83 of them, 0.5 s with Metal's
-  cache warm; a cold first launch took minutes of driver compiles where the draw thread made them on first use (495 s
-  for the packaged app's first run, the window frozen and the hang watch's 120 s for one pipeline tripped). Graphics
-  pipelines are still made on first use (three generic ones with a model: the main pass's, the prepass's and the
-  shadows'). It doesn't stop the release builds' gpu restarts (see indirect-lighting.md): 6 of 20 runs lost the device
-  with them made ahead, about half without.
+  the entry point's stage when asked for (the bound ones change meanwhile), on the executor; the scene is ready once
+  they are made, and the Loading window shows "Creating pipelines n of m". 83 of them, 0.5 s with Metal's cache warm; a
+  cold first launch took minutes of driver compiles where the draw thread made them on first use (495 s for the packaged
+  app's first run, the window frozen and the hang watch's 120 s for one pipeline tripped). They run in chains, each
+  pipeline after the one before it in its chain (`core::AddDependency`), as many chains as half the executor's threads
+  (`TaskExecutor::GetThreadCount`): submitted all at once, a cold first launch's compiles (1 to 10 s each) took 9 of the 12
+  threads for tens of seconds, two more held by loads waiting to install and one by the Rpc chain, and the draw thread's
+  frames (a task chain on the executor too) had no thread: no frame for 20 s, the hang watch tripped (2026-11-08, the
+  packaged app with its Metal cache emptied, sampled). The graphics pipelines a pass binds first aren't made ahead (they
+  depend on its render target's formats, set as it records), nor waited for: `RequestDrawListPipelines` (`gfx/drawlist.h`)
+  asks for them from the state the pass set (its default variant and its items' generic ones, a run by its first item),
+  each missing one made by a task on the executor (`Pipeline::RequestGraphicsPipeline`), and the pass (the views' prepass,
+  main and other lists, the shadows and their transmittance) records its draws only once none is missing, its tiles
+  cleared meanwhile. The renderer counts the missing ones a frame (`Renderer::GetGraphicsPipelineProgress`), the Loading
+  window shows them as "Creating pipelines n of m" once the scene is ready (`Scene::GetGraphicsPipelineProgress`), and
+  what counts frames from a model's install waits for them: the autoload exit and its capture (`SPEEDO_AUTOLOAD_EXIT`)
+  restart their count while any is missing, and the browser's thumbnail capture counts its 20 frames from when the
+  preview's are made. Before, the generic main pass pipeline (`FragmentMain`) was made where the pass bound it, 16.5 s
+  cold with the window frozen. Measured on the packaged app (M4 Pro, the helmet, its Metal cache emptied, a fresh profile,
+  the hang watch at 15 s): the first launch 69 s, the compute pipelines ahead in 20.7 s and `FragmentMain` made in 19.4 s
+  in the background while frames were drawn, the capture with the helmet; a second launch 5 to 6 s, the 83 pipelines from
+  the profile's cache in 0.01 s. Without an executor (`FrameInputs::executor` null) a pass's pipelines are made on first
+  use, as before. It doesn't stop the release builds' gpu restarts (see indirect-lighting.md): 6 of 20 runs lost the
+  device with them made ahead, about half without; the mesa port's workaround does.
 - The backend's type aliases (`DescriptorType<G>`, `PushConstantRange<G>`, ...) are in the *global* namespace (see
   `rhi/vulkan/types.inl`), so a neutral rhi type of the same name hides them inside `namespace rhi`, and is ambiguous
   in code with `using namespace rhi` (gfx's application). Pick another name, or qualify: `::DescriptorType<G>` in

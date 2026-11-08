@@ -464,6 +464,51 @@ void RecordDrawList(
 	flush();
 }
 
+uint32_t RequestDrawListPipelines(
+	Pipeline& pipeline,
+	const DrawList& list,
+	std::span<const GraphicsPipelineVariant> variants,
+	core::TaskExecutor* executor,
+	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include)
+{
+	ZoneScopedN("gfx::RequestDrawListPipelines");
+
+	if (executor == nullptr)
+		return 0;
+
+	// a few: the items are sorted by variant
+	std::vector<GraphicsPipelineVariant> needed(variants.begin(), variants.end());
+	auto add = [&](const DrawItem& item)
+	{
+		if (include && !(*include)(item))
+			return;
+		auto variant = item.variant;
+		variant.specialization = 0;
+		if (std::ranges::find(needed, variant) == needed.end())
+			needed.push_back(variant);
+	};
+	if (list.runs.empty())
+		std::ranges::for_each(list.items, add);
+	else
+		for (const auto& run : list.runs)
+			add(list.items[run.first]);
+
+	uint32_t missingCount = 0;
+	std::vector<core::TaskHandle> creates;
+	for (const auto& variant : needed)
+	{
+		auto request = pipeline.RequestGraphicsPipeline(variant);
+		if (request.handle != nullptr)
+			continue;
+		missingCount++;
+		if (request.create)
+			creates.push_back(request.create);
+	}
+	if (!creates.empty())
+		executor->Submit(creates);
+	return missingCount;
+}
+
 void RecordCulledDrawList(
 	CommandBufferHandle cmd,
 	Pipeline& pipeline,

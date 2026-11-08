@@ -814,6 +814,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 
 		pipeline.SetRenderTarget(*context.target);
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+		// drawn once the pipelines it binds exist (see InternalDrawViews), its tiles cleared meanwhile
+		const GraphicsPipelineVariant shadowVariant{.blend = kOpaqueBlend};
+		auto missingCount = RequestDrawListPipelines(pipeline, myShadowDrawList, {&shadowVariant, 1}, inputs.executor);
+		myMissingGraphicsPipelineCountThisFrame.fetch_add(missingCount, std::memory_order_relaxed);
 		encoder.BindIndexBuffer(*myShadowDrawList.indexBuffer, 0, IndexType::kUint32);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
@@ -821,7 +825,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-		pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
+		if (missingCount == 0)
+			pipeline.BindPipelineAuto(cmd, shadowVariant);
 
 		auto pushConstants = inputs.pushConstants;
 		for (uint32_t viewIt = 0; viewIt < myShadowPlan.views.size(); viewIt++)
@@ -844,6 +849,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					ClearValue{.depth = 0.0F}, // the far plane: depth reversed
 					0,
 					rhi::Rect{.x = static_cast<int32_t>(tile.x), .y = static_cast<int32_t>(tile.y), .width = tile.size, .height = tile.size});
+			if (missingCount > 0)
+				continue;
 			pushConstants.shadowView = viewIt;
 			if (auto culled = InternalCulledDraws(ListId::kShadow, viewIt, late))
 			{
@@ -917,6 +924,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 
 			pipeline.SetRenderTarget(*context.target);
 			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+			// drawn once the pipelines it binds exist (see InternalDrawViews), its tiles cleared meanwhile
+			const GraphicsPipelineVariant transmittanceVariant{.blend = kShadowTransmittanceBlend, .fragmentShader = kShadowTransmittanceFragmentShader};
+			auto missingCount = RequestDrawListPipelines(pipeline, myShadowTransmittanceList, {&transmittanceVariant, 1}, inputs.executor);
+			myMissingGraphicsPipelineCountThisFrame.fetch_add(missingCount, std::memory_order_relaxed);
 			encoder.BindIndexBuffer(*myShadowTransmittanceList.indexBuffer, 0, IndexType::kUint32);
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
@@ -924,7 +935,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-			pipeline.BindPipelineAuto(cmd, {.blend = kShadowTransmittanceBlend, .fragmentShader = kShadowTransmittanceFragmentShader});
+			if (missingCount == 0)
+				pipeline.BindPipelineAuto(cmd, transmittanceVariant);
 
 			auto pushConstants = inputs.pushConstants;
 			for (uint32_t viewIt = 0; viewIt < myShadowPlan.views.size(); viewIt++)
@@ -945,6 +957,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				// with caustics, its rgb is theirs (see ComputeCausticsResolve): nothing let through where they bring none
 				float through = myCausticsThisFrame ? 0.0F : 1.0F;
 				context.target->ClearRect(cmd, ClearValue{.color = {through, through, through, 0.0F}}, 0, rect);
+				if (missingCount > 0)
+					continue;
 				pushConstants.shadowView = viewIt;
 				auto frustum = Frustum::FromViewProjection(glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
 				RecordDrawList(cmd, pipeline, myShadowTransmittanceList, pushConstants, 0, *myDrawStream, inputs.culling ? &frustum : nullptr);
@@ -2769,6 +2783,13 @@ FrameStatistics Renderer::GetFrameStatistics() const
 	return myFrameStatistics.Read().Get();
 }
 
+std::pair<uint32_t, uint32_t> Renderer::GetGraphicsPipelineProgress() const noexcept
+{
+	auto peak = myMissingGraphicsPipelinePeak.load(std::memory_order_relaxed);
+	auto missing = std::min(myMissingGraphicsPipelineCount.load(std::memory_order_relaxed), peak);
+	return {peak - missing, peak};
+}
+
 std::string_view Renderer::GetOcclusionModeName() const noexcept
 {
 	if (!myOcclusionCulling)
@@ -4079,10 +4100,18 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	GpuProfiler::Scope frameScope;
 	if (auto* profiler = inputs.graphicsQueue->GetProfiler())
 		frameScope = profiler->Begin(cmd, "Frame", kFrameLocation, myGraph.GetTimingGroup(), PipelineStage::kTopOfPipe);
+	myMissingGraphicsPipelineCountThisFrame.store(0, std::memory_order_relaxed);
 	myGraph.Execute(cmd, inputs.graphicsQueue->GetProfiler());
 	frameScope.End();
 	myDrawStream->End();
 	myDrawStream = nullptr;
+	// the passes' missing graphics pipelines (see RequestDrawListPipelines), for the ui's progress
+	{
+		auto missing = myMissingGraphicsPipelineCountThisFrame.load(std::memory_order_relaxed);
+		myMissingGraphicsPipelineCount.store(missing, std::memory_order_relaxed);
+		myMissingGraphicsPipelinePeak.store(
+			missing == 0 ? 0 : std::max(myMissingGraphicsPipelinePeak.load(std::memory_order_relaxed), missing), std::memory_order_relaxed);
+	}
 
 	myFrame.inputs = nullptr;
 	myFrame.pipeline = nullptr;
@@ -5191,6 +5220,27 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 
 	ZoneScopedN("Renderer::drawViews");
 
+	// the variant most of its draws bind (the main list's opaque ones shade over the pre-pass's depth)
+	const GraphicsPipelineVariant variant{
+		.blend = prepass ? kPrepassBlend : kOpaqueBlend,
+		.fragmentShader = prepass ? kPrepassFragmentShader : uint8_t{0},
+		.depthTest = !prepass && listId == ListId::kMain ? DepthTest::kEqual : DepthTest::kNearer};
+	// the pre-pass skips the blended draws (the main list's, left as they are in myPrepassList)
+	auto prepassed = [](const DrawItem& item) { return item.variant.fragmentShader == kPrepassFragmentShader; };
+	// and the main pass, where the visibility buffer's shading shades its opaque triangles, the rest
+	auto unshaded = [](const DrawItem& item) { return renderer::VisibilityUnshaded(item); };
+	std::optional<core::std_extra::function_ref<bool(const DrawItem&)>> include;
+	if (prepass)
+		include = prepassed;
+	else if (listId == ListId::kMain && myVisibilityBuffer)
+		include = unshaded;
+	// drawn once the pipelines it binds exist, made meanwhile on the executor (a first launch's, cold, take seconds each)
+	if (auto missingCount = RequestDrawListPipelines(pipeline, list, {&variant, 1}, inputs.executor, include); missingCount > 0)
+	{
+		myMissingGraphicsPipelineCountThisFrame.fetch_add(missingCount, std::memory_order_relaxed);
+		return;
+	}
+
 	const auto grid = inputs.grid;
 	uint32_t viewCount = grid.x * grid.y;
 	const auto extent = context.target->GetExtent();
@@ -5208,12 +5258,7 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
 	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
 	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-	// the variant most of its draws bind (the main list's opaque ones shade over the pre-pass's depth)
-	pipeline.BindPipelineAuto(
-		cmd,
-		{.blend = prepass ? kPrepassBlend : kOpaqueBlend,
-		 .fragmentShader = prepass ? kPrepassFragmentShader : uint8_t{0},
-		 .depthTest = !prepass && listId == ListId::kMain ? DepthTest::kEqual : DepthTest::kNearer});
+	pipeline.BindPipelineAuto(cmd, variant);
 	// the main list's fragments take the traced shadows and the indirect lighting's near field (at the pre-pass's depth:
 	// its blended ones don't, see FragmentTransparent), the transmissive phase's don't
 	auto pushConstants = inputs.pushConstants;
@@ -5221,15 +5266,6 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	if (!prepass && listId == ListId::kMain)
 		pushConstants.prepassImages = (myShadowsTraced ? PREPASS_IMAGE_SHADOW_MASK : 0U) | (myGiNearOn ? PREPASS_IMAGE_GI_NEAR : 0U) |
 									   (myEmittersOn ? PREPASS_IMAGE_EMITTERS : 0U);
-	// the pre-pass skips the blended draws (the main list's, left as they are in myPrepassList)
-	auto prepassed = [](const DrawItem& item) { return item.variant.fragmentShader == kPrepassFragmentShader; };
-	// and the main pass, where the visibility buffer's shading shades its opaque triangles, the rest
-	auto unshaded = [](const DrawItem& item) { return renderer::VisibilityUnshaded(item); };
-	std::optional<core::std_extra::function_ref<bool(const DrawItem&)>> include;
-	if (prepass)
-		include = prepassed;
-	else if (listId == ListId::kMain && myVisibilityBuffer)
-		include = unshaded;
 
 	for (uint32_t drawIt = 0; drawIt < viewCount; drawIt++)
 	{

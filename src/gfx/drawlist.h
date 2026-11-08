@@ -238,4 +238,18 @@ void RecordCulledDrawList(
 	core::TaskExecutor* executor = nullptr,
 	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include = std::nullopt);
 
+// asks for the graphics pipelines recording a list would bind first, for the pipeline's bound layout and render target,
+// without waiting (see Pipeline::RequestGraphicsPipeline): the caller's own variants and the generic ones of the items
+// include takes (a run by its first item, where planned; the specialized ones are made in the background as they are
+// drawn, see RecordDrawList). those never asked for are created on executor; returns how many don't exist yet, and a
+// pass records the list only once none is missing, so the draw thread never waits for the driver's compile (a cold first
+// launch's generic main pass pipeline took 16.5 s on KosmicKrisp, the window frozen meanwhile). without an executor,
+// none: they are made on first use, the draw thread waiting
+[[nodiscard]] uint32_t RequestDrawListPipelines(
+	Pipeline& pipeline,
+	const DrawList& list,
+	std::span<const rhi::GraphicsPipelineVariant> variants,
+	core::TaskExecutor* executor,
+	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include = std::nullopt);
+
 } // namespace gfx

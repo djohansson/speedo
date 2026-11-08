@@ -353,6 +353,9 @@ public:
 	// and then the compute pipelines' creation, before the first frame (see Pipeline::RequestComputePipelines): how many
 	// are done, of how many (0 of 0 until the compile is done)
 	[[nodiscard]] std::pair<uint32_t, uint32_t> GetPipelineProgress() const noexcept;
+	// and once it is ready, the graphics pipelines its passes wait for, made on the executor at their first draw (see
+	// Renderer::GetGraphicsPipelineProgress): how many are done, of how many (0 of 0 when none is missing). any thread
+	[[nodiscard]] std::pair<uint32_t, uint32_t> GetGraphicsPipelineProgress() const noexcept;
 
 	// resizes what is sized after the output (its render targets), after the output was (re)created (the window's
 	// swapchain, or ImageOutput::Resize). call with the gpu idle, holding the draw lock.

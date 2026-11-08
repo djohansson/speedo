@@ -19,6 +19,7 @@
 #include <core/std_extra.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <optional>
 #include <string>
@@ -242,6 +243,9 @@ public:
 	[[nodiscard]] std::string_view GetOcclusionModeName() const noexcept;
 	// what the cpu planned for the last frame recorded. any thread.
 	[[nodiscard]] FrameStatistics GetFrameStatistics() const;
+	// the graphics pipelines being made for the passes' draws (see RequestDrawListPipelines: a pass draws once its own
+	// exist): how many are done, of the most missing since the last frame that missed none (0 of 0 then). any thread
+	[[nodiscard]] std::pair<uint32_t, uint32_t> GetGraphicsPipelineProgress() const noexcept;
 	// the gpu profiler's group its passes are timed in (see GpuProfiler::Begin), for work recorded outside the graph that
 	// SPEEDO_GPU_TIMINGS should list with them (the sky's redraw)
 	[[nodiscard]] uint64_t GetTimingGroup() const noexcept;
@@ -559,6 +563,11 @@ private:
 	uint64_t myCullStatisticFrameCount = 0;
 	FrameStatistics myFrameStatisticsThisFrame; // filled in while recording, then published
 	core::ConcurrentAccess<FrameStatistics> myFrameStatistics;
+	// the graphics pipelines the passes found missing (RequestDrawListPipelines): counted while recording, then published
+	// with the most missing since a frame missed none (GetGraphicsPipelineProgress)
+	std::atomic_uint32_t myMissingGraphicsPipelineCountThisFrame{0};
+	std::atomic_uint32_t myMissingGraphicsPipelineCount{0};
+	std::atomic_uint32_t myMissingGraphicsPipelinePeak{0};
 	bool myCountEmulated = false;
 	FrameGraph::ImageId myDepthPyramid;
 	std::vector<std::unique_ptr<ImageView>> myDepthPyramidViews; // a storage view per level

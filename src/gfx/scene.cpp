@@ -2969,7 +2969,22 @@ struct Scene::Impl
 		}
 		myPipelineCount.store(static_cast<uint32_t>(handles.size()), std::memory_order_relaxed);
 		myPipelineRequestStart = std::chrono::steady_clock::now();
-		core::Application::Get()->GetExecutor().Submit(handles);
+		// made in chains, each pipeline after the one before it in its chain, as many chains as half the executor's threads:
+		// a cold driver compile takes seconds, and all of them submitted at once took every thread for tens of seconds, the
+		// draw thread's frames (a task chain on the executor) waiting behind them, the window frozen until the hang watch
+		// tripped (a packaged app's first launch, 2026-11-08: 9 of 12 threads compiling, 2 loads waiting to install, 1 the
+		// Rpc chain's). warm, they take half a second either way
+		auto& executor = core::Application::Get()->GetExecutor();
+		size_t chainCount = std::max<size_t>(1, executor.GetThreadCount() / 2);
+		std::vector<core::TaskHandle> heads;
+		for (size_t taskIt = 0; taskIt < handles.size(); taskIt++)
+		{
+			if (taskIt < chainCount)
+				heads.push_back(handles[taskIt]);
+			else
+				core::AddDependency(handles[taskIt - chainCount], handles[taskIt]);
+		}
+		executor.Submit(heads);
 	}
 
 	// how far the compiles are, 0 to 1 (see Scene::GetShaderProgress): the entry points of the layouts done, or the time
@@ -3486,6 +3501,14 @@ float Scene::GetShaderProgress() const noexcept
 std::pair<uint32_t, uint32_t> Scene::GetPipelineProgress() const noexcept
 {
 	return {myImpl->myPipelinesCreated.load(std::memory_order_relaxed), myImpl->myPipelineCount.load(std::memory_order_relaxed)};
+}
+
+std::pair<uint32_t, uint32_t> Scene::GetGraphicsPipelineProgress() const noexcept
+{
+	// the renderer is made before the scene is ready (which IsReady acquires), and kept
+	if (!IsReady())
+		return {0, 0};
+	return myImpl->myRenderer->GetGraphicsPipelineProgress();
 }
 
 void Scene::Resize()

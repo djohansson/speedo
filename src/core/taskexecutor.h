@@ -20,6 +20,9 @@ public:
 	explicit TaskExecutor(uint32_t threadCount);
 	~TaskExecutor();
 
+	// how many threads run its tasks
+	[[nodiscard]] uint32_t GetThreadCount() const noexcept { return static_cast<uint32_t>(myThreads.size()); }
+
 	// wait for task to finish while helping out processing the thread pools ready queue
 	// as soon as the task is ready, the function will stop processing the ready queue and return
 	template <typename R>
