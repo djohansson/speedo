@@ -22,12 +22,26 @@ goes on, exiting with 66 (an abort, on macOS) once done; `assettest.ps1` sets `T
 with `std::cout`/`std::cerr` from several threads races in libc++ (`operator<<` reads and resets the stream's `width()`
 unlocked, which the standard says it mustn't): the asset loaders' reimport messages, from parallel texture loads. Print
 with `std::println` (`stderr` for errors), one locked `fwrite` a line, which also keeps lines whole: there's no
-`std::cout` or `std::cerr` left. `tsan-suppressions.txt` holds what isn't a race: a function local static's guard is
-released in `__cxa_guard_release`, which our binaries bind from a C++ dylib (cpptrace's, slang's: each exports the
-static libc++abi linked into it) rather than the system's libc++abi, so tsan's interceptor never sees it, and the
-threads reading a static first race the one that initialized it (mio's `page_size()`, the only one the quick tier
-hits). Our frames aren't symbolized there (no line numbers), so a suppression names a function tsan prints, not one
-inlined into it.
+`std::cout` or `std::cerr` left. `tsan-suppressions.txt` holds what isn't a race (nothing now). Our frames aren't
+symbolized there (no line numbers), so a suppression names a function tsan prints, not one inlined into it.
+
+Function local statics: our binaries bound `__cxa_guard_acquire`/`release` from the first C++ dylib exporting them
+(libktx's in the client, cpptrace's in assettest: each links libc++abi statically) rather than the system's libc++abi,
+whose functions alone tsan interposes (its own guard code is local to its runtime, nothing to forward to). So tsan never
+saw a static's initialization published, and the threads reading a static first raced the one that initialized it: mio's
+`page_size()` was suppressed, then on 2026-11-08 `gfx::bvh::Version()`'s (the spatial splits switch, read by parallel
+model loads, once the BVHs were built on the cpu by default) failed 26 of the quick tier's clients. A tsan build on
+macOS now compiles `src/core/tsanguard.cpp` into each executable and shared library (`CMakeLists.txt`, after the
+targets): the guards over `std::atomic_ref`, which tsan instruments, releasing the guard's first byte that the compiler's
+inline check acquires (`__tsan_atomic8_load`). An object's definition beats a dylib's export in lld, whatever the link
+order (`nm -m` shows them defined in the executable). The mio suppression went with it. The same run found one real
+race: every `gfx::bvh::Build` set tinybvh's fatal error handler, a plain global, from several threads at once (now once, a
+static).
+
+A report can hang a client rather than fail it: tsan symbolizes it holding its report lock, which needs dyld's loader
+lock, while a Metal thread (`FPMTLMetricsMTLLayerTracking`, on the frame pacing queue) held that in a `dlopen` and waited
+on tsan's lock to allocate. Two of the quick tier's clients sat at 300 to 900% cpu (every other thread spinning on the
+report lock) until killed. It only ever follows a report, so the fix is the report's.
 
 About one client run in 50 faulted inside the tsan runtime on macOS 27 (`MetaMap::AllocBlock`, `OnUserFree`: frees of
 system frameworks' allocations, CoreUI's libcompression on a dispatch queue), not in our code. Our fatal signal handler

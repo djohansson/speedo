@@ -881,3 +881,17 @@ if(WIN32)
 	set(CPACK_WIX_PRODUCT_ICON "${CMAKE_CURRENT_SOURCE_DIR}/scripts/package/speedo.ico")
 	include(CPack)
 endif()
+
+# tsan on macOS: each executable and shared library defines the guards of function local statics itself
+# (src/core/tsanguard.cpp, which tsan instruments). They bound them from the first C++ dylib that exports them (each links
+# libc++abi statically), not from the system's libc++abi, whose functions alone tsan interposes, so it reported reads of
+# every static racing its initialization. An object's definition beats a dylib's export (lld), whatever the link order
+if(APPLE AND SPEEDO_SANITIZE MATCHES "thread")
+	get_property(SPEEDO_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+	foreach(target IN LISTS SPEEDO_TARGETS)
+		get_target_property(type ${target} TYPE)
+		if(type STREQUAL "EXECUTABLE" OR type STREQUAL "SHARED_LIBRARY")
+			target_sources(${target} PRIVATE ${SPEEDO_SOURCE_DIR}/core/tsanguard.cpp)
+		endif()
+	endforeach()
+endif()
