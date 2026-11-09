@@ -124,10 +124,6 @@
         "stb",
         "tinybvh",
         "tinyobjloader",
-        {
-          "name": "tracy",
-          "features": [ "gui-tools" ]
-        },
         "vulkan",
         "vulkan-crash-diagnostic-layer",
         "vulkan-headers",
@@ -146,11 +142,21 @@
           "features": [ "common" ]
         }
       ]
+    },
+    "profiler-app": {
+      "description": "Tracy's profiler app (tracy-profiler), for local development: setup.ps1 leaves it out with SPEEDO_PROFILER_APP=0, as CI does",
+      "dependencies": [
+        {
+          "name": "tracy",
+          "features": [ "gui-tools" ]
+        }
+      ]
     }
   },
   "default-features": [
     "client",
-    "server"
+    "server",
+    "profiler-app"
   ],
   "builtin-baseline": "79b003ccb34d00e2e03869b57b581f4d3031f770"
 }

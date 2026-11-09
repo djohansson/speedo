@@ -23,6 +23,10 @@ permissions:
   contents: read
 
 env:
+  # without Tracy's profiler app (vcpkg.json's profiler-app feature, 13 packages of its own), which CI never runs. Its packages
+  # are then in no platform's keep list, so the prune job deletes them from the shared cache 7 days after their upload: a
+  # machine without them in vcpkg's local cache builds them once (small ones)
+  SPEEDO_PROFILER_APP: '0'
   SPEEDO_BINARY_CACHE_WRITE: ${{ github.event_name != 'pull_request' && secrets.B2_APPLICATION_KEY_ID != '' && '1' || '' }}
   AWS_ACCESS_KEY_ID: ${{ github.event_name != 'pull_request' && secrets.B2_APPLICATION_KEY_ID || '' }}
   AWS_SECRET_ACCESS_KEY: ${{ github.event_name != 'pull_request' && secrets.B2_APPLICATION_KEY || '' }}

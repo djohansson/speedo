@@ -155,6 +155,16 @@ if ($env:SPEEDO_BINARY_CACHE_WRITE)
 {
 	foreach ($Entry in (Get-BinaryCacheAwsEnvironment).GetEnumerator()) { $CMakePresets.configurePresets[0].environment[$Entry.Key] = $Entry.Value }
 }
+# Tracy's profiler app (vcpkg.json's profiler-app feature, a default one: tracy[gui-tools] and the 13 packages it alone
+# needs) for local development; SPEEDO_PROFILER_APP=0 leaves it out of setup's install and the configures' (the manifest's
+# other default features alone), as CI and the release workflow do: they never run it
+$ProfilerApp = $env:SPEEDO_PROFILER_APP -ne '0'
+$ManifestFeatures = @('client', 'server')
+if (-not $ProfilerApp)
+{
+	$CMakePresets.configurePresets[0].cacheVariables['VCPKG_MANIFEST_NO_DEFAULT_FEATURES'] = 'ON'
+	$CMakePresets.configurePresets[0].cacheVariables['VCPKG_MANIFEST_FEATURES'] = $ManifestFeatures -join ';'
+}
 
 $VSCodeLaunchConfiguration = [ordered] @{
 	'version' = '0.2.1'
@@ -332,16 +342,19 @@ if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $PlatformSettings.Length)
 	}
 
 	# tracy[gui-tools] only installs a release build of the profiler, shared by all configurations
-	$VSCodeLaunchConfiguration.configurations += @(
-		[ordered] @{
-			name = "($(Get-TargetTriplet)) tracy-profiler"
-			type = $Settings.Debugger
-			request = "launch"
-			program = "`${workspaceFolder}/install/$(Get-TargetTriplet)/tools/tracy/tracy-profiler$exeSuffix"
-			cwd = "`${workspaceFolder}"
-		}
-	)
-	foreach ($Entry in $Settings.ProfilerLaunchOptions.GetEnumerator()) { $VSCodeLaunchConfiguration.configurations[-1][$Entry.Key] = $Entry.Value }
+	if ($ProfilerApp)
+	{
+		$VSCodeLaunchConfiguration.configurations += @(
+			[ordered] @{
+				name = "($(Get-TargetTriplet)) tracy-profiler"
+				type = $Settings.Debugger
+				request = "launch"
+				program = "`${workspaceFolder}/install/$(Get-TargetTriplet)/tools/tracy/tracy-profiler$exeSuffix"
+				cwd = "`${workspaceFolder}"
+			}
+		)
+		foreach ($Entry in $Settings.ProfilerLaunchOptions.GetEnumerator()) { $VSCodeLaunchConfiguration.configurations[-1][$Entry.Key] = $Entry.Value }
+	}
 
 	$VSCodeTasks.tasks += $Settings.Tasks
 
@@ -387,9 +400,8 @@ foreach ($Config in $Configurations)
 			name = "($(Get-TargetTriplet)) $Config all"
 			configurations = @(
 				"($(Get-TargetTriplet)) $Config/client",
-				"($(Get-TargetTriplet)) $Config/server",
-				"($(Get-TargetTriplet)) tracy-profiler"
-			)
+				"($(Get-TargetTriplet)) $Config/server"
+			) + @(if ($ProfilerApp) { "($(Get-TargetTriplet)) tracy-profiler" })
 			stopAll = $true
 		}
 	)
@@ -448,7 +460,7 @@ $VSCodeTasks | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/.vscode/tasks.j
 $env:LLVM_ROOT = "$PSScriptRoot/install/$(Get-HostTriplet)"
 $env:LLVM_TOOLS_BINARY_DIR = "$PSScriptRoot/install/$(Get-HostTriplet)/tools/llvm"
 
-$VcpkgOptions = @(
+$VcpkgOptions = (@(
 	"--vcpkg-root $env:VCPKG_ROOT"
 	"--x-install-root=$PSScriptRoot/install"
 	"--overlay-triplets=$PSScriptRoot/scripts/cmake/triplets"
@@ -456,7 +468,7 @@ $VcpkgOptions = @(
 	"--triplet=$(Get-TargetTriplet)"
 	'--x-abi-tools-use-exact-versions'
 	'--no-print-usage'
-) -join ' '
+) + @(if (-not $ProfilerApp) { @('--x-no-default-features') + @($ManifestFeatures | ForEach-Object { "--x-feature=$_" }) })) -join ' '
 
 Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install $VcpkgOptions")
 if ($LASTEXITCODE -ne 0)

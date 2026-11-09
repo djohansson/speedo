@@ -407,14 +407,24 @@ delete (B2's `listBuckets,listFiles,readFiles,writeFiles,deleteFiles`), never in
 `release.yml` set `SPEEDO_BINARY_CACHE_WRITE` and the AWS CLI's `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` from them, on
 every run but a pull request's, so a runner uploads the packages it had to build (a port or toolchain change pushed
 without seeding the bucket first), and the next run on the platform restores them. After a push whose three platform jobs
-passed, each having written its installed packages' list (`-WriteKeepList`; one triplet and one set of manifest features a
-platform, so its CI job installs what its machines do), CI's prune job runs `prune-binary-cache.ps1` by those lists with
+passed, each having written its installed packages' list (`-WriteKeepList`; one triplet a platform, and the same manifest
+features as its machines but Tracy's profiler app, see below), CI's prune job runs `prune-binary-cache.ps1` by those lists with
 `-MinAgeDays 7`: an archive no list names is kept for a week from its upload, since master's lists don't name a
 maintainer's packages for a change not pushed yet (a port's, the toolchain's), which a runner would otherwise build again
 once it is (LLVM on a hosted runner: hours, past the job's timeout). The dry run with the Mac's list alone kept the other
 platforms' 162 archives, all uploaded within the week. A toolchain change makes more than half of the bucket stale a
 week later, which the script refuses without `-Force`: the prune job fails then, and the maintainer prunes by hand. Without
 the secrets every run reads the cache only, and the prune job does nothing.
+
+Tracy's profiler app is a manifest feature of its own, `profiler-app` (`tracy[gui-tools]`, which alone needs 13 packages:
+aklomp-base64, capstone, dbus, expat, fp16, md4c, nativefiledialog-extended, nlohmann-json, ppqsort, psimd, pugixml,
+tidy-html5 and usearch; the ppqsort and usearch overlay ports are for it), a default one, so a developer's setup installs it
+(and the VS Code launch configuration `tracy-profiler`). `SPEEDO_PROFILER_APP=0` leaves it out: setup installs with
+`--x-no-default-features` and the manifest's other default features, and writes the same into the presets
+(`VCPKG_MANIFEST_NO_DEFAULT_FEATURES`, `VCPKG_MANIFEST_FEATURES`) for the configures' installs. `ci.yml` and `release.yml`
+set it (2026-11-09, the user's call: built for local development, not on CI). Tracy itself is then built without the
+feature (another ABI), and the 13 are in no CI keep list, so the prune deletes them from the shared cache a week after their
+upload: vcpkg's local cache keeps them on a developer's machine, and a new one builds them (small packages).
 
 ## Linux: setup and the toolchain
 
