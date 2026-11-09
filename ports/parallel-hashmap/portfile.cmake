@@ -1,13 +1,12 @@
 #header-only library
 
+# speedo overlay: 2.1.0, which includes <cstdlib> where libc++ needs it (vcpkg's port is at 2.0.0, which we patched)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO greg7mdp/parallel-hashmap
     REF "v${VERSION}"
-    SHA512 edd5ff6eb492bf0b34fcbb6594d3d07256c9498b677a3d8b41fd14329d7149f0fc11c697591447e4ea14e83268d98e129c34dfb11c87401c3cee35aaa016fc6e
+    SHA512 373928a769bce519aa321b92a855838e663d4ccf123de0e9f66ac7ced28fda2aeb299085532f7d4867a630c06ed2a5c6ee32aadb692887d496e156c0c0b1f83d
     HEAD_REF master
-    PATCHES
-        0001-fix-missing-cstdlib-include.patch
 )
 
 # Use greg7mdp/parallel-hashmap's own build process, skipping examples and tests
