@@ -12,9 +12,11 @@ set(VCPKG_DISABLE_COMPILER_TRACKING ON)
 set(VCPKG_ENV_PASSTHROUGH GLIBC_VERSION)
 # the system's clang, with lld and LLVM's archiver (linux.ps1 installs them), as Apple's toolchain is on macOS: the flags
 # below are clang's, and ThinLTO's bitcode objects take an LLVM linker and archiver (GNU ld and ar don't read them). Its
-# version isn't tracked: the C library's names the distribution's release, whose default clang is one version
-find_program(SPEEDO_HOST_AR NAMES llvm-ar REQUIRED)
-find_program(SPEEDO_HOST_RANLIB NAMES llvm-ranlib REQUIRED)
+# version isn't tracked: the C library's names the distribution's release, whose default clang is one version. Not
+# REQUIRED: vcpkg evaluates the triplet to compute the packages' ABI too, and a setup that restores every package from the
+# binary cache installs no port build tools (see setup.ps1); a port built without them fails at its configure (CMAKE_AR)
+find_program(SPEEDO_HOST_AR NAMES llvm-ar)
+find_program(SPEEDO_HOST_RANLIB NAMES llvm-ranlib)
 set(
 	VCPKG_CMAKE_CONFIGURE_OPTIONS_RELEASE
 		-DCMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS=ON

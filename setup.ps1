@@ -504,7 +504,18 @@ $VcpkgOptions = @(
 	'--no-print-usage'
 ) + @(if (-not $ProfilerApp) { @('--x-no-default-features') + @($ManifestFeatures | ForEach-Object { "--x-feature=$_" }) })
 
-& (Join-Path $env:VCPKG_ROOT "vcpkg$exeSuffix") install @VcpkgOptions
+$Vcpkg = Join-Path $env:VCPKG_ROOT "vcpkg$exeSuffix"
+# the binary cache first, building nothing (--only-binarycaching): where it holds every package, the tools only building
+# ports from source takes (the system's compilers for the host triplets, meson's and autotools' tools: the platform
+# script's -PortBuildTools) aren't installed. Where it lacks one, they are, and the install goes on from what it restored
+Write-Host "Restoring vcpkg's packages from the binary cache (an error here only means a package isn't there, to build)..."
+& $Vcpkg install @VcpkgOptions --only-binarycaching
+if ($LASTEXITCODE -ne 0)
+{
+	Write-Host "Not every package is in the binary cache: installing the tools that build ports, then building them"
+	& $PSScriptRoot/scripts/platforms/$Platform/$Platform.ps1 -PortBuildTools
+	& $Vcpkg install @VcpkgOptions
+}
 if ($LASTEXITCODE -ne 0)
 {
 	Write-Host "vcpkg install failed with exit code $LASTEXITCODE"

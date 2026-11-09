@@ -1,3 +1,13 @@
+# -PortBuildTools: what building vcpkg ports from source takes beyond the rest, which setup installs when the binary
+# cache lacks a package (see setup.ps1): nothing on Windows, where the project's build needs Visual Studio's C++ tools
+# and the Windows SDK anyway (LLVM's clang links against the MSVC runtime and the SDK's libraries), which build ports too
+param([switch] $PortBuildTools)
+
+if ($PortBuildTools)
+{
+	return
+}
+
 . $PSScriptRoot/winget.ps1
 . $PSScriptRoot/vs.ps1
 

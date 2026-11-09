@@ -1,28 +1,39 @@
+# -PortBuildTools: only what building vcpkg ports from source takes, which setup installs when the binary cache lacks a
+# package (see setup.ps1); without it, what restoring the packages and building the project take
+param([switch] $PortBuildTools)
+
 . $PSScriptRoot/apt.ps1
+
+if ($PortBuildTools)
+{
+	Write-Host "Installing the Linux tools that build vcpkg ports..."
+	# the host triplets build with the system's clang, lld and LLVM's archiver (see x64-linux-release.cmake)
+	Install-AptPackage clang
+	Install-AptPackage lld
+	Install-AptPackage llvm
+	Install-AptPackage python3-venv # meson's ports (libsystemd) build in a python venv
+	Install-AptPackage ninja-build # and meson's build with the ninja on the path
+	Install-AptPackage autoconf # autotools' ports (libxcrypt, libmount, gperf)
+	Install-AptPackage autoconf-archive
+	Install-AptPackage automake
+	Install-AptPackage libtool
+	Install-AptPackage patchelf
+	return
+}
 
 Write-Host "Installing Linux dependencies..."
 
-# a compiler and the tools vcpkg's bootstrap and builds take (a fresh distribution, e.g. WSL's Ubuntu, has none of them;
-# GitHub's images have most); the host triplets build with clang, lld and LLVM's archiver (see x64-linux-release.cmake)
+# what vcpkg's downloads and archives, and the project's build with LLVM's clang (the C library's headers and startup
+# files, GCC's runtime) take (a fresh distribution, e.g. WSL's Ubuntu, has none of them; GitHub's images have most). Not
+# the tools that build ports from source (-PortBuildTools), which setup installs only when the binary cache lacks a package
 Install-AptPackage build-essential
-Install-AptPackage clang
-Install-AptPackage lld
-Install-AptPackage llvm
 Install-AptPackage curl
 Install-AptPackage zip
 Install-AptPackage unzip
 Install-AptPackage tar
-Install-AptPackage python3-venv # meson's ports (libsystemd) build in a python venv
-Install-AptPackage ninja-build # and meson's build with the ninja on the path
-
-Install-AptPackage autoconf
-Install-AptPackage autoconf-archive
-Install-AptPackage automake
-Install-AptPackage libtool
 Install-AptPackage coreutils
 Install-AptPackage pkg-config
 Install-AptPackage snapd
-Install-AptPackage patchelf
 Install-AptPackage lsb-release
 Install-AptPackage software-properties-common
 Install-AptPackage gnupg

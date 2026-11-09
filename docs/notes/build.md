@@ -451,10 +451,19 @@ distribution needed, beyond what GitHub's image has:
 
 - `setup_linux.sh` installs the distribution's ICU (`libicu<version>`, found by name): PowerShell, on .NET, aborted
   without it.
-- `linux.ps1` installs a compiler and what vcpkg's bootstrap and builds take: `build-essential`, `clang`, `lld`, `llvm`,
-  `curl`, `zip`, `unzip`, `tar`, `python3-venv` (meson's ports, libsystemd), `ninja-build` (meson builds with the one on the
-  path), `autoconf-archive` and `automake` (autotools' ports: libxcrypt, libmount, gperf), and the AWS CLI for a cache
-  writer (AWS's installer: Ubuntu's archive dropped `awscli` in 24.04).
+- `linux.ps1` installs what restoring vcpkg's packages and building the project take: `build-essential` (the C
+  library's headers and startup files, GCC's runtime, which LLVM's clang links), `curl`, `zip`, `unzip`, `tar`, the X11,
+  Wayland and xkbcommon headers glfw links, `cmake`, and the AWS CLI for a cache writer (AWS's installer: Ubuntu's
+  archive dropped `awscli` in 24.04). With `-PortBuildTools`, what building ports from source takes besides: the system's
+  `clang`, `lld` and `llvm` (the host triplets'), `python3-venv` (meson's ports, libsystemd), `ninja-build` (meson builds
+  with the one on the path), `autoconf`, `autoconf-archive`, `automake` and `libtool` (autotools' ports: libxcrypt,
+  libmount, gperf), `patchelf`. Setup installs those only where the binary cache lacks a package (2026-11-09): it first
+  installs with `--only-binarycaching`, and on its failure runs the platform script with `-PortBuildTools` and installs
+  again, building what's missing. On macOS that is `pkg-config` (mesa's meson build; the Command Line Tools stay, their
+  SDK is what LLVM's clang compiles against and the packages' ABI tracks), on Windows nothing (Visual Studio's C++ tools
+  and the SDK are the project's build's too). The host triplets look up `llvm-ar`/`llvm-ranlib` without `REQUIRED`, as
+  vcpkg evaluates them for the packages' ABI before any port builds. Tried on macOS: a full hit restored and installed no
+  build tools; bcdec's portfile changed (its hash in no cache) took the fallback, installed the build tools and built it.
 - FASTBuild: its Linux zip was made on Windows and holds no file modes, so the `fbuild` the fork's
   `vcpkg_find_acquire_program(FASTBUILD)` extracted wasn't executable ("Unable to find FASTBUILD"), and `linux.ps1`
   extracted it first, executable. Gone with the fork (2026-11-09): the ports take FBuild from the `vcpkg-tool-fastbuild`

@@ -1,13 +1,26 @@
+# -PortBuildTools: only what building vcpkg ports from source takes, which setup installs when the binary cache lacks a
+# package (see setup.ps1); without it, what restoring the packages and building the project take
+param([switch] $PortBuildTools)
+
 . $PSScriptRoot/homebrew.ps1
 . $PSScriptRoot/../../platform.ps1
 
+if ($PortBuildTools)
+{
+	Write-Host "Installing the macOS tools that build vcpkg ports..."
+	# pkg-config, which vcpkg finds in Homebrew for its meson ports (mesa: the Vulkan driver, KosmicKrisp, is a vcpkg port)
+	# and its .pc fixups
+	Install-HomebrewPackage pkg-config
+	return
+}
+
 Write-Host "Installing MacOS dependencies..."
 
+# the Command Line Tools: the SDK, which LLVM's clang compiles against, and whose version the packages' ABI tracks
+# (MACOSX_DEPLOYMENT_TARGET, below), are needed whether or not a port builds
 $(xcode-select --install) 2>&1
 
-# what the build runs from Homebrew: cmake itself, and pkg-config, which vcpkg finds there for its meson ports (mesa: the
-# Vulkan driver, KosmicKrisp, is a vcpkg port) and its .pc fixups
-Install-HomebrewPackage pkg-config
+# the project's build runs cmake from Homebrew (vcpkg's ports run vcpkg's own)
 Install-HomebrewPackage cmake
 # where this machine writes to the shared binary cache (see scripts/binarycache.ps1), vcpkg's x-aws source runs the AWS CLI
 if ($env:SPEEDO_BINARY_CACHE_WRITE -and -not (Get-Command "aws" -ErrorAction SilentlyContinue))

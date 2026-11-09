@@ -120,7 +120,8 @@ The bootstrap script installs PowerShell 7.5+ if it's missing, then hands over t
 compilers and SDKs (the Xcode Command Line Tools on macOS, the C++ build tools and the Windows SDK on Windows, the
 distribution's build packages on Linux) and the other system packages (Homebrew, apt or winget), installs the pinned
 release of vcpkg into `~/.vcpkg-tool`, and generates `CMakeUserPresets.json` and the VS Code launch and task configurations. Re-run it after OS or SDK
-updates.
+updates. The tools that only building vcpkg's packages from source takes (on Linux the distribution's clang, meson's and
+autotools' tools) it installs only when the binary cache below lacks one of the packages.
 
 speedo builds with its own LLVM toolchain on every platform: clang, lld and libc++ from vcpkg's LLVM, one version
 everywhere, with the system tools providing the platform's SDKs and libraries. Setup downloads the toolchain prebuilt, along with every
