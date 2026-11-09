@@ -1,6 +1,12 @@
 {
   "name": "vcpkg-cmake",
-  "version-date": "2026-03-30",
+  "version-date": "2026-11-09",
   "documentation": "https://learn.microsoft.com/vcpkg/maintainers/functions/vcpkg_cmake_configure",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": [
+    {
+      "name": "vcpkg-tool-fastbuild",
+      "host": true
+    }
+  ]
 }

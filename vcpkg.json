@@ -157,6 +157,5 @@
     "client",
     "server",
     "profiler-app"
-  ],
-  "builtin-baseline": "79b003ccb34d00e2e03869b57b581f4d3031f770"
+  ]
 }

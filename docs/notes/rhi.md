@@ -277,7 +277,7 @@ Consequences:
   commits awaiting feedback. Loaded through `VK_DRIVER_FILES` (an ICD json of its own pointing at the build) in quick
   tiers repeated from a work dir holding only the warm-up's profile (`user`: the models' pipelines cold), four clients
   at a time, until a client aborts: the line before the abort names the allocator. vcpkg's meson build dir
-  (`vcpkg/buildtrees/mesa/arm64-osx-release-rel`) rebuilds the dylib with `ninja` in seconds; back up and restore the
+  (`temp/vcpkg/buildtrees/mesa/arm64-osx-release-rel` since vcpkg's standalone install; `vcpkg/buildtrees` then) rebuilds the dylib with `ninja` in seconds; back up and restore the
   sources it builds (a `.clean` tree under `src/`, which vcpkg may reuse). Mesa's policy (its `AGENTS.md`) keeps such
   code local, and a report to Apple or to KosmicKrisp's developers is the user's own.
 

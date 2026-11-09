@@ -1,15 +1,9 @@
 {
-  "registries": [
-    {
-      "kind": "git",
-      "baseline": "79b003ccb34d00e2e03869b57b581f4d3031f770",
-      "repository": "https://github.com/djohansson/vcpkg",
-      "reference": "fastbuild-2026.07.29",
-      "packages": [
-        "*"
-      ]
-    }
-  ],
+  "default-registry": {
+    "kind": "git",
+    "repository": "https://github.com/microsoft/vcpkg",
+    "baseline": "9eec002df1cd109f8f104cd966a763daf9751489"
+  },
   "overlay-ports": [
     "ports"
   ]

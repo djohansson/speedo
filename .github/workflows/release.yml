@@ -69,8 +69,6 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: true
 
       # on Linux also desktop-file-validate, which appimagetool runs on the AppImage's .desktop file (it stopped without it)
       - name: Setup

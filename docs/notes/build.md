@@ -124,9 +124,10 @@ error: no member named 'pow' in namespace 'std'; did you mean simply 'pow'?
 This is expected fallout of the libc++ switch, not a sign anything else is broken — and it will keep
 surfacing as untouched ports get exercised for the first time under this triplet. Fix by adding the
 missing `#include` via a patch on the specific port (see `ports/tracy/0005-*`/`0006-*`). If the port
-isn't already a local overlay, copy its `portfile.cmake`/`vcpkg.json` from
-`%LOCALAPPDATA%\vcpkg\registries\git-trees\<commit>\` into a new `ports/<name>/` overlay dir and add
-the patch there (see `ports/parallel-hashmap/`). Generate patches with `git diff`/`git format-patch`
+isn't already a local overlay, copy its port at the registry's baseline (see the vcpkg section below) into a new
+`ports/<name>/` overlay dir and add the patch there (see `ports/ppqsort/`). When the baseline moves, rebase an overlay
+on upstream's port the same way (its newer patches kept, ours put back after them, each checked with `git apply --check`
+on the new sources). Generate patches with `git diff`/`git format-patch`
 rather than by hand: an unchanged blank line inside a hunk must be a single space, not an empty line.
 An empty one only works while the file has LF endings; with CRLF it is `"\r"` and `git apply` fails
 with `corrupt patch at <file>:<line>` (`.gitattributes` now pins `*.patch` to LF as a backstop). The same class of bug can also hit our own code that
@@ -137,8 +138,8 @@ call, not a cast).
 
 ## `clang.toolchain.cmake`: variables from `vcpkg.cmake` aren't available yet when chainloaded
 
-`VCPKG_CHAINLOAD_TOOLCHAIN_FILE` is `include()`d by `vcpkg.cmake` (`vcpkg/scripts/buildsystems/
-vcpkg.cmake:208`) *before* it sets `CURRENT_INSTALLED_DIR`/`CURRENT_HOST_INSTALLED_DIR`/triplet info
+`VCPKG_CHAINLOAD_TOOLCHAIN_FILE` is `include()`d by `vcpkg.cmake` (`<vcpkg root>/scripts/buildsystems/
+vcpkg.cmake:208`, line numbers as of 2026) *before* it sets `CURRENT_INSTALLED_DIR`/`CURRENT_HOST_INSTALLED_DIR`/triplet info
 (set later, ~line 233+). Code in `clang.toolchain.cmake` that reads those variables only works via a
 path that doesn't need them — e.g. the `DEFINED ENV{LLVM_ROOT}` branch, which is always taken in the
 real dev workflow because presets set that env var (see above). The `else()`/`elseif()` fallback
@@ -195,12 +196,29 @@ explicitly, it's not implied by `LLVM_ROOT/bin` already being present. Both gaps
 sibling DLLs (`vulkan-1.dll`, `cpptrace.dll`, etc. next to it in the build dir), check the build log
 for swallowed `applocal.ps1` errors before assuming the DLLs were never needed.
 
-## vcpkg: overlay ports, per-port triplet options, and the fork registry
+## vcpkg: overlay ports, per-port triplet options, and upstream's registry
 
-The registry in `vcpkg-configuration.json` is the `djohansson/vcpkg` fork (upstream release + the FASTBuild
-commits). Its `"reference"` must name the fork branch the `baseline` commit lives on: without it vcpkg reads the
-versions database from the fork's default branch and fails with `no version database entry for <port> at <ver>`.
-Keep `builtin-baseline` in `vcpkg.json`, the registry `baseline`, and the `vcpkg` submodule on the same commit.
+vcpkg is upstream's (microsoft/vcpkg), without a clone since 2026-11-09 (it was a submodule): setup installs the vcpkg
+tool and its scripts bundle (`vcpkg-standalone-bundle.tar.gz`: `scripts/` and `triplets/`, no ports), the release
+`scripts/vcpkg-tool.json` pins with their SHA-512s, into `~/.vcpkg-tool/<release>` (`SPEEDO_VCPKG_ROOT` for another; not
+`~/.vcpkg`, vcpkg's own one-line install, which updates itself), the downloads in `~/.vcpkg-tool/downloads` (shared by
+every clone and release; `VCPKG_DOWNLOADS`), and the ports' build trees and packages in the clone's `temp/vcpkg`. The
+ports come from the git registry `vcpkg-configuration.json` names (microsoft/vcpkg at the 2026.10.16 release, 9eec002d),
+which vcpkg fetches into `~/.cache/vcpkg/registries` once a machine. The bundle's scripts are a later commit's
+(ab9a05e7, 2026-10-28, tool 2026-10-29) than the ports': newer scripts over a release's ports, as vcpkg's one-line
+install runs them. A bump: the tool release and its hashes in `scripts/vcpkg-tool.json` (upstream's
+`scripts/vcpkg-tool-metadata.txt` lists the Linux and macOS ones), and the registry's baseline. Every package rebuilds
+then (the scripts a portfile uses, and vcpkg's CMake, are in its hash): seed the shared cache from each platform
+afterwards (see below). An upstream port to rebase an overlay on: `git show <baseline>:ports/<name>/<file>` in the
+registry's cache, or a clone.
+
+Until 2026-11-09 it was the `djohansson/vcpkg` fork (a release plus FASTBuild support: `vcpkg_find_acquire_program(
+FASTBUILD)` and its tools entries), as a git registry. Retired at the user's call (no fork to maintain): FASTBuild still
+builds the ports, through the overlay of `vcpkg-cmake` (FASTBuild the default generator, Ninja where a port asks for it
+with `PREFER_NINJA` or names it), which takes FBuild from the `vcpkg-tool-fastbuild` host port (its dependency; FASTBuild
+1.20 since 2026-11-09, the project's own builds' too). The overlay's changes are offered upstream (microsoft/vcpkg PRs),
+after which it could go. The fork's other changes were unused: compiler detection (every triplet disables compiler
+tracking) and `ports.cmake`'s CMake minimum.
 
 Prefer upstream ports over overlays in `ports/`. When an overlay only adds CMake options, put them in the
 triplets instead (`if(PORT STREQUAL "<port>") list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS ...)`, see the end of
@@ -363,9 +381,9 @@ same install):
 - not the line endings Git checked out: vcpkg hashes the overlay ports' files, the triplets and the toolchain (and the
   post-portfile includes) as they are on disk, and Git for Windows' `core.autocrlf` checks them out with CRLF, so a
   Windows clone's hashes depended on its Git settings (one with it off would have missed every package, LLVM included).
-  `.gitattributes` checks `ports/**` and `scripts/cmake/**` out with LF everywhere; the four files committed with CRLF
-  keep it (`text=auto`), the same bytes everywhere. The registry's ports are extracted as their blobs are (the fork's
-  `* -text`; checked, all 220 here), and vcpkg's own scripts too. The CMake and PowerShell in the hashes are vcpkg's
+  `.gitattributes` checks `ports/**` and `scripts/cmake/**` out with LF everywhere; the files committed with CRLF
+  keep it (`text=auto`), the same bytes everywhere (`git ls-files --eol ports scripts/cmake | grep i/crlf` lists them). The registry's ports are checked out as their blobs are (vcpkg's
+  `* -text`; checked, all 220 here, in the fork it was then), and vcpkg's own scripts too. The CMake and PowerShell in the hashes are vcpkg's
   downloads, pinned by its tool, not the system's.
 
 The host packages (`arm64-osx-release`: LLVM, the toolchain itself, mesa's KosmicKrisp, the spirv tools) are built by the
@@ -437,11 +455,10 @@ distribution needed, beyond what GitHub's image has:
   `curl`, `zip`, `unzip`, `tar`, `python3-venv` (meson's ports, libsystemd), `ninja-build` (meson builds with the one on the
   path), `autoconf-archive` and `automake` (autotools' ports: libxcrypt, libmount, gperf), and the AWS CLI for a cache
   writer (AWS's installer: Ubuntu's archive dropped `awscli` in 24.04).
-- FASTBuild: its Linux zip was made on Windows and holds no file modes, so the `fbuild` vcpkg extracted wasn't executable
-  ("Unable to find FASTBUILD"). The fix belongs in the fork's `vcpkg_find_acquire_program(FASTBUILD)` (a chmod after the
-  extraction), but `vcpkg-cmake`'s hash names that script, and so every package's on every platform: `linux.ps1` extracts
-  it where vcpkg looks first, executable, by the script's url and SHA-512. Move it into the fork with the next change that
-  rebuilds everything anyway (a vcpkg update).
+- FASTBuild: its Linux zip was made on Windows and holds no file modes, so the `fbuild` the fork's
+  `vcpkg_find_acquire_program(FASTBUILD)` extracted wasn't executable ("Unable to find FASTBUILD"), and `linux.ps1`
+  extracted it first, executable. Gone with the fork (2026-11-09): the ports take FBuild from the `vcpkg-tool-fastbuild`
+  host port, which installs it with its modes set (`FILE_PERMISSIONS`).
 - The host triplets (`x64-linux-release`, `arm64-linux-release`) build with the system's clang, lld and LLVM's archiver,
   as Apple's toolchain is on macOS: their `-flto=thin` is clang's, and ThinLTO's bitcode takes LLVM's linker and archiver.
 

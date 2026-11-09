@@ -50,30 +50,6 @@ if ($env:SPEEDO_BINARY_CACHE_WRITE -and -not (Get-Command "aws" -ErrorAction Sil
 	Remove-Item -Recurse -Force $AwsTemp
 }
 
-# FASTBuild where vcpkg's builds look for it first (vcpkg_find_acquire_program(FASTBUILD), the fork's): its Linux zip was
-# made on Windows and holds no file modes, so what vcpkg extracts from it isn't executable, and the builds failed ("Unable
-# to find FASTBUILD"). A post-install chmod in the fork's script would change vcpkg-cmake's hash, which names that script,
-# and so every package's on every platform: setup extracts it there first, executable, by the script's url and hash
-$FastBuildScript = Get-Content -Raw -Path "$PSScriptRoot/../../../vcpkg/scripts/cmake/vcpkg_find_acquire_program(FASTBUILD).cmake"
-$FastBuildVersion = [regex]::Match($FastBuildScript, 'set\(program_version ([^)\s]+)\)').Groups[1].Value
-$FastBuildLinux = [regex]::Match($FastBuildScript, '(?s)"Linux".*?download_urls "([^"]+)".*?download_sha512 (\w+)')
-if ((uname -m) -match 'x86_64|amd64' -and $FastBuildVersion -and $FastBuildLinux.Success)
-{
-	$FastBuildDir = "$PSScriptRoot/../../../vcpkg/downloads/tools/fbuild/$FastBuildVersion-linux"
-	if (-not (Test-Path "$FastBuildDir/fbuild") -or -not ((Get-Item "$FastBuildDir/fbuild").UnixFileMode -band [IO.UnixFileMode]::UserExecute))
-	{
-		Write-Host "Installing FASTBuild $FastBuildVersion for vcpkg..."
-		$FastBuildZip = Join-Path ([IO.Path]::GetTempPath()) "fastbuild-$PID.zip"
-		curl -fsSL -o $FastBuildZip ($FastBuildLinux.Groups[1].Value -replace '\$\{program_version\}', $FastBuildVersion)
-		if ($LASTEXITCODE -ne 0) { throw "FASTBuild download failed with exit code $LASTEXITCODE" }
-		if ((Get-FileHash -Algorithm SHA512 $FastBuildZip).Hash -ne $FastBuildLinux.Groups[2].Value) { throw "FASTBuild's download doesn't match its SHA-512" }
-		New-Item -ItemType Directory -Force -Path $FastBuildDir | Out-Null
-		unzip -q -o $FastBuildZip -d $FastBuildDir
-		chmod +x "$FastBuildDir/fbuild" "$FastBuildDir/fbuildworker"
-		Remove-Item -Force $FastBuildZip
-	}
-}
-
 # the C library's version, which the linux clang triplets track in their packages' ABI: a package built against a newer
 # glibc fails to load with an older one, so the shared binary cache's packages must match it (e.g. "glibc 2.39")
 $global:Env['GLIBC_VERSION'] = $(getconf GNU_LIBC_VERSION 2>$null) ?? 'unknown'

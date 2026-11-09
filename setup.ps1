@@ -20,8 +20,9 @@ if (Test-Path $EnvFile)
 	$global:Env = Get-Content -Path $EnvFile -Raw | ConvertFrom-Json -AsHashtable
 }
 
-# values that, when changed by an OS/SDK/toolchain update, invalidate existing CMake build directories
-$PlatformStateKeys = @('SDKROOT', 'MACOS_BUILD_VERSION', 'WINDOWS_SDK_VERSION', 'VISUAL_STUDIO_VCTOOLS_VERSION')
+# values that, when changed by an OS/SDK/toolchain update, invalidate existing CMake build directories; VCPKG_ROOT too, as
+# the build directories cache the toolchain file under it (a vcpkg release bump, or the submodule's retirement)
+$PlatformStateKeys = @('SDKROOT', 'MACOS_BUILD_VERSION', 'WINDOWS_SDK_VERSION', 'VISUAL_STUDIO_VCTOOLS_VERSION', 'VCPKG_ROOT')
 $PreviousPlatformState = @{}
 foreach ($Key in $PlatformStateKeys)
 {
@@ -38,10 +39,35 @@ if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $Platforms.Length)
 	$Platform = $Platforms[$PlatformIndex]
 	& $PSScriptRoot/scripts/platforms/$Platform/$Platform.ps1
 
-	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg$exeSuffix))
+	# vcpkg without a clone (its standalone deployment): the tool and its scripts bundle (scripts and triplets, no ports)
+	# of the release scripts/vcpkg-tool.json pins, each release in a directory of its own under ~/.vcpkg-tool
+	# (SPEEDO_VCPKG_ROOT for another; not ~/.vcpkg, vcpkg's own one-line install, which updates itself), checked by
+	# their SHA-512; the ports come from the git registry vcpkg-configuration.json names. Until 2026-11-09 vcpkg was a
+	# submodule, a clone of its repository
+	$VcpkgTool = Get-Content -Raw -Path "$PSScriptRoot/scripts/vcpkg-tool.json" | ConvertFrom-Json
+	$VcpkgRoot = $env:SPEEDO_VCPKG_ROOT ? $env:SPEEDO_VCPKG_ROOT : (Join-Path $HOME '.vcpkg-tool' $VcpkgTool.release)
+	if (!(Test-Path (Join-Path $VcpkgRoot "vcpkg$exeSuffix")))
 	{
-		Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg$scriptSuffix")
-		if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg$scriptSuffix failed with exit code $LASTEXITCODE" }
+		$ToolKey = $Platform -eq 'osx' ? 'osx' : "$Platform-$(Get-HostArchitecture)"
+		$Tool = $VcpkgTool.tool.$ToolKey
+		if (!$Tool) { throw "scripts/vcpkg-tool.json names no vcpkg tool for $ToolKey" }
+		$ReleaseUrl = "https://github.com/microsoft/vcpkg-tool/releases/download/$($VcpkgTool.release)"
+		$Partial = "$VcpkgRoot.partial"
+		Remove-Item -Recurse -Force -Path $Partial -ErrorAction SilentlyContinue
+		New-Item -ItemType Directory -Force -Path $Partial | Out-Null
+		foreach ($Download in @(@{ File = $VcpkgTool.bundle.file; Sha512 = $VcpkgTool.bundle.sha512 }, @{ File = $Tool.file; Sha512 = $Tool.sha512 }))
+		{
+			Write-Host "Downloading vcpkg $($VcpkgTool.release): $($Download.File)..."
+			$Path = Join-Path $Partial $Download.File
+			Invoke-WebRequest -Uri "$ReleaseUrl/$($Download.File)" -OutFile $Path
+			if ((Get-FileHash -Algorithm SHA512 -Path $Path).Hash -ne $Download.Sha512) { throw "vcpkg's $($Download.File) doesn't match its SHA-512 in scripts/vcpkg-tool.json" }
+		}
+		tar -xzf (Join-Path $Partial $VcpkgTool.bundle.file) -C $Partial
+		if ($LASTEXITCODE -ne 0) { throw "extracting vcpkg's scripts bundle failed with exit code $LASTEXITCODE" }
+		Remove-Item -Force -Path (Join-Path $Partial $VcpkgTool.bundle.file)
+		Move-Item -Force -Path (Join-Path $Partial $Tool.file) -Destination (Join-Path $Partial "vcpkg$exeSuffix")
+		if (!$IsWindows) { chmod +x (Join-Path $Partial 'vcpkg') }
+		Move-Item -Path $Partial -Destination $VcpkgRoot
 	}
 }
 else
@@ -49,7 +75,11 @@ else
 	Write-Error "Unsupported Operating System" # please implement me
 }
 
-$global:Env['VCPKG_ROOT'] = "$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg'
+$global:Env['VCPKG_ROOT'] = $VcpkgRoot
+# the sources ports download, shared by every clone and vcpkg release (VCPKG_DOWNLOADS to put them elsewhere); the ports'
+# build trees and packages are the clone's own, under temp/vcpkg (see $VcpkgOptions and the presets)
+$global:Env['VCPKG_DOWNLOADS'] = $env:VCPKG_DOWNLOADS ? $env:VCPKG_DOWNLOADS : (Join-Path $HOME '.vcpkg-tool' 'downloads')
+New-Item -ItemType Directory -Force -Path $global:Env['VCPKG_DOWNLOADS'] | Out-Null
 
 # the llvm port's version, which the clang triplets track in their packages' ABI (VCPKG_ENV_PASSTHROUGH): the compiler is
 # that port's (a host package, which vcpkg's compiler tracking can't see, VCPKG_DISABLE_COMPILER_TRACKING), so without it
@@ -100,7 +130,7 @@ $CMakePresets = [ordered] @{
 			cacheVariables = [ordered] @{
 				VCPKG_HOST_TRIPLET = "$(Get-HostTriplet)"
 				VCPKG_TARGET_TRIPLET = "$(Get-TargetTriplet)"
-				VCPKG_INSTALL_OPTIONS = '--x-abi-tools-use-exact-versions;--no-print-usage' #;--debug'
+				VCPKG_INSTALL_OPTIONS = '--x-abi-tools-use-exact-versions;--no-print-usage;--x-buildtrees-root=${sourceDir}/temp/vcpkg/buildtrees;--x-packages-root=${sourceDir}/temp/vcpkg/packages' #;--debug'
 				VCPKG_INSTALLED_DIR = "`${sourceDir}/install" # reminder: installDir (cmake), VCPKG_INSTALLED_DIR (vcpkg, same as --x-install-root)
 				VCPKG_OVERLAY_TRIPLETS = '${sourceDir}/scripts/cmake/triplets'
 				VCPKG_MANIFEST_DIR = '${sourceDir}'
@@ -114,6 +144,7 @@ $CMakePresets = [ordered] @{
 			}
 			environment = [ordered] @{
 				VCPKG_ROOT = "$env:VCPKG_ROOT"
+				VCPKG_DOWNLOADS = "$env:VCPKG_DOWNLOADS"
 				# the binary cache's sources and the llvm port's version (tracked by the clang triplets), as setup's own vcpkg
 				# run has them, for the vcpkg runs a configure starts (the vscode cmake extension's too)
 				VCPKG_BINARY_SOURCES = "$env:VCPKG_BINARY_SOURCES"
@@ -460,17 +491,20 @@ $VSCodeTasks | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/.vscode/tasks.j
 $env:LLVM_ROOT = "$PSScriptRoot/install/$(Get-HostTriplet)"
 $env:LLVM_TOOLS_BINARY_DIR = "$PSScriptRoot/install/$(Get-HostTriplet)/tools/llvm"
 
-$VcpkgOptions = (@(
-	"--vcpkg-root $env:VCPKG_ROOT"
+# an argument list (not a command line for Invoke-Expression): VCPKG_ROOT is under the home directory, which may hold spaces
+$VcpkgOptions = @(
+	"--vcpkg-root=$env:VCPKG_ROOT"
 	"--x-install-root=$PSScriptRoot/install"
+	"--x-buildtrees-root=$PSScriptRoot/temp/vcpkg/buildtrees"
+	"--x-packages-root=$PSScriptRoot/temp/vcpkg/packages"
 	"--overlay-triplets=$PSScriptRoot/scripts/cmake/triplets"
-	"--host-triplet $(Get-HostTriplet)"
+	"--host-triplet=$(Get-HostTriplet)"
 	"--triplet=$(Get-TargetTriplet)"
 	'--x-abi-tools-use-exact-versions'
 	'--no-print-usage'
-) + @(if (-not $ProfilerApp) { @('--x-no-default-features') + @($ManifestFeatures | ForEach-Object { "--x-feature=$_" }) })) -join ' '
+) + @(if (-not $ProfilerApp) { @('--x-no-default-features') + @($ManifestFeatures | ForEach-Object { "--x-feature=$_" }) })
 
-Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install $VcpkgOptions")
+& (Join-Path $env:VCPKG_ROOT "vcpkg$exeSuffix") install @VcpkgOptions
 if ($LASTEXITCODE -ne 0)
 {
 	Write-Host "vcpkg install failed with exit code $LASTEXITCODE"

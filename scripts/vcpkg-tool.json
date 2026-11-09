@@ -1,0 +1,29 @@
+{
+  "release": "2026-10-29",
+  "bundle": {
+    "file": "vcpkg-standalone-bundle.tar.gz",
+    "sha512": "2699b0b29a821796ba8cb980dba3d9dc66c9a30cfe02d589c3dd0ea00f0235a3608c13fb4e1d01f95c58d274a70b4a92fe629614895decc91b71ccecafe0e8ea"
+  },
+  "tool": {
+    "osx": {
+      "file": "vcpkg-macos",
+      "sha512": "55f8d73b96f2febc89639d5833f45465c0c0317e65342fa8fafee36692155112e8805a0cd85c1c4e68f1948b619d6c2a0c17eb6840d7c0b59623bba5a9502e6e"
+    },
+    "linux-x64": {
+      "file": "vcpkg-glibc",
+      "sha512": "f51de3c3191c451c57eb4234322cc10515365c6dbe3e4968793e35cc64c6f101fe02bf52f3d2061e208c2a81dc629cf8b2beffb86b6eb3cae967c813787d611f"
+    },
+    "linux-arm64": {
+      "file": "vcpkg-glibc-arm64",
+      "sha512": "59597bee9616ba46ad55fb2663e13326b853108c574ee9dca3b66ed6f7b40345aee52d381e63da905f6cd837da918fe771e2083627ed701abcbc1f1f48cbf38d"
+    },
+    "windows-x64": {
+      "file": "vcpkg.exe",
+      "sha512": "18a3ac319fc494fd5ecd795c74d3a1f327e5b7c335fb7d697b5e9e236990a4e6a5433a70fe48a88e8f267349b6d07946426e130c60a1a801dfaf089b3084d6c0"
+    },
+    "windows-arm64": {
+      "file": "vcpkg-arm64.exe",
+      "sha512": "ac46145f5448f22ac83ca068d4eb34a96253cae2abe88304d62ed7bdd59d3255f016baab27b9d99032a3d594430f3e6f0ad65e3f9ccaa5342c13e90b99357af8"
+    }
+  }
+}

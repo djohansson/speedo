@@ -1,6 +1,7 @@
 {
   "name": "vcpkg-tool-fastbuild",
-  "version-date": "2026-03-30",
-  "documentation": "https://learn.microsoft.com/vcpkg/maintainers/functions/vcpkg_find_acquire_program",
+  "version": "1.20",
+  "description": "FASTBuild (https://fastbuild.org), the build tool CMake's FASTBuild generator runs: for the project's build and, through the overlay of vcpkg-cmake, the ports'",
+  "homepage": "https://fastbuild.org",
   "license": "MIT"
 }

@@ -69,30 +69,19 @@ function(vcpkg_cmake_configure)
         endif()
     endif()
 
+    # speedo overlay: FASTBuild is the default generator (from the vcpkg-tool-fastbuild host port, a dependency of this
+    # port), Ninja where a port asks for it with PREFER_NINJA
     set(ninja_host OFF) # Ninja availability
-    set(fastbuild_host OFF) # FASTBuild availability
-
-    if (arg_PREFER_NINJA)
+    set(fastbuild_host ON) # FASTBuild availability
+    if(arg_PREFER_NINJA)
         set(ninja_host ON)
-    else()
-        set(fastbuild_host ON)
+        set(fastbuild_host OFF)
     endif()
-
-    if(ninja_host AND host_architecture STREQUAL "x86" OR DEFINED ENV{VCPKG_FORCE_SYSTEM_BINARIES})
+    if(ninja_host AND (host_architecture STREQUAL "x86" OR DEFINED ENV{VCPKG_FORCE_SYSTEM_BINARIES}))
         # Prebuilt ninja binaries are only provided for x64 hosts
         find_program(NINJA NAMES ninja ninja-build)
         if(NOT NINJA)
             set(ninja_host OFF)
-            set(arg_DISABLE_PARALLEL_CONFIGURE ON)
-            set(arg_WINDOWS_USE_MSBUILD ON)
-        endif()
-    endif()
-
-    if(fastbuild_host AND host_architecture STREQUAL "x86" OR DEFINED ENV{VCPKG_FORCE_SYSTEM_BINARIES})
-        # Prebuilt ninja binaries are only provided for x64 hosts
-        find_program(FASTBUILD NAMES fbuild FBuild FBuild.exe)
-        if(NOT FASTBUILD)
-            set(fastbuild_host OFF)
             set(arg_DISABLE_PARALLEL_CONFIGURE ON)
             set(arg_WINDOWS_USE_MSBUILD ON)
         endif()
@@ -145,7 +134,10 @@ function(vcpkg_cmake_configure)
         )
         set(log_args "build.ninja")
     elseif(generator STREQUAL "FASTBuild")
-        vcpkg_find_acquire_program(FASTBUILD)
+        find_program(FASTBUILD NAMES FBuild fbuild FBuild.exe PATHS "${CURRENT_HOST_INSTALLED_DIR}/tools/fastbuild" NO_DEFAULT_PATH)
+        if(NOT FASTBUILD)
+            message(FATAL_ERROR "FASTBuild not found in ${CURRENT_HOST_INSTALLED_DIR}/tools/fastbuild: the vcpkg-tool-fastbuild host port provides it")
+        endif()
         vcpkg_list(APPEND arg_OPTIONS "-DCMAKE_MAKE_PROGRAM=${FASTBUILD}")
         # If we use FASTBuild, it must be on PATH for CMake's ExternalProject,
         # cf. https://gitlab.kitware.com/cmake/cmake/-/issues/23355.
@@ -274,6 +266,8 @@ function(vcpkg_cmake_configure)
         "-DCMAKE_BUILD_TYPE=Debug"
         "-DCMAKE_INSTALL_PREFIX=${CURRENT_PACKAGES_DIR}/debug"
         ${arg_OPTIONS} ${arg_OPTIONS_DEBUG})
+
+    vcpkg_host_path_list(REMOVE_DUPLICATES ENV{PATH})
 
     if(NOT arg_DISABLE_PARALLEL_CONFIGURE)
         vcpkg_list(APPEND arg_OPTIONS "-DCMAKE_DISABLE_SOURCE_CHANGES=ON")

@@ -49,8 +49,6 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: true
 
       # the quick tier's test assets, kept between runs (800 MB from their sites otherwise), in the runner's temporary dir
       # (the cache rejects a path with '..', so beside the checkout didn't save). The vcpkg packages come from the shared
@@ -136,8 +134,6 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: true
 
       # as macOS's (actions/cache keeps each OS's apart)
       - name: Cache test assets
@@ -217,8 +213,6 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: true
 
       - name: Cache test assets
         uses: actions/cache@v6
