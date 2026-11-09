@@ -246,6 +246,40 @@ Consequences:
   yet aborts in `-[IOGPUMetalDeviceShmemPool dealloc]` (`_allocatedSize == 0`), even after the fences were waited on.
   It took switching models with a cold pipeline cache to show (DamagedHelmet, then AnimationPointerUVs: one run in
   three).
+- **The same abort at exit, not yet explained (2026-11-09).** About one quick tier client in 500 (AnimationPointerUVs,
+  four clients side by side from a new work dir: the model's pipelines cold) aborted in `-[IOGPUMetalDeviceShmemPool
+  dealloc]` from `Queue::~Queue`'s `vkDestroyCommandPool`: `kk_DestroyCommandPool` releasing one of the pool's Metal 4
+  command allocators with live allocations in it (the first `mtl_release` loop of `kk_cmd_pool_release_mtl_objects`, by
+  the return address, `_kk_DestroyCommandPool + 323`). Not reproduced: 0 in 10 single runs of AnimationPointerUVs (all
+  its variants, validated) from the warm-up's profile, 0 in 8 beside 12 cpu-bound loops. Ruled out:
+  - Metal's completion of committed command buffers lagging the fence waits. KosmicKrisp counts only its re-recorded
+    commits in flight (`commits_in_flight`); a normal commit's feedback handler only checks for a lost device. A build
+    that delayed the feedback handler by 5 ms had about 250 commits awaiting feedback when the pools went, and didn't
+    abort (100 ms stalled the client into the hang detector, the handlers run one at a time): Metal gives a completed
+    command buffer's memory back to its allocator whether or not its feedback handler ran, so waiting for them in
+    `kk_DestroyCommandPool` wouldn't help.
+  - What KosmicKrisp does with allocators, in a standalone Metal 4 program (up to 2000 iterations a case, none aborted):
+    an allocator released before a command buffer that encoded with it and was never committed (as KosmicKrisp's
+    secondaries: their commands only go to the `vk_cmd_queue`, which `vkCmdExecuteCommands` replays, but each begins
+    and ends a Metal command buffer of its own), released right after the queue's shared event was waited on (as a
+    fence wait), shared by 64 command buffers in turn (half never committed), or after a command buffer moved on to
+    another allocator (a reused command buffer takes whichever allocator tops the pool's free list). A committed command
+    buffer evidently keeps its allocator alive until done with it.
+
+  On the way: KosmicKrisp never resets its allocators (`mtl_command_allocator_reset` has no caller), and a busy one's
+  heaps (`allocatedSize`) were about 130 MB: 252 MB in all after 30 frames, 264 after 300, a high-water mark rather
+  than a leak. A committed command buffer's memory is reused once it completes (64 on one allocator: 4.7 MB), an
+  uncommitted one's held until it's begun again or freed (17 MB with half uncommitted).
+
+  To catch it next time (the user's call; not run yet): a KosmicKrisp build that logs, for each allocator just before
+  `kk_cmd_pool_release_mtl_objects` releases it, its `allocatedSize`, how many primary and secondary command buffers
+  began with it, how many of them were committed and completed (their feedback), and when each last happened, with the
+  commits awaiting feedback. Loaded through `VK_DRIVER_FILES` (an ICD json of its own pointing at the build) in quick
+  tiers repeated from a work dir holding only the warm-up's profile (`user`: the models' pipelines cold), four clients
+  at a time, until a client aborts: the line before the abort names the allocator. vcpkg's meson build dir
+  (`vcpkg/buildtrees/mesa/arm64-osx-release-rel`) rebuilds the dylib with `ninja` in seconds; back up and restore the
+  sources it builds (a `.clean` tree under `src/`, which vcpkg may reuse). Mesa's policy (its `AGENTS.md`) keeps such
+  code local, and a report to Apple or to KosmicKrisp's developers is the user's own.
 
 ## Descriptor sets: redundant updates consume the pool
 
