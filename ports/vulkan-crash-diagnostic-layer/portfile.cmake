@@ -4,7 +4,7 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO LunarG/CrashDiagnosticLayer
     REF "vulkan-sdk-${VERSION}"
-    SHA512 551784d3613d4e6f5d8b6bee66efc97e7f1a81e61121fd9cbb71ed9ed6154766837f415cd7130406e0c88c36f8616f0968c739be53dfbb044f3d907763bf734e
+    SHA512 5bde995131106dc951a8e78b9d882e23647f08f04575c4f27bd396982f63076cfa9ad8b4df276075d08938f6bdcd34eb5ed8e0185b43d79c0de0b1a3b56f32d0
     HEAD_REF main
     PATCHES
         fix-clang-windows-def-exports.diff
