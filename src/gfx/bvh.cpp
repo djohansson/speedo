@@ -198,7 +198,10 @@ Data Build(std::span<const Triangle> triangles, core::TaskExecutor& executor)
 {
 	ZoneScopedN("gfx::bvh::Build");
 
-	tinybvh::tinybvh_set_fatal_error_handler(detail::FatalError);
+	// tinybvh's handler is a global: set once, since builds run on several threads at once (models loaded side by side),
+	// which raced each setting it (tsan)
+	[[maybe_unused]] static const bool fatalErrorHandlerSet =
+		(tinybvh::tinybvh_set_fatal_error_handler(detail::FatalError), true);
 
 	Data data;
 	data.triangleCount = static_cast<uint32_t>(triangles.size());
