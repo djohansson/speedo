@@ -1,7 +1,10 @@
 {
   "name": "picosha2",
   "version-date": "2024-06-16",
-  "port-version": 2,
-  "description": "(Fork) PicoSHA2 - a C++ SHA256 hash generator",
-  "homepage": "https://github.com/djohansson/PicoSHA2"
+  "port-version": 3,
+  "description": "(Fork) PicoSHA2 - a C++ SHA256 hash generator, hashing with sha-intrinsics' SHA256_PROCESS (the cpu's SHA instructions where it has them)",
+  "homepage": "https://github.com/djohansson/PicoSHA2",
+  "dependencies": [
+    "sha-intrinsics"
+  ]
 }
