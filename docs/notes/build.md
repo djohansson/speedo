@@ -14,7 +14,10 @@ there needs a size that is a multiple of the alignment, and on macOS an alignmen
 null, which failed `vkCreateInstance` and `vkCreateDevice` out of host memory). Run it on the quick tier:
 `pwsh scripts/assettest.ps1 -Preset <triplet>-sanitize -Client ...`, which sets `UBSAN_OPTIONS=print_stacktrace=1`
 and the host llvm's `llvm-symbolizer`, and fails a run on its reports (`ERROR: AddressSanitizer`, `runtime error:`).
-The quick tier passes, assettest and clients.
+The quick tier passes, assettest and clients. A cold shader compile is slow there: slang isn't instrumented, but its
+allocations go through the sanitizer's allocator, which records a stack trace for each, so a client on a fresh profile
+took 291 s alone (CornellBox, 2026-11-09) and four side by side 536 to 601 s, against the clients' 600 s timeout: hence
+assettest's warm-up (see docs/notes/assets.md).
 
 `<triplet>-tsan` is the same with `SPEEDO_SANITIZE=thread` (tsan combines with neither asan nor ubsan). tsan reports and
 goes on, exiting with 66 (an abort, on macOS) once done; `assettest.ps1` sets `TSAN_OPTIONS` (the symbolizer, and

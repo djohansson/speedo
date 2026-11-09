@@ -30,8 +30,9 @@ SPEEDO_RAY_QUERY=1 on macOS, and which made the gpu restart and the machine pani
 user-N), and a model to the same worker (by a hash of its name), whose caches stay warm, each worker's longest first (by
 what they took last time, <work>/logs/<preset>/durations.tsv); a worker with none of its own left takes the shortest
 of the busiest worker's (the most time left), so that the end of a run isn't one worker's alone. On macOS a new worker's
-dir starts as a copy-on-write clone of <work>/user if that exists (the profile dir of serial runs), warm too. Results are printed in
-the order of a serial run. assettest checks its models and images on all of the cpu's threads.
+dir starts as a copy-on-write clone of <work>/user, warm too: in a new work dir a first client (the warm-up, with the sky
+alone) compiles the shaders and makes the pipelines into it, once, rather than every worker at once (four cold compiles side
+by side took a sanitize build's clients past the timeout). Results are printed in the order of a serial run. assettest checks its models and images on all of the cpu's threads.
 
 Inputs are directories, zip archives and panoramas (.hdr). scripts/fetch-test-assets.ps1 -Quick prints a smaller set,
 a model or two per feature, for iterating.
@@ -400,7 +401,8 @@ if ($Client)
 		}
 		try
 		{
-			$user = Join-Path $Work "user-$($Run.Worker)"
+			# worker 0: the warm-up's, the profile the workers' start from (see Invoke-ClientRuns)
+			$user = Join-Path $Work $(if ($Run.Worker -gt 0) { "user-$($Run.Worker)" } else { 'user' })
 			$Run.Process = Start-Process -FilePath $clientExe -ArgumentList '-u', "`"$user`"" -PassThru -NoNewWindow `
 				-RedirectStandardOutput $Run.Log -RedirectStandardError "$($Run.Log).stderr"
 		}
@@ -445,7 +447,7 @@ if ($Client)
 		$seconds = [int]((Get-Date) - $Run.Start).TotalSeconds
 		$Run.Seconds = $seconds
 		$Run.TimedOut = $TimedOut
-		$name = if ($Run.PresentationTest) { $Run.Label } elseif ($Run.Variables.Count -gt 0) { "$($Run.Model) ($($Run.Label))" } elseif ($Run.Model) { $Run.Model } else { $Run.Environment }
+		$name = if ($Run.PresentationTest) { $Run.Label } elseif ($Run.Variables.Count -gt 0) { "$($Run.Model) ($($Run.Label))" } elseif ($Run.Model) { $Run.Model } elseif ($Run.Environment) { $Run.Environment } else { $Run.Label }
 
 		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|Validation (Error|Warning): |WARNING-CoreValidation-|timed out after|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer' |
 			ForEach-Object Line | Group-Object | Sort-Object Name | Select-Object -First 5 |
@@ -491,9 +493,43 @@ if ($Client)
 	# -Alone keeps them to their workers (the presentation tests, all one worker's: each takes over the display)
 	function Invoke-ClientRuns([switch] $Alone)
 	{
-		# a new worker's profile starts as a copy of the serial runs' (<work>/user), on macos as a clone (copy-on-write, so
-		# it takes no time or space until it changes), so that its caches are warm
+		# wake the display, and keep it awake until the script exits: glfw finds no monitors while it sleeps (on macos), and
+		# the clients then fail to start. kept awake per client, as it was, nothing kept it awake between two, and once every
+		# client after the first failed so (57 of the quick tier's 58, 2026-11-04, the user away). before the warm-up below,
+		# which in a sanitize build outlasts the display's sleep timer (it slept 3 minutes into the first warm-up, whose ui
+		# frame's fence then timed out: a hang's crash report). A locked screen turns the display off within seconds whatever
+		# caffeinate asks: no client runs until it is unlocked
+		if ($caffeinate)
+		{
+			& $caffeinate -u -t 1
+			if (-not $script:awake)
+			{
+				$script:awake = Start-Process -FilePath $caffeinate.Source -ArgumentList '-d', '-i', '-w', $PID -PassThru
+			}
+		}
+
+		# a new worker's profile starts as a copy of <work>/user, on macos as a clone (copy-on-write, so it takes no time or
+		# space until it changes), so that its caches are warm. in a new work dir a client with nothing to load but the sky
+		# (the warm-up, a run like the others) first compiles the shaders and makes the pipelines into it, once: every worker
+		# compiling them at once, four cold compiles side by side took 601 s in a sanitize build, past the clients' timeout
+		# (the first of each worker's; one alone took 291 s)
 		$shared = Join-Path $Work 'user'
+		$fresh = -not (Test-Path -LiteralPath $shared) -and -not @(1..$Jobs | Where-Object { Test-Path -LiteralPath (Join-Path $Work "user-$_") })
+		if ($IsMacOS -and $Jobs -gt 1 -and $fresh)
+		{
+			$warmup = [pscustomobject]@{
+				Model = ''; Image = ''; Label = 'warm-up'; Environment = ''; PresentationTest = ''; Variables = @{}; Worker = 0
+				Process = $null; Start = $null; Log = (Join-Path $logs 'client-warm-up.log'); Done = $false; Lines = @()
+				Estimate = 0.0; Seconds = 0; TimedOut = $false
+			}
+			Start-ClientRun $warmup
+			while (-not $warmup.Process.HasExited -and ((Get-Date) - $warmup.Start).TotalSeconds -le $timeout)
+			{
+				Start-Sleep -Milliseconds 200
+			}
+			Complete-ClientRun $warmup (-not $warmup.Process.HasExited)
+			$warmup.Lines | ForEach-Object { Write-Output $_ }
+		}
 		foreach ($worker in 1..$Jobs)
 		{
 			$user = Join-Path $Work "user-$worker"
@@ -503,17 +539,6 @@ if ($Client)
 			}
 		}
 
-		# wake the display, and keep it awake until the script exits: glfw finds no monitors while it sleeps (on macos), and
-		# the clients then fail to start. kept awake per client, as it was, nothing kept it awake between two, and once every
-		# client after the first failed so (57 of the quick tier's 58, 2026-11-04, the user away)
-		if ($caffeinate)
-		{
-			& $caffeinate -u -t 1
-			if (-not $script:awake)
-			{
-				$script:awake = Start-Process -FilePath $caffeinate.Source -ArgumentList '-d', '-i', '-w', $PID -PassThru
-			}
-		}
 		$durations = Read-Durations
 		$known = @($durations.Values | Sort-Object)
 		$default = if ($known.Count -gt 0) { $known[[int]($known.Count / 2)] } else { 60.0 }

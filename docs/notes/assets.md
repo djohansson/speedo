@@ -440,11 +440,20 @@ the preset, `<work>/logs/<preset>/durations.tsv`), and a worker with none of its
 busiest worker's (the most time left; short, so cheap to load without its caches): assigned once and for all, the
 workers that ran out waited for the one with the most, and the end of a run was one worker's alone (the full debug run
 took 909 s for 2613 s of clients, of which 4 workers needed 653; with the stealing, on its first run without durations, 843 s for 3333 s, a fourth of which is 833: the stolen runs import again in the other profile, which the durations make the short ones); on macos a new worker profile is an APFS clone (`cp -c`) of
-`<work>/user`, the serial runs' profile. Results print in the serial order, and the logs are kept per preset (`<work>/logs/<preset>`: a debug run after a profile one overwrote its logs, so a profile failure couldn't be read). That took the full regression from about 30
+`<work>/user`, the serial runs' profile. Nothing filled that once the clients ran on workers, so in a new work dir each
+worker compiled the shaders and made the pipelines cold, four at once: in a sanitize build that took 536 to 601 s (the
+quick tier's first client of each worker; the clients' timeout is 600), where one client alone took 291 s. Since
+2026-11-09 a new work dir's first client is the warm-up (`client-warm-up.log`, counted as a run: the sky alone, into
+`<work>/user`), which the workers' clones then start from (only on macos, where they are clones; elsewhere each worker
+still compiles its own). Its first runs: the warm-up 25 s profile, 102 s sanitize, 166 s tsan, then the quick tier's 60
+clients passed in each (the sanitize quick tier, cpu checks and clients, in 199 s). Results print in the serial order, and the logs are kept per preset (`<work>/logs/<preset>`: a debug run after a profile one overwrote its logs, so a profile failure couldn't be read). That took the full regression from about 30
 minutes to 5 or 6 (130 to 175 s profile, 180 s debug, warm). (Before each client, the script also used to wait a second in `caffeinate -u -t 1` to wake the
 display; it wakes it once now, and keeps it awake until it exits, `caffeinate -d -i -w` on itself: kept awake per client,
 nothing held it between two, and once every client after the first failed at window creation, `GLFW: No monitor
-connected?`, 57 of the quick tier's 58 with the user away.) For iterating, `fetch-test-assets.ps1 -Quick` prints a quick tier instead
+connected?`, 57 of the quick tier's 58 with the user away. It keeps the display awake from before the warm-up, which
+in a sanitize build outlasts the display's 10 minute sleep timer. A locked screen turns the display off within seconds
+whatever caffeinate asks: on 2026-11-09, the screen locked, the display went off 12 s after the script woke it, and 56 of
+the 60 clients failed so: the clients need the screen unlocked.) For iterating, `fetch-test-assets.ps1 -Quick` prints a quick tier instead
 (`resources/test-asset-manifests/quick.txt`: a model or two per feature, plus the hand-made ones; about a minute, three and a half with ray query clients one at a time on the mac, validated); the full sets run
 before committing. `assettest.ps1` takes `.hdr` panoramas as inputs too, and runs a directory of one model's encodings
 given directly (a glTF sample model: its files all named after it) as one set, as when its parent is given. The client's
