@@ -247,9 +247,11 @@ of the assettest target), and `src/tools/environmentkernels*` run it in `Environ
 textures behind the prelude's `ITexture` (trilinear, around in u and clamped in v, as the gpu's sampler) and rows of
 groups on threads. A group's threads run one after another there, so the kernels can't use shared memory or group
 barriers (the irradiance is a thread per coefficient and row, then per coefficient, through an image of partials). The prelude's global names (`half`, `Vector`, ...) stay behind
-`environmentkernelsbridge.cpp` (plain types), away from the gfx headers. It included `<stdfloat>` for c++23 and up,
-which libc++ lacks in every language mode: `ports/shader-slang/0005-*` includes it only if `__has_include` finds it (to
-go to the fork, as 0001 to 0004 did). libc++ runs
+`environmentkernelsbridge.cpp` (plain types), away from the gfx headers. It includes `<stdfloat>` for c++23 and up,
+which libc++ lacks in every language mode: assettest has a `<stdfloat>` of its own on its include path
+(`src/tools/compat/stdfloat`: the standard library's where it has one, else `_Float16` through `<float.h>`, as the prelude
+takes before c++23), since slang comes prebuilt from vcpkg's port (2026-11-09); our port of the slang fork patched the
+prelude to look for it with `__has_include`, a fix still to offer slang. libc++ runs
 `std::execution::par` serially, hence the threads (the old cpu prefilter took 4 s a panorama, the kernels 1 s). The
 kernels turn the panorama without its dominant lights into 6 levels of GGX prefiltered radiance (roughness `i / 5`, the split
 sum with n = v = r, filtered importance sampling from a mip pyramid; level 0 is the panorama, dominant lights included:
@@ -426,10 +428,15 @@ checks, `SPEEDO_GRAPHICS_VALIDATION_LEVEL`) the full sets still check: the profi
 `-ClientOnly` and the same `-Work` dir, whose caches it reuses (debug imports slowly). A debug client
 compiling the shaders (a new profile, or a changed shader) took more than ten minutes a profile, with no window
 meanwhile: SPIRV-Tools' optimizer, which slang runs over every shader (`SLANG_OPTIMIZATION_LEVEL_MAXIMAL`), linked
-statically from the debug spirv-tools package at the toolchain's `-Og` without inlining. `ports/shader-slang` and the
-`ports/spirv-tools` overlay (of the upstream port, for this alone) build their debug configs with `-O2 -g`
-(`OPTIONS_DEBUG`): about 2 minutes a profile now. (Mapping the debug config to the release slang in CMake couldn't pick
-it: both dylibs share a name on the executable's rpath, and the debug directory comes first.) The validation layer's
+statically from the debug spirv-tools package at the toolchain's `-Og` without inlining. Our slang port and a
+`ports/spirv-tools` overlay (of the upstream port, for this alone) built their debug configs with `-O2 -g`
+(`OPTIONS_DEBUG`): about 2 minutes a profile. (Mapping the debug config to the release slang in CMake couldn't pick
+it: both dylibs share a name on the executable's rpath, and the debug directory comes first.) Since 2026-11-09 slang is
+vcpkg's prebuilt port, slang's release binaries in both configurations (its SPIRV-Tools inside), so a debug client
+compiles with an optimized slang, and both overlays are gone: a debug client's warm-up from a new profile took 129 s (its
+pipelines 17 s of it), a profile client's 28 s. The first run after slang moved from 2026.3 to 2026.19 took 556 s in a
+profile build, its 83 compute pipelines 509.55 s: new SPIR-V, so KosmicKrisp's Metal compiles found nothing in the
+system's caches; the next new profile's took 0.93 s. The validation layer's
 dylib is in `debug/lib`, so a debug client run by hand sets `DYLD_LIBRARY_PATH` to it as the script does;
 `VK_LAYER_VALIDATE_GPU_BASED=GPU_BASED_GPU_ASSISTED` adds gpu assisted validation. Both run in
 parallel: `assettest` checks its models and images on every thread (`CheckInOrder`: results printed in the serial order;

@@ -1,0 +1,14 @@
+// <stdfloat> for slang's c++ prelude (slang-cpp-scalar-intrinsics.h), which includes it from c++23 on unconditionally,
+// though libc++ has none yet in any language mode: the standard library's own where it has one, else what the prelude
+// takes before c++23 (_Float16 through <float.h>'s IEC 60559 types). Only assettest, which compiles slang's c++ output,
+// has it on its include path. Our slang port patched the prelude to check for it (__has_include) until it moved to
+// vcpkg's prebuilt slang (2026-11-09)
+#pragma once
+#if __has_include_next(<stdfloat>)
+#include_next <stdfloat>
+#else
+#ifndef __STDC_WANT_IEC_60559_TYPES_EXT__
+#define __STDC_WANT_IEC_60559_TYPES_EXT__
+#endif
+#include <float.h>
+#endif

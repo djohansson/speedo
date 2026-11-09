@@ -58,10 +58,6 @@ if(PORT STREQUAL "draco")
 	# collides with the static one on windows ("multiple rules generate draco.lib"). link statically.
 	set(VCPKG_LIBRARY_LINKAGE static)
 endif()
-if(PORT STREQUAL "miniz")
-	# only slang uses it (zip and riff-deflate archives, which we don't use): no dll of its own to ship
-	set(VCPKG_LIBRARY_LINKAGE static)
-endif()
 if(PORT STREQUAL "ktx")
 	# its astc-encoder adds -ffp-model=precise -Werror, which overrides -ffast-math's complex range and so fails with
 	# -Woverriding-complex-range

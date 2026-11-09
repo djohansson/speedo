@@ -600,6 +600,8 @@ target_compile_features(
 	PUBLIC
 		cxx_std_26
 )
+# a <stdfloat> for slang's c++ prelude, which includes it from c++23 on, though libc++ has none (see the header)
+target_include_directories(assettest SYSTEM PRIVATE ${SPEEDO_SOURCE_DIR}/tools/compat)
 target_link_libraries(
 	assettest
 	PRIVATE
