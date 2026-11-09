@@ -18,7 +18,8 @@ vcpkg_from_github(
         0007-build-embed-in-project.patch # the embed helper in the project, and file dependencies (FASTBuild)
         0008-link-objc-runtime-on-apple.patch # lld doesn't add libobjc as Apple's linker does
         # libc++ has no std::atomic<std::shared_ptr> (the profiler's view): Tracy's own shim for it, guarded by the feature
-        # test (__cpp_lib_atomic_shared_ptr) rather than Emscripten and Apple, so libc++ on Windows and Linux takes it too
+        # test (__cpp_lib_atomic_shared_ptr) rather than Emscripten and Apple, so libc++ on Windows and Linux takes it too,
+        # and its compare_exchange_weak fixed (unused); wolfpld/tracy#1515's diff, to drop once a release has it
         0009-libcxx-atomic-shared-ptr-shim.patch
 )
 

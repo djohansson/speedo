@@ -1,5 +1,5 @@
 diff --git a/profiler/src/EmscriptenShim.hpp b/profiler/src/EmscriptenShim.hpp
-index d44fbce..9db45f5 100644
+index d44fbce..07c58d9 100644
 --- a/profiler/src/EmscriptenShim.hpp
 +++ b/profiler/src/EmscriptenShim.hpp
 @@ -1,7 +1,11 @@
@@ -15,3 +15,12 @@ index d44fbce..9db45f5 100644
  
  namespace std {
  
+@@ -10,7 +14,7 @@ struct atomic<shared_ptr<T>> {
+     shared_ptr<T> value;
+ 
+     bool compare_exchange_weak(shared_ptr<T>& expected, const shared_ptr<T>& desired) noexcept {
+-        return atomic_compare_exchange_weak_explicit(&value, &expected, &desired, std::memory_order_acq_rel, std::memory_order_acquire);
++        return atomic_compare_exchange_weak_explicit(&value, &expected, desired, std::memory_order_acq_rel, std::memory_order_acquire);
+     }
+ 
+     shared_ptr<T> load(memory_order order = std::memory_order_seq_cst) const noexcept {
