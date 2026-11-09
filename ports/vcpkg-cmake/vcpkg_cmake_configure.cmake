@@ -70,7 +70,8 @@ function(vcpkg_cmake_configure)
     endif()
 
     # speedo overlay: FASTBuild is the default generator (from the vcpkg-tool-fastbuild host port, a dependency of this
-    # port), Ninja where a port asks for it with PREFER_NINJA
+    # port), Ninja where a port asks for it with PREFER_NINJA; a port's GENERATOR, then the triplet's
+    # VCPKG_CMAKE_GENERATOR (as in microsoft/vcpkg#54969, e.g. Ninja for one port: if(PORT STREQUAL ...)), come first
     set(ninja_host OFF) # Ninja availability
     set(fastbuild_host ON) # FASTBuild availability
     if(arg_PREFER_NINJA)
@@ -102,6 +103,8 @@ function(vcpkg_cmake_configure)
         endif()
     elseif(DEFINED arg_GENERATOR)
         set(generator "${arg_GENERATOR}")
+    elseif(DEFINED VCPKG_CMAKE_GENERATOR)
+        set(generator "${VCPKG_CMAKE_GENERATOR}")
     elseif(ninja_host)
         set(generator "Ninja")
     elseif(fastbuild_host)
@@ -144,10 +147,10 @@ function(vcpkg_cmake_configure)
         get_filename_component(fastbuild_path "${FASTBUILD}" DIRECTORY)
         vcpkg_add_to_path("${fastbuild_path}")
         set(parallel_log_args
-            "../build.fastbuild" ALIAS "rel-fastbuild.log"
-            "../../${TARGET_TRIPLET}-dbg/build.fastbuild" ALIAS "dbg-fastbuild.log"
+            "../fbuild.bff" ALIAS "rel-fbuild.log"
+            "../../${TARGET_TRIPLET}-dbg/fbuild.bff" ALIAS "dbg-fbuild.log"
         )
-        set(log_args "build.fastbuild")
+        set(log_args "fbuild.bff")
     endif()
 
     set(build_dir_release "${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-rel")

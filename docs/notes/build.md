@@ -90,24 +90,24 @@ by module auto-loading, so `Get-InstalledModule` says installed while the cmdlet
 recognized". Don't reintroduce modules; also avoid hardcoded install roots (the Windows SDK root
 comes from the `KitsRoot10` registry value).
 
-## FASTBuild: PCH can race with sibling objects in the same `ObjectList`
+## FASTBuild: precompiled headers with clang-cl overwrite themselves
 
-When an `ObjectList()` both builds a precompiled header (`.PCHInputFile`/`.PCHOutputFile`/
-`.PCHOptions`) and compiles other files that consume it via `/Yu`, FASTBuild does not reliably
-finish the PCH before starting sibling `/Yu` compiles in the same list, despite that ordering being
-the documented point of the feature. Symptom: the `/Yc` PCH compile itself reports success (fast,
-~1s) but is truncated/corrupt by the time a sibling object reads it:
+With clang-cl, CMake's FASTBuild generator (4.4.5, and its master on 2026-11-09) builds no target with precompiled
+headers. The `/Yc` PCH compile reports success (fast, ~1s), and the first object using the PCH fails:
 ```
 error: input is not a PCH file: '....pch'
 fatal error: file '....pch' is not a valid precompiled PCH file: file too small to contain AST file magic
 ```
-Confirmed this is *not* caching (reproduces identically with the local buildtree and the remote
-`FASTBUILD_CACHE_PATH` fully wiped), *not* `CMAKE_FASTBUILD_USE_LIGHTCACHE` (reproduces with it OFF),
-and *not* distributed builds (FASTBuild's job-slot count matches the local logical core count exactly
-— no remote workers involved). Hit building the `llvm` port itself with FASTBuild 1.19 + clang-cl.
-Don't re-derive any of the above when this recurs — just disable PCH for the affected port via
-`-DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON` in its `vcpkg_cmake_configure()` `OPTIONS` (see
-`ports/llvm/portfile.cmake`). Slower compile, but avoids the race.
+It isn't a race, as these notes said until 2026-11-10 (when caching, the light cache and distribution had been ruled
+out). For the MSVC-like compiler families FASTBuild takes the PCH compile's object file from `/Fo` in `.PCHOptions`, as
+`%3` (`%2` is the PCH itself). CMake replaces the compile rule's `/Fo%2` with `%3` only when the compiler ID is `MSVC`,
+and clang-cl's is `Clang`. So the PCH compile wrote its small object file over the PCH it had just written. A clang-cl
+cross-build on macOS reproduces it (`CMAKE_SYSTEM_NAME=Windows`, `CMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY`): `/Fo`
+ends up as `$FB_INPUT_2_PLACEHOLDER$` in the `.bff`. CMake's issue #27697 lists the PrecompileHeaders tests among the
+clang-cl failures, and its CI excludes them. The fix (replace it for the `msvc` and `clang-cl` families) is offered
+upstream (see "vcpkg" below). Until a CMake release has it, turn PCH off for a port built with FASTBuild and clang-cl:
+`-DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON`, in a triplet `if(PORT STREQUAL "<port>")`. The llvm port did, until it moved to
+Ninja on 2026-11-09.
 
 ## libc++ migration: MSVC STL "leaks" `<cstdlib>`/`<cmath>`/etc., libc++ doesn't
 
@@ -215,7 +215,7 @@ registry's cache, or a clone.
 Until 2026-11-09 it was the `djohansson/vcpkg` fork (a release plus FASTBuild support: `vcpkg_find_acquire_program(
 FASTBUILD)` and its tools entries), as a git registry. Retired at the user's call (no fork to maintain): FASTBuild still
 builds the ports, through the overlay of `vcpkg-cmake` (FASTBuild the default generator, Ninja where a port asks for it
-with `PREFER_NINJA` or names it), which takes FBuild from the `vcpkg-tool-fastbuild` host port (its dependency; FASTBuild
+with `PREFER_NINJA` or names it, or a triplet names one in `VCPKG_CMAKE_GENERATOR`, as for llvm), which takes FBuild from the `vcpkg-tool-fastbuild` host port (its dependency; FASTBuild
 1.20 since 2026-11-09, the project's own builds' too). The overlay's changes are offered upstream (microsoft/vcpkg PRs),
 after which it could go. The fork's other changes were unused: compiler detection (every triplet disables compiler
 tracking) and `ports.cmake`'s CMake minimum.
@@ -256,6 +256,31 @@ FASTBuild generator pitfalls in third-party CMake (see `ports/tracy/0007-*`): a 
 `OUTPUT` fails with `File missing despite success`, and custom commands that `DEPENDS` on a *target* name are not
 ordered after it, so depend on the produced file (e.g. an `ExternalProject` `INSTALL_BYPRODUCTS`). ld64.lld does not
 add `libobjc` implicitly the way Apple's linker does (`undefined symbol: objc_msgSend`, see `ports/tracy/0008-*`).
+
+`ports/llvm` is vcpkg's own port at the baseline (23.1.3, the 2026.10.16 release's) but for one fix, offered upstream:
+its `libcxx` feature requires `libcxxabi`, which LLVM refuses for MSVC targets (a `FATAL_ERROR` in libcxxabi's
+`CMakeLists.txt`; vcpkg's CI lists `llvm[libcxxabi](windows)=feature-fails` and skips llvm), while Windows takes LLVM's
+libc++ (over the vcruntime ABI) for the clang triplets; so `libcxxabi` is required only off Windows, and supported only
+there. Once vcpkg has it in a release the baseline moves to, `ports/llvm` goes (and `LLVM_PORT_VERSION` comes from
+elsewhere, see the binary cache below). Until 2026-11-09 it was our fork of an older vcpkg port (LLVM 20's, bumped
+since), whose differences were FASTBuild workarounds and our options. CMake's FASTBuild generator (4.4.5, and still on
+its master) can't build LLVM: a custom target with only file `DEPENDS` and no `COMMAND` (clang's `hmaptool`) depends on
+its never-written `CMakeFiles/<target>` and `.rule` (the generator drops command-less custom commands, then lists the
+target's sources, those symbolic files among them, as its inputs; the fork patched hmaptool's target out), clangd's XPC
+framework is a custom command whose `OUTPUT` is a directory (`File missing despite success`; the fork turned XPC off),
+and with clang-cl its precompiled headers overwrite themselves (above; the fork turned PCH off). The host triplets build
+it with Ninja (`VCPKG_CMAKE_GENERATOR`), which needs none of them. The first and third are CMake bugs, fixed on two
+branches of a CMake clone (`~/Repos/cmake`, MR texts in `~/Repos/cmake-mrs`) for the user to submit: CMake's AI policy
+has a human submit every MR, and lists no AI co-author. With a CMake release that has both, llvm can go back to
+FASTBuild with clangd's XPC off. The directory output is FASTBuild's design (an Exec node must write a file:
+fastbuild#1024, closed as not a bug), and CMake documents outputs as files, so it stays a port patch or Ninja. The macOS
+triplet passes the options the fork had: libc++ and libc++abi static (the system's `libc++.1.dylib` and libc++abi
+aren't ABI compatible with LLVM's), and clangd without XPC (nothing here uses it). Upstream's port builds the static
+analyzer (the fork turned it and ARCMT off: its tools, scan-build and clang-check among them, are what the install
+gained; nothing moved), compiler-rt as a runtime rather than a project (the sanitizers' runtimes are where they were),
+and on Windows depends on `atl` (a stub checking that Visual Studio has ATL), which the fork dropped in 2025 for
+rebuilding LLVM at every setup, before the binary cache. LLVM builds in 47 minutes with Ninja on the M4 Pro (44 with
+FASTBuild before), the whole setup in 60.
 
 `ports/ktx` exists because IT policy blocks msys2's `bash.exe` on Windows: upstream's portfile acquires msys2 bash to
 run KTX's `mkversion` script, and `0007-version-without-bash.patch` writes the same `version.h` from CMake instead

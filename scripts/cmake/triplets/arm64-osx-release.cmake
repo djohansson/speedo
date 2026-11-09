@@ -18,3 +18,21 @@ set(
 )
 set(VCPKG_C_FLAGS_RELEASE "-O3 -flto=thin -Wno-gnu-line-marker -Wno-missing-format-attribute")
 set(VCPKG_CXX_FLAGS_RELEASE "-O3 -flto=thin -Wno-gnu-line-marker -Wno-missing-format-attribute")
+# vcpkg's llvm port (ports/llvm is it, but for a Windows fix): built with Ninja, since CMake's FASTBuild generator can't
+# build it (see docs/notes/build.md); LLVM's libc++ and libc++abi static, since the system's libc++.1.dylib and libc++abi
+# aren't ABI compatible with them (the target packages link them statically); clangd without its XPC service, which
+# nothing here uses
+if(PORT STREQUAL "llvm")
+	set(VCPKG_CMAKE_GENERATOR Ninja)
+	list(
+		APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS
+			-DLIBCXX_ENABLE_SHARED=OFF
+			-DLIBCXX_ENABLE_STATIC=ON
+			-DLIBCXX_HERMETIC_STATIC_LIBRARY=ON
+			-DLIBCXX_ENABLE_STATIC_ABI_LIBRARY=ON
+			-DLIBCXXABI_ENABLE_SHARED=OFF
+			-DLIBCXXABI_ENABLE_STATIC=ON
+			-DLIBCXXABI_ENABLE_STATIC_UNWINDER=ON
+			-DCLANGD_BUILD_XPC=OFF
+	)
+endif()

@@ -28,3 +28,8 @@ set(
 set(VCPKG_C_FLAGS_RELEASE "/guard:cf /clang:-march=x86-64-v3 /clang:-mtune=generic /clang:-O3") #/clang:-flto=thin
 set(VCPKG_CXX_FLAGS_RELEASE "/guard:cf /clang:-march=x86-64-v3 /clang:-mtune=generic /clang:-O3") #/clang:-flto=thin
 set(VCPKG_LINKER_FLAGS_RELEASE "/GUARD:CF")
+# vcpkg's llvm port (ports/llvm is it, but for libc++ without libc++abi, which LLVM doesn't build for MSVC targets):
+# built with Ninja, since CMake's FASTBuild generator can't build it (see docs/notes/build.md)
+if(PORT STREQUAL "llvm")
+	set(VCPKG_CMAKE_GENERATOR Ninja)
+endif()
