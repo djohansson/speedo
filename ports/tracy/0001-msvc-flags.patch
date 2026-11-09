@@ -1,18 +1,8 @@
-From 0bac648b635eca9b707f0d1b876b53051f68bc74 Mon Sep 17 00:00:00 2001
-From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
-Date: Thu, 1 Oct 2026 20:30:15 +0200
-Subject: [PATCH 2/7] msvc flags
-
-Only pass MSVC-style /arch:AVX2 and /MP when the compiler is MSVC-like, not for clang targeting windows.
----
- cmake/config.cmake | 6 ++++--
- 1 file changed, 4 insertions(+), 2 deletions(-)
-
 diff --git a/cmake/config.cmake b/cmake/config.cmake
-index 611506f..a109c25 100644
+index bc79209..87ba5e0 100644
 --- a/cmake/config.cmake
 +++ b/cmake/config.cmake
-@@ -11,7 +11,7 @@ if (NOT NO_ISA_EXTENSIONS)
+@@ -18,7 +18,7 @@ if (NOT NO_ISA_EXTENSIONS)
              add_compile_options(-march=native)
          endif()
      endif()
@@ -21,17 +11,3 @@ index 611506f..a109c25 100644
          add_compile_options(/arch:AVX2)
      endif()
  endif()
-@@ -36,7 +36,9 @@ endif()
- 
- if(WIN32)
-     add_definitions(-DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
--    add_compile_options(/MP)
-+    if(MSVC)
-+        add_compile_options(/MP)
-+    endif()
- endif()
- 
- if(EMSCRIPTEN)
--- 
-2.54.0 (Apple Git-157)
-

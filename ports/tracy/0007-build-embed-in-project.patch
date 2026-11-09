@@ -1,0 +1,59 @@
+diff --git a/profiler/CMakeLists.txt b/profiler/CMakeLists.txt
+index df32ecc..4f0e303 100644
+--- a/profiler/CMakeLists.txt
++++ b/profiler/CMakeLists.txt
+@@ -40,13 +40,35 @@ include(${CMAKE_CURRENT_LIST_DIR}/../cmake/vendor.cmake)
+ include(${CMAKE_CURRENT_LIST_DIR}/../cmake/server.cmake)
+ include(${CMAKE_CURRENT_LIST_DIR}/../cmake/GitRef.cmake)
+ 
+-include(ExternalProject)
+-ExternalProject_Add(embed
+-    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/helpers
+-    CMAKE_ARGS
+-        -DCMAKE_BUILD_TYPE=Release
+-        -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}
+-)
++# embed is a host tool run at build time. When the target is the host, build it in this project with the same toolchain:
++# the separate configure of an ExternalProject inherits the generator but not the compiler/toolchain settings, and fails
++# when no compiler is on PATH (e.g. vcpkg's clang triplets on Windows: "No CMAKE_CXX_COMPILER could be found").
++# Compares system and processor rather than CMAKE_CROSSCOMPILING, which is true whenever a toolchain file sets
++# CMAKE_SYSTEM_NAME, even to the host system.
++if(NOT (CMAKE_SYSTEM_NAME STREQUAL CMAKE_HOST_SYSTEM_NAME AND CMAKE_SYSTEM_PROCESSOR STREQUAL CMAKE_HOST_SYSTEM_PROCESSOR))
++    include(ExternalProject)
++    ExternalProject_Add(embed
++        SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/helpers
++        CMAKE_ARGS
++            -DCMAKE_BUILD_TYPE=Release
++            -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}
++        INSTALL_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/embed${CMAKE_EXECUTABLE_SUFFIX}
++    )
++    set(EMBED_EXECUTABLE ${CMAKE_CURRENT_BINARY_DIR}/embed${CMAKE_EXECUTABLE_SUFFIX})
++else()
++    add_executable(embed
++        ${CMAKE_CURRENT_LIST_DIR}/../public/common/tracy_lz4.cpp
++        ${CMAKE_CURRENT_LIST_DIR}/../public/common/tracy_lz4hc.cpp
++        ${CMAKE_CURRENT_LIST_DIR}/helpers/embed.cpp
++    )
++    # the path rather than the target name: COMMAND only resolves a target name when not cross-compiling (see above),
++    # and generators such as FASTBuild order custom commands by the files they depend on, not by targets
++    set(EMBED_EXECUTABLE $<TARGET_FILE:embed>)
++endif()
++
++# the output directory, created at configure time: a directory as a custom command's OUTPUT or step isn't supported by
++# generators that require outputs to be files (FASTBuild: "File missing despite success")
++file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/data)
+ 
+ function(Embed LIST NAME FILE)
+     cmake_parse_arguments(EMBED "TEXT" "" "" ${ARGN})
+@@ -57,9 +79,8 @@ function(Embed LIST NAME FILE)
+     endif()
+     add_custom_command(
+         OUTPUT data/${NAME}.cpp data/${NAME}.hpp
+-        COMMAND ${CMAKE_COMMAND} -E make_directory data
+-        COMMAND ${CMAKE_CURRENT_BINARY_DIR}/embed ${EMBED_FLAGS} ${NAME} ${CMAKE_CURRENT_LIST_DIR}/${FILE} data/${NAME}
+-        DEPENDS embed ${CMAKE_CURRENT_LIST_DIR}/${FILE}
++        COMMAND ${EMBED_EXECUTABLE} ${EMBED_FLAGS} ${NAME} ${CMAKE_CURRENT_LIST_DIR}/${FILE} data/${NAME}
++        DEPENDS ${EMBED_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/${FILE}
+     )
+     list(APPEND ${LIST} data/${NAME}.cpp)
+     return(PROPAGATE ${LIST})
