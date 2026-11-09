@@ -263,7 +263,7 @@ run KTX's `mkversion` script, and `0007-version-without-bash.patch` writes the s
 msys2 shell (`vcpkg_acquire_msys` with `bash`, `vcpkg_configure_make`) without patching that out; vcpkg's own
 `pkgconf.exe` (`vcpkg_fixup_pkgconfig`) runs fine.
 
-`ports/glfw3` exists for glfw 3.4's Cocoa display modes (`0001-cocoa-hidpi-display-modes.patch`): it lists them
+`ports/glfw3` exists for glfw's Cocoa display modes (3.4, and still 3.5.1, which the overlay is on since 2026-11-09) (`0001-cocoa-hidpi-display-modes.patch`): it lists them
 without `kCGDisplayShowDuplicateLowResolutionModes`, so a Retina display's scaled modes are missing (its current one
 too), and full screen switched the display to the 1x mode nearest in points; the patch lists them, and sets the HiDPI
 mode rather than its 1x duplicate, as SDL does. Retire it once upstream glfw does the same. (Building it found the macOS

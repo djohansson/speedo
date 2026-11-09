@@ -9,12 +9,12 @@ endif()
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO glfw/glfw
-    REF ${VERSION}
-    SHA512 39ad7a4521267fbebc35d2ff0c389a56236ead5fa4bdff33db113bd302f70f5f2869ff4e6db1979512e1542813292dff5a482e94dfce231750f0746c301ae9ed
+    REF "${VERSION}"
+    SHA512 42e8b8bdc2ecaab8d33d43cab6cf6e4bfd1f23492a5f13ec4b3762b74661dc3c9625721f436fbf841909b9af3ac6dcb8080201b36592d33c2bb196f768fc307f
     HEAD_REF master
     PATCHES
         # macOS: the HiDPI display modes listed, so that full screen keeps a Retina display's current mode (glfw switched
-        # it to the 1x mode nearest in points: 1920x1200 for a MacBook Pro's 1512x982 at 2x)
+        # it to the 1x mode nearest in points: 1920x1200 for a MacBook Pro's 1512x982 at 2x); still needed in 3.5.1
         0001-cocoa-hidpi-display-modes.patch
 )
 
