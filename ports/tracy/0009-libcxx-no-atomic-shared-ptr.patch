@@ -1,0 +1,36 @@
+libc++ has no std::atomic<std::shared_ptr> (P0718; __cpp_lib_atomic_shared_ptr unset): the
+profiler's view pointer as a mutex-guarded holder with the same load and store
+
+diff --git a/profiler/src/main.cpp b/profiler/src/main.cpp
+index f9f6b60..b838473 100644
+--- a/profiler/src/main.cpp
++++ b/profiler/src/main.cpp
+@@ -88,7 +88,27 @@ enum class ViewShutdown { False, True, Join };
+ 
+ static tracy::unordered_flat_map<uint64_t, ClientData> clients;
+ static uint64_t clientOrder = 0;
+-static std::atomic<std::shared_ptr<tracy::View>> view;
++// libc++ has no std::atomic<std::shared_ptr> (P0718): the same load and store under a lock. A replaced view is
++// released after the lock, as the store's argument
++class AtomicViewPtr
++{
++public:
++    std::shared_ptr<tracy::View> load( std::memory_order = std::memory_order_seq_cst ) const
++    {
++        std::lock_guard lock( m_lock );
++        return m_ptr;
++    }
++    void store( std::shared_ptr<tracy::View> ptr, std::memory_order = std::memory_order_seq_cst )
++    {
++        std::lock_guard lock( m_lock );
++        m_ptr.swap( ptr );
++    }
++
++private:
++    mutable std::mutex m_lock;
++    std::shared_ptr<tracy::View> m_ptr;
++};
++static AtomicViewPtr view;
+ static tracy::BadVersionState badVer;
+ static uint16_t port = 8086;
+ static const char* connectTo = nullptr;

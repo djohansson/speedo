@@ -17,6 +17,7 @@ vcpkg_from_github(
         0005-fix-missing-stdlib-include.patch # libc++: getenv
         0007-build-embed-in-project.patch # the embed helper in the project, and file dependencies (FASTBuild)
         0008-link-objc-runtime-on-apple.patch # lld doesn't add libobjc as Apple's linker does
+        0009-libcxx-no-atomic-shared-ptr.patch # libc++ has no std::atomic<std::shared_ptr> (the profiler's view)
 )
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
