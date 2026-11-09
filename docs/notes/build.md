@@ -56,7 +56,13 @@ Third-party code compiled into ours (the header-only libraries) whose reports ar
 `sanitize-ignorelist.txt`, by function name (`fun:`): FASTBuild compiles preprocessed sources (`-frewrite-includes`), so a
 `src:` entry only ever sees the `.cpp`, never the header. FASTBuild doesn't track the ignorelist either: after changing
 it, touch the sources it concerns (or rebuild). stb_image_resize2 is the one there: unaligned 8 byte stores, and srgb
-tables indexed through a biased base pointer.
+tables indexed through a biased base pointer. Where the fix is a line, as upstream's own code elsewhere does it, the
+port is patched instead: tinybvh's NEON builder handed each binning slice `slicebinbox[0] + i * 3 * AVXBINS`, indexing
+past a 2D array's first row (ubsan's bounds check, `index 72 out of bounds for type 'float32x4x2_t[24]'`, in the full sets
+on 2026-11-09, not the quick tier: its binned builder, the moving BVH's and `BuildBinary`'s, slices only nodes past
+`MT_SIMD_SLICE_THRESHOLD`, 50000 triangles), where its x86 builder
+passes `slicebinbox[i]` (`ports/tinybvh/0001-neon-slice-rows.patch`; the same addresses, so the BVHs and their caches
+are unchanged).
 
 ## Gotcha: `<windows.h>` macros
 

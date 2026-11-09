@@ -7,6 +7,10 @@ vcpkg_from_github(
 	REF c9be3103cc9693b456b0a0353927c11cac7d710f
 	SHA512 aea59bc14892353d97b9b8a33f6c5c8bc39448c341cba9b7c0872b130c2189158b633f1ebb0a235a3787c112345a02499e48d53e4f88b4f89bcf2350a84c25c2
 	HEAD_REF main
+	PATCHES
+		# the NEON builder's binning slices by row (slicebinbox[i]), as the x86 one does, not indexed past the first row
+		# (slicebinbox[0] + i * 3 * AVXBINS): undefined behaviour, which ubsan's bounds check reported (sanitize preset)
+		0001-neon-slice-rows.patch
 )
 
 file(GLOB TINYBVH_HEADERS "${SOURCE_PATH}/tiny_bvh*.h")
