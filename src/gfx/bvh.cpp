@@ -119,13 +119,15 @@ static void CopyOrderedTriangles(
 	}
 }
 
-// which way a triangle faces, as the CWBVH's triangle transform loses it: the sign of its normal's largest component (the
-// one tinybvh's PrecomputeTriangle divides by, picked the same way)
-static float DominantSign(const glm::vec3& normal)
+// which way a triangle faces, as the CWBVH's triangle transform loses it: the sign of the normal's component that tinybvh's
+// PrecomputeTriangle divides by (its largest), which the transform's third row, the normal over that component, holds
+// as the sign of its product with the normal (the normal's squared length over that component: far from zero). picking the
+// largest component again here instead flipped triangles where two tie (geodesic.zip's symmetric faces), whose rounding
+// picked one axis here and the other in tinybvh (by the build's flags: the sanitizer presets failed 2 of the set, 110 of a
+// mesh's 1656 hits on the wrong side)
+static float FacingSign(const glm::vec4& normalRow, const glm::vec3& normal)
 {
-	glm::vec3 size = glm::abs(normal);
-	float dominant = size.x > size.y && size.x > size.z ? normal.x : (size.y > size.z ? normal.y : normal.z);
-	return dominant < 0.0F ? -1.0F : 1.0F;
+	return glm::dot(glm::vec3(normalRow), normal) < 0.0F ? -1.0F : 1.0F;
 }
 
 // a triangle's flags (BVH_TRIANGLE_FLAG_*) and its material's index in gMaterialData (the model's materials are 1 and up,
@@ -235,7 +237,7 @@ Data Build(std::span<const Triangle> triangles, core::TaskExecutor& executor)
 		auto primitive = std::bit_cast<uint32_t>(last.w);
 		ENSURE(primitive < data.triangleCount);
 		const auto& p = triangles[primitive].corners;
-		last.x = detail::DominantSign(glm::cross(p[1] - p[0], p[2] - p[0]));
+		last.x = detail::FacingSign(data.triangles[triangleIt + 2], glm::cross(p[1] - p[0], p[2] - p[0]));
 		last.y = std::bit_cast<float>(triangles[primitive].flags);
 		last.z = std::bit_cast<float>(triangles[primitive].firstIndex);
 	}
@@ -529,7 +531,7 @@ std::string Version()
 {
 	// bump the tag when Build changes what it makes
 	return std::format(
-		"tinybvh-{}.{}.{}-{}|bvh-v3{}",
+		"tinybvh-{}.{}.{}-{}|bvh-v4{}",
 		TINY_BVH_VERSION_MAJOR,
 		TINY_BVH_VERSION_MINOR,
 		TINY_BVH_VERSION_SUB,

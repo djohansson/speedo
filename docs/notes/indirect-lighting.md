@@ -533,7 +533,11 @@ the space over the ceiling share a voxel, whose open side the occupied voxels be
 down a tenth (the light from outside it). A hit carries its normal toward the ray, its side and its flags (`BvhHit`). A
 backface is a single sided triangle seen from behind (the compressed triangles' transform divides the normal by its
 largest component, whose sign `Build` keeps in their last float4's x, with `BVH_TRIANGLE_FLAG_*` and the material's index
-in y and the first index in z). Alpha masked triangles (`BVH_TRIANGLE_FLAG_ALPHA_MASKED`) are cut out as the main pass's
+in y and the first index in z). That sign is read off tinybvh's own transform (its third row, the normal over that
+component, times the normal), not by picking the largest component again: where two tie (geodesic.zip's symmetric faces)
+rounding picked one axis in tinybvh and the other in `Build`, by the build's flags, and the triangle faced the wrong way
+(the sanitizer presets failed 2 of geodesic.zip, 110 of a mesh's 1656 hits on the wrong side; 2026-11-09, `bvh-v4`).
+Alpha masked triangles (`BVH_TRIANGLE_FLAG_ALPHA_MASKED`) are cut out as the main pass's
 alpha test does (`GiAlphaMask`, an `IBvhFilter` the traversal asks of each hit: the base color's alpha or the mask's at the
 hit's texcoords, `BVH_ALPHA_LEVEL`), so light passes through foliage's gaps, which the voxels hold whole (0.2 ms on Sponza,
 1 ms on Bistro's trees). What moves has a BVH of its own (`bvh::Moving`: what the voxels hold of it, placed each frame on
