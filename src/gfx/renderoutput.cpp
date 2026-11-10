@@ -83,8 +83,9 @@ void SwapchainOutput::AddFinalPasses(FrameGraph& graph, FrameGraph::ImageId outp
 		[](FrameGraph::PassContext& /*context*/) {});
 }
 
-ImageOutput::ImageOutput(Device& device, Extent2d extent)
+ImageOutput::ImageOutput(Device& device, Extent2d extent, bool drawsUi)
 	: myDevice(device)
+	, myDrawsUi(drawsUi)
 {
 	Resize(extent);
 }
@@ -98,7 +99,7 @@ void ImageOutput::Resize(Extent2d extent)
 		extent,
 		Format::kR8G8B8A8Unorm,
 		ImageTiling::kOptimal,
-		ImageUsage::kStorage | ImageUsage::kSampled | ImageUsage::kColorAttachment,
+		ImageUsage::kStorage | ImageUsage::kSampled | ImageUsage::kColorAttachment | ImageUsage::kTransferSource,
 		MemoryProperty::kDeviceLocal,
 		ImageAspect::kColor,
 		ImageLayout::kUndefined});
@@ -131,8 +132,29 @@ void ImageOutput::Prepare(CommandBufferHandle cmd)
 	myTarget->Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor, 0);
 }
 
-void ImageOutput::AddFinalPasses(FrameGraph& graph, FrameGraph::ImageId output, const RecordingFrame& /*frame*/)
+void ImageOutput::AddFinalPasses(FrameGraph& graph, FrameGraph::ImageId output, const RecordingFrame& frame)
 {
+	// the ui over it, as over a swapchain's image (see SwapchainOutput::AddFinalPasses)
+	if (myDrawsUi)
+	{
+		graph.AddPass(
+			"UI Uploads",
+			[](FrameGraph::PassBuilder& builder) { builder.SideEffects(); },
+			[&frame](FrameGraph::PassContext& context)
+			{
+				frame.inputs->prepareUi(context.cmd);
+			});
+		graph.AddPass(
+			"UI",
+			[output](FrameGraph::PassBuilder& builder)
+			{
+				builder.ColorAttachment(output, LoadOp::kLoad);
+			},
+			[this, &frame](FrameGraph::PassContext& context)
+			{
+				frame.inputs->drawUi(context.cmd, *myTarget);
+			});
+	}
 	// the image, for sampling (by the ui) once the frame is done
 	graph.AddPass(
 		"Output",

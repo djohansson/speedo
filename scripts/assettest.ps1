@@ -41,6 +41,10 @@ The client runs scripts/test-assets/splitscreen.txt names (by label: client-<lab
 grid of views turned apart about the model (SPEEDO_LAYOUT=2x2 SPEEDO_CAMERA_VIEWS=around, as <label>-splitscreen): each
 view has its own exposure, shadow cascades and indirect lighting clips.
 
+-Headless runs the clients without a display (SPEEDO_HEADLESS=1: glfw's null platform, no surface or swapchain, the
+frames drawn into an image): with a locked screen, or on a runner without one (a cpu driver such as lavapipe). The display
+isn't woken then. Not with -Presentation, which tests what headless clients don't have.
+
 -Presentation also runs the client through View > Presentation's options and fullscreen switches (SPEEDO_PRESENTATION_TEST:
 exclusive and borderless fullscreen in and out under each present mode and several image counts, resizes; on the
 primary monitor, then the second, if there is one), after the other client runs and one at a time: they take over the
@@ -61,6 +65,7 @@ param(
 	[switch] $Client,
 	[switch] $ClientOnly,
 	[switch] $Presentation,
+	[switch] $Headless,
 	[switch] $Validate,
 	[string] $Preset,
 	[string] $Work,
@@ -73,6 +78,15 @@ $ErrorActionPreference = 'Stop'
 if ($ClientOnly)
 {
 	$Client = $true
+}
+if ($Headless)
+{
+	if ($Presentation)
+	{
+		[Console]::Error.WriteLine('-Headless: the presentation tests need a display (a surface, a swapchain, fullscreen)')
+		exit 1
+	}
+	$env:SPEEDO_HEADLESS = '1'
 }
 if ($Presentation)
 {
@@ -88,7 +102,7 @@ $Jobs = [Math]::Max(1, $Jobs)
 
 if ((-not $Inputs -or $Inputs.Count -eq 0) -and -not $Presentation)
 {
-	[Console]::Error.WriteLine('usage: scripts/assettest.ps1 [-Client | -ClientOnly] [-Presentation] [-Preset <name>] [-Work <dir>] [-Jobs <n>] <zip, panorama or directory>...')
+	[Console]::Error.WriteLine('usage: scripts/assettest.ps1 [-Client | -ClientOnly] [-Presentation | -Headless] [-Preset <name>] [-Work <dir>] [-Jobs <n>] <zip, panorama or directory>...')
 	exit 2
 }
 
@@ -498,8 +512,8 @@ if ($Client)
 		# client after the first failed so (57 of the quick tier's 58, 2026-11-04, the user away). before the warm-up below,
 		# which in a sanitize build outlasts the display's sleep timer (it slept 3 minutes into the first warm-up, whose ui
 		# frame's fence then timed out: a hang's crash report). A locked screen turns the display off within seconds whatever
-		# caffeinate asks: no client runs until it is unlocked
-		if ($caffeinate)
+		# caffeinate asks: no client runs until it is unlocked (-Headless clients need no display)
+		if ($caffeinate -and -not $Headless)
 		{
 			& $caffeinate -u -t 1
 			if (-not $script:awake)

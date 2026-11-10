@@ -88,6 +88,20 @@ bool RecreateWindowDependentObjects(RHI& rhi, platform::Window& window)
 	return true;
 }
 
+// headless: the frames' image at extent (the window's framebuffer's), and everything sized after it. caller holds
+// gDrawMutex
+void ResizeImageOutput(RHI& rhi, gfx::ImageOutput& output, rhi::Extent2d extent)
+{
+	ZoneScopedN("ResizeImageOutput");
+
+	rhi.GetPrimaryDevice().WaitIdle();
+	output.Resize(extent);
+	rhi::CrashEvent(std::format("image output made: {}x{}", extent.width, extent.height));
+
+	App().GetViews().OnResizeFramebuffer({extent.width, extent.height});
+	App().GetScene().Resize();
+}
+
 } // namespace windowedapplication
 
 void WindowedApplication::OnInputStateChanged(const core::InputState& input)
@@ -127,7 +141,8 @@ bool WindowedApplication::Draw()
 	auto& instance = rhi.GetInstance();
 	auto& device = rhi.GetPrimaryDevice();
 	auto& window = GetWindow(GetCurrentWindow());
-	auto& swapchain = rhi.GetSwapchain(window);
+	// none headless: the frames are drawn into myImageOutput, and nothing is acquired or presented
+	auto* swapchain = myImageOutput == nullptr ? &rhi.GetSwapchain(window) : nullptr;
 	auto& pipeline = rhi.GetPrimaryDevice().GetPipeline();
 	auto& executor = GetExecutor();
 
@@ -145,8 +160,11 @@ bool WindowedApplication::Draw()
 		{
 			rhi::CrashEvent("window change: swapchain released");
 			device.WaitIdle();
-			InternalRetirePresents(swapchain);
-			swapchain.Release();
+			if (swapchain != nullptr)
+			{
+				InternalRetirePresents(*swapchain);
+				swapchain->Release();
+			}
 			std::vector<core::std_extra::move_only_function<void()>> changes;
 			{
 				std::scoped_lock changesLock(myWindowChangesMutex);
@@ -179,30 +197,40 @@ bool WindowedApplication::Draw()
 
 	rhi::CrashFrame(gDrawnFrameCount.load(std::memory_order_relaxed));
 
-	// the presentation the ui asked for (View > Presentation), applied by recreating the swapchain below
-	if (auto request = myPresentationRequest.exchange(0, std::memory_order_relaxed); request != 0)
+	// the presentation the ui asked for (View > Presentation), applied by recreating the swapchain below (headless,
+	// nothing is presented)
+	if (auto request = myPresentationRequest.exchange(0, std::memory_order_relaxed); request != 0 && swapchain != nullptr)
 	{
 		auto presentation = UnpackPresentation(request);
 		rhi::CrashEvent(std::format("presentation asked for: {}, {} images", PresentationModeName(presentation.mode), presentation.imageCount));
-		swapchain.Configure(presentation.mode, presentation.imageCount);
+		swapchain->Configure(presentation.mode, presentation.imageCount);
 	}
 
 	// exclusive fullscreen takes the monitor (see Swapchain::SetExclusiveFullscreen), recreating the swapchain below when
 	// it changes, and where the system refused it (composited meanwhile), when the window comes to the foreground
+	if (swapchain != nullptr)
 	{
 		const auto& state = window.GetState();
-		swapchain.SetExclusiveFullscreen(
+		swapchain->SetExclusiveFullscreen(
 			state.fullscreenEnabled != 0U && state.fullscreenMode == FULLSCREEN_MODE_EXCLUSIVE ? GetCurrentWindow()
 																							 : kInvalidWindowHandle);
 	}
 
 	// a resize (see OnResizeFramebuffer), or what the swapchain found out of date (e.g. a fullscreen switch can leave it
 	// at the previous size without a matching resize event)
-	if (myResizeRequested.exchange(false, std::memory_order_acquire) || swapchain.NeedsRecreate())
+	if (myResizeRequested.exchange(false, std::memory_order_acquire) || (swapchain != nullptr && swapchain->NeedsRecreate()))
 	{
+		if (swapchain == nullptr)
+		{
+			// headless: the image at the window's framebuffer size
+			auto size = myFramebufferSize.load(std::memory_order_relaxed);
+			rhi::Extent2d extent{.width = static_cast<uint32_t>(size >> 32U), .height = static_cast<uint32_t>(size & 0xFFFFFFFFU)};
+			if (extent.width > 0 && extent.height > 0 && extent != myImageOutput->GetExtent())
+				ResizeImageOutput(rhi, *myImageOutput, extent);
+		}
 		// releasing it first, and waiting for its presents, made a swapchain under fifo hang in vkDestroySwapchainKHR when
 		// the window was resized: recreated from it, as the drivers expect, it doesn't
-		if (!RecreateWindowDependentObjects(rhi, window))
+		else if (!RecreateWindowDependentObjects(rhi, window))
 		{
 			// no area yet: again before the next frame
 			myResizeRequested.store(true, std::memory_order_release);
@@ -221,15 +249,18 @@ bool WindowedApplication::Draw()
 		}
 		App().GetScene().Resize();
 	}
-	auto [minImageCount, maxImageCount] = swapchain.GetImageCountLimits();
-	myPresentation.store(
-		PackPresentation(Presentation{
-			.mode = swapchain.GetPresentationMode(),
-			.imageCount = swapchain.GetImageCount(),
-			.modes = swapchain.GetPresentationModes(),
-			.minImageCount = minImageCount,
-			.maxImageCount = maxImageCount}),
-		std::memory_order_relaxed);
+	if (swapchain != nullptr)
+	{
+		auto [minImageCount, maxImageCount] = swapchain->GetImageCountLimits();
+		myPresentation.store(
+			PackPresentation(Presentation{
+				.mode = swapchain->GetPresentationMode(),
+				.imageCount = swapchain->GetImageCount(),
+				.modes = swapchain->GetPresentationModes(),
+				.minImageCount = minImageCount,
+				.maxImageCount = maxImageCount}),
+			std::memory_order_relaxed);
+	}
 
 	// what the scene makes once its shaders have compiled in the background (see Scene::Prepare: the first launch's take
 	// tens of seconds, during which the frames are the ui alone), outside of the graphics queue's lock (it takes it)
@@ -247,7 +278,10 @@ bool WindowedApplication::Draw()
 	if (myPreview)
 		myPreview->GetScene().Prepare();
 
-	auto [acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = swapchain.Flip();
+	// the swapchain's next image (headless, the image output's one, always ready)
+	auto flip = swapchain != nullptr ? std::optional(swapchain->Flip()) : std::nullopt;
+	bool frameReady = !flip || flip->success;
+	uint32_t outputIndex = flip ? flip->newFrameIndex : 0;
 
 	// the timeline callbacks of the transfer queues (e.g. what the loaders' uploads release), unless the transfer queue
 	// type aliases the graphics queues, whose callbacks are run below
@@ -260,11 +294,8 @@ bool WindowedApplication::Draw()
 				{ queue.SubmitCallbacks(executor, semaphore.GetValue()); }).handle);
 	}
 
-	if (flipSuccess)
+	if (frameReady)
 	{
-		auto& lastFrame = swapchain.GetFrames()[lastFrameIndex];
-		auto& newFrame = swapchain.GetFrames()[newFrameIndex];
-
 		auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
 		auto& [lastGraphicsQueue, lastGraphicsSubmits] = graphics->queues.FetchAdd();
 		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
@@ -350,7 +381,7 @@ bool WindowedApplication::Draw()
 			cmd,
 			Scene::FrameTarget{
 				.frameIndex = frameSlot,
-				.outputIndex = static_cast<uint16_t>(newFrameIndex),
+				.outputIndex = static_cast<uint16_t>(outputIndex),
 				.graphicsQueue = &graphicsQueue,
 				.graphicsTimeline = graphics->timeline,
 				.prepareUi = [this, &uiFrame, &graphicsCallbacks, frameSlot](CommandBufferHandle cmd)
@@ -364,21 +395,35 @@ bool WindowedApplication::Draw()
 				.executor = &GetExecutor()});
 
 		// a read back of the frame into a bitmap file at path, then done (if given) once written: out of the present layout
-		// and back
+		// and back (headless, out of the image output's and back)
 		auto capture = [&](std::string path, std::atomic_uint8_t* done)
 		{
-			auto extent = swapchain.GetDesc().extent;
+			auto extent = myOutput->GetExtent();
 			auto size = static_cast<size_t>(extent.width) * extent.height * 4;
 			auto buffer = std::make_shared<gfx::Buffer>(gfx::BufferCreateDesc{
 				device.CreateDeviceObjectCreateDesc("Frame Capture"), size, BufferUsage::kTransferDestination, MemoryProperty::kHostVisible});
-			auto layout = newFrame.GetLayout(0);
-			newFrame.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor, 0);
 			gfx::CommandEncoder encoder(cmd);
-			encoder.CopyImageToBuffer(newFrame.GetImages()[0], extent, *buffer);
-			newFrame.Transition(cmd, layout, ImageAspect::kColor, 0);
+			Format format = Format::kUndefined;
+			if (swapchain != nullptr)
+			{
+				auto& frame = swapchain->GetFrames()[outputIndex];
+				auto layout = frame.GetLayout(0);
+				frame.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor, 0);
+				encoder.CopyImageToBuffer(frame.GetImages()[0], extent, *buffer);
+				frame.Transition(cmd, layout, ImageAspect::kColor, 0);
+				format = frame.GetDesc().imageFormats[0];
+			}
+			else
+			{
+				auto& image = myImageOutput->GetImage();
+				auto layout = image.GetDesc().layout;
+				image.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor);
+				encoder.CopyImageToBuffer(image, *buffer);
+				image.Transition(cmd, layout, ImageAspect::kColor);
+				format = image.GetDesc().format;
+			}
 			encoder.Barrier(PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kHost, Access::kHostRead);
-			bool bgra = newFrame.GetDesc().imageFormats[0] == Format::kB8G8R8A8Unorm ||
-						newFrame.GetDesc().imageFormats[0] == Format::kB8G8R8A8Srgb;
+			bool bgra = format == Format::kB8G8R8A8Unorm || format == Format::kB8G8R8A8Srgb;
 			graphicsCallbacks.emplace_back(
 				core::CreateTask(
 					[buffer, extent, size, bgra, path = std::move(path), done]
@@ -432,35 +477,45 @@ bool WindowedApplication::Draw()
 				pose && *pose >= kCapturePathFirst && (*pose - kCapturePathFirst) % kCapturePathStride == 0)
 				capture((std::filesystem::path(gCapturePathDirectory) / std::format("pose-{:04}.bmp", *pose)).string(), nullptr);
 
-		auto presentInfo = swapchain.PreparePresent();
-
-		SemaphoreHandle acquireNextImageSemaphoreHandle = acquireNextImageSemaphore;
-		auto graphicsDoneSemaphore = Semaphore(
-			SemaphoreCreateDesc{
-				device.CreateDeviceObjectCreateDesc(std::format("graphicsDoneSemaphore{}", newFrameIndex)),
-				SemaphoreType::kBinary
-			});
-		SemaphoreHandle graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
-		// keeps the acquire semaphore alive until the gpu has waited on it. the acquire fence is owned (and waited on) by
-		// the swapchain instead, see Swapchain::myAcquireFences
-		graphicsCallbacks.emplace_back(
-			core::CreateTask(
-				[acquireNextImageSemaphore = std::move(acquireNextImageSemaphore)] {}).handle);
-		// and the present's until the present is done with it: kept by the frame's slot (see InternalRetirePresents).
-		// a timeline callback waited for each present (vkWaitForPresentKHR), blocking an executor thread for a refresh or
-		// more under fifo; it never did, since the swapchain's present ids were never on (their extension was looked
-		// for among the instance's), so the semaphores went with the frame's gpu work
-		myPresentSemaphores[frameSlot].push_back(std::move(graphicsDoneSemaphore));
-
 		QueueDeviceSyncInfo frameSync{
-			.waitSemaphores = {graphics->semaphore, acquireNextImageSemaphoreHandle},
+			.waitSemaphores = {graphics->semaphore},
+			.waitDstStageMasks = {PipelineStage::kAllGraphics},
+			.waitSemaphoreValues = {lastGraphicsSubmits.maxTimelineValue},
+			.signalSemaphores = {graphics->semaphore},
+			.signalSemaphoreValues = {++graphics->timeline}};
+
+		// what the present needs (none headless): the acquired image, and a semaphore the frame signals for the present
+		auto presentInfo = swapchain != nullptr ? std::optional(swapchain->PreparePresent()) : std::nullopt;
+		SemaphoreHandle graphicsDoneSemaphoreHandle{};
+		if (swapchain != nullptr)
+		{
+			SemaphoreHandle acquireNextImageSemaphoreHandle = flip->acquireNextImageSemaphore;
+			auto graphicsDoneSemaphore = Semaphore(
+				SemaphoreCreateDesc{
+					device.CreateDeviceObjectCreateDesc(std::format("graphicsDoneSemaphore{}", outputIndex)),
+					SemaphoreType::kBinary
+				});
+			graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
+			// keeps the acquire semaphore alive until the gpu has waited on it. the acquire fence is owned (and waited on) by
+			// the swapchain instead, see Swapchain::myAcquireFences
+			graphicsCallbacks.emplace_back(
+				core::CreateTask(
+					[acquireNextImageSemaphore = std::move(flip->acquireNextImageSemaphore)] {}).handle);
+			// and the present's until the present is done with it: kept by the frame's slot (see InternalRetirePresents).
+			// a timeline callback waited for each present (vkWaitForPresentKHR), blocking an executor thread for a refresh
+			// or more under fifo; it never did, since the swapchain's present ids were never on (their extension was looked
+			// for among the instance's), so the semaphores went with the frame's gpu work
+			myPresentSemaphores[frameSlot].push_back(std::move(graphicsDoneSemaphore));
+
 			// the acquired image may still be in use by the presentation engine until the acquire semaphore signals:
 			// nothing may touch it before that (PipelineStage::kNone waited for nothing, which flickered in fullscreen)
-			.waitDstStageMasks = {PipelineStage::kAllGraphics, PipelineStage::kAllCommands},
-			.waitSemaphoreValues = {lastGraphicsSubmits.maxTimelineValue, 1},
-			.signalSemaphores = {graphics->semaphore, graphicsDoneSemaphoreHandle},
-			.signalSemaphoreValues = {++graphics->timeline, 1},
-			.callbacks = std::move(graphicsCallbacks)};
+			frameSync.waitSemaphores.push_back(acquireNextImageSemaphoreHandle);
+			frameSync.waitDstStageMasks.push_back(PipelineStage::kAllCommands);
+			frameSync.waitSemaphoreValues.push_back(1);
+			frameSync.signalSemaphores.push_back(graphicsDoneSemaphoreHandle);
+			frameSync.signalSemaphoreValues.push_back(1);
+		}
+		frameSync.callbacks = std::move(graphicsCallbacks);
 		// SPEEDO_CRASH_TEST=hang: from the 100th frame drawn, the frame waits for a semaphore nothing signals, so that the
 		// next wait for it reports a hang (rhi::CrashEvent's report, see rhi/vulkan/crashreport.h), to check the reports end
 		// to end (with SPEEDO_GPU_HANG_TIMEOUT=<seconds> to see it sooner)
@@ -488,28 +543,31 @@ bool WindowedApplication::Draw()
 
 		graphicsSubmits |= graphicsQueue.Submit();
 
-		presentInfo.waitSemaphores.emplace_back(graphicsDoneSemaphoreHandle);
-
 		// from the queue the swapchain says (Swapchain::GetPresentQueueType: a dedicated compute queue where its family can
 		// present, its images shared by both families, else the graphics queue)
-		PresentResult presentResult = PresentResult::kSuccess;
-		if (swapchain.GetPresentQueueType() != kQueueTypeGraphics)
+		if (swapchain != nullptr)
 		{
-			// one lock at a time: the compute queue's is another context than the graphics queue's here (another family),
-			// so holding both doesn't deadlock (see Device::GetQueue)
-			auto present = device.GetQueue(swapchain.GetPresentQueueType()).Write();
-			auto& [presentQueue, presentSubmits] = present->queues.Get();
-			presentQueue.EnqueuePresent(std::move(presentInfo));
-			auto presented = presentQueue.Present(&presentResult);
-			std::ranges::move(presented.fences, std::back_inserter(myPresentFences[frameSlot]));
+			presentInfo->waitSemaphores.emplace_back(graphicsDoneSemaphoreHandle);
+
+			PresentResult presentResult = PresentResult::kSuccess;
+			if (swapchain->GetPresentQueueType() != kQueueTypeGraphics)
+			{
+				// one lock at a time: the compute queue's is another context than the graphics queue's here (another
+				// family), so holding both doesn't deadlock (see Device::GetQueue)
+				auto present = device.GetQueue(swapchain->GetPresentQueueType()).Write();
+				auto& [presentQueue, presentSubmits] = present->queues.Get();
+				presentQueue.EnqueuePresent(std::move(*presentInfo));
+				auto presented = presentQueue.Present(&presentResult);
+				std::ranges::move(presented.fences, std::back_inserter(myPresentFences[frameSlot]));
+			}
+			else
+			{
+				graphicsQueue.EnqueuePresent(std::move(*presentInfo));
+				auto presented = graphicsQueue.Present(&presentResult);
+				std::ranges::move(presented.fences, std::back_inserter(myPresentFences[frameSlot]));
+			}
+			swapchain->OnPresentResult(presentResult);
 		}
-		else
-		{
-			graphicsQueue.EnqueuePresent(std::move(presentInfo));
-			auto presented = graphicsQueue.Present(&presentResult);
-			std::ranges::move(presented.fences, std::back_inserter(myPresentFences[frameSlot]));
-		}
-		swapchain.OnPresentResult(presentResult);
 
 		// the frame rate, and the gpu submits (and their batches) per frame, over the frames of (at least) half a second
 		using namespace std::chrono_literals;
@@ -546,7 +604,7 @@ bool WindowedApplication::Draw()
 
 	GetExecutor().Submit(frameTasks);
 
-	return flipSuccess;
+	return frameReady;
 }
 
 WindowedApplication::WindowedApplication(
@@ -556,7 +614,9 @@ WindowedApplication::WindowedApplication(
 				 (std::get<std::filesystem::path>(GetEnv().variables["UserProfilePath"]) / "crashes").string()),
 			 std::make_unique<RHI>(RHIInitializationData{
 		  .name = appName,
-		  .window = GetCurrentWindow(), // the window the platform made: the one we draw in
+		  // the window the platform made: the one we draw in. none headless (PlatformIsHeadless): no surface or swapchain,
+		  // the frames are drawn into an image (myImageOutput)
+		  .window = PlatformIsHeadless() ? kInvalidWindowHandle : GetCurrentWindow(),
 		  .descriptorPoolSizes = Scene::DescriptorPoolSizes(),
 		  // ComputeMain's storage views of them (see RenderOutput)
 		  .maxSwapchainImageCount = SHADER_TYPES_OUTPUT_IMAGE_COUNT})))
@@ -567,17 +627,41 @@ WindowedApplication::WindowedApplication(
 	auto& instance = rhi.GetInstance();
 	auto& device = rhi.GetPrimaryDevice();
 	auto& window = GetWindow(GetCurrentWindow());
-	auto& swapchain = rhi.GetSwapchain(window);
 	auto& pipeline = device.GetPipeline();
 
-	myViews = std::make_unique<Views>(device, glm::uvec2(swapchain.GetDesc().extent.width, swapchain.GetDesc().extent.height));
+	// the frames' size: the swapchain's, or headless the window's framebuffer's (the null platform's window, of
+	// SPEEDO_WINDOW_SIZE's size)
+	rhi::Extent2d extent{};
+	if (PlatformIsHeadless())
+	{
+		const auto& state = window.GetState();
+		extent = {
+			.width = static_cast<uint32_t>(static_cast<float>(state.width) * state.xscale),
+			.height = static_cast<uint32_t>(static_cast<float>(state.height) * state.yscale)};
+		myFramebufferSize.store((static_cast<uint64_t>(extent.width) << 32U) | extent.height, std::memory_order_relaxed);
+	}
+	else
+	{
+		extent = rhi.GetSwapchain(window).GetDesc().extent;
+	}
+
+	myViews = std::make_unique<Views>(device, glm::uvec2(extent.width, extent.height));
 
 	// the ui: imgui's context and frames (platform's), and its renderer (gfx's), whose shaders compile before the scene's
 	// start in the background (slang is used by one thread at a time, see gfx::ShaderLoader)
 	myImGui = std::make_unique<platform::ImGuiLayer>(window, myImGuiIniSettings);
 	myImGuiRenderer = std::make_unique<gfx::ImGuiRenderer>(device);
 
-	myOutput = std::make_unique<gfx::SwapchainOutput>(rhi, GetCurrentWindow());
+	if (PlatformIsHeadless())
+	{
+		auto output = std::make_unique<gfx::ImageOutput>(device, extent, true);
+		myImageOutput = output.get();
+		myOutput = std::move(output);
+	}
+	else
+	{
+		myOutput = std::make_unique<gfx::SwapchainOutput>(rhi, GetCurrentWindow());
+	}
 	myScene = std::make_unique<Scene>(rhi, pipeline, *myViews, *myOutput);
 }
 
@@ -706,8 +790,9 @@ void WindowedApplication::Shutdown()
 			settled = false;
 	}
 
-	// what the last frames presented with, once shown (the swapchain goes with the rhi)
-	InternalRetirePresents(rhi.GetSwapchain(GetWindow(GetCurrentWindow())));
+	// what the last frames presented with, once shown (the swapchain goes with the rhi). nothing headless
+	if (myImageOutput == nullptr)
+		InternalRetirePresents(rhi.GetSwapchain(GetWindow(GetCurrentWindow())));
 
 	// the renderer before the imgui context it draws (its textures are imgui's)
 	myImGuiRenderer.reset();
@@ -744,6 +829,10 @@ void WindowedApplication::OnResizeFramebuffer(WindowHandle window, int width, in
 	platform::WindowedApplication::OnResizeFramebuffer(window, width, height);
 	if (GetWindow(window).IsMinimized())
 		return;
+
+	// headless, no surface knows the size: the image takes this one
+	myFramebufferSize.store(
+		(static_cast<uint64_t>(std::max(width, 0)) << 32U) | static_cast<uint64_t>(std::max(height, 0)), std::memory_order_relaxed);
 
 	// recreated by Draw, on the draw thread, before its next frame (sized after the surface, which already has this
 	// size): never here. this runs on the main thread, inside the window system's calls (a fullscreen switch's

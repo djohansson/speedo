@@ -20,5 +20,7 @@ void DestroyNativeWindow(WindowHandle window);
 [[nodiscard]] bool WaitEvents(double timeoutSeconds);
 // wakes WaitEvents up. any thread
 void WakeMain() noexcept;
+// SPEEDO_HEADLESS=1, decided by Init (see PlatformIsHeadless)
+[[nodiscard]] bool IsHeadless() noexcept;
 
 } // namespace platform::glfw

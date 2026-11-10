@@ -36,6 +36,7 @@ RHIRegistration<kVk>::~RHIRegistration()
 	gRHI = nullptr;
 }
 
+// the devices that can draw (and present to surface, unless it is null: headless)
 std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, SurfaceHandle<kVk> surface)
 {
 	const auto& physicalDevices = instance.GetPhysicalDevices();
@@ -52,7 +53,7 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 		auto* physicalDevice = physicalDevices[physicalDeviceIt];
 
 		const auto& physicalDeviceInfo = instance.GetPhysicalDeviceInfo(physicalDevice);
-		const auto& swapchainInfo = instance.UpdateSwapchainInfo(physicalDevice, surface);
+		const auto* swapchainInfo = surface != VK_NULL_HANDLE ? &instance.UpdateSwapchainInfo(physicalDevice, surface) : nullptr;
 
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			std::println("{}", physicalDeviceInfo.deviceProperties.properties.deviceName);
@@ -74,11 +75,9 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 		{
 			const auto& queueFamilyProperties =
 				physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
-			const auto& queueFamilyPresentSupport =
-				swapchainInfo.queueFamilyPresentSupport[queueFamilyIt];
+			bool presents = swapchainInfo == nullptr || swapchainInfo->queueFamilyPresentSupport[queueFamilyIt] != 0U;
 
-			if (((queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0U) &&
-				(queueFamilyPresentSupport != 0U))
+			if (((queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0U) && presents)
 				graphicsDeviceCandidates.emplace_back(physicalDeviceIt, queueFamilyIt);
 		}
 	}
@@ -110,8 +109,9 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 		});
 
 	ENSUREF(
-		!graphicsDeviceCandidates.empty(), "Failed to find a suitable GPU: one supporting Vulkan {}.{} that can present to the window",
-		VK_API_VERSION_MAJOR(kVulkanApiVersion), VK_API_VERSION_MINOR(kVulkanApiVersion));
+		!graphicsDeviceCandidates.empty(), "Failed to find a suitable GPU: one supporting Vulkan {}.{}{}",
+		VK_API_VERSION_MAJOR(kVulkanApiVersion), VK_API_VERSION_MINOR(kVulkanApiVersion),
+		surface != VK_NULL_HANDLE ? " that can present to the window" : "");
 
 	// the best candidate only: everything draws on the primary device (GetPrimaryDevice), and each device made its own
 	// queues and pipeline for nothing. RenderDoc refuses a second logical device (a discrete gpu and an integrated one
@@ -255,12 +255,14 @@ RHI<kVk>* GetRHI<kVk>() noexcept
 
 template <>
 RHI<kVk>::RHI(RHIInitializationData&& initData)
-	: myInstance(InstanceCreateDesc<kVk>{std::string(initData.name), "speedo"})
+	: myInstance(InstanceCreateDesc<kVk>{std::string(initData.name), "speedo", initData.window != 0})
 	, myDevices{[&initData](Instance<kVk>& instance)
 	{
 		using namespace detail;
 
-		initData.surface = CreateSurface(instance, &instance.GetHostAllocationCallbacks(), initData.window);
+		// none without a window (headless)
+		if (initData.window != 0)
+			initData.surface = CreateSurface(instance, &instance.GetHostAllocationCallbacks(), initData.window);
 
 		return DetectAndCreateDevices(instance, initData.surface);
 	}(myInstance),}
@@ -275,9 +277,10 @@ RHI<kVk>::RHI(RHIInitializationData&& initData)
 		device.InternalCreatePipeline(std::vector(initData.descriptorPoolSizes));
 	}
 
-	mySwapchains.push_back({
-		.window = initData.window,
-		.swapchain = Swapchain<kVk>(DetectSuitableSwapchain(myInstance, GetPrimaryDevice(), initData.surface, initData.maxSwapchainImageCount))});
+	if (initData.window != 0)
+		mySwapchains.push_back({
+			.window = initData.window,
+			.swapchain = Swapchain<kVk>(DetectSuitableSwapchain(myInstance, GetPrimaryDevice(), initData.surface, initData.maxSwapchainImageCount))});
 
 	//(std::get<std::filesystem::path>(Application::Get()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string()
 }

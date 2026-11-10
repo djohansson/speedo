@@ -75,6 +75,8 @@ void Preview::RecordCapture(CommandBufferHandle<rhi::kGraphicsApi> cmd, std::vec
 			{
 				std::vector<uint8_t> rgba(size);
 				auto memory = buffer->Map();
+				// what the gpu wrote, where the memory isn't host coherent (as the frame capture's, see Draw)
+				buffer->Invalidate(0, size);
 				std::memcpy(rgba.data(), memory.data(), size);
 				buffer->Unmap();
 				done(std::move(rgba), extent.width, extent.height);

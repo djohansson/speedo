@@ -51,6 +51,9 @@ PLATFORM_API void PlatformTerminate(void);
 PLATFORM_API bool PlatformWaitEvents(double timeoutSeconds);
 // wakes PlatformWaitEvents up. any thread (not a signal handler: not async signal safe)
 PLATFORM_API void PlatformWakeMain(void);
+// SPEEDO_HEADLESS=1: the window system needs no display (glfw's null platform), its window is never shown, and there is
+// no surface to present to: the client draws into an image instead. known once PlatformInit returns
+PLATFORM_API bool PlatformIsHeadless(void);
 // a vulkan surface of the window, for rhi (its types opaque here: platform knows nothing of graphics): instance a
 // VkInstance, allocator a const VkAllocationCallbacks* (or null), surface a VkSurfaceKHR* it is written to. returns the
 // VkResult

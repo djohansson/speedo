@@ -25,7 +25,8 @@ struct RHIInitializationData
 {
 	std::string_view name;
 	// the window drawn to (the platform's, see platform::Window): its surface picks the devices that can present to it,
-	// and gets a swapchain
+	// and gets a swapchain. none (0) for no presentation at all (headless): no surface, no swapchain (GetSwapchain has
+	// none to give), and the surface and swapchain extensions aren't asked for
 	WindowHandle window{};
 	SurfaceHandle<kGraphicsApi> surface{}; // the window's, made by the constructor
 	// the descriptors the primary device's pipeline allocates its descriptor sets from, per type

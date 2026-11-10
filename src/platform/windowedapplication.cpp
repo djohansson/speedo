@@ -137,6 +137,11 @@ void WindowedApplication::ToggleFullscreen(WindowHandle handle)
 
 	using namespace windowedapplication;
 
+	// headless, there is no display to fill (and the macOS paths below would ask AppKit for a window the null platform
+	// doesn't have)
+	if (glfw::IsHeadless())
+		return;
+
 	auto& window = GetWindow(handle);
 	auto& state = window.GetState();
 	auto& placement = window.GetWindowedPlacement();

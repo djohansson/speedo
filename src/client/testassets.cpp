@@ -8,6 +8,8 @@
 #include <core/taskexecutor.h>
 #include <core/zip.h>
 
+#include <platform/capi.h>
+
 #include <curl/curl.h>
 #include <imgui.h>
 #include <picosha2.h>
@@ -637,7 +639,8 @@ void Draw()
 		gTest = test != nullptr ? test : "";
 		const char* exitFrames = std::getenv("SPEEDO_AUTOLOAD_EXIT");
 		const char* background = std::getenv("SPEEDO_BACKGROUND");
-		bool automated = (exitFrames != nullptr && *exitFrames != '\0') || (background != nullptr && std::string_view(background) == "1");
+		bool automated = (exitFrames != nullptr && *exitFrames != '\0') || (background != nullptr && std::string_view(background) == "1") ||
+						 PlatformIsHeadless();
 		auto choice = ReadChoice();
 		if (gTest == "offer")
 			gOfferRequested = true;

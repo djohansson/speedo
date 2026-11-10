@@ -90,7 +90,13 @@ private:
 	
 	std::unique_ptr<gfx::RHI> myRHI;
 	std::unique_ptr<gfx::Views> myViews; // of the window
-	std::unique_ptr<gfx::SwapchainOutput> myOutput; // the window's swapchain, which the scene draws into
+	// what the scene draws into: the window's swapchain, or headless (PlatformIsHeadless: no surface to present to) an
+	// image, myImageOutput, which the frames' ui is drawn over and captures read back
+	std::unique_ptr<gfx::RenderOutput> myOutput;
+	gfx::ImageOutput* myImageOutput = nullptr;
+	// headless: the window's framebuffer size, width << 32 | height, as its last resize reported (see OnResizeFramebuffer),
+	// which Draw sizes the image after
+	std::atomic_uint64_t myFramebufferSize = 0;
 	std::unique_ptr<gfx::Scene> myScene; // drawn through the views
 	std::unique_ptr<platform::ImGuiLayer> myImGui; // the user interface: imgui's context and frames
 	std::unique_ptr<gfx::ImGuiRenderer> myImGuiRenderer; // which draws them

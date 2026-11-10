@@ -124,6 +124,28 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   the shader and descriptor sets of the last one started, to `<home>/cdl/<time>/cdl_dump.yaml` (its `CDL_*` variables
   weren't taken from the environment here: the dump's settings show what was). With the layer loaded, the client's own
   crash report defers to it (see "Crash reports").
+
+  Headless (`SPEEDO_HEADLESS=1`, `assettest.ps1 -Headless`; 2026-11-10, the user's ask: client runs with the screen
+  locked, which turns the display off whatever caffeinate asks, and on a runner without a display or a gpu): glfw's null
+  platform (`glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL)`, in glfw 3.5.1 always), whose window and monitor (one,
+  1920x1080 at scale 1) are imaginary, `PlatformIsHeadless`. Its event waits return at once and its empty event wakes
+  nothing, so `PlatformWaitEvents` waits on a condition variable `PlatformWakeMain` notifies, then polls; fullscreen
+  does nothing; imgui's glfw backend runs as it is (its ask for the Cocoa window answered with an error that isn't
+  printed; on Windows it asserts on the window's null HWND, so headless is macOS's and Linux's for now). The client gives
+  the rhi no window (`RHIInitializationData::window` 0: no surface or swapchain, no surface or swapchain extensions,
+  `InstanceCreateDesc::presentation`, and a device that needn't present) and draws into a `gfx::ImageOutput` with the
+  ui's passes (`drawsUi`), sized as the window's framebuffer (`SPEEDO_WINDOW_SIZE`, at scale 1: the ui is smaller than in
+  a Retina window) and resized with it (`OnResizeFramebuffer` keeps the size, `ResizeImageOutput`). Nothing is acquired
+  or presented, so frames go as fast as the gpu takes them (the frame slots' timelines the only wait), and
+  `SPEEDO_CAPTURE` reads the image back. Not the null platform's own headless surface (`VK_EXT_headless_surface`, which
+  `glfwCreateWindowSurface` makes there): whether KosmicKrisp has it is unknown, NVIDIA's Windows driver doesn't, and
+  its extent is the window's to give (0xFFFFFFFF), where the swapchain takes the surface's. The image output gained
+  `kTransferSource` usage, which the file browser's preview read back without (its thumbnail captures were invalid,
+  unreported since no test captures one), and the preview's read back invalidates the mapped memory as the frame
+  capture's does. Measured (M4 Pro, KosmicKrisp): DamagedHelmet captured at 1280x720 with the ui looks as a windowed
+  capture after 30 frames (the menu bar faded out: the ui fades after a moment unless the mouse is over it, which a
+  headless window never has), validation clean; the quick tier headless 59 of 59 clients, 156 s of clients against 211
+  windowed (fifo).
 - `rhi` is the graphics backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains),
   templated on `GraphicsApi`. It must not include `gfx` or know about the application, nor hold code of a library above
   the graphics api (imgui's renderer is gfx's, see below): rhi objects find

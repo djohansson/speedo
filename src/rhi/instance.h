@@ -19,9 +19,12 @@ struct InstanceCreateDesc
 	std::string applicationName;
 	std::string engineName;
 	ApplicationInfo<G> appInfo{};
+	// whether anything is presented (a window's surface and swapchain): without, the surface extensions aren't asked for,
+	// and the devices needn't present (headless, see RHIInitializationData::window)
+	bool presentation = true;
 
 	InstanceCreateDesc() = default;
-	InstanceCreateDesc(std::string&& applicationName, std::string&& engineName) noexcept;
+	InstanceCreateDesc(std::string&& applicationName, std::string&& engineName, bool presentation = true) noexcept;
 	InstanceCreateDesc(InstanceCreateDesc&& other) noexcept;
 };
 

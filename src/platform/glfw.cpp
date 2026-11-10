@@ -37,9 +37,12 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <print>
 #include <string_view>
 
@@ -50,6 +53,13 @@ namespace detail
 {
 
 std::atomic_bool gInitialized = false;
+
+// SPEEDO_HEADLESS=1 (see Init): glfw's null platform, set before glfw is initialized. its event waits return at once
+// and its empty event wakes nothing, so the main thread waits here instead (see WaitEvents and WakeMain)
+bool gHeadless = false;
+std::mutex gWakeMutex;
+std::condition_variable gWakeCondition;
+bool gWoken = false;
 
 // the running application's, if any (callbacks can come before it is published, and after it is gone)
 std::shared_ptr<WindowedApplication> App()
@@ -128,6 +138,10 @@ KeyboardEvent gKeyboard{};
 
 void OnError(int error, const char* description)
 {
+	// headless, a native window's handle (imgui's glfw backend asks for the Cocoa window) is one the null platform can't
+	// have: not an error
+	if (gHeadless && error == GLFW_PLATFORM_UNAVAILABLE)
+		return;
 	std::println(stderr, "Glfw Error {}: {}", error, description != nullptr ? description : "");
 }
 
@@ -254,6 +268,16 @@ void Init()
 	}
 #endif
 
+	// SPEEDO_HEADLESS=1: glfw's null platform, which needs no display (a locked screen, a runner without one): its
+	// windows and monitor are imaginary, and the client draws into an image rather than a swapchain (see
+	// client::WindowedApplication)
+	if (const char* headless = std::getenv("SPEEDO_HEADLESS"); headless != nullptr && std::string_view(headless) == "1")
+	{
+		gHeadless = true;
+		glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL);
+		std::println("GLFW: headless (the null platform)");
+	}
+
 	ENSUREF(glfwInit(), "GLFW: Failed to initialize.");
 	gInitialized = true;
 	ENSUREF(glfwVulkanSupported(), "GLFW: Vulkan not supported.");
@@ -304,8 +328,9 @@ WindowHandle CreateNativeWindow(WindowState& state)
 
 	// SPEEDO_BACKGROUND=1 (automated runs, see scripts/assettest.ps1): the window opens behind the others, without taking
 	// the focus, so that test runs don't interrupt whoever is working
+	// (headless, the window is never shown anyway)
 	const char* backgroundSetting = std::getenv("SPEEDO_BACKGROUND");
-	bool background = backgroundSetting != nullptr && std::string_view(backgroundSetting) == "1";
+	bool background = !gHeadless && backgroundSetting != nullptr && std::string_view(backgroundSetting) == "1";
 	if (background)
 	{
 		glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
@@ -375,7 +400,21 @@ void DestroyNativeWindow(WindowHandle window)
 
 bool WaitEvents(double timeoutSeconds)
 {
-	glfwWaitEventsTimeout(timeoutSeconds);
+	if (detail::gHeadless)
+	{
+		// until woken (WakeMain) or the timeout, then the null platform's events (its window's, which glfw queues as it
+		// changes them)
+		{
+			std::unique_lock lock(detail::gWakeMutex);
+			detail::gWakeCondition.wait_for(lock, std::chrono::duration<double>(timeoutSeconds), [] { return detail::gWoken; });
+			detail::gWoken = false;
+		}
+		glfwPollEvents();
+	}
+	else
+	{
+		glfwWaitEventsTimeout(timeoutSeconds);
+	}
 
 	auto window = GetCurrentWindow();
 	return window == kInvalidWindowHandle || glfwWindowShouldClose(reinterpret_cast<GLFWwindow*>(window)) == 0; //NOLINT(performance-no-int-to-ptr)
@@ -384,8 +423,25 @@ bool WaitEvents(double timeoutSeconds)
 void WakeMain() noexcept
 {
 	// thread safe, but not before glfw is initialized or after it is terminated (an interrupt can come any time)
-	if (detail::gInitialized)
+	if (!detail::gInitialized)
+		return;
+	if (detail::gHeadless)
+	{
+		{
+			std::scoped_lock lock(detail::gWakeMutex);
+			detail::gWoken = true;
+		}
+		detail::gWakeCondition.notify_one();
+	}
+	else
+	{
 		glfwPostEmptyEvent();
+	}
+}
+
+bool IsHeadless() noexcept
+{
+	return detail::gHeadless;
 }
 
 } // namespace platform::glfw
@@ -408,6 +464,11 @@ bool PlatformWaitEvents(double timeoutSeconds)
 void PlatformWakeMain(void)
 {
 	platform::glfw::WakeMain();
+}
+
+bool PlatformIsHeadless(void)
+{
+	return platform::glfw::IsHeadless();
 }
 
 void* PlatformGetWin32Monitor(WindowHandle window)

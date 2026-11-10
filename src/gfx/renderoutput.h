@@ -72,13 +72,16 @@ private:
 	WindowHandle myWindow;
 };
 
-// an image, left for sampling (an off-screen view, e.g. shown in the ui): RGBA8 unorm, srgb encoded as the swapchain's
-// image is. one serves every frame: the frames are serial on the graphics queue, and the frame graph orders each
+// an image, left for sampling (an off-screen view, e.g. shown in the ui), or the frames' whole output with their ui
+// (headless): RGBA8 unorm, srgb encoded as the swapchain's image is, and read back as a transfer's source (a thumbnail,
+// a capture). one serves every frame: the frames are serial on the graphics queue, and the frame graph orders each
 // frame's write after the previous frame's sampling
 class ImageOutput final : public RenderOutput
 {
 public:
-	ImageOutput(Device& device, rhi::Extent2d extent);
+	// drawsUi: the frames' ui is drawn over the image as over a swapchain's (headless, see client::WindowedApplication),
+	// rather than the image sampled by it (the file browser's preview)
+	ImageOutput(Device& device, rhi::Extent2d extent, bool drawsUi = false);
 
 	// recreates the image at extent: its view changes. with the gpu done with the previous one
 	void Resize(rhi::Extent2d extent);
@@ -98,6 +101,7 @@ public:
 private:
 	Device& myDevice;
 	rhi::Extent2d myExtent{};
+	bool myDrawsUi = false;
 	std::shared_ptr<Image> myImage;
 	std::unique_ptr<RenderImageSet> myTarget;
 };

@@ -367,7 +367,10 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 			 {physicalDeviceInfo.deviceFeatures14Ex.pushDescriptor, "pushDescriptor"}})
 		ENSUREF(supported == VK_TRUE, "Vulkan device feature not supported: {}", name);
 
-	std::vector<const char*> requiredExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+	// the swapchain's, unless nothing is presented (headless, see InstanceCreateDesc::presentation)
+	std::vector<const char*> requiredExtensions;
+	if (instance.GetConfig().presentation)
+		requiredExtensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 
 	for (const char* extensionName : requiredExtensions)
 		ENSUREF(SupportsExtension(extensionName, GetDesc().physicalDevice), "Vulkan device extension not supported: {}", extensionName);
@@ -379,10 +382,10 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 		desiredExtensions.emplace_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
 #endif
 
-	if (SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, GetDesc().physicalDevice))
+	if (instance.GetConfig().presentation && SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, GetDesc().physicalDevice))
 		desiredExtensions.emplace_back(VK_KHR_PRESENT_ID_EXTENSION_NAME);
 
-	if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, GetDesc().physicalDevice))
+	if (instance.GetConfig().presentation && SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, GetDesc().physicalDevice))
 		desiredExtensions.emplace_back(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
 
 	// ray queries' (see DeviceLimits::rayQuery), whose features the instance chained (GetPhysicalDeviceInfo2)

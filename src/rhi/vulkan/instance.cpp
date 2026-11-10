@@ -289,7 +289,7 @@ VkDebugUtilsMessengerCreateInfoEXT gDebugUtilsMessengerCallbackCreateInfo{
 } // namespace instance
 
 template <>
-InstanceCreateDesc<kVk>::InstanceCreateDesc(std::string&& applicationName, std::string&& engineName) noexcept
+InstanceCreateDesc<kVk>::InstanceCreateDesc(std::string&& applicationName, std::string&& engineName, bool presentation) noexcept
 	: applicationName(std::forward<std::string>(applicationName))
 	, engineName(std::forward<std::string>(engineName))
 	, appInfo{
@@ -300,6 +300,7 @@ InstanceCreateDesc<kVk>::InstanceCreateDesc(std::string&& applicationName, std::
 		.pEngineName = nullptr,
 		.engineVersion = VK_MAKE_VERSION(1, 0, 0),
 		.apiVersion = kVulkanApiVersion}
+	, presentation(presentation)
 {
 	appInfo.pApplicationName = this->applicationName.c_str();
 	appInfo.pEngineName = this->engineName.c_str();
@@ -310,6 +311,7 @@ InstanceCreateDesc<kVk>::InstanceCreateDesc(InstanceCreateDesc&& other) noexcept
 	: applicationName(std::forward<std::string>(other.applicationName))
 	, engineName(std::forward<std::string>(other.engineName))
 	, appInfo(std::forward<ApplicationInfo<kVk>>(other.appInfo))
+	, presentation(other.presentation)
 {
 	appInfo.pApplicationName = applicationName.c_str();
 	appInfo.pEngineName = engineName.c_str();
@@ -468,16 +470,24 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 
 	std::vector<const char*> requiredExtensions = {
 	#if defined(__OSX__)
-		VK_EXT_METAL_SURFACE_EXTENSION_NAME,
 		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
-	#elif defined(__WINDOWS__)
-		"VK_KHR_win32_surface", // VK_KHR_WIN32_SURFACE_EXTENSION_NAME, without vulkan_win32.h (which requires windows.h)
-	#elif defined(__LINUX__)
-		VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
 	#endif
-		VK_KHR_SURFACE_EXTENSION_NAME,
-		VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
 	};
+	// a window's surface's, unless nothing is presented (headless: a runner's driver may have no window system's)
+	if (myConfig.presentation)
+		requiredExtensions.insert(
+			requiredExtensions.end(),
+			{
+	#if defined(__OSX__)
+				VK_EXT_METAL_SURFACE_EXTENSION_NAME,
+	#elif defined(__WINDOWS__)
+				"VK_KHR_win32_surface", // VK_KHR_WIN32_SURFACE_EXTENSION_NAME, without vulkan_win32.h (which requires windows.h)
+	#elif defined(__LINUX__)
+				VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
+	#endif
+				VK_KHR_SURFACE_EXTENSION_NAME,
+				VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
+			});
 	std::vector<const char*> requiredLayers = {};
 
 	VkInstanceCreateInfo info{.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
