@@ -216,9 +216,9 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   conflict with rhi's templates under both using-directives, with using-declarations in `namespace client`.
 - gfx code is not templated on the backend: it names rhi types through the aliases in `gfx/gpu.h` (`rhi::kGraphicsApi`, one per
   build), and contains no backend code: no Vulkan calls, enums or types.
-- rhi's public API speaks its own vocabulary, `rhi/enums.h` (`Format`, `ImageLayout`, `ImageAspect`, `ImageUsage`,
-  `BufferUsage`, `PipelineStage`, `Access`, `LoadOp`, `SamplerDesc`, `Extent2d`, `ClearValue`, `PresentResult`,
-  ...), converted at the backend boundary with `rhi::vk::ToVk`/`FromVk` (`rhi/vulkan/convert.h`, backend sources
+- rhi's public API speaks its own vocabulary, `rhi/vocabulary.h` (`Format`, `ImageLayout`, `ImageAspect`, `ImageUsage`,
+  `BufferUsage`, `PipelineStage`, `Access`, `LoadOp`, `SamplerDesc`, `Extent2d`, `Extent3d`, `ClearValue`,
+  `PresentResult`, a format's `BlockOf`, ...; `enums.h` until 2026-11-10, when it held more than enums), converted at the backend boundary with `rhi::vk::ToVk`/`FromVk` (`rhi/vulkan/convert.h`, backend sources
   only). Handles stay `XxxHandle<G>`. Add a neutral value (and its conversion) rather than exposing a Vulkan type.
   Commands without an object of their own go through `CommandEncoder<G>` (viewport, scissor, index buffer, draws,
   dispatch, buffer updates, memory barriers); secondary command buffers inheriting a render target come from

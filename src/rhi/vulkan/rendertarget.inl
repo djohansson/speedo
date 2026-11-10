@@ -159,7 +159,7 @@ void RenderTarget<DerivedType, kVk>::InternalInitializeAttachments()
 			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL :
 			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-		myAttachments.emplace_back(CreateImageView2D(
+		myAttachments.emplace_back(CreateImageView(
 			this->GetDevice(),
 			&this->GetInstance().GetHostAllocationCallbacks(),
 			0,
@@ -383,7 +383,7 @@ void RenderTarget<DerivedType, kVk>::InternalUpdateAttachments()
 					this->GetDevice(),
 					&this->GetInstance().GetHostAllocationCallbacks(),
 					myAttachments[attachmentIt]);
-			myAttachments[attachmentIt] = CreateImageView2D(
+			myAttachments[attachmentIt] = CreateImageView(
 				this->GetDevice(),
 				&this->GetInstance().GetHostAllocationCallbacks(),
 				0,

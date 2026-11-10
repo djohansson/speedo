@@ -243,52 +243,6 @@ bool SupportsFeature<SwapchainMaintenance1Features<kVk>>(
 	return static_cast<bool>(feature.swapchainMaintenance1);
 }
 
-uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor)
-{
-	outDivisor = 1;
-	switch (format)
-	{
-	case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
-	case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:
-	case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
-	case VK_FORMAT_BC1_RGB_SRGB_BLOCK:
-	case VK_FORMAT_BC4_UNORM_BLOCK:
-	case VK_FORMAT_BC4_SNORM_BLOCK:
-		outDivisor = 2;
-		return 1;
-	case VK_FORMAT_BC2_UNORM_BLOCK:
-	case VK_FORMAT_BC2_SRGB_BLOCK:
-	case VK_FORMAT_BC3_UNORM_BLOCK:
-	case VK_FORMAT_BC3_SRGB_BLOCK:
-	case VK_FORMAT_BC5_SNORM_BLOCK:
-	case VK_FORMAT_BC6H_UFLOAT_BLOCK:
-	case VK_FORMAT_BC5_UNORM_BLOCK:
-	case VK_FORMAT_BC6H_SFLOAT_BLOCK:
-	case VK_FORMAT_BC7_UNORM_BLOCK:
-	case VK_FORMAT_BC7_SRGB_BLOCK:
-		return 1;
-	case VK_FORMAT_R8G8B8_UNORM:
-		return 3;
-	case VK_FORMAT_R8G8B8A8_UNORM:
-		return 4;
-	case VK_FORMAT_R32G32_SFLOAT:
-		return 8;
-	case VK_FORMAT_R32G32B32_SFLOAT:
-		return 12;
-	case VK_FORMAT_R32G32B32A32_SFLOAT:
-		return 16;
-	default:
-		ASSERT(false); // please implement me.
-		return 0;
-	};
-}
-
-uint32_t GetFormatSize(VkFormat format)
-{
-	uint32_t unused;
-	return GetFormatSize(format, unused);
-}
-
 bool HasColorComponent(VkFormat format)
 {
 	return !HasDepthComponent(format) && !HasStencilComponent(format);
@@ -616,72 +570,9 @@ void TransitionImageLayout(
 	vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
 }
 
-void CopyBufferToImage(
-	VkCommandBuffer commandBuffer,
-	VkBuffer buffer,
-	VkImage image,
-	uint32_t width,
-	uint32_t height,
-	uint32_t mipLevels,
-	const uint32_t* mipOffsets,
-	uint32_t mipOffsetsStride)
+std::tuple<VkImage, VmaAllocation> CreateImage(
+	VmaAllocator allocator, const VkImageCreateInfo& info, VkMemoryPropertyFlags memoryFlags, const char* debugName)
 {
-	std::vector<VkBufferImageCopy> regions(mipLevels);
-	for (uint32_t mipIt = 0UL; mipIt < mipLevels; mipIt++)
-	{
-		// a non-square image's shorter side reaches 1 before the end of the chain, and stays there
-		uint32_t mipWidth = std::max(width >> mipIt, 1U);
-		uint32_t mipHeight = std::max(height >> mipIt, 1U);
-
-		auto& region = regions[mipIt];
-		region.bufferOffset = *(mipOffsets + static_cast<size_t>(mipIt * mipOffsetsStride));
-		region.bufferRowLength = 0UL;
-		region.bufferImageHeight = 0UL;
-		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		region.imageSubresource.mipLevel = mipIt;
-		region.imageSubresource.baseArrayLayer = 0UL;
-		region.imageSubresource.layerCount = 1;
-		region.imageOffset = {.x = 0, .y = 0, .z = 0};
-		region.imageExtent = {.width = mipWidth, .height = mipHeight, .depth = 1};
-	}
-
-	vkCmdCopyBufferToImage(
-		commandBuffer,
-		buffer,
-		image,
-		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		regions.size(),
-		regions.data());
-}
-
-std::tuple<VkImage, VmaAllocation> CreateImage3D(
-	VmaAllocator allocator,
-	uint32_t width,
-	uint32_t height,
-	uint32_t depth,
-	uint32_t mipLevels,
-	VkFormat format,
-	VkImageTiling tiling,
-	VkImageUsageFlags usage,
-	VkMemoryPropertyFlags memoryFlags,
-	const char* debugName,
-	VkImageLayout initialLayout)
-{
-	VkImageCreateInfo imageInfo{.sType=VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-	imageInfo.imageType = depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
-	imageInfo.extent.width = width;
-	imageInfo.extent.height = height;
-	imageInfo.extent.depth = depth;
-	imageInfo.mipLevels = mipLevels;
-	imageInfo.arrayLayers = 1;
-	imageInfo.format = format;
-	imageInfo.tiling = tiling;
-	imageInfo.usage = usage;
-	imageInfo.initialLayout = initialLayout;
-	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-	imageInfo.flags = {};
-
 	VmaAllocationCreateInfo allocInfo{};
 	allocInfo.flags = VMA_ALLOCATION_CREATE_USER_DATA_COPY_STRING_BIT;
 	allocInfo.usage = ((memoryFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0u)
@@ -694,28 +585,13 @@ std::tuple<VkImage, VmaAllocation> CreateImage3D(
 	VkImage outImage;
 	VmaAllocation outImageMemory;
 	VmaAllocationInfo outAllocInfo;
-	VK_CHECK(vmaCreateImage(allocator, &imageInfo, &allocInfo, &outImage, &outImageMemory, &outAllocInfo));
+	VK_CHECK(vmaCreateImage(allocator, &info, &allocInfo, &outImage, &outImageMemory, &outAllocInfo));
 
 	VmaAllocatorInfo allocatorInfo;
 	vmaGetAllocatorInfo(allocator, &allocatorInfo);
 	Track(allocatorInfo.device, VK_OBJECT_TYPE_IMAGE, outImage, (debugName != nullptr && *debugName != '\0') ? debugName : "Image");
 
 	return std::make_tuple(outImage, outImageMemory);
-}
-
-std::tuple<VkImage, VmaAllocation> CreateImage2D(
-	VmaAllocator allocator,
-	uint32_t width,
-	uint32_t height,
-	uint32_t mipLevels,
-	VkFormat format,
-	VkImageTiling tiling,
-	VkImageUsageFlags usage,
-	VkMemoryPropertyFlags memoryFlags,
-	const char* debugName,
-	VkImageLayout initialLayout)
-{
-	return CreateImage3D(allocator, width, height, 1, mipLevels, format, tiling, usage, memoryFlags, debugName, initialLayout);
 }
 
 VkBuffer CreateAliasingBuffer(
@@ -756,12 +632,12 @@ VkMemoryRequirements GetBufferMemoryRequirements(VmaAllocator allocator, VkDevic
 	return requirements;
 }
 
-VkImageCreateInfo ImageCreateInfo2D(
-	uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkImageLayout initialLayout)
+VkImageCreateInfo ImageCreateInfo(
+	VkExtent3D extent, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkImageLayout initialLayout)
 {
 	VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-	imageInfo.imageType = VK_IMAGE_TYPE_2D;
-	imageInfo.extent = {.width = width, .height = height, .depth = 1};
+	imageInfo.imageType = extent.depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
+	imageInfo.extent = extent;
 	imageInfo.mipLevels = mipLevels;
 	imageInfo.arrayLayers = 1;
 	imageInfo.format = format;
@@ -807,66 +683,7 @@ void DestroyImage(VmaAllocator allocator, VkImage image, VmaAllocation memory)
 	vmaDestroyImage(allocator, image, memory);
 }
 
-std::tuple<VkImage, VmaAllocation> CreateImage2D(
-	VkCommandBuffer commandBuffer,
-	VmaAllocator allocator,
-	VkBuffer stagingBuffer,
-	uint32_t width,
-	uint32_t height,
-	uint32_t mipLevels,
-	const uint32_t* mipOffsets,
-	uint32_t mipOffsetsStride,
-	VkFormat format,
-	VkImageTiling tiling,
-	VkImageUsageFlags usage,
-	VkMemoryPropertyFlags memoryFlags,
-	VkImageAspectFlags aspectFlags,
-	const char* debugName,
-	VkImageLayout initialLayout)
-{
-	ENSURE(stagingBuffer != VK_NULL_HANDLE);
-	ASSERT(width > 0);
-	ASSERT(height > 0);
-	ASSERT(mipLevels > 0);
-	ENSURE(mipOffsets != nullptr);
-
-	auto result = CreateImage2D(
-		allocator,
-		width,
-		height,
-		mipLevels,
-		format,
-		tiling,
-		usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-		memoryFlags,
-		debugName,
-		initialLayout);
-
-	const auto& [outImage, outImageMemory] = result;
-
-	TransitionImageLayout(
-		commandBuffer,
-		outImage,
-		format,
-		initialLayout,
-		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		mipLevels,
-		aspectFlags);
-
-	CopyBufferToImage(
-		commandBuffer,
-		stagingBuffer,
-		outImage,
-		width,
-		height,
-		mipLevels,
-		mipOffsets,
-		mipOffsetsStride);
-
-	return result;
-}
-
-VkImageView CreateImageView2D(
+VkImageView CreateImageView(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocationCallbacks,
 	VkImageViewCreateFlags flags,

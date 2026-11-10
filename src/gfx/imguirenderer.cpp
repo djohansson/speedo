@@ -129,7 +129,7 @@ struct Operation
 	auto texture = std::make_unique<Texture>(Texture{
 		.image = Image(ImageCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::string(name)),
-			{ImageMipLevelDesc{.extent = Extent2d{.width = width, .height = height}, .size = width * height * 4, .offset = 0}},
+			{.width = width, .height = height},
 			Format::kR8G8B8A8Unorm,
 			ImageTiling::kOptimal,
 			ImageUsage::kSampled | ImageUsage::kTransferDestination,

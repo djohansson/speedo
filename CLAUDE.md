@@ -12,7 +12,7 @@ the user reported).
   context and frames (`platform::ImGuiLayer`), fullscreen and presentation. Its interface knows nothing of graphics;
   nothing above it includes glfw (core's input vocabulary, `core/capi.h`, instead).
 - `rhi`: the Vulkan backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains),
-  templated on `GraphicsApi`, speaking its own vocabulary (`rhi/enums.h`; convert at the backend boundary with
+  templated on `GraphicsApi`, speaking its own vocabulary (`rhi/vocabulary.h`; convert at the backend boundary with
   `rhi::vk::ToVk`/`FromVk`). It never includes gfx, imgui or slang.
 - `gfx`: everything above rhi: importers, `Model`, `Scene`, cameras and `Views`, the renderer and frame graph, the
   shaders (`gfx/shaders`, slang, sharing `capi.h` with the C++), `ImGuiRenderer`. No Vulkan calls, enums or types

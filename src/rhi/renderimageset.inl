@@ -20,7 +20,7 @@ RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(std::span<const std::shar
 	for (size_t index = 0; index < images.size(); index++)
 	{
 		const auto& image = *images[index];
-		auto extent = image.GetDesc().mipLevels[0].extent;
+		auto extent = image.GetDesc().extent.Slice(); // attachments are 2D
 
 		// the render target lives on the same instance/device as its images
 		outDesc.instance = image.GetDesc().instance;

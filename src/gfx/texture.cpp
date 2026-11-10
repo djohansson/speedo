@@ -55,17 +55,27 @@ namespace detail
 
 	ImageCreateDesc desc{
 		device.CreateDeviceObjectCreateDesc(name),
-		{},
+		{.width = mipLevels.front().width, .height = mipLevels.front().height},
 		format,
 		ImageTiling::kOptimal,
 		ImageUsage::kSampled | ImageUsage::kTransferDestination,
 		MemoryProperty::kDeviceLocal,
 		ImageAspect::kColor,
-		ImageLayout::kUndefined};
-	desc.mipLevels.reserve(mipLevels.size());
-	for (const auto& level : mipLevels)
-		desc.mipLevels.push_back(
-			{.extent = {.width = level.width, .height = level.height}, .size = level.size, .offset = level.offset});
+		ImageLayout::kUndefined,
+		static_cast<uint32_t>(mipLevels.size())};
+	// the importer stages the levels packed, the upload's default layout (see ImageCreateDesc::levelOffsets)
+	uint64_t packedOffset = 0;
+	for (uint32_t levelIt = 0; levelIt < desc.levelCount; levelIt++)
+	{
+		ENSUREF(
+			mipLevels[levelIt].offset == packedOffset,
+			"{}: level {} is staged at {}, where packed it would be at {}",
+			name,
+			levelIt,
+			mipLevels[levelIt].offset,
+			packedOffset);
+		packedOffset += PackedByteCount(format, desc.LevelExtent(levelIt));
+	}
 
 	// one queue lock at a time: the queue types may alias the same context (see Device::GetQueue)
 	auto graphicsQueueFamilyIndex = device.GetQueue(kQueueTypeGraphics).Read()->queueFamilyIndex;
@@ -273,28 +283,23 @@ Texture LoadTexture(
 namespace detail
 {
 
-// a R16G16B16A16_SFLOAT image for the environment filter to write (and the frames to sample), with levels mips from
-// width wide (each half the one before, at least minimum wide), and a view of all of them
-Texture StorageTexture(Device& device, const std::string& name, uint32_t width, uint32_t levels, uint32_t minimum)
+// a R16G16B16A16_SFLOAT panorama (twice as wide as high) for the environment filter to write (and the frames to
+// sample), of levels mips from width wide, and a view of all of them
+Texture StorageTexture(Device& device, const std::string& name, uint32_t width, uint32_t levels)
 {
 	using namespace rhi;
 
-	std::vector<ImageMipLevelDesc> mipLevels;
-	for (uint32_t level = 0; level < levels; level++)
-	{
-		uint32_t levelWidth = std::max(width >> level, minimum);
-		mipLevels.push_back({.extent = {.width = levelWidth, .height = std::max(levelWidth / 2, 1U)}});
-	}
 	Texture texture;
 	texture.image = std::make_shared<Image>(ImageCreateDesc{
 		device.CreateDeviceObjectCreateDesc(name),
-		std::move(mipLevels),
+		{.width = width, .height = std::max(width / 2, 1U)},
 		Format::kR16G16B16A16Sfloat,
 		ImageTiling::kOptimal,
 		ImageUsage::kStorage | ImageUsage::kSampled,
 		MemoryProperty::kDeviceLocal,
 		ImageAspect::kColor,
-		ImageLayout::kUndefined});
+		ImageLayout::kUndefined,
+		levels});
 	texture.view = std::make_shared<ImageView>(ImageViewCreateDesc{
 		device.CreateDeviceObjectCreateDesc(std::format("{} View", name)), *texture.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor});
 	return texture;
@@ -443,11 +448,11 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 	uint32_t sourceLevels = 1;
 	while ((width >> sourceLevels) >= 8)
 		sourceLevels++;
-	auto source = detail::StorageTexture(device, std::format("{} source", name), width, sourceLevels, 8);
+	auto source = detail::StorageTexture(device, std::format("{} source", name), width, sourceLevels);
 	result.source = std::move(source.image);
 	result.sourceView = std::move(source.view);
-	result.texture = detail::StorageTexture(device, name, width, environment::kLevelCount, 2);
-	result.sheenTexture = detail::StorageTexture(device, std::format("{} sheen", name), width / 8, environment::kLevelCount, 2);
+	result.texture = detail::StorageTexture(device, name, width, environment::kLevelCount);
+	result.sheenTexture = detail::StorageTexture(device, std::format("{} sheen", name), width / 8, environment::kLevelCount);
 	result.levelCount = environment::kLevelCount;
 	result.sheenLevelCount = environment::kLevelCount;
 	return result;

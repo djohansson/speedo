@@ -5,34 +5,44 @@
 #include <rhi/deviceobject.h>
 #include <rhi/memory.h>
 
+#include <algorithm>
 #include <array>
 #include <optional>
 #include <tuple>
+#include <vector>
 
 namespace rhi
 {
 
 template <GraphicsApi G>
-struct ImageMipLevelDesc
-{
-	Extent2d extent{};
-	uint32_t size = 0;
-	uint32_t offset = 0;
-};
-
-template <GraphicsApi G>
 struct ImageCreateDesc final : DeviceObjectCreateDesc<G>
 {
-	std::vector<ImageMipLevelDesc<G>> mipLevels;
+	// level 0's, the image's: a depth above 1 makes it a 3D image (a volume), whose views are 3D
+	Extent3d extent{};
 	Format format{};
 	ImageTiling tiling{};
 	ImageUsage usageFlags{};
 	MemoryProperty memoryFlags{};
 	ImageAspect imageAspectFlags{};
 	ImageLayout layout{};
-	// a volume's depth (a 3D image if more than 1, of one mip level, never uploaded). not serialized: the cached images
-	// are 2D
-	uint32_t depth = 1;
+	// its mip levels, each half the one above (see LevelExtent): the levels' extents follow from level 0's, which a desc
+	// can't choose otherwise
+	uint32_t levelCount = 1;
+	// where each level starts, in bytes, in what an upload copies from (the constructors that take a staging buffer or
+	// initial data), for a source laid out otherwise than packed: one per level, in any order the source has them. none
+	// (the default, and for an image that isn't uploaded) is packed: level 0 at 0, and each level right after the one
+	// above, its bytes PackedByteCount of the format and its LevelExtent
+	std::vector<uint32_t> levelOffsets;
+
+	// a mip level's extent: level 0's halved in every dimension, down to 1 (a non-square image's shorter side, or a
+	// volume's depth, reaches 1 before the end of the chain, and stays there)
+	[[nodiscard]] constexpr Extent3d LevelExtent(uint32_t level) const noexcept
+	{
+		return {
+			.width = std::max(extent.width >> level, 1U),
+			.height = std::max(extent.height >> level, 1U),
+			.depth = std::max(extent.depth >> level, 1U)};
+	}
 
 	// see DeviceObjectCreateDesc::serialize for why this is needed
 	constexpr static auto serialize(auto& archive, auto& self)//NOLINT(readability-identifier-naming)
@@ -41,13 +51,15 @@ struct ImageCreateDesc final : DeviceObjectCreateDesc<G>
 		using BaseType = std::conditional_t<std::is_const_v<SelfType>, const DeviceObjectCreateDesc<G>, DeviceObjectCreateDesc<G>>;
 		return archive(
 			static_cast<BaseType&>(self),
-			self.mipLevels,
+			self.extent,
 			self.format,
 			self.tiling,
 			self.usageFlags,
 			self.memoryFlags,
 			self.imageAspectFlags,
-			self.layout);
+			self.layout,
+			self.levelCount,
+			self.levelOffsets);
 	}
 };
 
@@ -122,11 +134,13 @@ public:
 	void GenerateMips(CommandBufferHandle<G> cmd, ImageLayout layout);
 
 private:
-	Image( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
+	Image( // copies buffer in initialData (byteCount bytes) into the target. initialData buffer gets automatically garbage
+		   // collected when copy has finished.
 		CreateDescType&& desc,
 		CommandBufferHandle<G> cmd,
 		core::TaskCreateInfo<void>& timlineCallbackOut,
-		std::tuple<BufferHandle<G>, AllocationHandle<G>>&& initialData);
+		std::tuple<BufferHandle<G>, AllocationHandle<G>>&& initialData,
+		uint64_t byteCount);
 	Image( // takes ownership of provided image handle & allocation
 		CreateDescType&& desc,
 		ValueType&& data);
@@ -143,17 +157,31 @@ private:
 	ValueType myImage{};
 };
 
+// the image a view is of: its handle, and whether it is a volume (see ImageCreateDesc::extent), whose views are 3D
+template <GraphicsApi G>
+struct ImageViewSource
+{
+	constexpr ImageViewSource() noexcept = default;
+	// implicit, so that a view's desc is made from the image it views
+	ImageViewSource(const Image<G>& image) noexcept//NOLINT(google-explicit-constructor)
+		: handle(image)
+		, volume(image.GetDesc().extent.depth > 1)
+	{}
+
+	ImageHandle<G> handle{};
+	bool volume = false;
+};
+
 template <GraphicsApi G>
 struct ImageViewCreateDesc final : DeviceObjectCreateDesc<G>
 {
-	ImageHandle<G> image{};
+	ImageViewSource<G> image{};
 	Format format{};
 	ImageAspect aspectFlags{};
 	uint32_t levelCount = 0; // the mip levels it views, from baseLevel: 0 for all of the image's
 	// where its r, g, b and a come from (e.g. a texture whose channels the shader expects elsewhere)
 	std::array<ComponentSwizzle, 4> components{};
 	uint32_t baseLevel = 0; // the first mip level it views (levelCount counts from it), e.g. one level as a storage image
-	bool volume = false; // a 3D image's view (see ImageCreateDesc::depth)
 };
 
 template <GraphicsApi G>

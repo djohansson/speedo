@@ -39,11 +39,6 @@ template <GraphicsApi G>
 using DeviceSize = std::conditional_t<G == kVk, VkDeviceSize, std::nullptr_t>;
 
 
-template <GraphicsApi G>
-using Extent3d = std::conditional_t<G == kVk, VkExtent3D, std::nullptr_t>;
-
-
-
 // the backend's viewport and scissor, for state kept in the backend's own layout (see the neutral Viewport and Rect)
 template <GraphicsApi G>
 using NativeViewport = std::conditional_t<G == kVk, VkViewport, std::nullptr_t>;

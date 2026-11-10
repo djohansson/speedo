@@ -1,7 +1,7 @@
 #pragma once
 
 #include <rhi/deviceobject.h>
-#include <rhi/enums.h>
+#include <rhi/vocabulary.h>
 #include <rhi/types.h>
 
 #include <cstdint>

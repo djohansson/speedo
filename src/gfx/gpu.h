@@ -24,7 +24,6 @@ using Buffer = rhi::Buffer<rhi::kGraphicsApi>;
 using BufferCreateDesc = rhi::BufferCreateDesc<rhi::kGraphicsApi>;
 using Image = rhi::Image<rhi::kGraphicsApi>;
 using ImageCreateDesc = rhi::ImageCreateDesc<rhi::kGraphicsApi>;
-using ImageMipLevelDesc = rhi::ImageMipLevelDesc<rhi::kGraphicsApi>;
 using ImageView = rhi::ImageView<rhi::kGraphicsApi>;
 using ImageViewCreateDesc = rhi::ImageViewCreateDesc<rhi::kGraphicsApi>;
 using Swapchain = rhi::Swapchain<rhi::kGraphicsApi>;

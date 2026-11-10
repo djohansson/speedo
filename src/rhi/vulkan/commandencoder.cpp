@@ -159,7 +159,7 @@ void CommandEncoder<kVk>::CopyBuffer(const Buffer<kVk>& source, const Buffer<kVk
 template <>
 void CommandEncoder<kVk>::CopyImageToBuffer(const Image<kVk>& image, const Buffer<kVk>& buffer) const
 {
-	CopyImageToBuffer(static_cast<ImageHandle<kVk>>(image), image.GetDesc().mipLevels.front().extent, buffer);
+	CopyImageToBuffer(static_cast<ImageHandle<kVk>>(image), image.GetDesc().extent.Slice(), buffer);
 }
 
 template <>

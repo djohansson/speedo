@@ -1,7 +1,7 @@
 #pragma once
 
 #include <rhi/capi.h>
-#include <rhi/enums.h>
+#include <rhi/vocabulary.h>
 #include <rhi/querypool.h>
 #include <rhi/types.h>
 

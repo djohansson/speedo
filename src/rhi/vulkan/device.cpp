@@ -435,7 +435,7 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 		queueFamilyDesc.queueCount = queueFamilyProperty.queueCount;
 		queueFamilyDesc.flags = queueFamilyProperty.queueFlags;
 		queueFamilyDesc.timestampValidBits = queueFamilyProperty.timestampValidBits;
-		queueFamilyDesc.minImageTransferGranularity = queueFamilyProperty.minImageTransferGranularity;
+		queueFamilyDesc.minImageTransferGranularity = vk::FromVk(queueFamilyProperty.minImageTransferGranularity);
 	}
 
 	// // merge queue families if they have the same flags.

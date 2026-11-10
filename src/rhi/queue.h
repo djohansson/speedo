@@ -29,7 +29,7 @@ struct QueueFamilyDesc
 	uint32_t queueCount = 0UL;
 	uint32_t flags = 0UL;
 	uint32_t timestampValidBits = 0UL;
-	Extent3d<G> minImageTransferGranularity{};
+	Extent3d minImageTransferGranularity{};
 };
 
 template <GraphicsApi G>

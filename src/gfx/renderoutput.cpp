@@ -95,7 +95,7 @@ void ImageOutput::Resize(Extent2d extent)
 	myTarget.reset();
 	myImage = std::make_shared<Image>(ImageCreateDesc{
 		myDevice.CreateDeviceObjectCreateDesc("Image Output"),
-		{{.extent = extent}},
+		extent,
 		Format::kR8G8B8A8Unorm,
 		ImageTiling::kOptimal,
 		ImageUsage::kStorage | ImageUsage::kSampled | ImageUsage::kColorAttachment,

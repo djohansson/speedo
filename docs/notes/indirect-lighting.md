@@ -437,8 +437,20 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   (`gGiVolumes`: per color its faces +x, -x, +y and -y, then red's and green's +z and -z, then blue's and the weight, so the
   shading reads vectors, see `GiSample`; the clips stacked along z, a lookup clamped inside its clip's slab), written
   as storage images (`gGiVolumeImages`) and sampled with the clamping sampler, always in the general layout (the
-  voxels' lighting samples them in the pass that writes them; Main declares a storage read). rhi's 3D images:
-  `ImageCreateDesc::depth` above 1 (not serialized: the cached images are 2D) and `ImageViewCreateDesc::volume`. `Shade`
+  voxels' lighting samples them in the pass that writes them; Main declares a storage read). rhi's 3D images: a depth
+  above 1 in the image's extent (`ImageCreateDesc::extent`, an `rhi::Extent3d`, which an `Extent2d` converts to a slice
+  deep; `Slice()` back), whose views are 3D without asking (a view's desc is made from its image, `ImageViewSource`).
+  The desc holds level 0's extent alone and a `levelCount`: Vulkan sizes every level from level 0's, halving each
+  dimension down to 1 (`ImageCreateDesc::LevelExtent`), so a desc can't size them otherwise, and the readers (bloom,
+  the depth pyramids, the environment filter) take them from there. What an upload needs of each level is where its
+  bytes start in the source: packed by default (level 0 at 0, each level right after the one above, its bytes
+  `rhi::PackedByteCount` of the format's `BlockOf` and the level's extent), as the importer stages them (`Upload` fails
+  hard where it doesn't), or `levelOffsets` for another layout; a level past the source's bytes fails hard. The levels'
+  places in the image's own memory are the driver's. Until 2026-11-10 the desc listed every level's extent (and an
+  unused byte size), the environment's storage textures listing levels at least 2 or 8 wide where the image's were
+  narrower; the depth was a field of its own (`ImageCreateDesc::depth`) and views had a flag to set
+  (`ImageViewCreateDesc::volume`), and only creating the image knew of it: its placement in memory, uploads, blits and
+  mips were 2D (a placed or uploaded volume came out 2D, a blit one slice deep). `Shade`
   takes `GiSampleSurface` in place of the environment's irradiance where a clip covers the point (the environment's
   elsewhere): the finest clip holding it more than a probe spacing from its edges, blended into the next over 8
   voxels; there the 8 voxels around the point offset 0.75 voxels along its normal and 1.5 toward the eye (the line of

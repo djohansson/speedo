@@ -2587,12 +2587,11 @@ struct Scene::Impl
 
 		constexpr uint32_t kBlackTextureWidth = 4;
 		constexpr uint32_t kBlackTextureHeight = 4;
-		constexpr uint32_t kBlackTextureSize = kBlackTextureWidth * kBlackTextureHeight * 4;
-		
+
 		auto blackTexture = device.CreateResource<Image>(
 			ImageCreateDesc{
 				device.CreateDeviceObjectCreateDesc("Black Texture"),
-				{ImageMipLevelDesc{.extent = Extent2d{.width=kBlackTextureWidth, .height=kBlackTextureHeight}, .size = kBlackTextureSize, .offset = 0}},
+				{.width = kBlackTextureWidth, .height = kBlackTextureHeight},
 				Format::kR8G8B8A8Unorm,
 				ImageTiling::kLinear,
 				ImageUsage::kSampled | ImageUsage::kTransferDestination,

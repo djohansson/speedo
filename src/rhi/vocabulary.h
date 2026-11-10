@@ -327,13 +327,99 @@ struct SamplerDesc
 	[[nodiscard]] bool operator==(const SamplerDesc&) const = default; // by field: it has padding
 };
 
+struct Extent3d;
+
 struct Extent2d
 {
 	uint32_t width = 0;
 	uint32_t height = 0;
 
+	// implicit: a 2D extent is a 3D one a slice deep
+	[[nodiscard]] constexpr operator Extent3d() const noexcept;//NOLINT(google-explicit-constructor)
 	[[nodiscard]] bool operator==(const Extent2d&) const = default;
 };
+
+// an image's (or a mip level's): a depth above 1 is a 3D image's, a volume's
+struct Extent3d
+{
+	uint32_t width = 0;
+	uint32_t height = 0;
+	uint32_t depth = 1;
+
+	// one slice's extent: all of a 2D image
+	[[nodiscard]] constexpr Extent2d Slice() const noexcept { return {.width = width, .height = height}; }
+	[[nodiscard]] bool operator==(const Extent3d&) const = default;
+};
+
+constexpr Extent2d::operator Extent3d() const noexcept
+{
+	return {.width = width, .height = height};
+}
+
+// a format's texel block: the texels its byteCount bytes hold, 4x4 for the block compressed formats, else one. byteCount
+// is 0 where a texel isn't one run of bytes in a copy (a combined depth stencil format, whose aspects copy apart) and for
+// kUndefined
+struct FormatBlock
+{
+	uint32_t width = 1;
+	uint32_t height = 1;
+	uint32_t byteCount = 0;
+};
+
+//NOLINTBEGIN(readability-magic-numbers): the formats' own sizes
+[[nodiscard]] constexpr FormatBlock BlockOf(Format format) noexcept
+{
+	switch (format)
+	{
+	case Format::kR16Sfloat:
+		return {.byteCount = 2};
+	case Format::kR8G8B8Unorm:
+	case Format::kB8G8R8Unorm:
+		return {.byteCount = 3};
+	case Format::kR8G8B8A8Unorm:
+	case Format::kR8G8B8A8Srgb:
+	case Format::kB8G8R8A8Unorm:
+	case Format::kB8G8R8A8Srgb:
+	case Format::kA2R10G10B10UnormPack32:
+	case Format::kA2B10G10R10UnormPack32:
+	case Format::kD32Sfloat:
+	case Format::kR32Sfloat:
+	case Format::kR16G16Sfloat:
+		return {.byteCount = 4};
+	case Format::kR16G16B16A16Sfloat:
+	case Format::kR32G32Sfloat:
+	case Format::kR32G32Uint:
+		return {.byteCount = 8};
+	case Format::kR32G32B32A32Sfloat:
+		return {.byteCount = 16};
+	case Format::kBC1RgbUnorm:
+	case Format::kBC1RgbSrgb:
+	case Format::kBC4Unorm:
+		return {.width = 4, .height = 4, .byteCount = 8};
+	case Format::kBC3Unorm:
+	case Format::kBC3Srgb:
+	case Format::kBC5Unorm:
+	case Format::kBC7Unorm:
+	case Format::kBC7Srgb:
+		return {.width = 4, .height = 4, .byteCount = 16};
+	case Format::kUndefined:
+	case Format::kD32SfloatS8Uint:
+	case Format::kD24UnormS8Uint:
+		return {};
+	}
+	return {};
+}
+//NOLINTEND(readability-magic-numbers)
+
+// the bytes an extent of format takes packed: its rows of blocks, and its slices, each right after the one before (as
+// a copy reads a buffer given no row length)
+[[nodiscard]] constexpr uint64_t PackedByteCount(Format format, Extent3d extent) noexcept
+{
+	auto block = BlockOf(format);
+	auto columnCount = uint64_t{(extent.width + block.width - 1) / block.width};
+	auto rowCount = uint64_t{(extent.height + block.height - 1) / block.height};
+	return columnCount * rowCount * extent.depth * block.byteCount;
+}
 
 struct Viewport
 {

@@ -1,14 +1,14 @@
 #pragma once
 
 #include <core/assert.h>
-#include <rhi/enums.h>
+#include <rhi/vocabulary.h>
 
 #include <array>
 #include <utility>
 
 #include <vulkan/vulkan.h>
 
-// conversions between rhi's neutral vocabulary (rhi/enums.h) and vulkan's
+// conversions between rhi's neutral vocabulary (rhi/vocabulary.h) and vulkan's
 namespace rhi::vk
 {
 
@@ -350,6 +350,8 @@ namespace rhi::vk
 
 [[nodiscard]] constexpr VkExtent2D ToVk(Extent2d extent) noexcept { return {.width = extent.width, .height = extent.height}; }
 [[nodiscard]] constexpr Extent2d FromVk(VkExtent2D extent) noexcept { return {.width = extent.width, .height = extent.height}; }
+[[nodiscard]] constexpr VkExtent3D ToVk(Extent3d extent) noexcept { return {.width = extent.width, .height = extent.height, .depth = extent.depth}; }
+[[nodiscard]] constexpr Extent3d FromVk(VkExtent3D extent) noexcept { return {.width = extent.width, .height = extent.height, .depth = extent.depth}; }
 
 [[nodiscard]] constexpr VkShaderStageFlags ToVk(ShaderStage stages) noexcept
 {

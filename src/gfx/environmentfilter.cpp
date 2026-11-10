@@ -87,7 +87,7 @@ EnvironmentFilter::EnvironmentFilter(Device& device, Pipeline& pipeline, ShaderL
 		Texture texture;
 		texture.image = std::make_shared<Image>(ImageCreateDesc{
 			device.CreateDeviceObjectCreateDesc(name),
-			{{.extent = {.width = width, .height = height}}},
+			{.width = width, .height = height},
 			format,
 			ImageTiling::kOptimal,
 			ImageUsage::kStorage | ImageUsage::kSampled,
@@ -147,12 +147,12 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 			{},
 			level}));
 	};
-	auto extentOf = [](const Image& image, uint32_t level) { return image.GetDesc().mipLevels[level].extent; };
+	auto extentOf = [](const Image& image, uint32_t level) { return image.GetDesc().LevelExtent(level).Slice(); };
 
 	auto& source = *environment.source;
 	auto& levels = *environment.texture.image;
 	auto& sheenLevels = *environment.sheenTexture.image;
-	auto sourceLevelCount = static_cast<uint32_t>(source.GetDesc().mipLevels.size());
+	auto sourceLevelCount = source.GetDesc().levelCount;
 
 	// the frames before may still read the levels, the sky's view and gEnvironment (a sky drawn again as the sun moves):
 	// what this writes waits for them
@@ -226,7 +226,7 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	{
 		// the sky: its tables the first time, and again when its air changes (its aerosols), its view of itself for the sun
 		// now, and its panorama from that
-		auto extentOfTable = [](const Texture& texture) { return texture.image->GetDesc().mipLevels[0].extent; };
+		auto extentOfTable = [](const Texture& texture) { return texture.image->GetDesc().extent.Slice(); };
 		if (!mySkyTablesMade || mySkyTablesAerosols != skyAerosols)
 		{
 			dispatch(kSkyTransmittance, nullptr, *mySkyTransmittance.view, extentOfTable(mySkyTransmittance), 0.0F);
@@ -245,7 +245,7 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	// the levels: level 0 the panorama as it is (a file's original, dominant lights included; the sky without its sun,
 	// which the shader draws), then the filtered ones, sampling the whole pyramid
 	pipeline.SetDescriptorData("gSource", ImageBinding{.sampler = {}, .imageView = *environment.sourceView, .layout = ImageLayout::kGeneral}, kSet);
-	auto levelCount = static_cast<uint32_t>(levels.GetDesc().mipLevels.size());
+	auto levelCount = levels.GetDesc().levelCount;
 	auto roughnessOf = [](uint32_t level, uint32_t count) { return static_cast<float>(level) / static_cast<float>(count - 1); };
 	// the levels, the sheen levels and the irradiance's partials each read the pyramid alone (a file's original for level
 	// 0): no barrier between them, one before the irradiance's sums
@@ -255,7 +255,7 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 		for (uint32_t level = 1; level < levelCount; level++)
 			dispatch(kSpecular, nullptr, *mipView(levels, level), extentOf(levels, level), roughnessOf(level, levelCount), 0, false);
 	}
-	auto sheenLevelCount = static_cast<uint32_t>(sheenLevels.GetDesc().mipLevels.size());
+	auto sheenLevelCount = sheenLevels.GetDesc().levelCount;
 	{
 		for (uint32_t level = 0; level < sheenLevelCount; level++)
 			dispatch(kSheen, nullptr, *mipView(sheenLevels, level), extentOf(sheenLevels, level), roughnessOf(level, sheenLevelCount), 0, false);
@@ -267,10 +267,10 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 		irradianceLevel++;
 	auto irradianceExtent = extentOf(source, irradianceLevel);
 	ENSUREF(
-		irradianceExtent.height <= myIrradiancePartials.image->GetDesc().mipLevels[0].extent.height,
+		irradianceExtent.height <= myIrradiancePartials.image->GetDesc().extent.height,
 		"the irradiance's source mip, {} rows, is taller than its partials hold ({})",
 		irradianceExtent.height,
-		myIrradiancePartials.image->GetDesc().mipLevels[0].extent.height);
+		myIrradiancePartials.image->GetDesc().extent.height);
 	dispatch(
 		kIrradianceRows,
 		sourceMips[irradianceLevel].get(),

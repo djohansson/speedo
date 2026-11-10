@@ -272,20 +272,20 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	{
 		auto name = std::format("Aerial Perspective {}", volumeIt == 0 ? "Light" : "Transmittance");
 		ImageCreateDesc desc{device.CreateDeviceObjectCreateDesc(name)};
-		desc.mipLevels = {{.extent = {.width = SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH, .height = SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT}}};
+		desc.extent = {
+			.width = SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH,
+			.height = SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT,
+			.depth = SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT};
 		desc.format = Format::kR16G16B16A16Sfloat;
 		desc.tiling = ImageTiling::kOptimal;
 		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled;
 		desc.memoryFlags = MemoryProperty::kDeviceLocal;
 		desc.imageAspectFlags = ImageAspect::kColor;
 		desc.layout = ImageLayout::kUndefined;
-		desc.depth = SHADER_TYPES_AERIAL_PERSPECTIVE_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT;
 		auto& volume = myAerialPerspectiveImages[volumeIt];
 		volume.image = std::make_unique<Image>(std::move(desc));
-		ImageViewCreateDesc viewDesc{
-			device.CreateDeviceObjectCreateDesc(std::format("{} View", name)), *volume.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor};
-		viewDesc.volume = true;
-		volume.view = std::make_unique<ImageView>(std::move(viewDesc));
+		volume.view = std::make_unique<ImageView>(ImageViewCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("{} View", name)), *volume.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor});
 		myAerialPerspective[volumeIt] = myGraph.ImportImage(name);
 	}
 	// and its history (gAerialPerspectiveHistory, see ComputeAerialPerspective): each slice's light per meter and the fog's
@@ -295,26 +295,26 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	{
 		auto name = std::format("Aerial Perspective History {}", historyIt);
 		ImageCreateDesc desc{device.CreateDeviceObjectCreateDesc(name)};
-		desc.mipLevels = {{.extent = {.width = SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH, .height = SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT}}};
+		desc.extent = {
+			.width = SHADER_TYPES_AERIAL_PERSPECTIVE_WIDTH,
+			.height = SHADER_TYPES_AERIAL_PERSPECTIVE_HEIGHT,
+			.depth = SHADER_TYPES_AERIAL_PERSPECTIVE_HISTORY_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT};
 		desc.format = Format::kR16G16B16A16Sfloat;
 		desc.tiling = ImageTiling::kOptimal;
 		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled;
 		desc.memoryFlags = MemoryProperty::kDeviceLocal;
 		desc.imageAspectFlags = ImageAspect::kColor;
 		desc.layout = ImageLayout::kUndefined;
-		desc.depth = SHADER_TYPES_AERIAL_PERSPECTIVE_HISTORY_SLICE_COUNT * SHADER_TYPES_SPLIT_VIEW_COUNT;
 		auto& volume = myAerialPerspectiveHistoryImages[historyIt];
 		volume.image = std::make_unique<Image>(std::move(desc));
-		ImageViewCreateDesc viewDesc{
-			device.CreateDeviceObjectCreateDesc(std::format("{} View", name)), *volume.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor};
-		viewDesc.volume = true;
-		volume.view = std::make_unique<ImageView>(std::move(viewDesc));
+		volume.view = std::make_unique<ImageView>(ImageViewCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("{} View", name)), *volume.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor});
 		myAerialPerspectiveHistory[historyIt] = myGraph.ImportImage(name);
 	}
 	// the sky's views from the eyes (see ComputeSkyEyeView): a table per split view, stacked along y
 	{
 		ImageCreateDesc desc{device.CreateDeviceObjectCreateDesc("Sky Eye View")};
-		desc.mipLevels = {{.extent = {.width = SHADER_TYPES_SKY_VIEW_WIDTH, .height = SHADER_TYPES_SKY_VIEW_HEIGHT * SHADER_TYPES_SPLIT_VIEW_COUNT}}};
+		desc.extent = {.width = SHADER_TYPES_SKY_VIEW_WIDTH, .height = SHADER_TYPES_SKY_VIEW_HEIGHT * SHADER_TYPES_SPLIT_VIEW_COUNT};
 		desc.format = Format::kR16G16B16A16Sfloat;
 		desc.tiling = ImageTiling::kOptimal;
 		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled;
@@ -710,7 +710,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	auto pyramid = [this, kernel](FrameGraph::PassContext& context, uint32_t source)
 	{
 		// source 2: the shadow atlas, into the shadow views' pyramid (see ComputeDepthPyramid)
-		const auto& levels = context.graph.GetImage(source == 2 ? myShadowDepthPyramid : myDepthPyramid).GetDesc().mipLevels;
+		const auto& pyramid = context.graph.GetImage(source == 2 ? myShadowDepthPyramid : myDepthPyramid).GetDesc();
 		auto levelCount = (source == 2 ? myShadowDepthPyramidViews : myDepthPyramidViews).size();
 		for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
 		{
@@ -720,8 +720,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			kernel(
 				context.cmd,
 				ComputePipelineVariant{.entryPoint = kDepthPyramidEntryPoint},
-				levels[levelIt].extent.width,
-				levels[levelIt].extent.height,
+				pyramid.LevelExtent(levelIt).width,
+				pyramid.LevelExtent(levelIt).height,
 				0,
 				levelIt,
 				source);
@@ -2080,7 +2080,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	};
 	auto dofKernel = [this, kernel](FrameGraph::PassContext& context, uint8_t entryPoint, FrameGraph::ImageId image)
 	{
-		auto extent = context.graph.GetImage(image).GetDesc().mipLevels.front().extent;
+		auto extent = context.graph.GetImage(image).GetDesc().extent;
 		kernel(context.cmd, ComputePipelineVariant{.entryPoint = entryPoint}, extent.width, extent.height);
 	};
 	myDofTilesPass = myGraph.AddPass(
@@ -2197,7 +2197,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{
-			const auto& levels = context.graph.GetImage(myBloom).GetDesc().mipLevels;
+			const auto& bloom = context.graph.GetImage(myBloom).GetDesc();
 			auto levelCount = static_cast<uint32_t>(myBloomViews.size());
 			for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
 			{
@@ -2205,13 +2205,13 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					CommandEncoder(context.cmd).Barrier(
 						PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead);
 				kernel(
-					context.cmd, ComputePipelineVariant{.entryPoint = kBloomDownEntryPoint}, levels[levelIt].extent.width, levels[levelIt].extent.height, 0, levelIt);
+					context.cmd, ComputePipelineVariant{.entryPoint = kBloomDownEntryPoint}, bloom.LevelExtent(levelIt).width, bloom.LevelExtent(levelIt).height, 0, levelIt);
 			}
 			for (uint32_t levelIt = levelCount - 1; levelIt-- > 0;)
 			{
 				CommandEncoder(context.cmd).Barrier(
 					PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite);
-				kernel(context.cmd, ComputePipelineVariant{.entryPoint = kBloomUpEntryPoint}, levels[levelIt].extent.width, levels[levelIt].extent.height, 0, levelIt);
+				kernel(context.cmd, ComputePipelineVariant{.entryPoint = kBloomUpEntryPoint}, bloom.LevelExtent(levelIt).width, bloom.LevelExtent(levelIt).height, 0, levelIt);
 			}
 		});
 	// the starburst's near field (see ComputeStarburst): the lens's image at half the output's size and each tile's
@@ -2229,7 +2229,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this, kernel](FrameGraph::PassContext& context)
 		{
 			// a group per tile, a thread per half texel
-			auto extent = context.graph.GetImage(myStarSource).GetDesc().mipLevels.front().extent;
+			auto extent = context.graph.GetImage(myStarSource).GetDesc().extent;
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kStarTilesEntryPoint}, extent.width, extent.height);
 		});
 	// an anamorphic lens's streaks (see ComputeStreakScan): each row's running sum of the image at half the output's size,
@@ -2243,7 +2243,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{
-			auto extent = context.graph.GetImage(myStreakSum).GetDesc().mipLevels.front().extent;
+			auto extent = context.graph.GetImage(myStreakSum).GetDesc().extent;
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kStreakScanEntryPoint}, SHADER_TYPES_STREAK_SCAN_THREAD_COUNT, extent.height);
 		});
 	myStarburstPass = myGraph.AddPass(
@@ -2258,7 +2258,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{
-			auto extent = context.graph.GetImage(myStar).GetDesc().mipLevels.front().extent;
+			auto extent = context.graph.GetImage(myStar).GetDesc().extent;
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kStarburstEntryPoint}, extent.width, extent.height);
 		});
 	myFlareClearPass = myGraph.AddPass(
@@ -2294,9 +2294,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this, kernel](FrameGraph::PassContext& context)
 		{
 			// a thread per texel of the chain's third level (see ComputeFlareSources)
-			const auto& levels = context.graph.GetImage(myBloom).GetDesc().mipLevels;
-			auto level = std::min<size_t>(2, levels.size() - 1);
-			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kFlareSourcesEntryPoint}, levels[level].extent.width, levels[level].extent.height);
+			const auto& bloom = context.graph.GetImage(myBloom).GetDesc();
+			auto level = std::min(2U, bloom.levelCount - 1);
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kFlareSourcesEntryPoint}, bloom.LevelExtent(level).width, bloom.LevelExtent(level).height);
 		});
 	myFlareTrackPass = myGraph.AddPass(
 		"Flare Track",
@@ -3042,7 +3042,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	// none names a view of an earlier size's pyramid)
 	{
 		const auto& pyramid = myGraph.GetImage(myDepthPyramid);
-		auto levelCount = std::min<size_t>(pyramid.GetDesc().mipLevels.size(), SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT);
+		auto levelCount = std::min<size_t>(pyramid.GetDesc().levelCount, SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT);
 		myDepthPyramidViews.clear();
 		for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
 			myDepthPyramidViews.push_back(std::make_unique<ImageView>(ImageViewCreateDesc{
@@ -3064,7 +3064,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	// and the shadow atlas's pyramid, likewise
 	{
 		const auto& pyramid = myGraph.GetImage(myShadowDepthPyramid);
-		auto levelCount = std::min<size_t>(pyramid.GetDesc().mipLevels.size(), SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT);
+		auto levelCount = std::min<size_t>(pyramid.GetDesc().levelCount, SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT);
 		myShadowDepthPyramidViews.clear();
 		for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
 			myShadowDepthPyramidViews.push_back(std::make_unique<ImageView>(ImageViewCreateDesc{
@@ -3133,7 +3133,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	{
 		ScreenImage made;
 		ImageCreateDesc desc{device.CreateDeviceObjectCreateDesc(name)};
-		desc.mipLevels = {{.extent = size}};
+		desc.extent = size;
 		desc.format = format;
 		desc.tiling = ImageTiling::kOptimal;
 		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled;
@@ -3256,7 +3256,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	// last's, bound, so none names a view of an earlier size's chain); and the flares' image
 	{
 		const auto& bloom = myGraph.GetImage(myBloom);
-		auto levelCount = std::min<size_t>(bloom.GetDesc().mipLevels.size(), SHADER_TYPES_BLOOM_LEVEL_COUNT);
+		auto levelCount = std::min<size_t>(bloom.GetDesc().levelCount, SHADER_TYPES_BLOOM_LEVEL_COUNT);
 		myBloomViews.clear();
 		for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
 			myBloomViews.push_back(std::make_unique<ImageView>(ImageViewCreateDesc{
@@ -4587,19 +4587,16 @@ void Renderer::InternalReplaceGiVolumes(Pipeline& pipeline, const glm::uvec3& ex
 	{
 		GiVolume volume;
 		ImageCreateDesc desc{device.CreateDeviceObjectCreateDesc(std::format("GI Volume {}", volumeIt))};
-		desc.mipLevels = {{.extent = {.width = extent.x, .height = extent.y}}};
+		desc.extent = {.width = extent.x, .height = extent.y, .depth = extent.z};
 		desc.format = Format::kR16G16B16A16Sfloat;
 		desc.tiling = ImageTiling::kOptimal;
 		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled | ImageUsage::kTransferDestination; // cleared by GI Clear
 		desc.memoryFlags = MemoryProperty::kDeviceLocal;
 		desc.imageAspectFlags = ImageAspect::kColor;
 		desc.layout = ImageLayout::kUndefined;
-		desc.depth = extent.z;
 		volume.image = std::make_unique<Image>(std::move(desc));
-		ImageViewCreateDesc viewDesc{
-			device.CreateDeviceObjectCreateDesc(std::format("GI Volume {} View", volumeIt)), *volume.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor};
-		viewDesc.volume = true;
-		volume.view = std::make_unique<ImageView>(std::move(viewDesc));
+		volume.view = std::make_unique<ImageView>(ImageViewCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("GI Volume {} View", volumeIt)), *volume.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor});
 		pipeline.SetDescriptorData(
 			"gGiVolumes",
 			ImageBinding{.sampler = {}, .imageView = *volume.view, .layout = ImageLayout::kGeneral},

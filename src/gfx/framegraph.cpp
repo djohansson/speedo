@@ -4,6 +4,7 @@
 #include <core/profiling.h>
 
 #include <algorithm>
+#include <bit>
 #include <cstdlib>
 #include <format>
 #include <numeric>
@@ -352,21 +353,17 @@ void FrameGraph::InternalCreateTransients(Device& device)
 												: Extent2d{
 													  .width = std::max((frame.width + desc.downscale - 1) / desc.downscale, 1U),
 													  .height = std::max((frame.height + desc.downscale - 1) / desc.downscale, 1U)};
-			std::vector<ImageMipLevelDesc> mipLevels{{.extent = extent}};
-			while (desc.mipChain && (extent.width > 1 || extent.height > 1))
-			{
-				extent = {.width = std::max(extent.width / 2, 1U), .height = std::max(extent.height / 2, 1U)};
-				mipLevels.push_back({.extent = extent});
-			}
 			imageDescs[index] = ImageCreateDesc{
 				device.CreateDeviceObjectCreateDesc(resource.name),
-				std::move(mipLevels),
+				extent,
 				desc.format,
 				ImageTiling::kOptimal,
 				resource.imageUsage,
 				MemoryProperty::kDeviceLocal,
 				desc.aspect,
-				ImageLayout::kUndefined};
+				ImageLayout::kUndefined,
+				// a chain down to 1x1
+				desc.mipChain ? static_cast<uint32_t>(std::bit_width(std::max(extent.width, extent.height))) : 1};
 			requirements[index] = Image::GetMemoryRequirements(device, imageDescs[index]);
 		}
 		else

@@ -86,9 +86,6 @@ void InitDeviceExtensions(VkDevice device);
 template <typename T>
 [[nodiscard]] extern bool SupportsFeature(const T& feature);
 
-[[nodiscard]] uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor);
-[[nodiscard]] uint32_t GetFormatSize(VkFormat format);
-
 [[nodiscard]] bool HasColorComponent(VkFormat format);
 [[nodiscard]] bool HasStencilComponent(VkFormat format);
 [[nodiscard]] bool HasDepthComponent(VkFormat format);
@@ -139,13 +136,15 @@ void CopyBuffer(
 	VkMemoryPropertyFlags memoryFlags,
 	const char* debugName);
 
-// a buffer or 2d image placed at offset in allocation (which they don't own: Destroy* them with a null allocation), and
+// an image of one array layer and sample: a volume (VK_IMAGE_TYPE_3D) if extent.depth is more than 1, else 2D
+[[nodiscard]] VkImageCreateInfo ImageCreateInfo(
+	VkExtent3D extent, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkImageLayout initialLayout);
+
+// a buffer or image placed at offset in allocation (which they don't own: Destroy* them with a null allocation), and
 // what such an image or buffer needs of the memory, from a temporary one
 [[nodiscard]] VkBuffer CreateAliasingBuffer(
 	VmaAllocator allocator, VmaAllocation allocation, VkDeviceSize offset, VkDeviceSize size, VkBufferUsageFlags usage, const char* debugName);
 [[nodiscard]] VkMemoryRequirements GetBufferMemoryRequirements(VmaAllocator allocator, VkDeviceSize size, VkBufferUsageFlags usage);
-[[nodiscard]] VkImageCreateInfo ImageCreateInfo2D(
-	uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkImageLayout initialLayout);
 [[nodiscard]] VkImage CreateAliasingImage(
 	VmaAllocator allocator, VmaAllocation allocation, VkDeviceSize offset, const VkImageCreateInfo& info, const char* debugName);
 [[nodiscard]] VkMemoryRequirements GetImageMemoryRequirements(VmaAllocator allocator, const VkImageCreateInfo& info);
@@ -181,60 +180,11 @@ void TransitionImageLayout(
 	uint32_t levelCount,
 	VkImageAspectFlags aspectFlags);
 
-void CopyBufferToImage(
-	VkCommandBuffer commandBuffer,
-	VkBuffer buffer,
-	VkImage image,
-	uint32_t width,
-	uint32_t height,
-	uint32_t mipLevels,
-	const uint32_t* mipOffsets,
-	uint32_t mipOffsetsStride);
+// an image of info in memory of its own, with memoryFlags
+[[nodiscard]] std::tuple<VkImage, VmaAllocation> CreateImage(
+	VmaAllocator allocator, const VkImageCreateInfo& info, VkMemoryPropertyFlags memoryFlags, const char* debugName);
 
-[[nodiscard]] std::tuple<VkImage, VmaAllocation> CreateImage2D(
-	VmaAllocator allocator,
-	uint32_t width,
-	uint32_t height,
-	uint32_t mipLevels,
-	VkFormat format,
-	VkImageTiling tiling,
-	VkImageUsageFlags usage,
-	VkMemoryPropertyFlags memoryFlags,
-	const char* debugName,
-	VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
-
-// a volume (VK_IMAGE_TYPE_3D), as CreateImage2D with a depth
-[[nodiscard]] std::tuple<VkImage, VmaAllocation> CreateImage3D(
-	VmaAllocator allocator,
-	uint32_t width,
-	uint32_t height,
-	uint32_t depth,
-	uint32_t mipLevels,
-	VkFormat format,
-	VkImageTiling tiling,
-	VkImageUsageFlags usage,
-	VkMemoryPropertyFlags memoryFlags,
-	const char* debugName,
-	VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
-
-[[nodiscard]] std::tuple<VkImage, VmaAllocation> CreateImage2D(
-	VkCommandBuffer commandBuffer,
-	VmaAllocator allocator,
-	VkBuffer stagingBuffer,
-	uint32_t width,
-	uint32_t height,
-	uint32_t mipLevels,
-	const uint32_t* mipOffsets,
-	uint32_t mipOffsetsStride,
-	VkFormat format,
-	VkImageTiling tiling,
-	VkImageUsageFlags usage,
-	VkMemoryPropertyFlags memoryFlags,
-	VkImageAspectFlags aspectFlags,
-	const char* debugName,
-	VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
-
-[[nodiscard]] VkImageView CreateImageView2D(
+[[nodiscard]] VkImageView CreateImageView(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocationCallbacks,
 	VkImageViewCreateFlags flags,

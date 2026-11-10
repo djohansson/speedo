@@ -1,6 +1,6 @@
 #pragma once
 
-#include <rhi/enums.h>
+#include <rhi/vocabulary.h>
 
 #include <glm/vec2.hpp>
 
