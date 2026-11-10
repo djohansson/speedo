@@ -269,7 +269,13 @@ its never-written `CMakeFiles/<target>` and `.rule` (the generator drops command
 target's sources, those symbolic files among them, as its inputs; the fork patched hmaptool's target out), clangd's XPC
 framework is a custom command whose `OUTPUT` is a directory (`File missing despite success`; the fork turned XPC off),
 and with clang-cl its precompiled headers overwrite themselves (above; the fork turned PCH off). The host triplets build
-it with Ninja (`VCPKG_CMAKE_GENERATOR`), which needs none of them. The first and third are CMake bugs, fixed on two
+it with Ninja (`VCPKG_CMAKE_GENERATOR`), which needs none of them. On Windows, Ninja with clang-cl and rc.exe compiles
+`.rc` files through `cmcldeps`, which scans their headers by running the C compiler (clang-cl) on rc's flags, and clang-cl
+takes vcpkg's `/c65001` (rc's code page, `CMAKE_RC_FLAGS` in its `windows.cmake`) for a file name (`no such file or
+directory: '/c65001'`, where cl.exe only warns): the first Windows setup after the switch failed on LLVM's version
+resources, so the Windows host triplet passes `CMAKE_NINJA_CMCLDEPS_RC=OFF` for llvm (rc.exe runs alone, its headers
+untracked, which a port's one build doesn't need; checked by rebuilding the failed `.res` files in the build tree with
+it). The first and third are CMake bugs, fixed on two
 branches of a CMake clone (`~/Repos/cmake`, MR texts in `~/Repos/cmake-mrs`) for the user to submit: CMake's AI policy
 has a human submit every MR, and lists no AI co-author. With a CMake release that has both, llvm can go back to
 FASTBuild with clangd's XPC off. The directory output is FASTBuild's design (an Exec node must write a file:

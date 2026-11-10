@@ -29,7 +29,10 @@ set(VCPKG_C_FLAGS_RELEASE "/guard:cf /clang:-march=x86-64-v3 /clang:-mtune=gener
 set(VCPKG_CXX_FLAGS_RELEASE "/guard:cf /clang:-march=x86-64-v3 /clang:-mtune=generic /clang:-O3") #/clang:-flto=thin
 set(VCPKG_LINKER_FLAGS_RELEASE "/GUARD:CF")
 # vcpkg's llvm port (ports/llvm is it, but for libc++ without libc++abi, which LLVM doesn't build for MSVC targets):
-# built with Ninja, since CMake's FASTBuild generator can't build it (see docs/notes/build.md)
+# built with Ninja, since CMake's FASTBuild generator can't build it (see docs/notes/build.md). Ninja's .rc rule without
+# cmcldeps: with rc.exe it scans an .rc file's headers by running the C compiler on rc's flags, and clang-cl takes vcpkg's
+# /c65001 (rc's code page, windows.cmake's CMAKE_RC_FLAGS) for a file name and fails, where cl.exe only warns
 if(PORT STREQUAL "llvm")
 	set(VCPKG_CMAKE_GENERATOR Ninja)
+	list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS -DCMAKE_NINJA_CMCLDEPS_RC=OFF)
 endif()
