@@ -90,7 +90,11 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   (`glfwWaitEventsTimeout`): a fullscreen switch waiting for its main call stalled twice until the next input, as if
   `glfwPostEmptyEvent`'s wake up had been missed. Each frame's present semaphore is kept by its frame slot
   (`myPresentSemaphores`) until the slot comes round again and the present's fences
-  (`VK_EXT_swapchain_maintenance1`) have signaled (`InternalRetirePresents`): a timeline callback per frame waited for
+  (`VK_KHR_swapchain_maintenance1`, else its EXT, with the instance's `surface_maintenance1`; the client prints which,
+  "present fences: ...") have signaled (`InternalRetirePresents`). Until 2026-11-10 the extension was never enabled: its
+  feature struct went to `vkCreateDevice` whatever the device had, and the presents attached fences where the device
+  reported the feature (KosmicKrisp has both extensions; invalid, and validation never said so), so a slot's semaphores
+  went as its frame came round again. A timeline callback per frame waited for
   the present with `vkWaitForPresentKHR`, which would have blocked an executor thread a refresh or more under fifo, but
   never did: `VK_KHR_present_id` was looked for among the instance's extensions (it is a device's), so presents never
   had ids, nor the semaphores a wait. Frames are presented from the queue `Swapchain::GetPresentQueueType` says: a

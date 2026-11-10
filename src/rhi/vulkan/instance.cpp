@@ -79,7 +79,8 @@ void* GetPNextChain(const VariantContainerType& objects)
 void GetPhysicalDeviceInfo2(
 	PhysicalDeviceInfo<kVk>& deviceInfo,
 	InstanceHandle<kVk> instance,
-	PhysicalDeviceHandle<kVk> device)
+	PhysicalDeviceHandle<kVk> device,
+	bool surfaceMaintenance1)
 {
 	// the core versions' structs where the device has them: a struct of a version it lacks mustn't be chained
 	VkPhysicalDeviceProperties properties{};
@@ -91,10 +92,19 @@ void GetPhysicalDeviceInfo2(
 	// inline uniform blocks are core: the version structs below)
 	auto& deviceFeatureParams = deviceInfo.deviceFeatureParams;
 	deviceFeatureParams.clear();
-	deviceFeatureParams.emplace(VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR
+	// swapchain maintenance (present fences) where the device has its extension, KHR's or EXT's, and the instance the
+	// surface's it depends on: the device enables it then (see Device::InternalCreateQueues). it was chained whatever the
+	// device had, and never enabled, until 2026-11-10: a feature struct of an extension the device didn't enable passed
+	// to vkCreateDevice, and present fences attached where the device reported the feature
+	if (surfaceMaintenance1 &&
+		(SupportsExtension(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME, device) ||
+		 SupportsExtension(VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME, device)))
 	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
-	});
+		deviceFeatureParams.emplace(VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR
+		{
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
+		});
+	}
 	if (SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, device))
 	{
 		deviceFeatureParams.emplace(VkPhysicalDevicePresentIdFeaturesKHR
@@ -488,6 +498,16 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 				VK_KHR_SURFACE_EXTENSION_NAME,
 				VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
 			});
+	// what a device's swapchain maintenance (its present fences, see Queue::Present) depends on: the surface's, KHR's and
+	// EXT's where the instance has them (the device may have either swapchain extension, see GetPhysicalDeviceInfo2)
+	bool surfaceMaintenance1 = false;
+	if (myConfig.presentation)
+		for (const char* extensionName : {VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME, VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME})
+			if (SupportsExtension(extensionName, myInstance))
+			{
+				requiredExtensions.emplace_back(extensionName);
+				surfaceMaintenance1 = true;
+			}
 	std::vector<const char*> requiredLayers = {};
 
 	VkInstanceCreateInfo info{.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
@@ -598,7 +618,7 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 	{
 		auto infoInsertNode = myPhysicalDeviceInfos.emplace(
 			physicalDevice, std::make_unique<PhysicalDeviceInfo<kVk>>());
-		GetPhysicalDeviceInfo2(*infoInsertNode.first->second, myInstance, physicalDevice);
+		GetPhysicalDeviceInfo2(*infoInsertNode.first->second, myInstance, physicalDevice, surfaceMaintenance1);
 
 		TrackInstance(
 			VK_OBJECT_TYPE_PHYSICAL_DEVICE,

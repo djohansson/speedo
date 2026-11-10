@@ -388,6 +388,20 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 	if (instance.GetConfig().presentation && SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, GetDesc().physicalDevice))
 		desiredExtensions.emplace_back(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
 
+	// swapchain maintenance (present fences, see Queue::Present), where the instance chained its features (see
+	// GetPhysicalDeviceInfo2: the device has it, KHR's or EXT's, and the instance the surface's): KHR's where it has it
+	if (physicalDeviceInfo.deviceFeatureParams.contains(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR))
+		desiredExtensions.emplace_back(
+			SupportsExtension(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME, GetDesc().physicalDevice)
+				? VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME
+				: VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
+	if (instance.GetConfig().presentation)
+		std::println(
+			"present fences: {}",
+			physicalDeviceInfo.deviceFeatureParams.contains(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR)
+				? desiredExtensions.back()
+				: "no (a frame slot's presents retire once the slot comes round again)");
+
 	// ray queries' (see DeviceLimits::rayQuery), whose features the instance chained (GetPhysicalDeviceInfo2)
 	if (WantsRayQueries(GetDesc().physicalDevice))
 		for (const char* extensionName :
