@@ -507,12 +507,23 @@ $VcpkgOptions = @(
 $Vcpkg = Join-Path $env:VCPKG_ROOT "vcpkg$exeSuffix"
 # the binary cache first, building nothing (--only-binarycaching): where it holds every package, the tools only building
 # ports from source takes (the system's compilers for the host triplets, meson's and autotools' tools: the platform
-# script's -PortBuildTools) aren't installed. Where it lacks one, they are, and the install goes on from what it restored
-Write-Host "Restoring vcpkg's packages from the binary cache (an error here only means a package isn't there, to build)..."
-& $Vcpkg install @VcpkgOptions --only-binarycaching
+# script's -PortBuildTools) aren't installed. Where it lacks one, they are, and the install goes on from what it restored.
+# The restore stops at the first package the cache lacks with vcpkg's report of a failed build (red, advising to update
+# the port files and to report an issue), which here only means that package is to be built: so vcpkg's output goes
+# through a pipe, where it prints no colors, and the report gives way to a line naming the package
+Write-Host "Restoring vcpkg's packages from the binary cache..."
+$CacheMissing = $null
+$InFailureReport = $false
+& $Vcpkg install @VcpkgOptions --only-binarycaching 2>&1 | ForEach-Object {
+	$Line = "$_"
+	if ($Line -match '^Installing \d+/\d+ (\S+)\.\.\.$') { $CacheMissing = $Matches[1] }
+	elseif ($Line.StartsWith("Please ensure you're using the latest port files")) { $InFailureReport = $true }
+	if (-not $InFailureReport) { Write-Host $Line }
+}
 if ($LASTEXITCODE -ne 0)
 {
-	Write-Host "Not every package is in the binary cache: installing the tools that build ports, then building them"
+	Write-Host "Not every package is in the binary cache$($CacheMissing ? " ($CacheMissing is the first that isn't)" : ''):" `
+		"installing the tools that build ports, then building them"
 	& $PSScriptRoot/scripts/platforms/$Platform/$Platform.ps1 -PortBuildTools
 	& $Vcpkg install @VcpkgOptions
 }

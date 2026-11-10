@@ -490,7 +490,11 @@ distribution needed, beyond what GitHub's image has:
   with the one on the path), `autoconf`, `autoconf-archive`, `automake` and `libtool` (autotools' ports: libxcrypt,
   libmount, gperf), `patchelf`. Setup installs those only where the binary cache lacks a package (2026-11-09): it first
   installs with `--only-binarycaching`, and on its failure runs the platform script with `-PortBuildTools` and installs
-  again, building what's missing. On macOS that is `pkg-config` (mesa's meson build; the Command Line Tools stay, their
+  again, building what's missing. vcpkg ends that first install at the first package the cache lacks with its report of
+  a failed build (red, advising to update the port files and to report an issue), which read as a failure on a Windows
+  setup the cache held nothing for yet (2026-11-10): setup pipes its output (vcpkg prints no colors into a pipe) and
+  replaces the report, from its first line ("Please ensure you're using the latest port files"), with one naming the
+  package (the last "Installing i/n" line). On macOS that is `pkg-config` (mesa's meson build; the Command Line Tools stay, their
   SDK is what LLVM's clang compiles against and the packages' ABI tracks), on Windows nothing (Visual Studio's C++ tools
   and the SDK are the project's build's too). The host triplets look up `llvm-ar`/`llvm-ranlib` without `REQUIRED`, as
   vcpkg evaluates them for the packages' ABI before any port builds. Tried on macOS: a full hit restored and installed no
