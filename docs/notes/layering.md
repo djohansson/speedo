@@ -348,7 +348,14 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   use, as before. It doesn't stop the release builds' gpu restarts (see indirect-lighting.md): 6 of 20 runs lost the
   device with them made ahead, about half without; the mesa port's workaround does.
 - The backend's type aliases (`DescriptorType<G>`, `PushConstantRange<G>`, ...) are in the *global* namespace (see
-  `rhi/vulkan/types.inl`), so a neutral rhi type of the same name hides them inside `namespace rhi`, and is ambiguous
+  `rhi/types.h`), so a neutral rhi type of the same name hides them inside `namespace rhi`, and is ambiguous
   in code with `using namespace rhi` (gfx's application). Pick another name, or qualify: `::DescriptorType<G>` in
-  rhi, `rhi::DescriptorType` in gfx.
+  rhi, `rhi::DescriptorType` in gfx. Each names a member of `BackendTypes<G>`, which the build's backend specializes
+  (Vulkan's in `rhi/vulkan/types.inl`): an api without its own fails to compile where they're used. Until 2026-11-10
+  they were `std::conditional_t<G == kVk, VkX, std::nullptr_t>`, so under any other api every handle would have been
+  `std::nullptr_t`, one type; and 118 of them where rhi's interface uses 89 now (16 used nowhere, 13 only by the
+  backend's sources, which name Vulkan's types themselves). Most of the 89 are Vulkan structs rhi's classes keep as
+  members (the device's feature and property chains, the pipeline's states), which a second api would need behind its
+  backend rather than in rhi's interface. rhi's interface names `G`, not `kVk` (the descriptor set helpers, the
+  surface capabilities, the pipeline's push of descriptors, the swapchain's blit, `RHIInitializationData`'s surface).
 

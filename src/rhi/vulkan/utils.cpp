@@ -237,8 +237,8 @@ bool SupportsExtension(const char* extensionName, VkInstance instance)
 }
 
 template<>
-bool SupportsFeature<SwapchainMaintenance1Features<kVk>>(
-	const SwapchainMaintenance1Features<kVk>& feature)
+bool SupportsFeature<VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR>(
+	const VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR& feature)
 {
 	return static_cast<bool>(feature.swapchainMaintenance1);
 }

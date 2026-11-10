@@ -607,7 +607,7 @@ void Pipeline<kVk>::PushConstants(CommandBufferHandle<kVk> cmd, std::span<const 
 
 	// vkCmdPushConstants requires the stage flags of every range that overlaps the pushed bytes, and only those
 	const auto size = static_cast<uint32_t>(data.size());
-	ShaderStageFlags<kVk> stageFlags = 0;
+	VkShaderStageFlags stageFlags = 0;
 	for (const auto& range : layoutIt->GetPushConstantRanges())
 		if (range.offset < offset + size && offset < range.offset + range.size)
 			stageFlags |= range.stageFlags;

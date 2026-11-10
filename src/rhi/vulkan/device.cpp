@@ -153,7 +153,7 @@ bool Device<kVk>::SupportsFeature(StructureType<kVk> feature, const Instance<kVk
 			core::std_extra::overloaded
 			{
 				[&supported](const auto& featureVariant) {},
-				[&supported](const SwapchainMaintenance1Features<kVk>& featureVariant) { supported = featureVariant.swapchainMaintenance1; }
+				[&supported](const VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR& featureVariant) { supported = featureVariant.swapchainMaintenance1; }
 			},
 			*featureIt);
 	return supported;

@@ -1,3 +1,5 @@
+// the Vulkan backend's types (see BackendTypes in rhi/types.h): what rhi's interface names of the backend, which the
+// backend's own sources may name directly
 #include <rhi/capi.h>
 
 #include <vulkan/vulkan.h>
@@ -14,421 +16,100 @@
 #include <vulkan/vulkan_metal.h>
 #endif
 
-template <GraphicsApi G>
-using StructureType = std::conditional_t<G == kVk, VkStructureType, std::nullptr_t>;
-
-template <GraphicsApi G>
-using AllocationCallbacks = std::conditional_t<G == kVk, VkAllocationCallbacks, std::nullptr_t>;
-
-template <GraphicsApi G>
-using ApplicationInfo = std::conditional_t<G == kVk, VkApplicationInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using SystemAllocationScope  = std::conditional_t<G == kVk, VkSystemAllocationScope, std::nullptr_t>;;
-
-template <GraphicsApi G>
-using ObjectNameInfo = std::conditional_t<G == kVk, VkDebugUtilsObjectNameInfoEXT, std::nullptr_t>;
-
-template <GraphicsApi G>
-using Result = std::conditional_t<G == kVk, VkResult, std::nullptr_t>;
-
-template <GraphicsApi G>
-using Flags = std::conditional_t<G == kVk, VkFlags, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DeviceSize = std::conditional_t<G == kVk, VkDeviceSize, std::nullptr_t>;
-
-
-// the backend's viewport and scissor, for state kept in the backend's own layout (see the neutral Viewport and Rect)
-template <GraphicsApi G>
-using NativeViewport = std::conditional_t<G == kVk, VkViewport, std::nullptr_t>;
-template <GraphicsApi G>
-using NativeRect = std::conditional_t<G == kVk, VkRect2D, std::nullptr_t>;
-template <GraphicsApi G>
-using ObjectType = std::conditional_t<G == kVk, VkObjectType, std::nullptr_t>;
-
-template <GraphicsApi G>
-using InstanceHandle = std::conditional_t<G == kVk, VkInstance, std::nullptr_t>;
-
-template <GraphicsApi G>
-using BufferHandle = std::conditional_t<G == kVk, VkBuffer, std::nullptr_t>;
-
-template <GraphicsApi G>
-using ImageHandle = std::conditional_t<G == kVk, VkImage, std::nullptr_t>;
-
-
-
-template <GraphicsApi G>
-using AllocatorHandle = std::conditional_t<G == kVk, VmaAllocator, std::nullptr_t>;
-
-template <GraphicsApi G>
-using AllocationHandle = std::conditional_t<G == kVk, VmaAllocation, std::nullptr_t>;
-
-template <GraphicsApi G>
-using BufferViewHandle = std::conditional_t<G == kVk, VkBufferView, std::nullptr_t>;
-
-template <GraphicsApi G>
-using ImageViewHandle = std::conditional_t<G == kVk, VkImageView, std::nullptr_t>;
-
-template <GraphicsApi G>
-using SurfaceHandle = std::conditional_t<G == kVk, VkSurfaceKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using SurfaceFormat = std::conditional_t<G == kVk, VkSurfaceFormatKHR, std::nullptr_t>;
-
-
-template <GraphicsApi G>
-using ColorSpace = std::conditional_t<G == kVk, VkColorSpaceKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PresentMode = std::conditional_t<G == kVk, VkPresentModeKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using SurfaceCapabilities = std::conditional_t<G == kVk, VkSurfaceCapabilitiesKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using QueueFamilyProperties = std::conditional_t<G == kVk, VkQueueFamilyProperties, std::nullptr_t>;
-
-template <GraphicsApi G>
-using SwapchainHandle = std::conditional_t<G == kVk, VkSwapchainKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using SwapchainMaintenance1Features = std::conditional_t<G == kVk, VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using FramebufferHandle = std::conditional_t<G == kVk, VkFramebuffer, std::nullptr_t>;
-
-template <GraphicsApi G>
-using AttachmentDescription = std::conditional_t<G == kVk, VkAttachmentDescription2, std::nullptr_t>;
-
-template <GraphicsApi G>
-using AttachmentReference = std::conditional_t<G == kVk, VkAttachmentReference2, std::nullptr_t>;
-
-template <GraphicsApi G>
-using SubpassDescription = std::conditional_t<G == kVk, VkSubpassDescription2 , std::nullptr_t>;
-
-template <GraphicsApi G>
-using SubpassDependency = std::conditional_t<G == kVk, VkSubpassDependency2, std::nullptr_t>;
-
-
-
-template <GraphicsApi G>
-using DescriptorSetLayoutBinding =
-	std::conditional_t<G == kVk, VkDescriptorSetLayoutBinding, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DescriptorSetLayoutCreateFlags =
-	std::conditional_t<G == kVk, VkDescriptorSetLayoutCreateFlags, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DeviceHandle = std::conditional_t<G == kVk, VkDevice, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceHandle = std::conditional_t<G == kVk, VkPhysicalDevice, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceProperties =
-	std::conditional_t<G == kVk, VkPhysicalDeviceProperties2, std::nullptr_t>;
-
-// the core versions' (see kVulkanApiVersion): what was an extension's before is queried and enabled here
-template <GraphicsApi G>
-using PhysicalDeviceProperties11Ex =
-	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan11Properties, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceProperties12Ex =
-	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan12Properties, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceProperties13Ex =
-	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan13Properties, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceProperties14Ex =
-	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan14Properties, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceFeatures =
-	std::conditional_t<G == kVk, VkPhysicalDeviceFeatures2, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceFeatures11Ex =
-	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan11Features, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceFeatures12Ex =
-	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan12Features, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceFeatures13Ex =
-	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan13Features, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceFeatures14Ex =
-	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan14Features, std::nullptr_t>;
-
-// the extensions' (not core in kVulkanApiVersion)
-template <GraphicsApi G>
-using PhysicalDevicePresentIdFeatures =
-	std::conditional_t<G == kVk, VkPhysicalDevicePresentIdFeaturesKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDevicePresentWaitFeatures =
-	std::conditional_t<G == kVk, VkPhysicalDevicePresentWaitFeaturesKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceSwapchainMaintenance1Features =
-	std::conditional_t<G == kVk, VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR, std::nullptr_t>;
-
-// crash reports' (see rhi/vulkan/crashreport.h)
-template <GraphicsApi G>
-using PhysicalDeviceFaultFeatures = std::conditional_t<G == kVk, VkPhysicalDeviceFaultFeaturesEXT, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceAddressBindingReportFeatures =
-	std::conditional_t<G == kVk, VkPhysicalDeviceAddressBindingReportFeaturesEXT, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceCoherentMemoryFeatures =
-	std::conditional_t<G == kVk, VkPhysicalDeviceCoherentMemoryFeaturesAMD, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceAccelerationStructureFeatures =
-	std::conditional_t<G == kVk, VkPhysicalDeviceAccelerationStructureFeaturesKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceRayQueryFeatures = std::conditional_t<G == kVk, VkPhysicalDeviceRayQueryFeaturesKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceAccelerationStructureProperties =
-	std::conditional_t<G == kVk, VkPhysicalDeviceAccelerationStructurePropertiesKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using QueueHandle = std::conditional_t<G == kVk, VkQueue, std::nullptr_t>;
-
-template <GraphicsApi G>
-using CommandBufferHandle = std::conditional_t<G == kVk, VkCommandBuffer, std::nullptr_t>;
-
-template <GraphicsApi G>
-using ShaderModuleHandle = std::conditional_t<G == kVk, VkShaderModule, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DescriptorUpdateTemplateEntry =
-	std::conditional_t<G == kVk, VkDescriptorUpdateTemplateEntry, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DescriptorUpdateTemplateType =
-	std::conditional_t<G == kVk, VkDescriptorUpdateTemplateType, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DescriptorSetLayoutHandle =
-	std::conditional_t<G == kVk, VkDescriptorSetLayout, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DescriptorUpdateTemplateHandle =
-	std::conditional_t<G == kVk, VkDescriptorUpdateTemplate, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PipelineLayoutHandle = std::conditional_t<G == kVk, VkPipelineLayout, std::nullptr_t>;
-
-
-template <GraphicsApi G>
-using DescriptorPoolHandle = std::conditional_t<G == kVk, VkDescriptorPool, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DescriptorSetHandle = std::conditional_t<G == kVk, VkDescriptorSet, std::nullptr_t>;
-
-template <GraphicsApi G>
-using RenderPassHandle = std::conditional_t<G == kVk, VkRenderPass, std::nullptr_t>;
-
-
-template <GraphicsApi G>
-using PipelineHandle = std::conditional_t<G == kVk, VkPipeline, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PipelineCacheHandle = std::conditional_t<G == kVk, VkPipelineCache, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PipelineShaderStageCreateInfo =
-	std::conditional_t<G == kVk, VkPipelineShaderStageCreateInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PipelineVertexInputStateCreateInfo =
-	std::conditional_t<G == kVk, VkPipelineVertexInputStateCreateInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PipelineInputAssemblyStateCreateInfo =
-	std::conditional_t<G == kVk, VkPipelineInputAssemblyStateCreateInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PipelineViewportStateCreateInfo =
-	std::conditional_t<G == kVk, VkPipelineViewportStateCreateInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PipelineRasterizationStateCreateInfo =
-	std::conditional_t<G == kVk, VkPipelineRasterizationStateCreateInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PipelineMultisampleStateCreateInfo =
-	std::conditional_t<G == kVk, VkPipelineMultisampleStateCreateInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PipelineDepthStencilStateCreateInfo =
-	std::conditional_t<G == kVk, VkPipelineDepthStencilStateCreateInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PipelineColorBlendAttachmentState =
-	std::conditional_t<G == kVk, VkPipelineColorBlendAttachmentState, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PipelineColorBlendStateCreateInfo =
-	std::conditional_t<G == kVk, VkPipelineColorBlendStateCreateInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PipelineDynamicStateCreateInfo =
-	std::conditional_t<G == kVk, VkPipelineDynamicStateCreateInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using ShaderStageFlags = std::conditional_t<G == kVk, VkShaderStageFlags, std::nullptr_t>;
-
-template <GraphicsApi G>
-using ShaderStageFlagBits = std::conditional_t<G == kVk, VkShaderStageFlagBits, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DynamicState = std::conditional_t<G == kVk, VkDynamicState, std::nullptr_t>;
-
-template <GraphicsApi G>
-using SamplerHandle = std::conditional_t<G == kVk, VkSampler, std::nullptr_t>;
-
-template <GraphicsApi G>
-using SamplerCreateInfo = std::conditional_t<G == kVk, VkSamplerCreateInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using VertexInputBindingDescription =
-	std::conditional_t<G == kVk, VkVertexInputBindingDescription, std::nullptr_t>;
-
-template <GraphicsApi G>
-using VertexInputRate = std::conditional_t<G == kVk, VkVertexInputRate, std::nullptr_t>;
-
-template <GraphicsApi G>
-using VertexInputAttributeDescription =
-	std::conditional_t<G == kVk, VkVertexInputAttributeDescription, std::nullptr_t>;
-
-template <GraphicsApi G>
-using CommandPoolCreateFlags =
-	std::conditional_t<G == kVk, VkCommandPoolCreateFlags, std::nullptr_t>;
-
-template <GraphicsApi G>
-using CommandPoolHandle = std::conditional_t<G == kVk, VkCommandPool, std::nullptr_t>;
-
-template <GraphicsApi G>
-using CommandBufferHandle = std::conditional_t<G == kVk, VkCommandBuffer, std::nullptr_t>;
-
-template <GraphicsApi G>
-using FenceHandle = std::conditional_t<G == kVk, VkFence, std::nullptr_t>;
-
-template <GraphicsApi G>
-using QueryPoolHandle = std::conditional_t<G == kVk, VkQueryPool, std::nullptr_t>;
-
-template <GraphicsApi G>
-using SemaphoreHandle = std::conditional_t<G == kVk, VkSemaphore, std::nullptr_t>;
-
-
-
-template <GraphicsApi G>
-using ClearColorValue = std::conditional_t<G == kVk, VkClearColorValue, std::nullptr_t>;
-
-template <GraphicsApi G>
-using ClearDepthStencilValue =
-	std::conditional_t<G == kVk, VkClearDepthStencilValue, std::nullptr_t>;
-
-template <GraphicsApi G>
-using ClearAttachment = std::conditional_t<G == kVk, VkClearAttachment, std::nullptr_t>;
-
-template <GraphicsApi G>
-using ImageSubresourceRange = std::conditional_t<G == kVk, VkImageSubresourceRange, std::nullptr_t>;
-
-template <GraphicsApi G>
-using CommandBufferBeginInfo =
-	std::conditional_t<G == kVk, VkCommandBufferBeginInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using CommandBufferInheritanceInfo =
-	std::conditional_t<G == kVk, VkCommandBufferInheritanceInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using CommandBufferInheritanceRenderingInfo =
-	std::conditional_t<G == kVk, VkCommandBufferInheritanceRenderingInfoKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using CommandBufferLevel = std::conditional_t<G == kVk, VkCommandBufferLevel, std::nullptr_t>;
-
-template <GraphicsApi G>
-using RenderPassBeginInfo = std::conditional_t<G == kVk, VkRenderPassBeginInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using RenderingInfo = std::conditional_t<G == kVk, VkRenderingInfoKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using SubmitInfo = std::conditional_t<G == kVk, VkSubmitInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using TimelineSemaphoreSubmitInfo =
-	std::conditional_t<G == kVk, VkTimelineSemaphoreSubmitInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using ImageBlit = std::conditional_t<G == kVk, VkImageBlit, std::nullptr_t>;
-
-
-template <GraphicsApi G>
-using ImageSubresourceLayers =
-	std::conditional_t<G == kVk, VkImageSubresourceLayers, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PresentInfo = std::conditional_t<G == kVk, VkPresentInfoKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PresentFenceInfo = std::conditional_t<G == kVk, VkSwapchainPresentFenceInfoKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PresentId = std::conditional_t<G == kVk, VkPresentIdKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DescriptorType = std::conditional_t<G == kVk, VkDescriptorType, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DescriptorBufferInfo = std::conditional_t<G == kVk, VkDescriptorBufferInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DescriptorImageInfo = std::conditional_t<G == kVk, VkDescriptorImageInfo, std::nullptr_t>;
-
-template <GraphicsApi G>
-using AccelerationStructureHandle =
-	std::conditional_t<G == kVk, VkAccelerationStructureKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using CopyDescriptorSet = std::conditional_t<G == kVk, VkCopyDescriptorSet, std::nullptr_t>;
-
-template <GraphicsApi G>
-using WriteDescriptorSet = std::conditional_t<G == kVk, VkWriteDescriptorSet, std::nullptr_t>;
-
-template <GraphicsApi G>
-using InlineUniformBlock =
-	std::conditional_t<G == kVk, VkWriteDescriptorSetInlineUniformBlockEXT, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PushConstantRange = std::conditional_t<G == kVk, VkPushConstantRange, std::nullptr_t>;
-
-template <GraphicsApi G>
-using DescriptorBindingFlags =
-	std::conditional_t<G == kVk, VkDescriptorBindingFlags, std::nullptr_t>;
-
-
-template <GraphicsApi G>
-using PipelineRenderingCreateInfo = 
-	std::conditional_t<G == kVk, VkPipelineRenderingCreateInfoKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using RenderingAttachmentInfo = 
-	std::conditional_t<G == kVk, VkRenderingAttachmentInfoKHR, std::nullptr_t>;
-	
+template <>
+struct BackendTypes<kVk>
+{
+	using StructureType = VkStructureType;
+	using AllocationCallbacks = VkAllocationCallbacks;
+	using ApplicationInfo = VkApplicationInfo;
+	using Result = VkResult;
+	using Flags = VkFlags;
+	using DeviceSize = VkDeviceSize;
+	// the backend's viewport and scissor, for state kept in the backend's own layout (see the neutral Viewport and Rect)
+	using NativeViewport = VkViewport;
+	using NativeRect = VkRect2D;
+	using ObjectType = VkObjectType;
+	using InstanceHandle = VkInstance;
+	using BufferHandle = VkBuffer;
+	using ImageHandle = VkImage;
+	using AllocatorHandle = VmaAllocator;
+	using AllocationHandle = VmaAllocation;
+	using BufferViewHandle = VkBufferView;
+	using ImageViewHandle = VkImageView;
+	using SurfaceHandle = VkSurfaceKHR;
+	using SurfaceFormat = VkSurfaceFormatKHR;
+	using PresentMode = VkPresentModeKHR;
+	using SurfaceCapabilities = VkSurfaceCapabilitiesKHR;
+	using QueueFamilyProperties = VkQueueFamilyProperties;
+	using SwapchainHandle = VkSwapchainKHR;
+	using FramebufferHandle = VkFramebuffer;
+	using AttachmentDescription = VkAttachmentDescription2;
+	using DescriptorSetLayoutBinding = VkDescriptorSetLayoutBinding;
+	using DescriptorSetLayoutCreateFlags = VkDescriptorSetLayoutCreateFlags;
+	using DeviceHandle = VkDevice;
+	using PhysicalDeviceHandle = VkPhysicalDevice;
+	using PhysicalDeviceProperties = VkPhysicalDeviceProperties2;
+	// the core versions' (see kVulkanApiVersion): what was an extension's before is queried and enabled here
+	using PhysicalDeviceProperties11Ex = VkPhysicalDeviceVulkan11Properties;
+	using PhysicalDeviceProperties12Ex = VkPhysicalDeviceVulkan12Properties;
+	using PhysicalDeviceProperties13Ex = VkPhysicalDeviceVulkan13Properties;
+	using PhysicalDeviceProperties14Ex = VkPhysicalDeviceVulkan14Properties;
+	using PhysicalDeviceFeatures = VkPhysicalDeviceFeatures2;
+	using PhysicalDeviceFeatures11Ex = VkPhysicalDeviceVulkan11Features;
+	using PhysicalDeviceFeatures12Ex = VkPhysicalDeviceVulkan12Features;
+	using PhysicalDeviceFeatures13Ex = VkPhysicalDeviceVulkan13Features;
+	using PhysicalDeviceFeatures14Ex = VkPhysicalDeviceVulkan14Features;
+	// the extensions' (not core in kVulkanApiVersion)
+	using PhysicalDevicePresentIdFeatures = VkPhysicalDevicePresentIdFeaturesKHR;
+	using PhysicalDevicePresentWaitFeatures = VkPhysicalDevicePresentWaitFeaturesKHR;
+	using PhysicalDeviceSwapchainMaintenance1Features = VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR;
+	// crash reports' (see rhi/vulkan/crashreport.h)
+	using PhysicalDeviceFaultFeatures = VkPhysicalDeviceFaultFeaturesEXT;
+	using PhysicalDeviceAddressBindingReportFeatures = VkPhysicalDeviceAddressBindingReportFeaturesEXT;
+	using PhysicalDeviceCoherentMemoryFeatures = VkPhysicalDeviceCoherentMemoryFeaturesAMD;
+	using PhysicalDeviceAccelerationStructureFeatures = VkPhysicalDeviceAccelerationStructureFeaturesKHR;
+	using PhysicalDeviceRayQueryFeatures = VkPhysicalDeviceRayQueryFeaturesKHR;
+	using PhysicalDeviceAccelerationStructureProperties = VkPhysicalDeviceAccelerationStructurePropertiesKHR;
+	using QueueHandle = VkQueue;
+	using CommandBufferHandle = VkCommandBuffer;
+	using ShaderModuleHandle = VkShaderModule;
+	using DescriptorUpdateTemplateEntry = VkDescriptorUpdateTemplateEntry;
+	using DescriptorUpdateTemplateType = VkDescriptorUpdateTemplateType;
+	using DescriptorSetLayoutHandle = VkDescriptorSetLayout;
+	using DescriptorUpdateTemplateHandle = VkDescriptorUpdateTemplate;
+	using PipelineLayoutHandle = VkPipelineLayout;
+	using DescriptorPoolHandle = VkDescriptorPool;
+	using DescriptorSetHandle = VkDescriptorSet;
+	using RenderPassHandle = VkRenderPass;
+	using PipelineHandle = VkPipeline;
+	using PipelineCacheHandle = VkPipelineCache;
+	using PipelineShaderStageCreateInfo = VkPipelineShaderStageCreateInfo;
+	using PipelineVertexInputStateCreateInfo = VkPipelineVertexInputStateCreateInfo;
+	using PipelineInputAssemblyStateCreateInfo = VkPipelineInputAssemblyStateCreateInfo;
+	using PipelineViewportStateCreateInfo = VkPipelineViewportStateCreateInfo;
+	using PipelineRasterizationStateCreateInfo = VkPipelineRasterizationStateCreateInfo;
+	using PipelineMultisampleStateCreateInfo = VkPipelineMultisampleStateCreateInfo;
+	using PipelineDepthStencilStateCreateInfo = VkPipelineDepthStencilStateCreateInfo;
+	using PipelineColorBlendAttachmentState = VkPipelineColorBlendAttachmentState;
+	using PipelineColorBlendStateCreateInfo = VkPipelineColorBlendStateCreateInfo;
+	using PipelineDynamicStateCreateInfo = VkPipelineDynamicStateCreateInfo;
+	using DynamicState = VkDynamicState;
+	using SamplerHandle = VkSampler;
+	using CommandPoolCreateFlags = VkCommandPoolCreateFlags;
+	using CommandPoolHandle = VkCommandPool;
+	using FenceHandle = VkFence;
+	using QueryPoolHandle = VkQueryPool;
+	using SemaphoreHandle = VkSemaphore;
+	using ImageSubresourceRange = VkImageSubresourceRange;
+	using CommandBufferInheritanceRenderingInfo = VkCommandBufferInheritanceRenderingInfoKHR;
+	using RenderPassBeginInfo = VkRenderPassBeginInfo;
+	using RenderingInfo = VkRenderingInfoKHR;
+	using ImageSubresourceLayers = VkImageSubresourceLayers;
+	using DescriptorType = VkDescriptorType;
+	using DescriptorBufferInfo = VkDescriptorBufferInfo;
+	using DescriptorImageInfo = VkDescriptorImageInfo;
+	using AccelerationStructureHandle = VkAccelerationStructureKHR;
+	using PushConstantRange = VkPushConstantRange;
+	using DescriptorBindingFlags = VkDescriptorBindingFlags;
+	using PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfoKHR;
+};

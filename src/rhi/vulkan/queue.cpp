@@ -170,11 +170,11 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 		return {};
 
 	myScratchMemory.resize(
-		(sizeof(SubmitInfo<kVk>) + sizeof(TimelineSemaphoreSubmitInfo<kVk>)) *
+		(sizeof(VkSubmitInfo) + sizeof(VkTimelineSemaphoreSubmitInfo)) *
 		myPendingSubmits.size());
 
 	auto* timelineBegin =
-		reinterpret_cast<TimelineSemaphoreSubmitInfo<kVk>*>(myScratchMemory.data());
+		reinterpret_cast<VkTimelineSemaphoreSubmitInfo*>(myScratchMemory.data());
 	auto* timelinePtr = timelineBegin;
 
 	uint64_t maxTimelineValue = 0ULL;
@@ -195,7 +195,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 		myTimelineCallbacks.enqueue(std::make_tuple(pendingSubmit.callbacks, maxTimelineValue));
 	}
 
-	auto* submitBegin = reinterpret_cast<SubmitInfo<kVk>*>(timelinePtr);
+	auto* submitBegin = reinterpret_cast<VkSubmitInfo*>(timelinePtr);
 	auto* submitPtr = submitBegin;
 	timelinePtr = timelineBegin;
 
@@ -289,7 +289,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present(PresentResult* presentResult)
 		}
 	}
 
-	PresentFenceInfo<kVk> presentFenceInfo{.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
+	VkSwapchainPresentFenceInfoKHR presentFenceInfo{.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
 	presentFenceInfo.swapchainCount = swapchainCount;
 	presentFenceInfo.pFences = presentFences.data();
 
@@ -298,7 +298,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present(PresentResult* presentResult)
 			reinterpret_cast<void*>(&presentFenceInfo) :
 			nullptr;
 
-	PresentId<kVk> presentId{.sType=VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
+	VkPresentIdKHR presentId{.sType=VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
 	presentId.pNext = presentFenceInfoPtr;
 	presentId.swapchainCount = myPendingPresent.swapchains.size();
 	presentId.pPresentIds = gSupportsPresentId ? myPendingPresent.presentIds.data() : nullptr;
@@ -308,7 +308,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present(PresentResult* presentResult)
 			reinterpret_cast<void*>(&presentId) :
 			nullptr;
 
-	PresentInfo<kVk> presentInfo{.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+	VkPresentInfoKHR presentInfo{.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
 	presentInfo.pNext = (presentIdPtr != nullptr) ? presentIdPtr : presentFenceInfoPtr;
 	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
 	presentInfo.pWaitSemaphores = myPendingPresent.waitSemaphores.data();

@@ -16,24 +16,24 @@
 namespace rhi
 {
 
+// the graphics api the code above rhi uses (one per build)
+inline constexpr GraphicsApi kGraphicsApi = kVk;
+// the shader binaries it takes
+inline constexpr ShaderFormat kShaderFormat = ShaderFormat::kSpirv16;
+
 struct RHIInitializationData
 {
 	std::string_view name;
 	// the window drawn to (the platform's, see platform::Window): its surface picks the devices that can present to it,
 	// and gets a swapchain
 	WindowHandle window{};
-	SurfaceHandle<kVk> surface{}; // the window's, made by the constructor
+	SurfaceHandle<kGraphicsApi> surface{}; // the window's, made by the constructor
 	// the descriptors the primary device's pipeline allocates its descriptor sets from, per type
 	std::vector<DescriptorPoolSize> descriptorPoolSizes;
 	// the most swapchain images the application keeps per image state for (0: no limit), see
 	// SwapchainCreateDesc::maxImageCount
 	uint32_t maxSwapchainImageCount = 0;
 };
-
-// the graphics api the code above rhi uses (one per build)
-inline constexpr GraphicsApi kGraphicsApi = kVk;
-// the shader binaries it takes
-inline constexpr ShaderFormat kShaderFormat = ShaderFormat::kSpirv16;
 
 template <GraphicsApi G>
 class RHI;

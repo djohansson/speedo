@@ -178,7 +178,7 @@ SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 		VK_FORMAT_R8G8B8A8_UNORM,
 		VK_FORMAT_B8G8R8_UNORM,
 		VK_FORMAT_R8G8B8_UNORM};
-	constexpr ColorSpace<kVk> kRequestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+	constexpr VkColorSpaceKHR kRequestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 
 	// Request several formats, the first found will be used
 	// If none of the requested image formats could be found, use the first available

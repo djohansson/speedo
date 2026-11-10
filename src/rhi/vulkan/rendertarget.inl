@@ -56,8 +56,8 @@ public:
 	void SetStoreOp(StoreOp storeOp, uint32_t index, StoreOp stencilStoreOp = {}) final;
 	void SetClearValue(const ClearValue& value, uint32_t index) final;
 
-	void AddSubpassDescription(SubpassDescription<kVk>&& description);
-	void AddSubpassDependency(SubpassDependency<kVk>&& dependency);
+	void AddSubpassDescription(VkSubpassDescription2&& description);
+	void AddSubpassDependency(VkSubpassDependency2&& dependency);
 	void NextSubpass(CommandBufferHandle<kVk> cmd, SubpassContents contents);
 	void ResetSubpasses();
 
@@ -88,15 +88,15 @@ private:
 
 	std::vector<ImageViewHandle<kVk>> myAttachments; // todo: store a pool of ImageView<kVk> instead of raw handles to avoid creating/destroying them every frame
 	std::vector<AttachmentDescription<kVk>> myAttachmentDescs;
-	std::vector<AttachmentReference<kVk>> myAttachmentsReferences;
-	std::vector<SubpassDescription<kVk>> mySubPassDescs;
-	std::vector<SubpassDependency<kVk>> mySubPassDependencies;
+	std::vector<VkAttachmentReference2> myAttachmentsReferences;
+	std::vector<VkSubpassDescription2> mySubPassDescs;
+	std::vector<VkSubpassDependency2> mySubPassDependencies;
 
 	std::optional<RenderTargetBeginInfo<kVk>> myRenderTargetBeginInfo;
 	std::optional<PipelineRenderingCreateInfo<kVk>> myPipelineRenderingCreateInfo;
-	std::vector<RenderingAttachmentInfo<kVk>> myColorAttachmentInfos;
-	std::optional<RenderingAttachmentInfo<kVk>> myDepthAttachmentInfo;
-	std::optional<RenderingAttachmentInfo<kVk>> myStencilAttachmentInfo;
+	std::vector<VkRenderingAttachmentInfoKHR> myColorAttachmentInfos;
+	std::optional<VkRenderingAttachmentInfoKHR> myDepthAttachmentInfo;
+	std::optional<VkRenderingAttachmentInfoKHR> myStencilAttachmentInfo;
 	std::vector<VkFormat> myColorAttachmentFormats;
 	std::optional<VkFormat> myDepthAttachmentFormat;
 	std::optional<VkFormat> myStencilAttachmentFormat;
@@ -106,19 +106,19 @@ private:
 };
 
 template <typename DerivedType>
-void RenderTarget<DerivedType, kVk>::AddSubpassDescription(SubpassDescription<kVk>&& description)
+void RenderTarget<DerivedType, kVk>::AddSubpassDescription(VkSubpassDescription2&& description)
 {
 	ASSERT(!myRenderTargetBeginInfo.has_value());
 	
-	mySubPassDescs.emplace_back(std::forward<SubpassDescription<kVk>>(description));
+	mySubPassDescs.emplace_back(std::forward<VkSubpassDescription2>(description));
 }
 
 template <typename DerivedType>
-void RenderTarget<DerivedType, kVk>::AddSubpassDependency(SubpassDependency<kVk>&& dependency)
+void RenderTarget<DerivedType, kVk>::AddSubpassDependency(VkSubpassDependency2&& dependency)
 {
 	ASSERT(!myRenderTargetBeginInfo.has_value());
 
-	mySubPassDependencies.emplace_back(std::forward<SubpassDependency<kVk>>(dependency));
+	mySubPassDependencies.emplace_back(std::forward<VkSubpassDependency2>(dependency));
 }
 
 template <typename DerivedType>

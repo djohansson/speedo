@@ -84,7 +84,7 @@ public:
 
 	void Blit(
 		CommandBufferHandle<G> cmd,
-		const IRenderTarget<kVk>& srcRenderTarget,
+		const IRenderTarget<G>& srcRenderTarget,
 		const ImageSubresourceLayers<G>& srcSubresource,
 		uint32_t srcIndex,
 		const ImageSubresourceLayers<G>& dstSubresource,

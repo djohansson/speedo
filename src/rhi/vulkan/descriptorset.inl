@@ -17,7 +17,7 @@ constexpr auto serialize(auto& archive, const DescriptorSetLayoutBinding<kVk>& d
 		desc.stageFlags);
 }
 
-constexpr auto serialize(auto& archive, SamplerCreateInfo<kVk>& desc)
+constexpr auto serialize(auto& archive, VkSamplerCreateInfo& desc)
 {
 	return archive(
 		desc.flags,
@@ -38,7 +38,7 @@ constexpr auto serialize(auto& archive, SamplerCreateInfo<kVk>& desc)
 		desc.unnormalizedCoordinates);
 }
 
-constexpr auto serialize(auto& archive, const SamplerCreateInfo<kVk>& desc)
+constexpr auto serialize(auto& archive, const VkSamplerCreateInfo& desc)
 {
 	return archive(
 		desc.flags,

@@ -277,7 +277,7 @@ private:
 		DescriptorSetArrayList<G>& setArrayList) const;
 	static void InternalPushDescriptorSet(
 		CommandBufferHandle<G> cmd,
-		PipelineLayoutHandle<kVk> layout,
+		PipelineLayoutHandle<G> layout,
 		const BindingsData<G>& bindingsData,
 		const DescriptorUpdateTemplate<G>& setTemplate);
 	static void InternalUpdateDescriptorSetTemplate(

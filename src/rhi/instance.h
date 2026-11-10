@@ -94,7 +94,7 @@ public:
 
 	[[nodiscard]] const SwapchainInfo<G>& UpdateSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface);
 	[[nodiscard]] const SwapchainInfo<G>& GetSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface) const;
-	void UpdateSurfaceCapabilities(PhysicalDeviceHandle<kVk> device, SurfaceHandle<kVk> surface);
+	void UpdateSurfaceCapabilities(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface);
 
 private:
 	InstanceCreateDesc<G> myConfig{};
