@@ -138,10 +138,6 @@ KeyboardEvent gKeyboard{};
 
 void OnError(int error, const char* description)
 {
-	// headless, a native window's handle (imgui's glfw backend asks for the Cocoa window) is one the null platform can't
-	// have: not an error
-	if (gHeadless && error == GLFW_PLATFORM_UNAVAILABLE)
-		return;
 	std::println(stderr, "Glfw Error {}: {}", error, description != nullptr ? description : "");
 }
 

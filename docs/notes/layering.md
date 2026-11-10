@@ -134,8 +134,12 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   platform (`glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL)`, in glfw 3.5.1 always), whose window and monitor (one,
   1920x1080 at scale 1) are imaginary, `PlatformIsHeadless`. Its event waits return at once and its empty event wakes
   nothing, so `PlatformWaitEvents` waits on a condition variable `PlatformWakeMain` notifies, then polls; fullscreen
-  does nothing; imgui's glfw backend runs as it is (its ask for the Cocoa window answered with an error that isn't
-  printed; on Windows it asserts on the window's null HWND, so headless is macOS's and Linux's for now). The client gives
+  does nothing. imgui's glfw backend isn't used: `platform::imgui` gives imgui the window's size, framebuffer scale and
+  the time itself (there is no input or cursor), since the backend asks for the native window (on macOS an error,
+  printed) and on Windows hooks the window's procedure, asserting on the null platform's window, which has no HWND
+  (`ImGui_ImplGlfw_Init`; imgui master the same on 2026-11-10: a fix, the hook only where there is an HWND, is on a branch
+  of ~/Repos/imgui for the user to submit, ~/Repos/imgui-pr-notes.md). So headless needs nothing Windows doesn't have,
+  but hasn't run there yet. The client gives
   the rhi no window (`RHIInitializationData::window` 0: no surface or swapchain, no surface or swapchain extensions,
   `InstanceCreateDesc::presentation`, and a device that needn't present) and draws into a `gfx::ImageOutput` with the
   ui's passes (`drawsUi`), sized as the window's framebuffer (`SPEEDO_WINDOW_SIZE`, at scale 1: the ui is smaller than in

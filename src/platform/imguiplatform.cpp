@@ -1,9 +1,12 @@
 #include "imguiplatform.h"
+#include "glfw.h"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 
 #include <GLFW/glfw3.h>
+
+#include <algorithm>
 
 namespace platform::imgui
 {
@@ -27,6 +30,12 @@ GLFWscrollfun gScroll = nullptr;
 GLFWkeyfun gKey = nullptr;
 GLFWcharfun gChar = nullptr;
 GLFWmonitorfun gMonitor = nullptr;
+
+// headless (glfw::IsHeadless): not imgui's glfw backend, which has nothing to do without input or a cursor, asks for the
+// native window (an error on the null platform), and on Windows hooks the window's procedure, asserting on the null
+// platform's window, which has no HWND. NewFrame gives imgui the display's size and the time instead
+bool gHeadless = false;
+double gHeadlessTime = 0.0;
 
 // the window's own callback first, then the backend's, locked (the window's may take a while: a resize, a fullscreen
 // switch, which nothing else waits for behind this lock)
@@ -60,10 +69,18 @@ void Init(WindowHandle window)
 {
 	using namespace detail;
 
-	// the backend's callbacks installed by us rather than by it, to lock them (see gInputMutex)
 	auto* glfwWindow = reinterpret_cast<GLFWwindow*>(window); //NOLINT(performance-no-int-to-ptr)
-	ImGui_ImplGlfw_InitForOther(glfwWindow, false);
 	gWindow = glfwWindow;
+	if (glfw::IsHeadless())
+	{
+		gHeadless = true;
+		gHeadlessTime = 0.0;
+		ImGui::GetIO().BackendPlatformName = "speedo_headless";
+		return;
+	}
+
+	// the backend's callbacks installed by us rather than by it, to lock them (see gInputMutex)
+	ImGui_ImplGlfw_InitForOther(glfwWindow, false);
 	gWindowFocus = glfwSetWindowFocusCallback(glfwWindow, WindowFocus);
 	gCursorEnter = glfwSetCursorEnterCallback(glfwWindow, CursorEnter);
 	gCursorPos = glfwSetCursorPosCallback(glfwWindow, CursorPos);
@@ -76,14 +93,49 @@ void Init(WindowHandle window)
 
 std::unique_lock<std::mutex> NewFrame()
 {
-	std::unique_lock lock(detail::gInputMutex);
-	ImGui_ImplGlfw_NewFrame();
+	using namespace detail;
+
+	std::unique_lock lock(gInputMutex);
+	if (gHeadless)
+	{
+		// what the backend's NewFrame gives imgui of the window, the rest (input, the cursor) there is none of
+		auto& imguiIO = ImGui::GetIO();
+		int width = 0;
+		int height = 0;
+		int framebufferWidth = 0;
+		int framebufferHeight = 0;
+		glfwGetWindowSize(gWindow, &width, &height);
+		glfwGetFramebufferSize(gWindow, &framebufferWidth, &framebufferHeight);
+		imguiIO.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
+		if (width > 0 && height > 0)
+			imguiIO.DisplayFramebufferScale = ImVec2(
+				static_cast<float>(framebufferWidth) / static_cast<float>(width),
+				static_cast<float>(framebufferHeight) / static_cast<float>(height));
+		double now = glfwGetTime();
+		constexpr float kFirstDeltaSeconds = 1.0F / 60.0F;
+		constexpr float kMinDeltaSeconds = 1e-6F; // imgui asserts on a delta that isn't positive
+		imguiIO.DeltaTime =
+			gHeadlessTime > 0.0 ? std::max(static_cast<float>(now - gHeadlessTime), kMinDeltaSeconds) : kFirstDeltaSeconds;
+		gHeadlessTime = now;
+	}
+	else
+	{
+		ImGui_ImplGlfw_NewFrame();
+	}
 	return lock;
 }
 
 void Shutdown()
 {
 	using namespace detail;
+
+	if (gHeadless)
+	{
+		gHeadless = false;
+		gWindow = nullptr;
+		ImGui::GetIO().BackendPlatformName = nullptr;
+		return;
+	}
 
 	if (gWindow != nullptr)
 	{
