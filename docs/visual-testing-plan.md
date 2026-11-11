@@ -198,4 +198,39 @@ Not visual, and each small on its own; any of them can go in between the steps a
 
 ## Progress
 
-Nothing yet: the plan starts once the lavapipe CI work (the `ci-lavapipe` branch) is on master.
+### Step 1, the first day (2026-11-11)
+
+Measured with BumpDomes' dome at 640x360, headless, everything the variables pin pinned (`SPEEDO_AUTO_EXPOSURE=0
+SPEEDO_EXPOSURE=0 SPEEDO_YEAR=2026 SPEEDO_DAY_OF_YEAR=172 SPEEDO_TIME_OF_DAY=10:30 SPEEDO_LATITUDE=57.7
+SPEEDO_TIME_FRAME_SECONDS=0.0166667 SPEEDO_UI=0`, `SPEEDO_AUTOLOAD_EXIT=30`), captured twice and compared (a throwaway C
+comparison: per channel max and mean, the share of pixels past 0, 1, 4 and 16 levels, a difference image):
+
+- **As the client was**, on KosmicKrisp: two warm runs differed in 66% of the pixels, up to 67 levels (0.06% past 16),
+  the first run against them in 85%. The differences: noise everywhere, the edges, and broad patches of the ground.
+- **What made them differ**: the frames' sequences (the jitter's Halton point, `Views::myJitterFrame`; each pass's frame
+  count, which seeds its noise and candidates; the indirect lighting's clocks) and the histories over frames all count
+  from the renderer's first frame, while the capture comes 30 frames after the model is in and its pipelines made, which
+  varies by a frame or more; the ui thread asks for the capture and the draw thread takes whichever frame it is on; and
+  the indirect lighting's blend follows the real time between frames (`myGiTimeBased`), not `SPEEDO_TIME_FRAME_SECONDS`.
+  Two captures at the same jitter frame still differed (57% of pixels, up to 34 levels): the histories' lengths differed.
+  Not the compute pipelines: those made ahead are waited for before the scene is ready, and one missing at a bind is made
+  then, not skipped.
+- **`SPEEDO_REPEATABLE=1`** (new): when the autoload exit starts counting, the draw thread restarts the frames' sequences
+  and histories (`Scene`, `Renderer` and `Views::RestartSequences`: the counts zeroed, every history invalid, the
+  indirect lighting made again as for a new scene) at the start of its next frame, and captures the
+  `SPEEDO_AUTOLOAD_EXIT`-th frame from there itself; the indirect lighting's blend takes `SPEEDO_TIME_FRAME_SECONDS`
+  where set. On KosmicKrisp three runs then differed by at most 11 to 13 levels (rather than 50 to 67), with any one of
+  the indirect lighting and temporal upscaling off by at most 1 level, and the base color view (`SPEEDO_DEBUG_VIEW=1`)
+  bitwise identical.
+- **What is left on KosmicKrisp**: 1 level in most pixels, from the ambient light (the indirect view, `SPEEDO_DEBUG_VIEW=13`,
+  46% of pixels; the direct light's 6 pixels), the same with a fixed panorama for the environment (neutral.hdr) rather
+  than the sky, in its diffuse and specular halves alike: the environment's lighting differs slightly as a whole from
+  run to run. Synchronization validation (`SPEEDO_VALIDATE_SYNC=1`) reports no hazard. Not yet found.
+- **On lavapipe** (the mesa port's, macOS): 96% of the pixels identical in two runs, the rest within 10 levels, on the
+  domes' shaded halves: the indirect lighting's (off, everything within 1 level). Its voxels' atomics are maxima, which
+  don't depend on order; likely the gpu's statistics the cpu reads back to steer it (the surface cache's growth, the
+  capped rays), read from whichever frame the gpu has finished, which varies: a loop to pin next. lavapipe against
+  KosmicKrisp: a different image (mean 13 to 15 levels in red and blue), so references per driver, as planned.
+
+Next: the feedback loops from the gpu (read at a fixed latency in a repeatable run), KosmicKrisp's ambient light, then
+the measurement on Linux's and Windows' lavapipe.

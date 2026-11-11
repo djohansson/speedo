@@ -90,6 +90,21 @@ namespace windowedapplication
 // its read back (2), and its graphics timeline callback saves it (3), after which the ui exits
 inline std::atomic_uint8_t gCaptureState{0};
 inline std::string gCapturePath;
+// SPEEDO_REPEATABLE=1: when the autoload exit starts counting (the loads installed, the views placed, the pipelines made),
+// the draw thread restarts the frames' sequences and histories (Scene and Views::RestartSequences) and captures the
+// SPEEDO_AUTOLOAD_EXIT-th frame from there itself, so that the capture is the same in every run whatever the frames before
+// it were (how many, and how long), and whichever frame the ui's request would have met. its frame (gDrawnFrameCount's),
+// the draw thread's
+[[nodiscard]] inline bool Repeatable()
+{
+	static const bool kRepeatable = []
+	{
+		const char* value = std::getenv("SPEEDO_REPEATABLE");
+		return value != nullptr && *value != '\0' && std::string_view(value) != "0";
+	}();
+	return kRepeatable;
+}
+inline std::optional<uint64_t> gRepeatableCaptureFrame;
 inline std::atomic<float> gFramesPerSecond;
 // the frames Draw has submitted (SPEEDO_AUTOLOAD_EXIT counts them: the ui thread's frames aren't paced by them)
 inline std::atomic_uint64_t gDrawnFrameCount{0};

@@ -368,6 +368,11 @@ public:
 	// the animation and what it moves, and the lights (nothing until ready). draw thread.
 	void Update(QueueTimelineContextData& graphics, uint32_t frameIndex);
 
+	// the frames' sequences and histories started again, as on the first frame drawn (see Renderer::RestartSequences; the
+	// grain's frames too; the views' jitter is the views', see Views::RestartSequences): SPEEDO_REPEATABLE's, so that a
+	// capture as many frames after it is the same in every run. call on the draw thread, before its frame's Update
+	void RestartSequences();
+
 	// records the frame into cmd (see Renderer::Record; until ready, the output cleared and its final passes). draw thread.
 	void Record(CommandBufferHandle cmd, const FrameTarget& target);
 

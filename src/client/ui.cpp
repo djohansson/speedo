@@ -2290,13 +2290,42 @@ void WindowedApplication::PrepareDraw()
 		!gAutoFrame && modelInstalled && (gAutoPath.empty() || (gAutoPathFollowed && !myViews->OnPath())) && presentationTestDone)
 	{
 		auto drawn = gDrawnFrameCount.load(std::memory_order_relaxed);
+		const char* capture = std::getenv("SPEEDO_CAPTURE");
+		bool capturing = capture != nullptr && *capture != '\0';
 		if (!gAutoLoadExitStart)
+		{
 			gAutoLoadExitStart = drawn;
-		if (drawn < *gAutoLoadExitStart + *gAutoLoadExitFrames)
+			// SPEEDO_REPEATABLE: the draw thread restarts the frames' sequences at the start of its next frame, and captures
+			// the frame the count ends on itself (see gRepeatableCaptureFrame), counted from there. again if the count starts
+			// over (a pipeline missing again)
+			if (Repeatable())
+				rhi.drawCalls.enqueue(
+					[this, frames = *gAutoLoadExitFrames, path = capturing ? std::string(capture) : std::string()](
+						QueueTimelineContextData& /*graphics*/)
+					{
+						myScene->RestartSequences();
+						myViews->RestartSequences();
+						if (!path.empty())
+						{
+							gCapturePath = path;
+							gRepeatableCaptureFrame = gDrawnFrameCount.load(std::memory_order_relaxed) + std::max<uint32_t>(frames, 1) - 1;
+						}
+					});
+		}
+		if (Repeatable() && capturing)
+		{
+			// the draw thread's capture (see gRepeatableCaptureFrame), saved
+			if (gCaptureState == 3)
+			{
+				core::Application::Get()->RequestExit();
+				gAutoLoadExitFrames.reset();
+			}
+		}
+		else if (drawn < *gAutoLoadExitStart + *gAutoLoadExitFrames)
 		{
 			// still drawing
 		}
-		else if (const char* capture = std::getenv("SPEEDO_CAPTURE"); capture != nullptr && *capture != '\0' && gCaptureState != 3)
+		else if (capturing && gCaptureState != 3)
 		{
 			// the last frame read back first (see gCaptureState)
 			uint8_t idle = 0;

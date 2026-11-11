@@ -457,8 +457,14 @@ bool WindowedApplication::Draw()
 							*done = 3;
 					}).handle);
 		};
-		// the frame an autoload exit ends on (SPEEDO_CAPTURE, see gCaptureState)
-		if (uint8_t requested = 1; gCaptureState.compare_exchange_strong(requested, 2))
+		// the frame an autoload exit ends on (SPEEDO_CAPTURE, see gCaptureState): the ui's request, or with SPEEDO_REPEATABLE
+		// the frame counted from the sequences' restart, here (see gRepeatableCaptureFrame)
+		if (gRepeatableCaptureFrame && gDrawnFrameCount.load(std::memory_order_relaxed) == *gRepeatableCaptureFrame)
+		{
+			if (uint8_t idle = 0; gCaptureState.compare_exchange_strong(idle, 2))
+				capture(gCapturePath, &gCaptureState);
+		}
+		else if (uint8_t requested = 1; gCaptureState.compare_exchange_strong(requested, 2))
 			capture(gCapturePath, &gCaptureState);
 		// each frame drawing a pose of SPEEDO_CAMERA_PATH for the first time (SPEEDO_CAPTURE_PATH=<directory>:
 		// pose-<NNNN>.bmp), to compare a move's frames

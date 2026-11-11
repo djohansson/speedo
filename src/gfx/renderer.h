@@ -228,6 +228,13 @@ public:
 	// records a frame into cmd
 	void Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameInputs& inputs);
 
+	// the frames' sequences (each pass's frame counts, and the noise and candidates they seed, the indirect lighting's
+	// clocks; the jitter's is the views', see Views::RestartSequences) and the histories over frames started again, as
+	// on the first frame recorded: so that a capture as many frames after it is the same in every run, whatever came
+	// before (the frames drawn while the model loaded and its pipelines were made, which vary: SPEEDO_REPEATABLE, see
+	// Scene::RestartSequences). call on the draw thread, before recording a frame
+	void RestartSequences();
+
 	[[nodiscard]] const FrameGraph& GetGraph() const noexcept { return myGraph; }
 
 	// how long each pass takes on the gpu (milliseconds, by name): a moving average over the frames that timed it, for
@@ -667,6 +674,9 @@ private:
 	bool myGiTimeBased = true;
 	double myGiFrameSeconds = 1.0 / 60.0;
 	std::optional<std::chrono::steady_clock::time_point> myGiFrameTime;
+	// SPEEDO_TIME_FRAME_SECONDS: a frame's length, fixed, rather than the time between frames, as the scene's clock takes it
+	// (the probes' blend then the same in every run, whatever the frames took)
+	std::optional<double> myGiFixedFrameSeconds;
 	bool myGiBounce = true;
 	bool myGiAdapt = false;
 	bool myGiDump = false; // SPEEDO_GI_DUMP: a probe per clip dumped at exit
@@ -674,6 +684,7 @@ private:
 	std::optional<glm::ivec2> myGiDumpPixel; // SPEEDO_GI_DUMP=pixel:<x>,<y>: the point is what is under the pixel
 	std::array<float, SHADER_TYPES_GI_CLIP_COUNT * GI_DUMP_FLOAT_COUNT> myGiDumpValues{};
 	bool myGiReset = true;
+	bool myGiRestart = false; // the next frame as if the scene had changed (RestartSequences)
 	// whether the indirect lighting's buffers are new this frame, and so cleared before anything reads them (see the GI
 	// Clear pass)
 	bool myGiClearBuffers = true;
@@ -981,6 +992,7 @@ private:
 	std::vector<SmoothedTiming> mySmoothedTimings; // in the order the passes were first timed
 	uint64_t myRecordCount = 0; // of the frames that timed passes (see GetPassTimings)
 	uint64_t myFrameCount = 0; // Records, every one
+	uint64_t mySequenceStart = 0; // myFrameCount at the last RestartSequences, which the frames' sequences count from
 	core::ConcurrentAccess<LightCapture> myLightCapture;
 	bool myCollectTimings = false;
 	std::vector<std::pair<std::string, std::vector<double>>> myCollectedTimings;

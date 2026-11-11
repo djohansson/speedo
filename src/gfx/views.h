@@ -128,6 +128,14 @@ public:
 	// size each way, and with jitter its projections are offset by a point of a sequence a frame, within a pixel (the
 	// cameras returned aren't: what is culled and fitted by doesn't need it), and each view's image scaled by its exposure
 	// before tonemapping (ViewData::exposure; past those given, the first's, 1 without any)
+	// the jitter's sequence started again, and no last frame to move from, as on the first frame drawn (see
+	// Scene::RestartSequences). call on the draw thread, before its frame's Upload
+	void RestartSequences() noexcept
+	{
+		myJitterFrame = 0;
+		myUploaded.clear();
+	}
+
 	[[nodiscard]] std::vector<Camera> Upload(
 		uint32_t frameIndex, glm::vec2 viewportScale = glm::vec2(1.0F), bool jitter = false, std::span<const float> exposures = {},
 		std::span<const float> scotopics = {});

@@ -3568,4 +3568,11 @@ uint64_t Scene::GetTransientMemory() const noexcept { return myImpl->myTransient
 uint64_t Scene::GetUnaliasedTransientMemory() const noexcept { return myImpl->myUnaliasedTransientMemory.load(std::memory_order_relaxed); }
 const Renderer& Scene::GetRenderer() const noexcept { return *myImpl->myRenderer; }
 
+void Scene::RestartSequences()
+{
+	if (myImpl->myRenderer)
+		myImpl->myRenderer->RestartSequences();
+	myImpl->myLensFrame = 0;
+}
+
 } // namespace gfx

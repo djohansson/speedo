@@ -2523,6 +2523,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiHysteresis = std::clamp(std::strtof(hysteresis, nullptr), 0.0F, 0.99F);
 	if (const char* timeBased = std::getenv("SPEEDO_GI_TIME_BASED"); timeBased != nullptr && *timeBased != '\0')
 		myGiTimeBased = std::string_view(timeBased) != "0";
+	if (const char* seconds = std::getenv("SPEEDO_TIME_FRAME_SECONDS"); seconds != nullptr && *seconds != '\0')
+		myGiFixedFrameSeconds = std::clamp(std::strtod(seconds, nullptr), 1.0 / 480.0, 0.25);
 	const char* bounce = std::getenv("SPEEDO_GI_BOUNCE");
 	if (const char* rays = std::getenv("SPEEDO_GI_REFERENCE_RAYS"); rays != nullptr && *rays != '\0')
 		myGiReferenceRayCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(rays, nullptr, 10)), 16U, 4096U);
@@ -3366,6 +3368,32 @@ void Renderer::Prepare(CommandBufferHandle cmd)
 	myGraph.GetImage(myScatterLight).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
 }
 
+void Renderer::RestartSequences()
+{
+	// the frames' counts, as Records start them
+	mySequenceStart = myFrameCount;
+	myUpscaleFrame = 0;
+	myGiNearFrame = 0;
+	myReflectionFrame = 0;
+	myEmitterFrame = 0;
+	myEmitterReferenceFrameCount = 0;
+	myGiStaggerFrame = 0;
+	myGiStillFrameCount = 0;
+	myGiCacheSettledFrameCount = 0;
+	// the indirect lighting's clocks and frame length, and all of it made again as for a new scene (its clips voxelized,
+	// its buffers cleared, the surface cache started over: see InternalPlanGi's changed)
+	myGiClipClocks.clear();
+	myGiFrameTime.reset();
+	myGiFrameSeconds = myGiFixedFrameSeconds.value_or(1.0 / 60.0);
+	myGiRestart = true;
+	// what the passes keep from frame to frame, none of it kept
+	myUpscaleHistoryValid = false;
+	myGiNearHistoryValid = false;
+	myEmitterHistoryValid = false;
+	myReflectionHistoryValid = false;
+	myAerialPerspectiveHistoryValid = false;
+}
+
 void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameInputs& inputs)
 {
 	ZoneScopedN("Renderer::Record");
@@ -3619,7 +3647,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		data.viewCount = std::min<uint32_t>(static_cast<uint32_t>(frame.viewports.size()), SHADER_TYPES_SPLIT_VIEW_COUNT);
 		std::ranges::copy(renderer::FogData(frame), data.fog);
 		// the history over frames: the last frame's where the pass ran then
-		data.frame = static_cast<uint32_t>(myFrameCount);
+		data.frame = static_cast<uint32_t>(myFrameCount - mySequenceStart);
 		data.history = myAerialPerspectiveHistoryValid ? 1U : 0U;
 		data.historySlot = static_cast<uint32_t>(myFrameCount & 1);
 		data.historyBlend = renderer::kAerialPerspectiveHistoryBlend;
@@ -4729,7 +4757,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	myGiResolution = resolution;
 	auto clipmap = gi::MakeClipmap(frame.casterBounds, eyes, myGiLookAhead, myGiResolution, myGiLevelCount, myGiProbeSpacing, myGiMaxVolumeSide);
 	// and when split screen's views come or go (each its own clips)
-	bool changed = frame.model != myGiModel || frame.casterBounds.GetMin() != myGiBounds.GetMin() ||
+	bool changed = std::exchange(myGiRestart, false) || frame.model != myGiModel || frame.casterBounds.GetMin() != myGiBounds.GetMin() ||
 				   frame.casterBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount || myGiRevoxelize || resolutionChanged ||
 				   clipmap.clips.size() != myGiClipmap.clips.size();
 	// how far each clip moved, in voxels (whole probe cells, see gi::MakeClipmap): a voxel takes the one that was at its
@@ -4969,7 +4997,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	// myGiTimeBased): a probe takes as long to follow a change at any frame rate (by frames, five times as long at San
 	// Miguel's 12 frames a second as at 60)
 	auto frameTime = std::chrono::steady_clock::now();
-	if (myGiFrameTime)
+	if (myGiFixedFrameSeconds)
+		myGiFrameSeconds = *myGiFixedFrameSeconds;
+	else if (myGiFrameTime)
 	{
 		double seconds = std::clamp(std::chrono::duration<double>(frameTime - *myGiFrameTime).count(), 1.0 / 480.0, 0.25);
 		myGiFrameSeconds += (seconds - myGiFrameSeconds) * 0.1;
