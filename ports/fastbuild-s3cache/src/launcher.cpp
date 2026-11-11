@@ -5,8 +5,8 @@
 // CMake can't name a cache plugin in the .bff it writes (no variable writes Settings' .CachePluginDLL), nor turn the cache
 // on in `cmake --build`, so this does both: the plugin's two lines go into the .bff's Settings in place (whenever CMake has
 // written it afresh; left as it is otherwise, so that FBuild doesn't parse it again), and -cache onto the command line
-// (unless the command line or FASTBUILD_CACHE_MODE says otherwise). The remote's url and region come from the build
-// directory's CMakeCache.txt (SPEEDO_FASTBUILD_CACHE_URL, SPEEDO_FASTBUILD_CACHE_REGION, which the presets set); never a
+// (unless the command line or FASTBUILD_CACHE_MODE says otherwise). The remote's url, region and refresh age come from the
+// build directory's CMakeCache.txt (SPEEDO_FASTBUILD_CACHE_URL, _REGION and _REFRESH_DAYS, which the presets set); never a
 // credential, which the plugin reads from the environment. SPEEDO_FASTBUILD_CACHE=0 runs FBuild as it was asked. To go
 // once a CMake release can name the plugin.
 #include <cstdio>
@@ -270,7 +270,8 @@ int main(int argc, char** argv)
 		std::string cache;
 		ReadBytes(bff.parent_path() / "CMakeCache.txt", cache);
 		std::string config = "url=" + CacheValue(cache, "SPEEDO_FASTBUILD_CACHE_URL") +
-							 ";region=" + CacheValue(cache, "SPEEDO_FASTBUILD_CACHE_REGION");
+							 ";region=" + CacheValue(cache, "SPEEDO_FASTBUILD_CACHE_REGION") +
+							 ";refresh_days=" + CacheValue(cache, "SPEEDO_FASTBUILD_CACHE_REFRESH_DAYS");
 		if (AddPlugin(bff, plugin, config))
 		{
 			// the cache's mode or an operation on it chosen already (not -cacheverbose nor -cachecompressionlevel)

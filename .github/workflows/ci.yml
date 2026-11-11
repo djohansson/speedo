@@ -7,10 +7,11 @@
 # same (each holds its debug and release builds), and a job per configuration would restore them, about 2 GB, three times.
 #
 # The cache is written too where the repository holds a B2 application key (the user's ask, 2026-11-08): the secrets
-# B2_APPLICATION_KEY_ID and B2_APPLICATION_KEY, a key for the bucket's speedo/vcpkg/ prefix alone, read, write and delete.
-# Never in a pull request's run: setup adds vcpkg's x-aws source (scripts/binarycache.ps1), which uploads what a runner
-# builds, and after a push whose jobs all passed the prune job deletes what no platform installs any more. Without the
-# secrets, every run reads the cache only.
+# B2_APPLICATION_KEY_ID and B2_APPLICATION_KEY, a key for the bucket, read, write and delete. Never in a pull request's
+# run: setup adds vcpkg's x-aws source (scripts/binarycache.ps1), which uploads what a runner builds, as FASTBuild's cache
+# plugin does its objects (ports/fastbuild-s3cache), and after a push whose jobs all passed the prune job deletes what no
+# platform installs any more, and FASTBuild's objects no build has used for a month. Without the secrets, every run reads
+# the caches only.
 name: CI
 
 on:
@@ -356,7 +357,8 @@ jobs:
   # the shared cache's archives that no platform installs any more (scripts/prune-binary-cache.ps1), after a push to master
   # whose jobs all passed: by the three platforms' lists, sparing what was uploaded in the last week (a maintainer's packages
   # for a change not pushed yet, which a runner would build again once it is). With more than half of the bucket stale (a
-  # toolchain change) the script refuses, and this job fails: prune that by hand, with -Force
+  # toolchain change) the script refuses, and this job fails: prune that by hand, with -Force. Then FASTBuild's cache, by
+  # age: the objects last dated over 30 days ago, which the plugin dates anew while builds use them, and their versions
   prune:
     name: Prune binary cache
     needs: [macos, windows, linux]

@@ -9,9 +9,14 @@
 // V4 (curl's). SPEEDO_BINARY_CACHE=0 leaves the remote out, as it does vcpkg's. The remote never fails a build: an error is
 // a miss, and after kRemoteFailureLimit in a row the remote is left out for the rest of the build.
 //
+// The remote's objects expire by age (scripts/prune-binary-cache.ps1 deletes what is older than
+// $FastbuildCacheExpiryDays, see scripts/binarycache.ps1), so a machine that writes the remote refreshes an object it
+// retrieves once it is older than refresh_days (half that): a copy onto itself, in the bucket, which dates it anew. What
+// the builds keep using never expires; what changed code left behind goes.
+//
 // The configuration (.CachePluginDLLConfig, which the launcher writes): url=<the remote prefix's https url, ending in
-// />;region=<its region>. The local directory is FBuild's cache path (.CachePath, FASTBUILD_CACHE_PATH), else
-// ~/.fastbuild/cache, each entry in a directory named by its key's first two characters.
+// />;region=<its region>;refresh_days=<days>. The local directory is FBuild's cache path (.CachePath,
+// FASTBUILD_CACHE_PATH), else ~/.fastbuild/cache, each entry in a directory named by its key's first two characters.
 #include <curl/curl.h>
 
 #include <algorithm>
@@ -60,7 +65,9 @@ struct State
 {
 	std::filesystem::path local;
 	std::string url;
+	std::string copySource; // the url's path, /<bucket>/<prefix>: a copy's source (x-amz-copy-source)
 	std::string region;
+	double refreshSeconds = 0.0; // 0: no refreshing
 	std::string credentials; // key id and secret, for writing: never printed
 	bool read = false;
 	bool write = false;
@@ -273,15 +280,46 @@ Result Perform(CURL* handle, const char* what, std::string_view key)
 	return Result::kFailed;
 }
 
-Result Get(std::string_view key, std::vector<char>& body)
+// the object, and its Last-Modified (seconds since the epoch, -1 where the response has none)
+Result Get(std::string_view key, std::vector<char>& body, curl_off_t& modified)
 {
 	CURL* handle = Handle();
 	std::string url = gState->url + std::string(key);
 	curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
 	curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, &Append);
 	curl_easy_setopt(handle, CURLOPT_WRITEDATA, &body);
+	curl_easy_setopt(handle, CURLOPT_FILETIME, 1L);
 	Result result = Perform(handle, "retrieve", key);
+	modified = -1;
+	curl_easy_getinfo(handle, CURLINFO_FILETIME_T, &modified);
 	return result == Result::kOk && body.empty() ? Result::kMissing : result;
+}
+
+// the object copied onto itself (S3's CopyObject; onto itself it must replace the metadata), which dates it anew
+Result Refresh(std::string_view key)
+{
+	CURL* handle = Handle();
+	std::string url = gState->url + std::string(key);
+	std::string sigv4 = std::format("aws:amz:{}:s3", gState->region);
+	std::string source = std::format("x-amz-copy-source: {}{}", gState->copySource, key);
+	curl_slist* headers = nullptr;
+	headers = curl_slist_append(headers, source.c_str());
+	headers = curl_slist_append(headers, "x-amz-metadata-directive: REPLACE");
+	headers = curl_slist_append(headers, "Content-Type: application/octet-stream");
+	headers = curl_slist_append(headers, "x-amz-content-sha256: UNSIGNED-PAYLOAD");
+	headers = curl_slist_append(headers, "Expect:");
+	curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
+	curl_easy_setopt(handle, CURLOPT_CUSTOMREQUEST, "PUT");
+	curl_easy_setopt(handle, CURLOPT_POSTFIELDS, "");
+	curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(0));
+	curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers);
+	curl_easy_setopt(handle, CURLOPT_AWS_SIGV4, sigv4.c_str());
+	curl_easy_setopt(handle, CURLOPT_USERPWD, gState->credentials.c_str());
+	curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, &Discard);
+	Result result = Perform(handle, "refresh", key);
+	curl_easy_setopt(handle, CURLOPT_HTTPHEADER, nullptr);
+	curl_slist_free_all(headers);
+	return result;
 }
 
 Result Put(std::string_view key, const void* data, size_t size)
@@ -339,9 +377,15 @@ void Configure(std::string_view config)
 			gState->url = value;
 		else if (key == "region")
 			gState->region = value;
+		else if (key == "refresh_days")
+			gState->refreshSeconds = std::max(std::strtod(std::string(value).c_str(), nullptr), 0.0) * 86400.0;
 	}
 	if (!gState->url.empty() && gState->url.back() != '/')
 		gState->url += '/';
+	// the path after the host: /<bucket>/<prefix>
+	if (size_t scheme = gState->url.find("://"); scheme != std::string::npos)
+		if (size_t path = gState->url.find('/', scheme + 3); path != std::string::npos)
+			gState->copySource = gState->url.substr(path);
 }
 
 } // namespace
@@ -408,12 +452,27 @@ PLUGIN_EXPORT bool STDCALL CacheRetrieve(const char* cacheId, void*& data, unsig
 	}
 	else if (gState->remoteRead.load())
 	{
-		Result result = Get(key, body);
+		curl_off_t modified = -1;
+		Result result = Get(key, body, modified);
 		if (result == Result::kOk)
 		{
 			found = true;
 			RemoteSucceeded();
 			WriteFile(path, body.data(), body.size());
+			// still used: dated anew before it is old enough to be pruned (see above)
+			auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+			if (gState->remoteWrite.load() && gState->refreshSeconds > 0.0 && !gState->copySource.empty() && modified > 0 &&
+				static_cast<double>(now - modified) > gState->refreshSeconds)
+			{
+				Result refreshed = Refresh(key);
+				if (refreshed == Result::kDenied)
+				{
+					if (gState->remoteWrite.exchange(false))
+						Print(std::format("no write access to {}: publishing locally only", gState->url));
+				}
+				else if (refreshed == Result::kFailed)
+					RemoteFailed();
+			}
 		}
 		else if (result == Result::kMissing)
 			RemoteSucceeded();
@@ -478,8 +537,8 @@ PLUGIN_EXPORT bool STDCALL CacheOutputInfo(bool /*showProgress*/)
 	return true;
 }
 
-// the local directory trimmed to sizeMiB, the least recently used first (-cachetrim); the remote expires by the bucket's
-// lifecycle rule
+// the local directory trimmed to sizeMiB, the least recently used first (-cachetrim); the remote expires by age
+// (scripts/prune-binary-cache.ps1, see above)
 PLUGIN_EXPORT bool STDCALL CacheTrim(bool /*showProgress*/, unsigned int sizeMiB)
 {
 	if (gState == nullptr)

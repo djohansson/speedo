@@ -191,9 +191,19 @@ not done.
 
 **Measured** (M4 Pro, the profile preset, a clean build, 97 objects): compiled 36 s; with the cache, cold (every object
 looked up, 404s, and uploaded) 48 s; from the bucket alone (the local directory emptied) 13 s; from the local directory
-0.4 to 0.8 s. 71 MB of objects a configuration. The remote's prefix needs CI's key widened to it (the key is the
-`speedo/vcpkg/` prefix's alone: until then CI's PUTs get a 403 and it caches locally) and a lifecycle rule expiring it,
-both the user's (prune-binary-cache.ps1 deletes only under `speedo/vcpkg/`).
+0.4 to 0.8 s. 71 MB of objects a configuration. CI's key writes the prefix too (a key for the bucket): the first CI run
+with the plugin uploaded its three platforms' objects, 969 with this machine's, 0.62 GB.
+
+**Pruning.** By age, in CI's prune job (`prune-binary-cache.ps1`, after the vcpkg archives; `-FastbuildOnly` alone by
+hand): an object last dated more than `$FastbuildCacheExpiryDays` (30, `scripts/binarycache.ps1`) ago goes, every version
+of it. A GET doesn't date an object, so the plugin, where it writes, dates anew one it retrieves once it is older than
+half that (`refresh_days`, the presets' `SPEEDO_FASTBUILD_CACHE_REFRESH_DAYS`): a copy onto itself in the bucket (S3's
+CopyObject, `x-amz-metadata-directive: REPLACE`), one request and no upload. What builds keep using never expires (CI's
+runners, starting empty, retrieve everything master uses at least every run); what changed code left behind goes a month
+after its last use. Each copy leaves the version before it (B2 keeps a file's versions until deleted by id), which the job
+deletes too, as it does delete markers, so the storage is freed whatever the bucket's lifecycle settings. Tested on the
+bucket with the refresh age near 0: 97 hits, each a copy (a clean build 20 s from the bucket against 13 without), and the
+dry run then counted exactly 97 superseded versions. Local caches don't expire: `-cachetrim <MiB>`.
 
 ## libc++ migration: MSVC STL "leaks" `<cstdlib>`/`<cmath>`/etc., libc++ doesn't
 
@@ -564,8 +574,9 @@ delete-objects` (a bulk delete from the bucket was blocked without it). B2 keeps
 bucket's lifecycle keeps only the last, so that setting decides whether pruning frees the storage.
 
 CI writes and prunes the cache where the repository holds a B2 application key (the user's ask, 2026-11-08): the secrets
-`B2_APPLICATION_KEY_ID` and `B2_APPLICATION_KEY`, a key for the bucket's `speedo/vcpkg/` prefix alone with read, write and
-delete (B2's `listBuckets,listFiles,readFiles,writeFiles,deleteFiles`), never in the repository. `ci.yml` and
+`B2_APPLICATION_KEY_ID` and `B2_APPLICATION_KEY`, a key for the bucket with read, write and delete (B2's
+`listBuckets,listFiles,readFiles,writeFiles,deleteFiles`; FASTBuild's cache, `speedo/fastbuild/`, is written and pruned
+with it too, see "FASTBuild's cache"), never in the repository. `ci.yml` and
 `release.yml` set `SPEEDO_BINARY_CACHE_WRITE` and the AWS CLI's `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` from them, on
 every run but a pull request's, so a runner uploads the packages it had to build (a port or toolchain change pushed
 without seeding the bucket first), and the next run on the platform restores them. After a push whose three platform jobs
