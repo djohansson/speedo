@@ -307,7 +307,8 @@ jobs:
 
       # the client itself, headless (SPEEDO_HEADLESS: no display, no surface or swapchain) on lavapipe, mesa's cpu Vulkan
       # driver, validated: the warm-up's sky and a model through the load, upload and draw path, small (see "CI" in
-      # docs/notes/build.md for what it costs)
+      # docs/notes/build.md for what it costs). the mesa port's lavapipe, as on Windows (a host package): Ubuntu's (26.0.8)
+      # dereferenced a masked-off buffer descriptor, fixed in mesa 26.2 (see "CI" in docs/notes/build.md)
       - name: Client checks (lavapipe)
         if: ${{ !cancelled() && steps.profile.outcome == 'success' }}
         env:
@@ -315,15 +316,13 @@ jobs:
           SPEEDO_GPU_HANG_TIMEOUT: '300'
           ASSETTEST_CLIENT_TIMEOUT: '1800'
         run: |
-          sudo apt-get install -y mesa-vulkan-drivers
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $env:VK_DRIVER_FILES = (Get-ChildItem /usr/share/vulkan/icd.d/lvp_icd*.json | Select-Object -First 1).FullName
+          $env:VK_DRIVER_FILES = (Get-ChildItem install/x64-linux-release/share/vulkan/icd.d/lvp_icd*.json | Select-Object -First 1).FullName
           Write-Host "driver: $env:VK_DRIVER_FILES"
           "VK_DRIVER_FILES=$env:VK_DRIVER_FILES" >> $env:GITHUB_ENV
           & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -ClientOnly -Headless -Validate -Jobs 1 -Work "$env:RUNNER_TEMP/assettest-client" resources/test-models/obj/BumpDomes
 
       # the frames against the renderer's own references (docs/visual-testing-plan.md, step 3), on the lavapipe the client
-      # checks installed: their times measured before a budget is set (the user's call, 2026-11-11)
+      # checks found: their times measured before a budget is set (the user's call, 2026-11-11)
       - name: Visual checks (lavapipe)
         if: ${{ !cancelled() && env.VK_DRIVER_FILES != '' }}
         env:

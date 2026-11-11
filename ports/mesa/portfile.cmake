@@ -1,7 +1,7 @@
 # speedo overlay of vcpkg's mesa port: mesa's Vulkan drivers alone, from djohansson/mesa. KosmicKrisp (the kosmickrisp
 # feature, macOS's default), mesa's driver over Metal, which the fork adds ray queries to (VK_KHR_acceleration_structure,
-# VK_KHR_ray_query, behind MESA_KK_EXPERIMENTAL=ray_query); and lavapipe (the lavapipe feature, Windows'), the swrast
-# driver on the cpu over llvmpipe, for headless runs without a gpu (CI). The client takes it as a host dependency: a driver
+# VK_KHR_ray_query, behind MESA_KK_EXPERIMENTAL=ray_query); and lavapipe (the lavapipe feature, Windows' and Linux's),
+# the swrast driver on the cpu over llvmpipe, for headless runs without a gpu (CI). The client takes it as a host dependency: a driver
 # the Vulkan loader loads at run time (VK_DRIVER_FILES, its manifest in share/vulkan/icd.d), built with the host LLVM the
 # toolchain already builds: mesa_clc compiles KosmicKrisp's OpenCL kernels with it at build time (KosmicKrisp doesn't
 # link LLVM), and lavapipe links it, compiling shaders with it at run time. LLVM is static and without RTTI, and so is
@@ -76,7 +76,11 @@ if("lavapipe" IN_LIST FEATURES)
 endif()
 
 set(platform_options "")
-if(VCPKG_TARGET_IS_OSX)
+if(VCPKG_TARGET_IS_LINUX)
+	# no window system platform: lavapipe for CI's headless clients (no surface or swapchain), where x11's and wayland's
+	# would look for the system's xcb and wayland libraries outside the vcpkg tree
+	list(APPEND platform_options -Dplatforms=)
+elseif(VCPKG_TARGET_IS_OSX)
 	list(APPEND platform_options -Dplatforms=macos)
 elseif(VCPKG_TARGET_IS_WINDOWS)
 	# no window system platform beside windows', and not Microsoft's CLC compiler (for d3d12's drivers), which would

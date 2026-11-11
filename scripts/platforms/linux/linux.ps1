@@ -18,6 +18,8 @@ if ($PortBuildTools)
 	Install-AptPackage automake
 	Install-AptPackage libtool
 	Install-AptPackage patchelf
+	Install-AptPackage bison # mesa's parsers (the mesa port's lavapipe, CI's driver)
+	Install-AptPackage flex
 	return
 }
 

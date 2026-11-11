@@ -358,8 +358,10 @@ the SPIRV-Headers commit it pins (`spirv-headers-tag.conf`), put ahead of LLVM's
 which holds vcpkg's older spirv-headers (`0001-*`).
 
 Its `lavapipe` feature builds lavapipe (meson's `swrast` Vulkan driver over gallium's `llvmpipe`), mesa's Vulkan driver on
-the cpu, for Windows CI's client checks (see "CI"; Linux's comes from apt): a host package on windows x64 (`vcpkg.json`),
-from the same source and LLVM. lavapipe links LLVM (`default-targets`: llvmpipe compiles shaders for the cpu at run time),
+the cpu, for CI's client checks on Windows and Linux (see "CI"): a host package on windows and linux x64 (`vcpkg.json`),
+from the same source and LLVM. On Linux without a window system platform (`-Dplatforms=`: CI's clients are headless, and
+x11's and wayland's would look for the system's xcb and wayland outside the vcpkg tree), with the port's zlib and the
+system's bison and flex (the Linux port build tools). lavapipe links LLVM (`default-targets`: llvmpipe compiles shaders for the cpu at run time),
 and builds its BVH builder's shaders with `glslangValidator` (a host `glslang[tools]`, overlaid without precompiled
 headers, see the FASTBuild section). Its manifest, `lvp_icd.x86_64.json` in the host triplet's `share/vulkan/icd.d`, names
 the driver in `bin` by its path from the manifest, with backslashes (LoadLibrary takes no others), written with
@@ -604,9 +606,16 @@ share their packages and a job each would restore them, about 2 GB, three times.
 
 **The client on lavapipe** (the user's asks, from 2026-11-10): Linux and Windows run the client itself after the asset
 checks, headless (`assettest.ps1 -ClientOnly -Headless -Validate -Jobs 1`, `SPEEDO_WINDOW_SIZE=320x180`) on lavapipe,
-mesa's Vulkan driver on the cpu: BumpDomes' two models, through the load, upload and draw path, validated. Linux takes
-Ubuntu's (`mesa-vulkan-drivers` from apt), Windows builds the mesa port's (`mesa[lavapipe]`, a host package, see the
-mesa port above; no third-party driver in a job that holds the cache's keys). What the step took (the first client
+mesa's Vulkan driver on the cpu: BumpDomes' two models, through the load, upload and draw path, validated. Both build
+the mesa port's (`mesa[lavapipe]`, a host package, see the mesa port above; no third-party driver in a job that holds the
+cache's keys), so that every platform tests the mesa it pins. Linux took Ubuntu's (`mesa-vulkan-drivers` from apt, mesa
+26.0.8) until the visual checks' ray-queries check crashed on it (2026-11-11): the software BVH's frame (the check's
+reference, `SPEEDO_RAY_QUERY=0`, which nothing on Linux had run, its clients taking the ray queries) segfaulted in a
+shader llvmpipe compiled, reading a buffer descriptor through a null pointer. With no lane of a divergent descriptor
+access active, gallivm took lane 0's, null, and dereferenced it; mesa fixed it in 26.2.0 (63b89856c9e, "gallivm: don't
+deref a NULL buffer descriptor with an empty exec mask", MR 42620), not backported to 26.0 or 26.1. Reproduced with
+26.0.8 built locally (macOS arm64), which passed with that commit alone applied: the access is legal, the bug the
+driver's. What the step took (the first client
 compiles the shaders): on Linux 1 min 40 s (82 s and 14 s) and 3 min 38 s (187 s and 25 s) in two runs a few hours apart,
 on Windows 6 min 19 s (224 s and 153 s, 2026-11-11): Windows' second client starts nowhere near as warm as Linux's, to be
 looked into. No time budget yet (the user, 2026-11-11: measure first). What it found on the way:

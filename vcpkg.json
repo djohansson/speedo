@@ -46,7 +46,7 @@
       "name": "mesa",
       "default-features": false,
       "features": [ "lavapipe" ],
-      "platform": "windows & x64",
+      "platform": "(windows | linux) & x64",
       "host": true
     }
   ],
