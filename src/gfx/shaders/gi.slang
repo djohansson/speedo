@@ -1346,8 +1346,14 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 		return;
 	}
 	// its block holds something this frame (see gGiFlags): a plain store, every voxel of the block storing the same (an
-	// atomic maximum kept whatever a new buffer held, and a block it said was stamped in some far frame never counted)
-	gGiFlags[flagIndex] = gi.frameStamp << SHADER_TYPES_GI_FLAG_STAMP_SHIFT;
+	// atomic maximum kept whatever a new buffer held, and a block it said was stamped in some far frame never counted).
+	// bits 0 to 3 kept as they were (ComputeGiFlags makes them again after this): the voxels of the block read bit 0
+	// above, and those that ran after one of them had stored a stamp without it skipped their lighting, their radiance
+	// that of the frames before the bounce. a block's voxels are in many groups (a row along x each): lavapipe runs the
+	// groups one after another and lit a row of each block, the probes' light no further than the emission (the furnace
+	// interior +0.73 stops over its emission, see visualtest.ps1), and a gpu skipped a few (KosmicKrisp +0.866); both
+	// +0.881 since
+	gGiFlags[flagIndex] = (gi.frameStamp << SHADER_TYPES_GI_FLAG_STAMP_SHIFT) | (gGiFlags[flagIndex] & 0xFu);
 	GiVoxel kept = gGiStaticVoxels[index];
 	bool still = kept.albedo == voxel.albedo && kept.normal == voxel.normal;
 	float4 direct = GiUnpackRgba16(gGiRadiance[gi.directFirst + threadId.x]);

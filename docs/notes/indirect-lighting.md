@@ -210,7 +210,12 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   with something moving in the frame (`GiData::moving`).
   The **flags** (`gGiFlags`, `ComputeGiFlags`): per block of 4x4x4 voxels
   (`SHADER_TYPES_GI_FLAG_LEVEL`) the lighting stamps the frame into the blocks holding something (a plain store: an
-  atomic maximum kept whatever a new buffer held, and such a block never counted again, which blacked out Sponza), then
+  atomic maximum kept whatever a new buffer held, and such a block never counted again, which blacked out Sponza; the
+  store keeps bits 0 to 3, which the same dispatch reads to skip the blocks nothing was near: storing the stamp alone,
+  the voxels of a block that ran after one of them had stored skipped their lighting, their radiance that of the frames
+  before the bounce. lavapipe, running the groups one after another, lit one row of each block, the probes' light no
+  further than the emission, and KosmicKrisp a few blocks less: found 2026-11-11 by the furnace interior, see
+  docs/visual-testing-plan.md's step 4), then
   bit 0 says whether anything is in the 3x3x3 blocks around it and bit 3 whether that is within 4 blocks along each axis
   (three separable steps): the resolve skips the blocks without bit 0 (the lookups are within a few voxels of a surface)
   and the probes without bit 3 (a probe is only ever looked up from within its cell of a surface's lookup), which is
