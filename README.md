@@ -19,8 +19,7 @@ occlusion, clustered lighting, order independent transparency, transmission and 
 frame graph on a task based engine.
 
 It runs on macOS (Apple silicon, through KosmicKrisp, mesa's Vulkan driver over Metal), Windows and Linux, built with the
-same LLVM toolchain on all three. It also runs headless, without a display, and on lavapipe, mesa's Vulkan driver on the
-CPU, without a GPU: that is how CI runs the client and checks its frames.
+same LLVM toolchain on all three. It can also run without a display or a GPU, which is how CI tests it.
 
 <!-- one row, the same height: each image's width in proportion to its aspect ratio (3.25, 1.62, 2.15) -->
 <p align="center">
