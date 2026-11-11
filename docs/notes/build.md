@@ -549,10 +549,11 @@ kernels in ktx built with the x64 baseline's AVX2 as the rest of the library (`0
 `#error` with AVX unless `_MSC_VER`, which clang defines on Windows alone; the user's call to keep them, with the best
 instruction set, rather than turn SSE off). The project's profile, debug and release builds then pass on Linux.
 
-## CI: GitHub Actions, the cpu's work only
+## CI: GitHub Actions
 
 `.github/workflows/ci.yml` (the user's call, 2026-11-06: hosted runners only, no gpu workloads, since the client's are too
-heavy for a runner's software Vulkan; and not this machine as a runner) builds and checks on pushes and pull requests to
+heavy for a runner's software Vulkan; and not this machine as a runner; the client headless on lavapipe since 2026-11-11,
+below) builds and checks on pushes and pull requests to
 `master`: setup (`setup.ps1` directly, reading the shared binary cache, and writing it where the repository holds its key,
 see "vcpkg's shared binary cache": `setup_osx.sh` only adds
 PowerShell, which the image has, and upgrades all of Homebrew), `cmake --preset`, the build, and `assettest.ps1` without
@@ -570,6 +571,30 @@ Visual Studio with the components, the AWS CLI for a cache writer). Linux (2026-
 in turn (the user's ask, 2026-11-07), the asset checks on the profile build: one job a platform, since the configurations
 share their packages and a job each would restore them, about 2 GB, three times. It replaced three workflows from an early trial
 (`lukka/run-vcpkg` templates, on a `main` branch this repository doesn't have, so they never ran).
+
+**The client on lavapipe** (the user's asks, from 2026-11-10): Linux and Windows run the client itself after the asset
+checks, headless (`assettest.ps1 -ClientOnly -Headless -Validate -Jobs 1`, `SPEEDO_WINDOW_SIZE=320x180`) on lavapipe,
+mesa's Vulkan driver on the cpu: BumpDomes' two models, through the load, upload and draw path, validated. Linux takes
+Ubuntu's (`mesa-vulkan-drivers` from apt), Windows builds the mesa port's (`mesa[lavapipe]`, a host package, see the
+mesa port above; no third-party driver in a job that holds the cache's keys). What the step took (the first client
+compiles the shaders): on Linux 1 min 40 s (82 s and 14 s) and 3 min 38 s (187 s and 25 s) in two runs a few hours apart,
+on Windows 6 min 19 s (224 s and 153 s, 2026-11-11): Windows' second client starts nowhere near as warm as Linux's, to be
+looked into. No time budget yet (the user, 2026-11-11: measure first). What it found on the way:
+
+- **A deadlock on 2 executor threads** (a 4-core runner's): the client's `Rpc` task looped until a server answered,
+  loads slept in `WaitUntilReady`, and moodycamel's dequeue starved the draw chain; both clients timed out at 30 minutes
+  without a frame. Fixed in the executor and the client (see CLAUDE.md, "Parallel work is tasks");
+  `SPEEDO_EXECUTOR_THREAD_COUNT=2` reproduces a small machine.
+- **The runner's Windows processes are elevated**, and the Vulkan loader ignores its path variables in an elevated
+  process (`loader_secure_getenv`: `VK_DRIVER_FILES`, `VK_ICD_FILENAMES`, the layer paths), so the clients found no driver
+  (`VK_ERROR_INCOMPATIBLE_DRIVER`), and `-Validate`'s layer, found through `VK_LAYER_PATH`, would have been skipped with a
+  warning only. The Windows step registers the driver and the validation layer in `HKLM\SOFTWARE\Khronos\Vulkan\Drivers`
+  and `ExplicitLayers`, where the loader looks then, on the runner alone (assettest leaves a machine's registry alone).
+  The same holds for any client run as administrator on a developer's machine.
+- **Windows' lavapipe took seven runs to build**: glslang's precompiled headers (the FASTBuild section above),
+  get-pip on Python 3.15, zlib and DirectX-Headers missing from the port's Windows dependencies, mesa's generators run
+  with python's `-I`, clang-cl lacking MSVC's lower-case interlocked intrinsics (`0002`, offered upstream by the user),
+  and the driver's manifest written as invalid json (the mesa port section above).
 
 ## Releases
 
