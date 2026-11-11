@@ -105,7 +105,9 @@ launch offers to download the test models while the driver creates its pipelines
 precompiled: the installers ship no shader compiler. The macOS bundle ships KosmicKrisp, so it needs no Vulkan driver of
 its own.
 
-## Getting started
+## Getting started with development
+
+To run speedo, an installer above is all you need; this is for building it from source.
 
 ### 1. Set up the machine
 
