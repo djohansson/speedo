@@ -48,8 +48,8 @@ SurfaceDerivatives SurfaceDerivativesAt(float3 position, TextureView view, float
 			return result;
 		}
 	}
-	// (no other stage shades a surface)
-	return result;
+	// (no other stage shades a surface: zeros rather than result, which only the stages above set)
+	return (SurfaceDerivatives)0;
 }
 
 // the ground plane's checkerboard at a pixel (see MaterialData::checker): the base color's factor, 1 + contrast on the
