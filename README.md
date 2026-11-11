@@ -69,20 +69,7 @@ SPEEDO_LENS=anamorphic-50-133 SPEEDO_FOCUS=wide -->
   validation, and its frames checked against the renderer's own references and a known answer, repeatably, with CI
   running all of it on every push. [visual testing](docs/visual-testing-plan.md), [assets](docs/notes/assets.md)
 
-## Applications
-
-| Program     | What it does |
-|-------------|--------------|
-| `client`    | The viewer: a window with a menu bar, one to four views of the scene, and tools for inspecting it, in a translucent, frosted interface styled after macOS's. |
-| `server`    | A small companion process the client talks to over ZeroMQ: the start of a distributed task system. |
-| `assettest` | Imports every model, image and environment it's given and checks the results, and the BVHs against brute force and the lens prescriptions: the main automated test. |
-| `imagecompare` | Compares a capture of the client's with a reference: the pixels past thresholds, the luminance difference sharp and blurred, the light gained or lost. What the visual checks pass or fail by. |
-| `convergence` | How long a still view's lighting takes to settle, from a series of captures (`scripts/perfbaseline.ps1`). |
-| `filebench` | A benchmark of file reading, the importers (`--import <files>`) and zip extraction (`--zip <archives>`). |
-| `taskbench` | A benchmark of the task system's overheads and how full its task pool gets. |
-| `shaderprecompile` | Compiles every shader variant the client may load into the precompiled sets an installer ships (run by `scripts/package.ps1`). |
-
-### Using the client
+## Using the client
 
 - **File > Open...** (and Open Recent) is a file browser with thumbnails and previews of models, zip archives,
   panoramas and images. It opens one file or several, side by side or as authored.
@@ -161,15 +148,16 @@ and in the same shared bucket, so a build takes what CI or another machine of th
 the building machine's, so what one machine builds runs on the others. See [build](docs/notes/build.md) ("FASTBuild's
 cache").
 
-### 3. Run
+### 3. Run the client
 
-Run the programs from the repository root:
+The build puts `client`, the viewer, in the preset's build directory. Run it from the repository root, where it finds
+`resources/`:
 
 ```sh
 ./build/arm64-osx-clang-profile/client
 ```
 
-| Option | Default |
+| Client option | Default |
 |--------|---------|
 | `-r <dir>`: the resource directory (fonts, shaders, test assets) | `resources/` |
 | `-u <dir>`: the user profile directory (settings, caches, logs) | `.speedo/` |
@@ -196,6 +184,21 @@ validation layers are found. The VS Code launch configurations set the layer pat
 
 `SPEEDO_HEADLESS=1` runs the client without a window: no display is needed, and it draws into an image of
 `SPEEDO_WINDOW_SIZE` instead of a swapchain, which `SPEEDO_CAPTURE` saves. See [layering](docs/notes/layering.md).
+
+### Applications
+
+The build makes these programs, all in the preset's build directory and run from the repository root as the client is:
+
+| Program     | What it does |
+|-------------|--------------|
+| `client`    | The viewer: a window with a menu bar, one to four views of the scene, and tools for inspecting it, in a translucent, frosted interface styled after macOS's. |
+| `server`    | A small companion process the client talks to over ZeroMQ: the start of a distributed task system. |
+| `assettest` | Imports every model, image and environment it's given and checks the results, and the BVHs against brute force and the lens prescriptions: the main automated test. |
+| `imagecompare` | Compares a capture of the client's with a reference: the pixels past thresholds, the luminance difference sharp and blurred, the light gained or lost. What the visual checks pass or fail by. |
+| `convergence` | How long a still view's lighting takes to settle, from a series of captures (`scripts/perfbaseline.ps1`). |
+| `filebench` | A benchmark of file reading, the importers (`--import <files>`) and zip extraction (`--zip <archives>`). |
+| `taskbench` | A benchmark of the task system's overheads and how full its task pool gets. |
+| `shaderprecompile` | Compiles every shader variant the client may load into the precompiled sets an installer ships (run by `scripts/package.ps1`). |
 
 ## Testing
 
