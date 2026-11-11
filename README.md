@@ -77,6 +77,10 @@ Every build directory comes from a preset named `<triplet>-<config>`, e.g. `arm6
 | `debug`   | Debugging. Vulkan validation and asserts are on, and it's slow. |
 | `profile` | Optimized, with profiling (Tracy and GPU pass timings) and asserts. The best default for testing. |
 | `release` | Optimized, without profiling (no Tracy): what the installers ship. |
+| `sanitize` | The profile configuration with AddressSanitizer and UndefinedBehaviorSanitizer on the project's own code (macOS and Linux). |
+| `tsan`    | The profile configuration with ThreadSanitizer (macOS and Linux). |
+
+The sanitizer builds stop at the first report (`tsan` reports and goes on), and `scripts/assettest.ps1` with their preset fails a run on one. See [build](docs/notes/build.md) ("Sanitizers").
 
 ```sh
 cmake --preset arm64-osx-clang-profile && cmake --build build/arm64-osx-clang-profile
