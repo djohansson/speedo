@@ -6,10 +6,12 @@
 
 #include <GLFW/glfw3.h>
 #if defined(__APPLE__)
-#	define GLFW_EXPOSE_NATIVE_COCOA
-#	include <GLFW/glfw3native.h>
 #	include <objc/message.h>
 #	include <objc/runtime.h>
+// glfw3native.h's one function used here, declared rather than included: its #import of Cocoa (in an __OBJC__ branch
+// C++ never takes) makes FASTBuild's light cache preprocess the file instead, whose absolute paths keep the object from
+// other checkouts' caches (see docs/notes/build.md, FASTBuild's cache)
+extern "C" id glfwGetCocoaWindow(GLFWwindow* window);
 #endif
 
 #include <algorithm>

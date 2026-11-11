@@ -74,6 +74,20 @@ if(NOT SPEEDO_TARGET_CPU STREQUAL "native" AND "${CMAKE_C_FLAGS} ${CMAKE_CXX_FLA
 		"for a fixed one (SPEEDO_TARGET_CPU=${SPEEDO_TARGET_CPU}): configure it afresh, cmake --preset <name> --fresh")
 endif()
 
+# FASTBuild's cache keys hold each compile's command line, its paths too: relative ones (the presets'
+# CMAKE_FASTBUILD_USE_RELATIVE_PATHS) give a checkout anywhere the keys of one elsewhere (CI's runners, another machine),
+# but for the libc++ headers, which the toolchain names by LLVM_ROOT's absolute path (and can't name otherwise: its text
+# is in every package's ABI, and the ports build in other directories). the project's own compiles take them relative to
+# the build directory, where FASTBuild runs them: a checkout elsewhere had 2 of 97 objects from the cache, 93 of 97 so
+# (2026-11-11)
+if(CMAKE_GENERATOR STREQUAL "FASTBuild" AND CMAKE_FASTBUILD_USE_RELATIVE_PATHS AND LLVM_ROOT)
+	file(RELATIVE_PATH SPEEDO_LLVM_ROOT_RELATIVE "${CMAKE_BINARY_DIR}" "${LLVM_ROOT}")
+	foreach(SPEEDO_LANGUAGE IN ITEMS C CXX OBJC OBJCXX)
+		string(REPLACE "\"${LLVM_ROOT}/include" "\"${SPEEDO_LLVM_ROOT_RELATIVE}/include" CMAKE_${SPEEDO_LANGUAGE}_FLAGS
+			"${CMAKE_${SPEEDO_LANGUAGE}_FLAGS}")
+	endforeach()
+endif()
+
 # use -std=c++26 / -std=c23 rather than the gnu++26 / gnu23 dialects
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -564,11 +578,17 @@ foreach(entry EnvironmentSky EnvironmentDownsample EnvironmentCopy EnvironmentSp
 		EnvironmentSkyTransmittance EnvironmentSkyMultipleScattering EnvironmentSkyView EnvironmentIrradianceRows)
 	list(APPEND ENVIRONMENT_KERNELS_ENTRY_POINTS -entry ${entry} -stage compute)
 endforeach()
+# the kernels' sources by their paths from the build directory, where slangc runs and the compiler after it, so that the
+# generated sources' #line directives hold no absolute path (nor their prelude's include, see scripts/cmake/slangcpp.cmake):
+# FASTBuild's cache keys are then the same wherever the checkout is, and a debugger still finds the slang sources
+file(RELATIVE_PATH SPEEDO_SOURCE_DIR_RELATIVE "${CMAKE_CURRENT_BINARY_DIR}" "${SPEEDO_SOURCE_DIR}")
 add_custom_command(
 	OUTPUT ${ENVIRONMENT_KERNELS_CPP}
 	COMMAND
-		${SLANGC_EXECUTABLE} ${ENVIRONMENT_KERNELS_SOURCE} -I ${SPEEDO_SOURCE_DIR}/gfx/shaders -DSHADERTYPES_H_GPU_TARGET=true
-		-target cpp ${ENVIRONMENT_KERNELS_ENTRY_POINTS} -o ${ENVIRONMENT_KERNELS_CPP}
+		${SLANGC_EXECUTABLE} ${SPEEDO_SOURCE_DIR_RELATIVE}/gfx/shaders/environment.slang -I ${SPEEDO_SOURCE_DIR_RELATIVE}/gfx/shaders
+		-DSHADERTYPES_H_GPU_TARGET=true -target cpp ${ENVIRONMENT_KERNELS_ENTRY_POINTS} -o ${ENVIRONMENT_KERNELS_CPP}
+	COMMAND ${CMAKE_COMMAND} -DFILE=${ENVIRONMENT_KERNELS_CPP} -P ${CMAKE_CURRENT_SOURCE_DIR}/scripts/cmake/slangcpp.cmake
+	WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 	DEPENDS
 		${ENVIRONMENT_KERNELS_SOURCE}
 		${SPEEDO_SOURCE_DIR}/gfx/shaders/capi.h
@@ -583,8 +603,11 @@ set(BVH_KERNELS_CPP ${CMAKE_CURRENT_BINARY_DIR}/bvhkernels.generated.cpp)
 add_custom_command(
 	OUTPUT ${BVH_KERNELS_CPP}
 	COMMAND
-		${SLANGC_EXECUTABLE} ${BVH_KERNELS_SOURCE} -I ${SPEEDO_SOURCE_DIR}/gfx/shaders -DSHADERTYPES_H_GPU_TARGET=true
-		-target cpp -entry BvhTrace -stage compute -entry BvhTrace2 -stage compute -o ${BVH_KERNELS_CPP}
+		${SLANGC_EXECUTABLE} ${SPEEDO_SOURCE_DIR_RELATIVE}/tools/bvhkernels.slang -I ${SPEEDO_SOURCE_DIR_RELATIVE}/gfx/shaders
+		-DSHADERTYPES_H_GPU_TARGET=true -target cpp -entry BvhTrace -stage compute -entry BvhTrace2 -stage compute
+		-o ${BVH_KERNELS_CPP}
+	COMMAND ${CMAKE_COMMAND} -DFILE=${BVH_KERNELS_CPP} -P ${CMAKE_CURRENT_SOURCE_DIR}/scripts/cmake/slangcpp.cmake
+	WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 	DEPENDS
 		${BVH_KERNELS_SOURCE}
 		${SPEEDO_SOURCE_DIR}/gfx/shaders/bvh.slang

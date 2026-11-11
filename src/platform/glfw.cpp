@@ -13,13 +13,16 @@
 // before glfw: it declares glfwCreateWindowSurface with vulkan's types only when they are
 #include <vulkan/vulkan_core.h>
 
+// glfw3native.h's functions used here (a platform's one) are declared rather than the header included: its #import of
+// Cocoa (in an __OBJC__ branch C++ never takes) makes FASTBuild's light cache preprocess the file instead, on every
+// platform (it reads every branch), and the preprocessed source's absolute paths keep the object from other checkouts'
+// caches (see docs/notes/build.md, FASTBuild's cache)
 #include <GLFW/glfw3.h>
 #if defined(__APPLE__)
-#	define GLFW_EXPOSE_NATIVE_COCOA
-#	include <GLFW/glfw3native.h>
 #	include <CoreFoundation/CoreFoundation.h>
 #	include <objc/message.h>
 #	include <objc/runtime.h>
+extern "C" id glfwGetCocoaWindow(GLFWwindow* window);
 #elif defined(_WIN32)
 // windows.h for SetWindowPos (see CreateNativeWindow): only the kernel and user parts, without min and max
 #	ifndef WIN32_LEAN_AND_MEAN
@@ -31,8 +34,8 @@
 #	ifndef NOGDI
 #		define NOGDI
 #	endif
-#	define GLFW_EXPOSE_NATIVE_WIN32
-#	include <GLFW/glfw3native.h>
+#	include <windows.h>
+extern "C" HWND glfwGetWin32Window(GLFWwindow* window);
 #endif
 
 #include <array>

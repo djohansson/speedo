@@ -140,6 +140,9 @@ $CMakePresets = [ordered] @{
 				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = 'profile;release'
 				CMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS = 'ON'
 				CMAKE_FASTBUILD_USE_LIGHTCACHE='ON'
+				# relative paths in the compile commands, so that FASTBuild's cache keys are the same wherever the checkout
+				# is (CI's runners, other machines; see CMakeLists.txt for the libc++ headers)
+				CMAKE_FASTBUILD_USE_RELATIVE_PATHS = 'ON'
 				#
 			}
 			environment = [ordered] @{
