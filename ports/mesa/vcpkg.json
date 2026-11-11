@@ -1,21 +1,16 @@
 {
   "name": "mesa",
   "version": "26.3.0",
-  "port-version": 1,
-  "description": "Mesa's KosmicKrisp alone: a Vulkan driver over Metal, from the djohansson/mesa fork, which adds ray queries to it (VK_KHR_acceleration_structure, VK_KHR_ray_query).",
+  "port-version": 2,
+  "description": "Mesa's Vulkan drivers the client runs on, from the djohansson/mesa fork: KosmicKrisp, a driver over Metal, which the fork adds ray queries to (VK_KHR_acceleration_structure, VK_KHR_ray_query); and lavapipe, a driver on the cpu (llvmpipe), for headless runs without a gpu (CI).",
   "homepage": "https://github.com/djohansson/mesa",
   "license": "MIT",
-  "supports": "osx & arm64",
+  "supports": "(osx & arm64) | (windows & x64)",
   "dependencies": [
     {
-      "name": "llvm",
-      "default-features": false,
-      "features": [
-        "clang"
-      ]
+      "name": "directx-headers",
+      "platform": "windows"
     },
-    "spirv-llvm-translator",
-    "spirv-tools",
     {
       "name": "vcpkg-get-python-packages",
       "host": true
@@ -24,6 +19,52 @@
       "name": "vcpkg-tool-meson",
       "host": true
     },
+    {
+      "name": "zlib",
+      "platform": "windows"
+    },
     "zstd"
-  ]
+  ],
+  "default-features": [
+    {
+      "name": "kosmickrisp",
+      "platform": "osx & arm64"
+    }
+  ],
+  "features": {
+    "kosmickrisp": {
+      "description": "KosmicKrisp, a Vulkan driver over Metal, whose OpenCL kernels mesa_clc compiles at build time with LLVM's clang",
+      "supports": "osx & arm64",
+      "dependencies": [
+        {
+          "name": "llvm",
+          "default-features": false,
+          "features": [
+            "clang"
+          ]
+        },
+        "spirv-llvm-translator",
+        "spirv-tools"
+      ]
+    },
+    "lavapipe": {
+      "description": "lavapipe, a Vulkan driver on the cpu over llvmpipe, which compiles shaders with LLVM at run time (linked statically)",
+      "dependencies": [
+        {
+          "name": "glslang",
+          "host": true,
+          "features": [
+            "tools"
+          ]
+        },
+        {
+          "name": "llvm",
+          "default-features": false,
+          "features": [
+            "default-targets"
+          ]
+        }
+      ]
+    }
+  }
 }

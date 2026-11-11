@@ -1,0 +1,29 @@
+diff --git a/src/util/u_atomic.h b/src/util/u_atomic.h
+index ad92dca..dc06f4c 100644
+--- a/src/util/u_atomic.h
++++ b/src/util/u_atomic.h
+@@ -129,6 +129,24 @@ __forceinline short _interlockedadd16(short volatile * _Addend, short _Value)
+    return _InterlockedExchangeAdd16(_Addend, _Value) + _Value;
+ }
+ 
++#if defined(__clang__)
++/* clang-cl has the _Interlocked* intrinsics but not MSVC's lower-case ones (mesa#8902) */
++#define _interlockedexchange64 _InterlockedExchange64
++#define _interlockedexchangeadd64 _InterlockedExchangeAdd64
++#define _interlockedincrement64 _InterlockedIncrement64
++#define _interlockeddecrement64 _InterlockedDecrement64
++
++__forceinline long _interlockedadd(long volatile * _Addend, long _Value)
++{
++   return _InterlockedExchangeAdd(_Addend, _Value) + _Value;
++}
++
++__forceinline __int64 _interlockedadd64(__int64 volatile * _Addend, __int64 _Value)
++{
++   return _InterlockedExchangeAdd64(_Addend, _Value) + _Value;
++}
++#endif
++
+ /* MSVC supports decltype keyword, but it's only supported on C++ and doesn't
+  * quite work here; and if a C++-only solution is worthwhile, then it would be
+  * better to use templates / function overloading, instead of decltype magic.

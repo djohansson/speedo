@@ -310,8 +310,9 @@ included, so every exiting thread frees a block mimalloc doesn't own. Debug buil
 `mi_free: invalid pointer`, and both builds leak 32 bytes per thread. The patch interposes `free` with a check
 that forwards foreign pointers to `malloc_zone_from_ptr(p)`.
 
-`ports/mesa` (an overlay of vcpkg's, whose mesa is the OpenGL one) builds KosmicKrisp alone, the Vulkan driver over Metal,
-from the djohansson/mesa fork's `kk-ray-query` branch (github.com/djohansson/mesa: upstream's `main`, from
+`ports/mesa` (an overlay of vcpkg's, whose mesa is the OpenGL one) builds mesa's Vulkan drivers alone, a feature each:
+KosmicKrisp (`kosmickrisp`, the default on macOS arm64), the Vulkan driver over Metal, and lavapipe (below), from the
+djohansson/mesa fork's `kk-ray-query` branch (github.com/djohansson/mesa: upstream's `main`, from
 gitlab.freedesktop.org/mesa/mesa, and the branch on top of it), which adds ray queries to it (`VK_KHR_acceleration_structure`,
 `VK_KHR_ray_query`; see "Hardware ray queries"): the client's on macOS, a host dependency, since it is a driver the loader
 loads at run time, not a library linked, so it builds with the host LLVM the toolchain builds anyway (its clang, whose
@@ -325,6 +326,24 @@ every clang module: the fork links such an archive by its path, as it does clang
 version) is static, as LLVM is (a shared one with LLVM linked in would register LLVM's options twice), and built against
 the SPIRV-Headers commit it pins (`spirv-headers-tag.conf`), put ahead of LLVM's include directory, the install tree's,
 which holds vcpkg's older spirv-headers (`0001-*`).
+
+Its `lavapipe` feature builds lavapipe (meson's `swrast` Vulkan driver over gallium's `llvmpipe`), mesa's Vulkan driver on
+the cpu, for Windows CI's client checks (see "CI"; Linux's comes from apt): a host package on windows x64 (`vcpkg.json`),
+from the same source and LLVM. lavapipe links LLVM (`default-targets`: llvmpipe compiles shaders for the cpu at run time),
+and builds its BVH builder's shaders with `glslangValidator` (a host `glslang[tools]`, overlaid without precompiled
+headers, see the FASTBuild section). Its manifest, `lvp_icd.x86_64.json` in the host triplet's `share/vulkan/icd.d`, names
+the driver in `bin` by its path from the manifest, with backslashes (LoadLibrary takes no others), written with
+`string(JSON)`, which escapes them: a regex replacement unescaped them once, and the loader skipped the invalid manifest
+(`VK_ERROR_INCOMPATIBLE_DRIVER`). Mesa's generators run with python's `-E -s` (vcpkg's port's flags), not `-I`, which
+leaves a script's own directory out of `sys.path`, and they import their siblings. Windows needs the port's zlib and
+DirectX-Headers (Vulkan's Win32 WSI includes `d3d12.h`, though meson.build finds it optional), and clang-cl a patch of
+`u_atomic.h` (`0002`: MSVC's lower-case `_interlocked*64` intrinsics, which clang lacks, mesa issue 8902; the upstream
+change is the user's to submit). On Windows the port bootstraps pip itself before
+`x_vcpkg_get_python_packages` (mako, packaging and pyyaml for meson): the registry release's helper uses get-pip 24.2,
+whose pip doesn't run on the Python 3.15 the newer scripts acquire there (upstream's took 26.2.2 on 2026-10-27,
+d90cb72e90); drop it with a baseline past that commit. The feature builds on macOS too (2026-11-10, a scratch tree: the
+client headless on it, BumpDomes in 17 s), but nothing there asks for it. Release packages don't ship lavapipe, and list
+mesa's license only on macOS, where KosmicKrisp ships.
 
 The port patches the fork's source, locally, with `0001-kk-workaround-63-encoder-end-resolve.patch`: a workaround for an
 Apple bug (Metal ray tracing beside other gpu work restarts the gpu, see "Hardware ray queries"), until Apple fixes it,

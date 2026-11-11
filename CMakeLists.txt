@@ -802,10 +802,15 @@ install(
 	COMPONENT Client
 	EXCLUDE_FROM_ALL
 )
-# each port's license, as <port>.txt (the host's too: LLVM's libc++, statically linked, and on macOS mesa's driver)
+# each port's license, as <port>.txt (the host's too: LLVM's libc++, statically linked, and on macOS mesa's driver, which
+# the bundle ships; Windows' host mesa is lavapipe for CI's client checks, not shipped)
 file(GLOB SPEEDO_PACKAGE_LICENSES "${SPEEDO_PACKAGE_VCPKG}/share/*/copyright")
 if(DEFINED VCPKG_HOST_TRIPLET)
-	file(GLOB SPEEDO_PACKAGE_HOST_LICENSES "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}/share/llvm/copyright" "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}/share/mesa/copyright")
+	file(GLOB SPEEDO_PACKAGE_HOST_LICENSES "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}/share/llvm/copyright")
+	if(APPLE)
+		file(GLOB SPEEDO_PACKAGE_MESA_LICENSE "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}/share/mesa/copyright")
+		list(APPEND SPEEDO_PACKAGE_HOST_LICENSES ${SPEEDO_PACKAGE_MESA_LICENSE})
+	endif()
 	list(APPEND SPEEDO_PACKAGE_LICENSES ${SPEEDO_PACKAGE_HOST_LICENSES})
 endif()
 # Tracy is in the builds that profile only (see core), not the package's
