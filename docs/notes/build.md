@@ -107,7 +107,9 @@ ends up as `$FB_INPUT_2_PLACEHOLDER$` in the `.bff`. CMake's issue #27697 lists 
 clang-cl failures, and its CI excludes them. The fix (replace it for the `msvc` and `clang-cl` families) is offered
 upstream (see "vcpkg" below). Until a CMake release has it, turn PCH off for a port built with FASTBuild and clang-cl:
 `-DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON`, in a triplet `if(PORT STREQUAL "<port>")`. The llvm port did, until it moved to
-Ninja on 2026-11-09.
+Ninja on 2026-11-09. Not in the Windows host triplet, though, whose every package an edit rebuilds, LLVM's too: there an
+overlay of the port turns it off, `ports/glslang` (`-DENABLE_PCH=OFF`, glslang's own switch; mesa[lavapipe]'s
+`glslangValidator`, the first Windows CI run with lavapipe failing on it, 2026-11-11). Drop the overlay with that release.
 
 ## libc++ migration: MSVC STL "leaks" `<cstdlib>`/`<cmath>`/etc., libc++ doesn't
 
