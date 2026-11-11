@@ -78,8 +78,8 @@ and an AppImage for Linux x64 (glibc 2.43 or newer, as on Ubuntu 26.04), each wi
 developer yet, so the system asks the first time: on macOS, System Settings > Privacy & Security > Open Anyway (or
 `xattr -dr com.apple.quarantine /Applications/Speedo.app`); on Windows, SmartScreen's More info > Run anyway. The first
 launch offers to download the test models while the driver creates its pipelines. An installed client's shaders come
-precompiled: the installers ship no shader compiler. The macOS bundle ships KosmicKrisp, so it needs no Vulkan driver of
-its own.
+precompiled: the installers ship no shader compiler. On macOS, the app brings its own Vulkan driver (KosmicKrisp, which
+runs Vulkan on Metal), so there is nothing else to install.
 
 ## Using the client
 
