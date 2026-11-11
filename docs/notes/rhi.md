@@ -14,7 +14,7 @@ extensions' (`deviceFeatureParams`: present id and wait, swapchain maintenance1,
 wanted, see "Hardware ray queries"); the device is made
 with the whole chain, so it enables every feature it has, and `Device` checks by name the optional ones the renderer
 needs (dynamic rendering, synchronization2, shader draw parameters, timeline semaphores, push descriptors). VMA is told
-the version too. Verified on Windows (NVIDIA, 1.4.341); macOS needs KosmicKrisp or MoltenVK to report 1.4, else no device is a
+the version too. Verified on Windows (NVIDIA, 1.4.341); macOS needs KosmicKrisp to report 1.4, else no device is a
 candidate.
 
 ## Crash reports
@@ -226,7 +226,7 @@ thread.
 
 ## Queues: aliased queue types share one lock
 
-When a device has no dedicated compute/transfer queue family (e.g. KosmicKrisp/MoltenVK, one
+When a device has no dedicated compute/transfer queue family (e.g. KosmicKrisp, one
 family), `Device::InternalCreateQueues` aliases those queue types to the graphics queue by sharing
 the same `std::shared_ptr<QueueTimelineContext>` (the `ConcurrentAccess`, i.e. data *and* mutex).
 Consequences:

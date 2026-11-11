@@ -68,7 +68,7 @@ FASTBuild's cache).
 
 ## Portable by default, measured on one
 
-This code runs on several platforms and gpus (macOS through KosmicKrisp or MoltenVK, Windows and Linux on desktop
+This code runs on several platforms and gpus (macOS through KosmicKrisp, Windows and Linux on desktop
 gpus). Measure the choices here, but pick the general method that is likely to perform well across them, not the one a
 single driver happens to favor: e.g. the gpu culling compacts its draws and counts them (`DrawIndexedIndirectCount`,
 native on desktop gpus) although KosmicKrisp emulates the count. Record the platform's numbers as what it costs there.
