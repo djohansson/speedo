@@ -69,6 +69,16 @@ SPEEDO_LENS=anamorphic-50-133 SPEEDO_FOCUS=wide -->
   validation, and its frames checked against the renderer's own references and a known answer, repeatably, with CI
   running all of it on every push. [visual testing](docs/visual-testing-plan.md), [assets](docs/notes/assets.md)
 
+## Installing
+
+Each release on GitHub has an installer for every platform: a `.dmg` for macOS on Apple silicon, an `.msi` for Windows x64,
+and an AppImage for Linux x64 (glibc 2.43 or newer, as on Ubuntu 26.04), each with its sha256. They aren't signed by a
+developer yet, so the system asks the first time: on macOS, System Settings > Privacy & Security > Open Anyway (or
+`xattr -dr com.apple.quarantine /Applications/Speedo.app`); on Windows, SmartScreen's More info > Run anyway. The first
+launch offers to download the test models while the driver creates its pipelines. An installed client's shaders come
+precompiled: the installers ship no shader compiler. The macOS bundle ships KosmicKrisp, so it needs no Vulkan driver of
+its own.
+
 ## Using the client
 
 - **File > Open...** (and Open Recent) is a file browser with thumbnails and previews of models, zip archives,
@@ -81,16 +91,6 @@ SPEEDO_LENS=anamorphic-50-133 SPEEDO_FOCUS=wide -->
 - **View > Camera > Copy Pose** (`Ctrl/Cmd+Shift+C`) copies the camera and every changed setting as environment
   variables, which start the client in the same state, or Paste Pose applies to a running one: the way to report what
   you see.
-
-## Installing
-
-Each release on GitHub has an installer for every platform: a `.dmg` for macOS on Apple silicon, an `.msi` for Windows x64,
-and an AppImage for Linux x64 (glibc 2.43 or newer, as on Ubuntu 26.04), each with its sha256. They aren't signed by a
-developer yet, so the system asks the first time: on macOS, System Settings > Privacy & Security > Open Anyway (or
-`xattr -dr com.apple.quarantine /Applications/Speedo.app`); on Windows, SmartScreen's More info > Run anyway. The first
-launch offers to download the test models while the driver creates its pipelines. An installed client's shaders come
-precompiled: the installers ship no shader compiler. The macOS bundle ships KosmicKrisp, so it needs no Vulkan driver of
-its own.
 
 ## Getting started with development
 
