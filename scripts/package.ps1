@@ -42,14 +42,14 @@ if (-not $Out)
 	$Out = Join-Path $root 'build/package'
 }
 
-# a package runs on other machines: the project's code for clang.toolchain.cmake's fixed baseline, not this machine's cpu
-# (the presets' SPEEDO_TARGET_CPU=native, -march=native on arm64, which would hand an M1 an M4's instructions; x86-64 is
-# always built for x86-64-v3)
+# a package runs on other machines: the project's code for clang.toolchain.cmake's fixed baseline (the presets'), not a
+# build configured by hand with SPEEDO_TARGET_CPU=native (-march=native on arm64, which would hand an M1 an M4's
+# instructions; x86-64 is always built for x86-64-v3)
 $cache = Get-Content -Raw (Join-Path $build 'CMakeCache.txt')
 $arm64 = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64
-if ($arm64 -and $cache -match '(?m)^SPEEDO_TARGET_CPU:[A-Z]+=native\s*$')
+if ($arm64 -and $cache -match '(?m)^CMAKE_(C|CXX)_FLAGS:STRING=.*-march=native')
 {
-	throw "build/$Preset is built for this machine's cpu: cmake --preset $Preset -DSPEEDO_TARGET_CPU=baseline, then build it"
+	throw "build/$Preset is built for this machine's cpu: cmake --preset $Preset --fresh, then build it"
 }
 
 $header = Get-Content -Raw (Join-Path $root 'src/version.h')

@@ -438,9 +438,15 @@ its dependencies' hashes; the compiler isn't tracked, `VCPKG_DISABLE_COMPILER_TR
 same install):
 
 - the cpu: the ports are built for a fixed baseline (`clang.toolchain.cmake`: `-mcpu=apple-m1` on Apple's arm64,
-  `-march=armv8.2-a+crc+crypto` on other arm64, `-march=x86-64-v3` on x86-64), the project's own code for this machine's
-  (`SPEEDO_TARGET_CPU=native`, which the presets set). With `-march=native` in the toolchain's text every machine had the
-  same hash for different code, and an M4's packages would have handed an M1 instructions it lacks.
+  `-march=armv8.2-a+crc+crypto` on other arm64, `-march=x86-64-v3` on x86-64), and so is the project's own code
+  (`SPEEDO_TARGET_CPU=baseline`, which the presets set since 2026-11-11, the user's call: what a machine builds is shared,
+  FASTBuild's cache too; it was `native` before, and cost 0.4% of the M4 Pro's frame at Sponza's benchmark pose, 22.92
+  ms against 22.81). A build directory keeps the flags of its first configure (`CMAKE_CXX_FLAGS` is cached from the
+  toolchain's `_INIT`), so one configured for native still builds for it whatever the variable says: `CMakeLists.txt`
+  refuses it, configure it with `--fresh`. With `-march=native` in the toolchain's text every machine had the same
+  hash for different code, and an M4's packages would have handed an M1 instructions it lacks. The toolchain still takes
+  `SPEEDO_TARGET_CPU=native` (`-march=native+crc+crypto` on arm64), nothing sets it: taking it out changes the
+  toolchain's text, in every package's ABI, so it waits for a change that rebuilds them anyway.
 - the oldest macOS a package runs on: `MACOSX_DEPLOYMENT_TARGET`, the SDK's major version's first (`osx.ps1`: 27.0 for
   the 27.2 SDK), which every compile reads (clang, CMake and meson take it from the environment) and both osx triplets
   track, the host's too. Without it clang takes the SDK's own version: the target packages built with the 27.2 SDK
@@ -682,9 +688,9 @@ the installed one opens no console window behind its own (the user's report on v
 console popped up); started from a terminal it writes to it (`AttachParentConsole`, core/process.cpp: where stdout or
 stderr has no handle, so a script's redirects, `assettest.ps1`'s and `perfbaseline.ps1`'s `Start-Process`, stay theirs),
 though the shell doesn't wait for it, and ignores that console's ctrl-c. Debug and profile clients stay console programs. A package's code is built
-for the toolchain's fixed cpu, not the build machine's: the presets' `SPEEDO_TARGET_CPU=native` is `-march=native` on
-arm64, so the workflow configures with `-DSPEEDO_TARGET_CPU=baseline` (`-mcpu=apple-m1`), and `package.ps1` refuses an
-arm64 build configured for native (x86-64 is always `x86-64-v3`). The macOS bundle's absolute rpaths (the
+for the toolchain's fixed cpu, not the build machine's: the presets' `SPEEDO_TARGET_CPU=baseline` (`-mcpu=apple-m1`;
+until 2026-11-11 they set `native`, `-march=native` on arm64, and the workflow overrode it), and `package.ps1` refuses
+an arm64 build configured for native by hand (x86-64 is always `x86-64-v3`). The macOS bundle's absolute rpaths (the
 toolchain's LLVM) are deleted and it is signed ad hoc (Apple silicon runs only signed code); nothing is signed by a
 developer id yet (the user's call, 2026-11-07), so Gatekeeper and SmartScreen ask at first (System Settings > Privacy &
 Security > Open Anyway, or `xattr -dr com.apple.quarantine`; More info > Run anyway). Tracy isn't in it (release links

@@ -281,6 +281,10 @@ Consequences:
   sources it builds (a `.clean` tree under `src/`, which vcpkg may reuse). Mesa's policy (its `AGENTS.md`) keeps such
   code local, and a report to Apple or to KosmicKrisp's developers is the user's own.
 
+  Seen again 2026-11-11: AnimationPointerUVs, 1 of the quick tier's 61 clients (the project's code just rebuilt for
+  `-mcpu=apple-m1` rather than `-march=native`, the mesa port's KosmicKrisp rebuilt from the same source, the
+  pipelines warm), the same frame (`_kk_DestroyCommandPool + 323`); 4 of 4 single runs after it passed.
+
 ## Descriptor sets: redundant updates consume the pool
 
 Array bindings set element by element (`SetDescriptorData(name, value, set, index)`) store their elements in index

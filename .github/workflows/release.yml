@@ -90,12 +90,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
 
-      # for a fixed cpu, not the runner's: the presets build the project's own code with -march=native on arm64, which
-      # would hand an M1 the instructions of whatever chip the runner has (clang.toolchain.cmake's baseline: -mcpu=apple-m1
-      # on Apple silicon; x86-64 is always x86-64-v3, AVX2 and FMA)
+      # for a fixed cpu, not the runner's: the presets' (clang.toolchain.cmake's baseline: -mcpu=apple-m1 on Apple
+      # silicon; x86-64 is always x86-64-v3, AVX2 and FMA)
       - name: Build release
         run: |
-          cmake --preset "${{ matrix.triplet }}-release" -DSPEEDO_TARGET_CPU=baseline
+          cmake --preset "${{ matrix.triplet }}-release"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build "build/${{ matrix.triplet }}-release"
 

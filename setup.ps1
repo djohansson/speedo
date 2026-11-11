@@ -170,8 +170,11 @@ $CMakePresets = [ordered] @{
 				# needs to be duplicated here to be work in the vscode cmake extension
 				VCPKG_CHAINLOAD_TOOLCHAIN_FILE = '${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake'
 				#
-				# the project's own code for this machine's cpu (the vcpkg ports for a fixed baseline, see clang.toolchain.cmake)
-				SPEEDO_TARGET_CPU = 'native'
+				# the project's own code for the fixed baseline the vcpkg ports are built for (see clang.toolchain.cmake), the cpu
+				# of CI's runners, never the building machine's: what a machine builds is shared (FASTBuild's cache, packages),
+				# and -march=native would hand an M1 an M4's instructions (the user's call, 2026-11-11). a build directory
+				# configured for native before keeps its flags (CMakeLists.txt refuses it: configure it with --fresh)
+				SPEEDO_TARGET_CPU = 'baseline'
 			}
 			environment = [ordered] @{
 				LLVM_ROOT = "`${sourceDir}/install/$(Get-HostTriplet)"
