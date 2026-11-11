@@ -250,6 +250,32 @@ measurement on Linux's and Windows' lavapipe.
   the count starts once there are none and the pipelines are made. A cold run against a warm one then: at most 40
   levels, a mean of 0.24, as two warm runs.
 
+### Step 4, the furnace interior (2026-11-11)
+
+The first known answer, before a path tracer: `scripts/test-assets/furnace.ps1` writes
+`resources/test-models/gltf/FurnaceInterior.gltf` (a closed cube 4 m a side, its walls facing inward, albedo 0.5,
+emission 1), inside which the radiance is Le / (1 - a) everywhere: twice the emission, +1 stop. The `furnace` check
+renders it from its center, read linearly (the linear tonemapper, `SPEEDO_EXPOSURE=-3`, no upscaling's history), the
+indirect lighting's frame against its emission alone (`SPEEDO_GI=0 SPEEDO_EMISSIVE_LIGHTS=0`), and holds the ratio at
+what it gives (`imagecompare --expect-ratio 0.88 --ratio 0.03`: the ratio's threshold either way of an expected value).
+
+Its first run found a portability bug. In the check KosmicKrisp gave +0.866 stops and lavapipe +0.730; the probes alone
+(`SPEEDO_EMISSIVE_LIGHTS=0`) +0.82 and +0.53, the emitters as lights alone +0.53 on both (one bounce, 1 + a, is +0.58).
+The debug views on both drivers localized it: the voxels' albedo and normals, the clips, the probes' states and the
+probe reference the same; the voxels' radiance as the probes' rays see it (`gi-voxel-world`) 0.9 on KosmicKrisp (0.5
+times its irradiance, 1.79) and 0 on lavapipe, whose irradiance was 1.09, the emission's alone. A diagnostic build
+coloring ComputeGiLight's branches showed lavapipe's voxels keeping the radiance of the frames before the bounce, the
+light pass skipping them: a voxel's thread skips its lighting when its block's flag bit 0 (anything near it last frame)
+is clear, and each lit voxel stored its block's stamp without the flag bits, so any of the block's voxels that ran after
+one had stored skipped theirs. A block's voxels are in 16 groups (a row of 4 along x each); lavapipe runs the groups one
+after another and lit a row of each block, a gpu's concurrent waves mostly read before any stored, but not always
+(KosmicKrisp had blocks unlit too). Fixed by keeping bits 0 to 3 in the store (ComputeGiFlags makes them again right
+after): +0.881 on both drivers, 0.0002 apart, the voxels' radiance and the irradiance the same to the level, every
+check passing on both.
+
+What is left: about 8% of the light missing at 256 frames (0.12 stops), settling slowly; the path tracer is to tell the
+method's bias from that, the furnace being its first check.
+
 ### Step 3, the first finding (2026-11-11)
 
 The traced shadows against their reference (`DEBUG_VIEW_TRACED_SHADOW` and `_REFERENCE`) on ShadowScene: by the sky's

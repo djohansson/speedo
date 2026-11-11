@@ -133,7 +133,8 @@ struct Thresholds
 	std::vector<std::pair<int, double>> over; // levels, share (0 to 1)
 	std::optional<double> log;
 	std::optional<double> logBlurred;
-	std::optional<double> ratio; // either way
+	std::optional<double> ratio; // either way, of expectRatio
+	double expectRatio = 0.0; // the ratio expected (a known answer's: a furnace's light over its emission), 0 by default
 };
 
 // whether the measures are within the thresholds, saying which one each is past (unless quiet)
@@ -159,8 +160,8 @@ struct Thresholds
 		fail("mean |log2| luminance {:.5f} stops, past {:.5f}", measures.log, *thresholds.log);
 	if (thresholds.logBlurred && measures.logBlurred > *thresholds.logBlurred)
 		fail("blurred mean |log2| luminance {:.5f} stops, past {:.5f}", measures.logBlurred, *thresholds.logBlurred);
-	if (thresholds.ratio && std::abs(measures.ratio) > *thresholds.ratio)
-		fail("mean luminance ratio {:+.5f} stops, past {:.5f} either way", measures.ratio, *thresholds.ratio);
+	if (thresholds.ratio && std::abs(measures.ratio - thresholds.expectRatio) > *thresholds.ratio)
+		fail("mean luminance ratio {:+.5f} stops, past {:.5f} either way of {:+.5f}", measures.ratio, *thresholds.ratio, thresholds.expectRatio);
 	return within;
 }
 
@@ -214,6 +215,8 @@ struct Thresholds
 		expect(std::abs(measures.log - 1.0) < 0.01 && std::abs(measures.logBlurred - 1.0) < 0.01, "twice the light: a stop, sharp and blurred");
 		expect(std::abs(measures.ratio - 1.0) < 0.01, "and a mean luminance ratio of +1 stop");
 		expect(Within(measures, Thresholds{.ratio = 1.1}, true) && !Within(measures, Thresholds{.ratio = 0.5}, true), "--ratio 1.1 passes it, --ratio 0.5 fails it");
+		expect(Within(measures, Thresholds{.ratio = 0.05, .expectRatio = 1.0}, true) && !Within(measures, Thresholds{.ratio = 0.05, .expectRatio = 0.5}, true),
+			   "--expect-ratio 1 --ratio 0.05 passes it, --expect-ratio 0.5 fails it");
 	}
 	{
 		// the light moved, not lost: a bright half and a dark half swapped
@@ -266,6 +269,8 @@ int main(int argc, char** argv)
 			thresholds.logBlurred = std::strtod(value, nullptr);
 		else if (name == "--ratio")
 			thresholds.ratio = std::strtod(value, nullptr);
+		else if (name == "--expect-ratio")
+			thresholds.expectRatio = std::strtod(value, nullptr);
 		else if (name == "--over")
 		{
 			std::string_view text = value;

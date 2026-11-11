@@ -152,6 +152,24 @@ $checks = @(
 		Thresholds = @('--over', '16:1.5', '--log-blurred', '0.02', '--ratio', '0.015')
 	}
 	[ordered]@{
+		# a furnace's light against its emission: inside a closed box whose walls emit Le and reflect a diffuse albedo a,
+		# the radiance is Le / (1 - a) everywhere, every bounce included, twice the emission at a = 0.5: +1 stop. the
+		# indirect lighting's (the probes and the emitters as lights) against its emission alone, read linearly (the
+		# camera inside, the linear tonemapper, no upscaling's history, an exposure that clips neither), held at what it
+		# gives today so that a change shows, and to tighten as it improves. measured 2026-11-11: +0.881 stops at 256
+		# frames on KosmicKrisp and lavapipe (the mesa port's, macOS) alike, 0.0002 apart (about 8% of the light missing;
+		# on KosmicKrisp the emitters as lights alone +0.53, one bounce, 1 + a, being +0.58). it found the voxels' lighting
+		# skipping most of them on lavapipe (the probes' light no further than the emission, +0.73), and a few blocks on
+		# KosmicKrisp (+0.866): see ComputeGiLight's flags
+		Name = 'furnace'
+		Model = 'test-models/gltf/FurnaceInterior.gltf'
+		Frames = 256
+		Variables = @{ SPEEDO_CAMERA = '0,0,0,0,0'; SPEEDO_TONEMAPPER = 'linear'; SPEEDO_EXPOSURE = '-3'; SPEEDO_UPSCALING = 'off' }
+		Reference = @{ SPEEDO_GI = '0'; SPEEDO_EMISSIVE_LIGHTS = '0' }
+		Capture = @{}
+		Thresholds = @('--expect-ratio', '0.88', '--ratio', '0.03')
+	}
+	[ordered]@{
 		# the hardware ray queries against the software BVH (every ray the BVHs answer: the traced shadows, the indirect
 		# lighting's, the emitters'): the same scene, the same rays. ShadowScene lit by neutral.hdr. measured 2026-11-11
 		# on lavapipe (macOS): 0.0004% of the pixels past 16 levels, 0.0001 stops blurred, -0.00002 of light, within the
@@ -190,6 +208,8 @@ function Invoke-Capture($Check, [string] $Side, [hashtable] $Variables, [string]
 	$set.SPEEDO_AUTOLOAD_EXIT = "$($Check.Frames)"
 	$set.SPEEDO_CAPTURE = $capture
 	if ($Check.Environment) { $set.SPEEDO_AUTOLOAD_ENVIRONMENT = Resolve-Asset $Check.Environment }
+	# the scene's own settings (both runs'), then the side's
+	if ($Check.Variables) { foreach ($name in $Check.Variables.Keys) { $set[$name] = $Check.Variables[$name] } }
 	foreach ($name in $Variables.Keys) { $set[$name] = $Variables[$name] }
 	foreach ($name in $set.Keys) { [Environment]::SetEnvironmentVariable($name, $set[$name]) }
 	try
