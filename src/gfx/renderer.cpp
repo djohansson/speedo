@@ -3386,6 +3386,13 @@ void Renderer::RestartSequences()
 	myGiFrameTime.reset();
 	myGiFrameSeconds = myGiFixedFrameSeconds.value_or(1.0 / 60.0);
 	myGiRestart = true;
+	// what the gpu counted (read back a frame index's SHADER_TYPES_FRAME_COUNT frames later), from its defaults again, and
+	// the frames before the restart's counts skipped as they are read
+	myStaleStatisticsCount = SHADER_TYPES_FRAME_COUNT;
+	myVisibilityPlainShare = 1.0F;
+	myGiActiveProbeCount = 0;
+	myGiCacheBlocksCounted = 0;
+	myGiCacheActiveBlocksCounted = 0;
 	// what the passes keep from frame to frame, none of it kept
 	myUpscaleHistoryValid = false;
 	myGiNearHistoryValid = false;
@@ -3431,6 +3438,12 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myPassTimings.Write().Get() = std::move(shown);
 	}
 
+	// a frame index's statistics, for SHADER_TYPES_FRAME_COUNT frames after RestartSequences, are of frames recorded
+	// before it, which vary from run to run: skipped (emptied all the same), so that what they steer (the visibility
+	// buffer's sorting, the surface cache's pools) starts from the restart
+	bool staleStatistics = myStaleStatisticsCount > 0;
+	if (staleStatistics)
+		myStaleStatisticsCount--;
 	// what the occlusion culling decided the last time this frame index ran (the caller waited for its fence), and
 	// emptied for this frame
 	{
@@ -3439,7 +3452,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		std::array<uint32_t, CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT> statistics{};
 		buffer.Invalidate(0, sizeof(statistics));
 		std::memcpy(statistics.data(), memory.data(), sizeof(statistics));
-		if (std::ranges::any_of(statistics, [](uint32_t count) { return count != 0; }))
+		if (!staleStatistics && std::ranges::any_of(statistics, [](uint32_t count) { return count != 0; }))
 		{
 			myCullStatistics.Write().Get() = statistics;
 			if (myCollectTimings)
@@ -3462,7 +3475,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		std::array<uint32_t, VISIBILITY_STATISTIC_COUNT> statistics{};
 		buffer.Invalidate(0, sizeof(statistics));
 		std::memcpy(statistics.data(), memory.data(), sizeof(statistics));
-		if (statistics[VISIBILITY_STATISTIC_PLAIN] + statistics[VISIBILITY_STATISTIC_EXTENDED] != 0)
+		if (!staleStatistics && statistics[VISIBILITY_STATISTIC_PLAIN] + statistics[VISIBILITY_STATISTIC_EXTENDED] != 0)
 		{
 			auto extent = myGraph.GetExtent();
 			auto tiles = [](uint32_t pixels) { return (pixels + SHADER_TYPES_VISIBILITY_TILE_SIZE - 1) / SHADER_TYPES_VISIBILITY_TILE_SIZE; };
@@ -3493,7 +3506,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myGiActiveProbeCount = std::accumulate(myGiClipProbeCounts.begin(), myGiClipProbeCounts.end(), 0U);
 		// what the surface cache's pools must hold (see InternalPlanGi)
 		myGiCacheBlocksCounted = std::accumulate(myGiClipCacheBlockCounts.begin(), myGiClipCacheBlockCounts.end(), 0U);
-		myGiCacheActiveBlocksCounted = statistics[GI_STATISTIC_CACHE_ACTIVE_BLOCKS];
+		if (!staleStatistics)
+			myGiCacheActiveBlocksCounted = statistics[GI_STATISTIC_CACHE_ACTIVE_BLOCKS];
 		if (statistics[GI_STATISTIC_CAPPED_RAYS] != 0)
 		{
 			auto f = [&](uint32_t index) { return std::bit_cast<float>(statistics[index]); };

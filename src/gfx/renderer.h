@@ -993,6 +993,7 @@ private:
 	uint64_t myRecordCount = 0; // of the frames that timed passes (see GetPassTimings)
 	uint64_t myFrameCount = 0; // Records, every one
 	uint64_t mySequenceStart = 0; // myFrameCount at the last RestartSequences, which the frames' sequences count from
+	uint32_t myStaleStatisticsCount = 0; // the frame indices' statistics left to skip after RestartSequences (see Record)
 	core::ConcurrentAccess<LightCapture> myLightCapture;
 	bool myCollectTimings = false;
 	std::vector<std::pair<std::string, std::vector<double>>> myCollectedTimings;

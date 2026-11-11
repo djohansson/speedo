@@ -232,5 +232,12 @@ comparison: per channel max and mean, the share of pixels past 0, 1, 4 and 16 le
   capped rays), read from whichever frame the gpu has finished, which varies: a loop to pin next. lavapipe against
   KosmicKrisp: a different image (mean 13 to 15 levels in red and blue), so references per driver, as planned.
 
-Next: the feedback loops from the gpu (read at a fixed latency in a repeatable run), KosmicKrisp's ambient light, then
-the measurement on Linux's and Windows' lavapipe.
+- **The gpu's statistics** are read a frame index's `SHADER_TYPES_FRAME_COUNT` frames later (after its fence), a fixed
+  latency, but for that many frames after the restart they were of the frames before it: skipped now, and what they
+  steer (the visibility buffer's sorting, the surface cache's record pool) back at its defaults. KosmicKrisp then 36 to
+  52% of the pixels off by a level and at most 7 to 11 (from 86 to 95% and 11 to 13); lavapipe barely moved (2.8 to 3.1%,
+  at most 7 to 9): not what is left of the indirect lighting's differences there.
+
+Next: what is left of the indirect lighting's (lavapipe: a few percent of the pixels, within 10 levels) and
+KosmicKrisp's ambient light, or tolerances for them (step 2's tool measures what a tolerance has to allow); then the
+measurement on Linux's and Windows' lavapipe.
