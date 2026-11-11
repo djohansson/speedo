@@ -2,6 +2,36 @@
 
 A note of CLAUDE.md (its index names each): what the build failed on and how it is set up.
 
+## Presets: always configure via `cmake --preset <name>`, never a hand-reconstructed command
+
+`setup.ps1` generates `CMakeUserPresets.json` with the `LLVM_ROOT`/`LLVM_TOOLS_BINARY_DIR`/`PATH`
+(and Visual Studio path) environment that `scripts/cmake/toolchains/clang.toolchain.cmake` and
+`CMakeLists.txt`'s `find_program(MINJECT ...)` depend on. Copy-pasting the raw
+`cmake -D... -S ... -B ...` invocation out of a VS Code CMake Tools log and re-running it by hand
+skips that environment and fails in several different, confusing ways (empty `LLVM_ROOT` inside the
+toolchain, `minject.exe` not found, etc.). Use `cmake --preset <name> -S <root>` instead — it's not
+just shorter, the raw command is missing required state.
+
+The same applies to a bare `cmake --build build/<preset>` from a shell when that dir needs to regenerate (e.g.
+after `vcpkg.json`/`ports/` changed, or after *another* preset ran a vcpkg install into the shared `install/`
+dir). The auto re-run of CMake doesn't have the preset environment, so vcpkg computes different ABIs, removes
+the installed packages from the shared `install/` tree, and then fails rebuilding them (`Apple-clang.cmake`
+case warning, glfw3 configure error). Every build dir then misses its dylibs (`Library not loaded:
+@rpath/libcargs.dylib`). Recover with `cmake --preset <name>`, which restores the packages from the binary
+cache. From a shell, always run `cmake --preset <name> && cmake --build build/<name>` as one command, joined by
+`&&`, however recently the directory was configured. Two guards hold it since 2026-11-08 (three wiped install/ trees
+in a day): `CMakeLists.txt` stops any configure without the presets' environment (`LLVM_ROOT`,
+`LLVM_TOOLS_BINARY_DIR`) before `project()` runs vcpkg, so a bare build that reconfigures fails with that message
+instead; and a Claude Code hook (`.claude/settings.json`, `.claude/hooks/require-preset.ps1`) refuses a command that
+runs `cmake --build build/<name>` without `cmake --preset <name> &&` before it.
+
+The source files are listed explicitly in `CMakeLists.txt` (`CORE_SOURCE_FILES`, `GFX_SOURCE_FILES`, ...): add a new
+`.cpp` there. That changes `CMakeLists.txt`, which reconfigures the build dir (VS Code's CMake Tools does it with the
+preset's environment). They were GLOBs, which only a configure re-reads, so a build dir that wasn't reconfigured after a
+file was added failed to link (`undefined symbol` for what the new file defines); `CONFIGURE_DEPENDS` didn't fix that with
+the FASTBuild generator: it picked up one new file, but twice its glob check didn't run, or the regenerate it triggered
+(`cmake --regenerate-during-build`) did nothing.
+
 ## Sanitizers: the sanitize and tsan presets
 
 `<triplet>-sanitize` (macOS and Linux, from `setup.ps1`) is the profile configuration with `SPEEDO_SANITIZE=address,undefined`
@@ -583,7 +613,7 @@ looked into. No time budget yet (the user, 2026-11-11: measure first). What it f
 
 - **A deadlock on 2 executor threads** (a 4-core runner's): the client's `Rpc` task looped until a server answered,
   loads slept in `WaitUntilReady`, and moodycamel's dequeue starved the draw chain; both clients timed out at 30 minutes
-  without a frame. Fixed in the executor and the client (see CLAUDE.md, "Parallel work is tasks");
+  without a frame. Fixed in the executor and the client (see docs/notes/core.md, "Parallel work is tasks");
   `SPEEDO_EXECUTOR_THREAD_COUNT=2` reproduces a small machine.
 - **The runner's Windows processes are elevated**, and the Vulkan loader ignores its path variables in an elevated
   process (`loader_secure_getenv`: `VK_DRIVER_FILES`, `VK_ICD_FILENAMES`, the layer paths), so the clients found no driver

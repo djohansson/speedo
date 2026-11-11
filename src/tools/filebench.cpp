@@ -14,7 +14,7 @@
 // before each run: posix_fadvise on linux; on macos, which can't evict a file's pages without root, each run reads a fresh
 // copy written past the cache with F_NOCACHE). cold runs aren't supported on windows.
 //
-// it uses the std streams and stdio on purpose: they are what is measured (see CLAUDE.md, "File I/O").
+// it uses the std streams and stdio on purpose: they are what is measured (see docs/notes/core.md, "File I/O").
 
 #include <core/file.h>
 #include <core/mio_extra.h>
