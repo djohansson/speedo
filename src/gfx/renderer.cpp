@@ -818,6 +818,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		const GraphicsPipelineVariant shadowVariant{.blend = kOpaqueBlend};
 		auto missingCount = RequestDrawListPipelines(pipeline, myShadowDrawList, {&shadowVariant, 1}, inputs.executor);
 		myMissingGraphicsPipelineCountThisFrame.fetch_add(missingCount, std::memory_order_relaxed);
+		// tiles cleared rather than drawn: none of them may be kept (see InternalPlanShadowCache)
+		if (missingCount > 0)
+			myShadowCacheStale = true;
 		encoder.BindIndexBuffer(*myShadowDrawList.indexBuffer, 0, IndexType::kUint32);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
@@ -928,6 +931,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			const GraphicsPipelineVariant transmittanceVariant{.blend = kShadowTransmittanceBlend, .fragmentShader = kShadowTransmittanceFragmentShader};
 			auto missingCount = RequestDrawListPipelines(pipeline, myShadowTransmittanceList, {&transmittanceVariant, 1}, inputs.executor);
 			myMissingGraphicsPipelineCountThisFrame.fetch_add(missingCount, std::memory_order_relaxed);
+			if (missingCount > 0)
+				myShadowCacheStale = true; // its tiles cleared too (see InternalPlanShadowCache)
 			encoder.BindIndexBuffer(*myShadowTransmittanceList.indexBuffer, 0, IndexType::kUint32);
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
@@ -3386,6 +3391,8 @@ void Renderer::RestartSequences()
 	myGiFrameTime.reset();
 	myGiFrameSeconds = myGiFixedFrameSeconds.value_or(1.0 / 60.0);
 	myGiRestart = true;
+	// the shadow views drawn again rather than kept
+	myShadowCacheStale = true;
 	// what the gpu counted (read back a frame index's SHADER_TYPES_FRAME_COUNT frames later), from its defaults again, and
 	// the frames before the restart's counts skipped as they are read
 	myStaleStatisticsCount = SHADER_TYPES_FRAME_COUNT;
@@ -4256,10 +4263,15 @@ void Renderer::InternalPlanShadowCache(const FrameInputs& frame)
 	// their caustics traced, IridescentDishWithOlives' 1.27 ms a frame). the plan lays its views out the same while nothing
 	// changes, so views are compared by their place in it: one moved elsewhere is drawn again. the transmittance's tiles
 	// go with them (its transmissive draws the same, and moving ones count)
+	// and none where the last frame cleared its tiles rather than drawing them, its pipelines still being made (the
+	// shadow passes' and the transmittance's, see shadowDraws): those views were cached as drawn and kept empty for as
+	// long as nothing changed, a still view's shadows missing from its first frames on (ShadowScene's softbox light, lit by
+	// neutral.hdr, at 8 frames and at 120: found by the traced shadows against their reference, 2026-11-11)
 	auto viewCount = myShadowPlan.views.size();
 	myShadowViewKept.assign(viewCount, 0);
 	bool transmittance = !myShadowTransmittanceList.Empty();
-	if (myShadowCacheOn && myGraph.IsPersistentValid(myShadowAtlas) && frame.model == myShadowCachedModel &&
+	bool stale = std::exchange(myShadowCacheStale, false);
+	if (myShadowCacheOn && !stale && myGraph.IsPersistentValid(myShadowAtlas) && frame.model == myShadowCachedModel &&
 		myShadowDrawList.items.size() == myShadowCachedDrawCount &&
 		myShadowTransmittanceList.items.size() == myShadowCachedTransmittanceCount && myCausticsThisFrame == myShadowCachedCaustics &&
 		(!transmittance || myGraph.IsPersistentValid(myShadowTransmittance)))

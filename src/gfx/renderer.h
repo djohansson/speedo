@@ -491,6 +491,8 @@ private:
 	size_t myShadowCachedTransmittanceCount = 0; // the transmissive draws the transmittance's tiles were drawn from
 	bool myShadowCachedCaustics = false; // and whether their rgb is the caustics' (see SHADER_TYPES_SHADOWS_CAUSTICS)
 	std::vector<uint8_t> myShadowViewKept;
+	// a frame's shadow tiles were cleared rather than drawn (their pipelines still being made): the next keeps none
+	bool myShadowCacheStale = false;
 	bool myShadowCacheOn = true;
 	void InternalPlanShadowCache(const FrameInputs& frame);
 	// per frame index: the clusters' views, ranges and light indices (gClusterViews, gClusters, gClusterLights), host

@@ -250,6 +250,18 @@ measurement on Linux's and Windows' lavapipe.
   the count starts once there are none and the pipelines are made. A cold run against a warm one then: at most 40
   levels, a mean of 0.24, as two warm runs.
 
+### Step 3, the first finding (2026-11-11)
+
+The traced shadows against their reference (`DEBUG_VIEW_TRACED_SHADOW` and `_REFERENCE`) on ShadowScene: by the sky's
+sun (10:30, 18:30) nothing soft in view, the two the same; lit by neutral.hdr (its softbox a dominant light, the first
+traced) the reference had the boxes' shadows on the floor and the traced view none, nor had the frame. With
+`SPEEDO_TRACED_SHADOWS=all` they were there, and the views differed only along the shadows' edges: the atlas had no
+shadows for the light, and the default mode traces only where the atlas isn't sure. The cause, after the user's hint
+(the pipelines made asynchronously): the shadow cache kept the views of a frame that had cleared its tiles without
+drawing them, its pipelines still being made, for as long as nothing changed (see docs/notes/rendering.md, "Shadows").
+Fixed: the default frame against every pixel traced 0.035% of the pixels past 16 levels, the traced view against the
+reference 0.004 stops blurred, its edges alone. A bug of the normal frame, not just of the checks.
+
 ### Step 2 (2026-11-11)
 
 `src/tools/imagecompare.cpp` (`imagecompare <reference.bmp> <capture.bmp>`): per channel the largest and the mean

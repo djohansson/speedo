@@ -898,8 +898,14 @@ The atlas keeps its tiles from frame to frame (a persistent transient, loaded ra
 frame also had in the same tile (its view projection, tile and texel size bytewise, the same model and shadow draws)
 isn't drawn again, unless something that moves is in its frustum and moved (not where the model's pose is the last
 frame's, `FrameInputs::modelStill`: an animation paused or frozen) (`Renderer::InternalPlanShadowCache`); the others'
-tiles are cleared (`IRenderTarget::ClearRect`) and drawn, and the pass is skipped when every view is kept.
-`SPEEDO_SHADOW_CACHE=0` draws them all every frame. Point and spot lights keep theirs while the camera moves (their
+tiles are cleared (`IRenderTarget::ClearRect`) and drawn, and the pass is skipped when every view is kept. A frame
+whose shadow (or transmittance) pipelines are still being made clears its tiles without drawing them, and the next
+frame keeps none (`myShadowCacheStale`): until 2026-11-11 those views were cached as drawn and kept empty for as long
+as nothing changed, a still view's shadows missing from its first frames on, since the pipelines are made in the
+background on every start (ShadowScene's softbox light lit by neutral.hdr, without its shadows on the floor at 8 frames
+and at 120, the traced shadows' default mode, which traces only where the atlas isn't sure, as well; found by the
+traced shadows against their reference, docs/visual-testing-plan.md's step 3, after the user's hint that the
+pipelines' asynchronous creation could be behind it). `SPEEDO_SHADOW_CACHE=0` draws them all every frame. Point and spot lights keep theirs while the camera moves (their
 tiles change size by octaves), the sun's cascades while it is still (they follow the view, snapped to texels: the far
 ones, of big texels, change less often). San Miguel's still pose 86.9 to 68.4 ms (its two sided foliage four times over;
 more than the 9.9 ms the baseline's left out Shadows pass freed, not yet understood), Sponza's 30.35 to 29.37,
