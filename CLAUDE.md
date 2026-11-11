@@ -37,7 +37,8 @@ Details: docs/notes/layering.md.
   (a locked screen, a runner without a display; see docs/notes/layering.md). `SPEEDO_REPEATABLE=1` makes a capture the
   same from run to run (the frames' sequences and histories restarted when the count starts, the frame taken by the draw
   thread; with `SPEEDO_TIME_FRAME_SECONDS` and the exposure, date and time pinned): not yet bitwise beyond the unlit views,
-  see docs/visual-testing-plan.md.
+  see docs/visual-testing-plan.md. `build/<preset>/imagecompare <reference.bmp> <capture.bmp>` measures two captures'
+  differences (and fails past thresholds given it).
 - The shaders compile at the client's startup from their sources (through the `shadercompiler` library beside it, which
   holds slang; an install's come precompiled, see docs/notes/layering.md): don't edit `.slang` files or `capi.h`, and
   don't rebuild, while client runs are in flight (a batch would mix two versions).

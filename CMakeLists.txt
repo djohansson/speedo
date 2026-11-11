@@ -674,6 +674,21 @@ target_link_libraries(
 		core
 )
 
+# compares a capture with a reference, what a visual check passes or fails by (docs/visual-testing-plan.md, step 2), see
+# src/tools/imagecompare.cpp
+add_executable(imagecompare ${SPEEDO_SOURCE_DIR}/tools/imagecompare.cpp)
+target_compile_features(
+	imagecompare
+	PUBLIC
+		cxx_std_26
+)
+target_link_libraries(
+	imagecompare
+	PRIVATE
+		${SPEEDO_MIMALLOC}
+		core
+)
+
 # the executables' narrow strings are UTF-8 on windows too (windows.manifest sets the process's ANSI code page):
 # libc++'s path::string() threw on file names the system's code page can't represent. lld-link can merge a manifest into
 # the one it makes only with libxml2 or mt.exe, so the executables embed it as a resource (windows.rc), and the link rule
@@ -682,7 +697,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	foreach(lang C CXX)
 		string(REPLACE "/MANIFEST:EMBED" "/MANIFEST:NO" CMAKE_${lang}_LINK_EXECUTABLE "${CMAKE_${lang}_LINK_EXECUTABLE}")
 	endforeach()
-	foreach(target server client assettest filebench taskbench convergence)
+	foreach(target server client assettest filebench taskbench convergence imagecompare)
 		target_sources(${target} PRIVATE ${SPEEDO_SOURCE_DIR}/windows.rc)
 	endforeach()
 	# the resource compiler's includes aren't tracked: without this, a changed manifest (or icon) wasn't embedded

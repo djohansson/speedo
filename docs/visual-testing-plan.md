@@ -241,3 +241,16 @@ comparison: per channel max and mean, the share of pixels past 0, 1, 4 and 16 le
 Next: what is left of the indirect lighting's (lavapipe: a few percent of the pixels, within 10 levels) and
 KosmicKrisp's ambient light, or tolerances for them (step 2's tool measures what a tolerance has to allow); then the
 measurement on Linux's and Windows' lavapipe.
+
+### Step 2 (2026-11-11)
+
+`src/tools/imagecompare.cpp` (`imagecompare <reference.bmp> <capture.bmp>`): per channel the largest and the mean
+difference, the share of the pixels past 0, 1, 4 and 16 levels and where they are, the mean |log2| luminance difference
+sharp and blurred (`--blur`, 8 pixels by default), each a threshold (`--max`, `--mean`, `--over <levels>:<percent>`,
+`--log`, `--log-blurred`: exit 1 past any), and the differences as an image (`--diff`, 16 times). It shares
+`src/tools/capture.h` with `convergence` (the captures read and written through core's files, their luminance, the box
+blur, the log difference), which used to have its own. `--self-test` checks the measures on made-up pairs: the same
+image, a pixel off by 50 in red (and where), an edge moved a pixel (one column, which blurring mostly hides), a level of
+noise, twice the light (a stop, sharp and blurred). Not yet FLIP. On step 1's repeatable pairs: KosmicKrisp's at most 7
+levels, 0.23% past 1, 0.0013 stops blurred; lavapipe's at most 9, 0.10% past 1, 0.00004 stops blurred: both within
+`--max 16 --over 1:1`, and lavapipe against KosmicKrisp far past it.

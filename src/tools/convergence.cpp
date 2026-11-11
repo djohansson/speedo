@@ -12,14 +12,10 @@
 // given --frame-ms, the frame time measured without captures; the first --warm-frames frames at --warm-ms, the lighting's
 // warm-up, see Renderer::IsLightingWarmingUp) after which the difference stays under 0.1, 0.05 and twice the noise.
 
-#include <core/file.h>
+#include "capture.h"
 
 #include <algorithm>
-#include <array>
-#include <cmath>
-#include <cstdint>
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
 #include <optional>
 #include <print>
@@ -39,98 +35,18 @@ struct Luminance
 	std::vector<float> values; // linear, top row first
 };
 
-// a 24 or 32 bit bmp as the client writes it (either row order) to its linear luminance
+// a capture's linear luminance (see capture.h, which imagecompare shares)
 std::optional<Luminance> Load(const std::filesystem::path& path)
 {
-	static const auto kSrgb = []
-	{
-		std::array<float, 256> table{};
-		for (int i = 0; i < 256; i++)
-		{
-			double c = i / 255.0;
-			table[i] = static_cast<float>(c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4));
-		}
-		return table;
-	}();
-	auto file = core::file::Map(path);
-	if (!file || file->size() < 54)
-	{
-		std::println(stderr, "{}: can't read", path.string());
+	auto image = capture::Load(path);
+	if (!image)
 		return std::nullopt;
-	}
-	auto bytes = std::span(reinterpret_cast<const uint8_t*>(file->data()), file->size());
-	auto read32 = [&](size_t at)
-	{
-		uint32_t value = 0;
-		std::memcpy(&value, bytes.data() + at, sizeof(value));
-		return value;
-	};
-	uint32_t offset = read32(10);
-	auto width = static_cast<int32_t>(read32(18));
-	auto height = static_cast<int32_t>(read32(22));
-	int bytesPerPixel = (bytes[28] | (bytes[29] << 8)) / 8;
-	bool bottomUp = height > 0;
-	height = std::abs(height);
-	size_t stride = (static_cast<size_t>(width) * bytesPerPixel + 3) & ~size_t{3};
-	if ((bytesPerPixel != 3 && bytesPerPixel != 4) || offset + stride * height > bytes.size())
-	{
-		std::println(stderr, "{}: not a 24 or 32 bit bmp", path.string());
-		return std::nullopt;
-	}
-	Luminance image{width, height, std::vector<float>(static_cast<size_t>(width) * height)};
-	for (int y = 0; y < height; y++)
-	{
-		const uint8_t* row = bytes.data() + offset + stride * static_cast<size_t>(bottomUp ? height - 1 - y : y);
-		for (int x = 0; x < width; x++)
-		{
-			const uint8_t* bgr = row + static_cast<size_t>(x) * bytesPerPixel;
-			image.values[static_cast<size_t>(y) * width + x] = 0.0722F * kSrgb[bgr[0]] + 0.7152F * kSrgb[bgr[1]] + 0.2126F * kSrgb[bgr[2]];
-		}
-	}
-	return image;
+	return Luminance{.width = image->width, .height = image->height, .values = capture::Luminance(*image)};
 }
 
-// a box blur over radius pixels (a summed area table)
-std::vector<float> Blur(const Luminance& image, int radius)
-{
-	int w = image.width;
-	int h = image.height;
-	std::vector<double> table(static_cast<size_t>(w + 1) * (h + 1), 0.0);
-	for (int y = 0; y < h; y++)
-		for (int x = 0; x < w; x++)
-		{
-			size_t at = static_cast<size_t>(y + 1) * (w + 1) + x + 1;
-			table[at] = image.values[static_cast<size_t>(y) * w + x] + table[at - 1] + table[at - (w + 1)] - table[at - (w + 1) - 1];
-		}
-	std::vector<float> blurred(image.values.size());
-	for (int y = 0; y < h; y++)
-		for (int x = 0; x < w; x++)
-		{
-			int x0 = std::max(x - radius, 0);
-			int y0 = std::max(y - radius, 0);
-			int x1 = std::min(x + radius + 1, w);
-			int y1 = std::min(y + radius + 1, h);
-			double sum = table[static_cast<size_t>(y1) * (w + 1) + x1] - table[static_cast<size_t>(y0) * (w + 1) + x1] -
-						 table[static_cast<size_t>(y1) * (w + 1) + x0] + table[static_cast<size_t>(y0) * (w + 1) + x0];
-			blurred[static_cast<size_t>(y) * w + x] = static_cast<float>(sum / (static_cast<double>(x1 - x0) * (y1 - y0)));
-		}
-	return blurred;
-}
+std::vector<float> Blur(const Luminance& image, int radius) { return capture::Blur(image.values, image.width, image.height, radius); }
 
-constexpr float kFloor = 0.002F;
-
-double Difference(std::span<const float> image, std::span<const float> settled)
-{
-	double sum = 0.0;
-	size_t count = 0;
-	for (size_t at = 0; at < settled.size(); at++)
-		if (settled[at] > kFloor)
-		{
-			sum += std::abs(std::log2(std::max(image[at], kFloor) / settled[at]));
-			count++;
-		}
-	return count != 0 ? sum / static_cast<double>(count) : 0.0;
-}
+double Difference(std::span<const float> image, std::span<const float> settled) { return capture::LogDifference(image, settled); }
 
 // the first frame after which the curve stays under the threshold, if it does
 std::optional<int> SettledFrom(std::span<const std::pair<int, double>> curve, double threshold)
