@@ -29,6 +29,8 @@ param(
 	[int] $TimeoutSeconds = 600
 )
 $ErrorActionPreference = 'Stop'
+# -Only a,b from a shell (pwsh -File) comes as one string
+$Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 
 $root = Split-Path -Parent $PSScriptRoot
 $exe = if ($IsWindows) { '.exe' } else { '' }
@@ -139,16 +141,42 @@ $checks = @(
 	}
 	[ordered]@{
 		# temporal upscaling at native resolution against none: its edges and fine detail differ (the history's
-		# reconstruction against the aliased frame), not its light. DamagedHelmet. measured 2026-11-11 on KosmicKrisp:
-		# 0.7% of the pixels past 16 levels, 0.0075 stops blurred, -0.004 stops of light
+		# reconstruction against the aliased frame), not its light. SheenChair, its fabric's fine texture (in the quick
+		# tier's assets, which CI fetches). measured 2026-11-11 on KosmicKrisp and on lavapipe alike: 0.48% of the pixels
+		# past 16 levels, 0.005 stops blurred, -0.004 stops of light
 		Name = 'upscaling'
-		Model = 'test-assets/glTF-Sample-Assets/Models/DamagedHelmet/glTF/DamagedHelmet.gltf'
+		Model = 'test-assets/glTF-Sample-Assets/Models/SheenChair/glTF/SheenChair.gltf'
 		Frames = 32
 		Reference = @{ SPEEDO_UPSCALING = 'off' }
 		Capture = @{ SPEEDO_UPSCALING = 'native' }
-		Thresholds = @('--over', '16:2', '--log-blurred', '0.03', '--ratio', '0.02')
+		Thresholds = @('--over', '16:1.5', '--log-blurred', '0.02', '--ratio', '0.015')
+	}
+	[ordered]@{
+		# the hardware ray queries against the software BVH (every ray the BVHs answer: the traced shadows, the indirect
+		# lighting's, the emitters'): the same scene, the same rays. ShadowScene lit by neutral.hdr. measured 2026-11-11
+		# on lavapipe (macOS): 0.0004% of the pixels past 16 levels, 0.0001 stops blurred, -0.00002 of light, within the
+		# driver's own run to run differences
+		Name = 'ray-queries'
+		Model = 'test-models/gltf/ShadowScene.gltf'
+		Environment = 'test-assets/glTF-Sample-Environments/neutral.hdr'
+		Frames = 8
+		Reference = @{ SPEEDO_RAY_QUERY = '0' }
+		Capture = @{ SPEEDO_RAY_QUERY = '1' }
+		Thresholds = @('--over', '16:0.1', '--log-blurred', '0.005', '--ratio', '0.005')
+		NeedsRayQueries = $true
 	}
 )
+
+# a check's asset: relative to resources/, as the autoloads take them, but test-assets/ where SPEEDO_TEST_ASSETS puts them
+# elsewhere (CI's, see fetch-test-assets.ps1), as an absolute path, which the autoloads take as it is
+function Resolve-Asset([string] $Path)
+{
+	if ($env:SPEEDO_TEST_ASSETS -and $Path.StartsWith('test-assets/'))
+	{
+		return Join-Path $env:SPEEDO_TEST_ASSETS $Path.Substring('test-assets/'.Length)
+	}
+	return $Path
+}
 
 # one client run: the scene's variables, its side's, and the pinned ones; returns whether it captured
 function Invoke-Capture($Check, [string] $Side, [hashtable] $Variables, [string] $Directory)
@@ -158,10 +186,10 @@ function Invoke-Capture($Check, [string] $Side, [hashtable] $Variables, [string]
 	Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue
 	$set = [ordered]@{}
 	foreach ($name in $pinned.Keys) { $set[$name] = $pinned[$name] }
-	$set.SPEEDO_AUTOLOAD_MODEL = $Check.Model
+	$set.SPEEDO_AUTOLOAD_MODEL = Resolve-Asset $Check.Model
 	$set.SPEEDO_AUTOLOAD_EXIT = "$($Check.Frames)"
 	$set.SPEEDO_CAPTURE = $capture
-	if ($Check.Environment) { $set.SPEEDO_AUTOLOAD_ENVIRONMENT = $Check.Environment }
+	if ($Check.Environment) { $set.SPEEDO_AUTOLOAD_ENVIRONMENT = Resolve-Asset $Check.Environment }
 	foreach ($name in $Variables.Keys) { $set[$name] = $Variables[$name] }
 	foreach ($name in $set.Keys) { [Environment]::SetEnvironmentVariable($name, $set[$name]) }
 	try
@@ -215,6 +243,13 @@ foreach ($check in $checks)
 	{
 		Write-Host "FAIL $($check.Name) ($seconds s): a client failed"
 		$failed++
+		continue
+	}
+	# without ray queries the capture traced through the BVHs as the reference did: nothing was compared
+	if ($check.NeedsRayQueries -and -not (Select-String -LiteralPath (Join-Path $directory 'capture.log') -Pattern 'ray query structures' -Quiet))
+	{
+		Write-Host "SKIP $($check.Name) ($seconds s): the device has no ray queries"
+		$ran--
 		continue
 	}
 	$arguments = @((Join-Path $directory 'reference.bmp'), (Join-Path $directory 'capture.bmp'), '--diff', (Join-Path $directory 'differences.bmp')) + $check.Thresholds

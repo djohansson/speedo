@@ -180,30 +180,46 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/assettest" @paths
 
-      # the client itself, headless on lavapipe built here (mesa's lavapipe feature, see ports/mesa: no third-party driver in
-      # a job that holds the binary cache's keys), as on Linux (see "CI" in docs/notes/build.md)
-      - name: Client checks (lavapipe)
+      # lavapipe built here (mesa's lavapipe feature, see ports/mesa: no third-party driver in a job that holds the binary
+      # cache's keys), for the client's checks below, as on Linux (see "CI" in docs/notes/build.md). the runner's processes
+      # are elevated, and the Vulkan loader ignores its path variables in an elevated process (VK_DRIVER_FILES, and
+      # VK_LAYER_PATH, which assettest points at the validation layer: loader_secure_getenv), so the clients found no driver
+      # (VK_ERROR_INCOMPATIBLE_DRIVER) and would have run without the layer: the driver and the layer registered where the
+      # loader looks then, HKLM (on the runner alone: it is thrown away)
+      - name: Register lavapipe
+        id: lavapipe
         if: ${{ !cancelled() && steps.profile.outcome == 'success' }}
-        env:
-          SPEEDO_WINDOW_SIZE: 320x180
-          SPEEDO_GPU_HANG_TIMEOUT: '300'
-          ASSETTEST_CLIENT_TIMEOUT: '1800'
         run: |
-          $env:VK_DRIVER_FILES = (Get-ChildItem install/x64-windows-clangcl/share/vulkan/icd.d/lvp_icd*.json | Select-Object -First 1).FullName
-          Write-Host "driver: $env:VK_DRIVER_FILES"
-          # the runner's processes are elevated, and the Vulkan loader ignores its path variables in an elevated process
-          # (VK_DRIVER_FILES, and VK_LAYER_PATH, which assettest points at the validation layer: loader_secure_getenv),
-          # so the clients found no driver (VK_ERROR_INCOMPATIBLE_DRIVER) and would have run without the layer: the driver
-          # and the layer registered where the loader looks then, HKLM (on the runner alone: it is thrown away)
+          $driver = (Get-ChildItem install/x64-windows-clangcl/share/vulkan/icd.d/lvp_icd*.json | Select-Object -First 1).FullName
           $layer = (Get-Item "install/$env:TRIPLET/bin/VkLayer_khronos_validation.json").FullName
-          foreach ($entry in @(@('Drivers', $env:VK_DRIVER_FILES), @('ExplicitLayers', $layer)))
+          foreach ($entry in @(@('Drivers', $driver), @('ExplicitLayers', $layer)))
           {
             $key = "HKLM:\SOFTWARE\Khronos\Vulkan\$($entry[0])"
             if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
             New-ItemProperty -Path $key -Name $entry[1] -PropertyType DWord -Value 0 -Force | Out-Null
             Write-Host "registered in $key`: $($entry[1])"
           }
+          "VK_DRIVER_FILES=$driver" >> $env:GITHUB_ENV
+
+      # the client itself, headless on lavapipe
+      - name: Client checks (lavapipe)
+        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
+        env:
+          SPEEDO_WINDOW_SIZE: 320x180
+          SPEEDO_GPU_HANG_TIMEOUT: '300'
+          ASSETTEST_CLIENT_TIMEOUT: '1800'
+        run: |
+          Write-Host "driver: $env:VK_DRIVER_FILES"
           & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -ClientOnly -Headless -Validate -Jobs 1 -Work "$env:RUNNER_TEMP/assettest-client" resources/test-models/obj/BumpDomes
+
+      # the frames against the renderer's own references (docs/visual-testing-plan.md, step 3): their times measured before
+      # a budget is set (the user's call, 2026-11-11)
+      - name: Visual checks (lavapipe)
+        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
+        env:
+          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+          SPEEDO_GPU_HANG_TIMEOUT: '300'
+        run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
 
       - name: Keep list
         if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
@@ -225,6 +241,7 @@ jobs:
             temp/vcpkg/buildtrees/*/*.log
             ${{ runner.temp }}/assettest/logs
             ${{ runner.temp }}/assettest-client/logs
+            ${{ runner.temp }}/visualtest
           if-no-files-found: ignore
 
   linux:
@@ -302,7 +319,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:VK_DRIVER_FILES = (Get-ChildItem /usr/share/vulkan/icd.d/lvp_icd*.json | Select-Object -First 1).FullName
           Write-Host "driver: $env:VK_DRIVER_FILES"
+          "VK_DRIVER_FILES=$env:VK_DRIVER_FILES" >> $env:GITHUB_ENV
           & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -ClientOnly -Headless -Validate -Jobs 1 -Work "$env:RUNNER_TEMP/assettest-client" resources/test-models/obj/BumpDomes
+
+      # the frames against the renderer's own references (docs/visual-testing-plan.md, step 3), on the lavapipe the client
+      # checks installed: their times measured before a budget is set (the user's call, 2026-11-11)
+      - name: Visual checks (lavapipe)
+        if: ${{ !cancelled() && env.VK_DRIVER_FILES != '' }}
+        env:
+          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+          SPEEDO_GPU_HANG_TIMEOUT: '300'
+        run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
 
       - name: Keep list
         if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
@@ -324,6 +351,7 @@ jobs:
             temp/vcpkg/buildtrees/*/*.log
             ${{ runner.temp }}/assettest/logs
             ${{ runner.temp }}/assettest-client/logs
+            ${{ runner.temp }}/visualtest
           if-no-files-found: ignore
 
   # the shared cache's archives that no platform installs any more (scripts/prune-binary-cache.ps1), after a push to master

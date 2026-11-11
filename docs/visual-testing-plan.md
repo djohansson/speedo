@@ -279,11 +279,19 @@ mean |log2| difference counts both. The checks and their measures on KosmicKrisp
 - `emitters`: the emitters' view against its reference (the CornellBox's lamps, 32 frames): 0.085 stops blurred over 24
   pixels, +0.002 of light; the same light, spread differently. Both views dim alike over longer runs (128 to 512 frames,
   0.0287 to 0.0268 of linear luminance in the lower half): to look into.
-- `upscaling`: native temporal upscaling against none (DamagedHelmet): 0.7% of the pixels past 16 levels (edges and fine
-  detail), 0.0075 stops blurred, -0.004 of light.
+- `upscaling`: native temporal upscaling against none (SheenChair, in the quick tier's assets, which CI fetches; it was
+  DamagedHelmet, which isn't): 0.48% of the pixels past 16 levels (edges and fine detail), 0.005 stops blurred, -0.004
+  of light, on KosmicKrisp and lavapipe alike.
+- `ray-queries`: the hardware ray queries against the software BVH (the lit frame of ShadowScene with neutral.hdr), run
+  on lavapipe alone (skipped on KosmicKrisp, where ray query clients wait for the user's go-ahead, and where the device
+  has none, both runs then tracing the BVHs): 0.0004% of the pixels past 16 levels, 0.0001 stops blurred, -0.00002 of
+  light, within lavapipe's own run to run differences.
 
-A run takes 38 s on the M4 Pro from a new work dir (the first client's shader compile 30 of them), 9 s warm. Not yet:
-the BVH against the ray queries (on lavapipe), and the checks on CI (Linux's and Windows' lavapipe, their times).
+A run takes 38 s on the M4 Pro's KosmicKrisp from a new work dir (the first client's shader compile 30 of them), 9 s
+warm; 151 s on its lavapipe (the mesa port's), all five passing, the first four as on KosmicKrisp although the two
+drivers' frames differ (each check compares a renderer with itself). CI runs them after the client checks on Linux's
+and Windows' lavapipe (Windows' driver registered in a step of its own, the elevated loader's), test assets from
+`SPEEDO_TEST_ASSETS` (the script maps `test-assets/` there); their times there are to be measured.
 
 ### Step 2 (2026-11-11)
 
