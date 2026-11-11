@@ -16,7 +16,7 @@ enum
 };
 enum
 {
-	Patch = 0
+	Patch = 1
 };
 
 } // namespace version
