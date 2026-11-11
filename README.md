@@ -22,14 +22,16 @@ It runs on macOS (Apple silicon, through KosmicKrisp, mesa's Vulkan driver over 
 same LLVM toolchain on all three. It also runs headless, without a display, and on lavapipe, mesa's Vulkan driver on the
 CPU, without a GPU: that is how CI runs the client and checks its frames.
 
-![A golden chess piece in focus on a green marble board, the other pieces blurred behind it, through a 2x anamorphic lens](docs/screenshots/abeautifulgame.jpg)
+<!-- one row, the same height: each image's width in proportion to its aspect ratio (3.25, 1.62, 2.15) -->
+<p align="center">
+  <a href="docs/screenshots/abeautifulgame.jpg"><img src="docs/screenshots/abeautifulgame.jpg" width="45%" alt="A golden chess piece in focus on a green marble board, the other pieces blurred behind it, through a 2x anamorphic lens"></a>
+  <a href="docs/screenshots/sponza.jpg"><img src="docs/screenshots/sponza.jpg" width="22.5%" alt="Sponza's sunlit gallery through a 16 mm lens: a column, the arcade and its curtains, the sun's starburst and ghosts"></a>
+  <a href="docs/screenshots/carconcept.jpg"><img src="docs/screenshots/carconcept.jpg" width="30%" alt="Three CarConcept variants side by side on the ground plane at sunset, through a 1.33x anamorphic lens"></a>
+</p>
 
-![Sponza's sunlit gallery through a 16 mm lens: a column, the arcade and its curtains, the sun's starburst and ghosts](docs/screenshots/sponza.jpg)
-
-![Three CarConcept variants side by side on the ground plane at sunset, through a 1.33x anamorphic lens](docs/screenshots/carconcept.jpg)
-
-*The Khronos glTF sample models DragonAttenuation (at the top), ABeautifulGame, Sponza and CarConcept, under the physical
-sky at their times of day, with indirect lighting and ray traced shadows, reflections and refractions.*
+*The Khronos glTF sample models DragonAttenuation (at the top), ABeautifulGame, Sponza and CarConcept (click one for
+its full size), under the physical sky at their times of day, with indirect lighting and ray traced shadows, reflections
+and refractions.*
 
 <!-- made with the profile client from View > Camera > Copy Pose's variables, SPEEDO_YEAR=2026 SPEEDO_GI=1, plus
 SPEEDO_WINDOW_SIZE=3022x1898 SPEEDO_UI=0 SPEEDO_AUTOLOAD_EXIT=1200 SPEEDO_CAPTURE=<file.bmp>; the letterbox cropped, and
