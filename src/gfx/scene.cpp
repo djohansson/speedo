@@ -1692,13 +1692,35 @@ struct Scene::Impl
 
 	// makes an uploaded model the one being drawn, with its materials and their textures (by material), retiring the
 	// previous ones. call on the draw thread.
+	// an install a load queued to the draw thread and not yet bound (see Scene::HasPendingInstalls): counted while one is
+	// held, by the load as it queues the install and then by the install's bind (TransitionThenBind's, after its uploads),
+	// and given back once the bind has run and is gone
+	struct PendingInstall
+	{
+		explicit PendingInstall(std::atomic_uint32_t& count)
+			: myCount(count)
+		{
+			myCount.fetch_add(1, std::memory_order_relaxed);
+		}
+		~PendingInstall() { myCount.fetch_sub(1, std::memory_order_release); }
+		PendingInstall(const PendingInstall&) = delete;
+		PendingInstall& operator=(const PendingInstall&) = delete;
+		PendingInstall(PendingInstall&&) = delete;
+		PendingInstall& operator=(PendingInstall&&) = delete;
+
+	private:
+		std::atomic_uint32_t& myCount;
+	};
+	std::atomic_uint32_t myPendingInstallCount{0};
+
 	void InstallModel(
 		RHI& rhi,
 		QueueTimelineContextData& graphics,
 		const std::shared_ptr<Model>& model,
 		std::vector<MaterialTextures> textures,
 		std::vector<std::string> filePaths,
-		ModelArrangement arrangement)
+		ModelArrangement arrangement,
+		std::shared_ptr<PendingInstall> pending)
 	{
 		ZoneScopedN("WindowedApplication::InstallModel");
 
@@ -1721,7 +1743,7 @@ struct Scene::Impl
 
 		// everything is switched at once, after the textures are readable: one descriptor set update, and no frame draws
 		// the new model with the old materials or the other way around
-		TransitionThenBind(rhi, graphics, uploads, [this, &rhi, model, textures = std::move(textures), filePaths = std::move(filePaths), arrangement](QueueTimelineContextData& graphics) mutable
+		TransitionThenBind(rhi, graphics, uploads, [this, &rhi, model, textures = std::move(textures), filePaths = std::move(filePaths), arrangement, pending = std::move(pending)](QueueTimelineContextData& graphics) mutable
 		{
 			auto& device = rhi.GetPrimaryDevice();
 			auto& pipeline = myPipeline;
@@ -2181,13 +2203,14 @@ struct Scene::Impl
 		QueueTimelineContextData& graphics,
 		const std::shared_ptr<Image>& image,
 		const std::shared_ptr<ImageView>& imageView,
-		const Upload& upload)
+		const Upload& upload,
+		std::shared_ptr<PendingInstall> pending)
 	{
 		ZoneScopedN("WindowedApplication::InstallImage");
 
 		rhi::CrashEvent(std::format("image installed: {}", image->GetName()));
 
-		TransitionThenBind(rhi, graphics, Uploads{.images = {{image, upload}}}, [this, &rhi, image, imageView](QueueTimelineContextData& graphics)
+		TransitionThenBind(rhi, graphics, Uploads{.images = {{image, upload}}}, [this, &rhi, image, imageView, pending = std::move(pending)](QueueTimelineContextData& graphics)
 		{
 			auto& device = rhi.GetPrimaryDevice();
 			auto& pipeline = myPipeline;
@@ -2379,8 +2402,9 @@ struct Scene::Impl
 		if (!WaitUntilReady(cancelled))
 			return std::nullopt;
 		rhi.drawCalls.enqueue(
-			[this, &rhi, model, textures = std::move(textures), filePaths, arrangement](QueueTimelineContextData& graphics) mutable
-			{ InstallModel(rhi, graphics, model, std::move(textures), std::move(filePaths), arrangement); });
+			[this, &rhi, model, textures = std::move(textures), filePaths, arrangement, pending = std::make_shared<PendingInstall>(myPendingInstallCount)](
+				QueueTimelineContextData& graphics) mutable
+			{ InstallModel(rhi, graphics, model, std::move(textures), std::move(filePaths), arrangement, std::move(pending)); });
 		return filePath;
 	}
 
@@ -2394,8 +2418,8 @@ struct Scene::Impl
 		if (!WaitUntilReady(core::NeverCancelled))
 			return;
 		rhi.drawCalls.enqueue(
-			[this, &rhi, image, imageView, upload](QueueTimelineContextData& graphics)
-			{ InstallImage(rhi, graphics, image, imageView, upload); });
+			[this, &rhi, image, imageView, upload, pending = std::make_shared<PendingInstall>(myPendingInstallCount)](
+				QueueTimelineContextData& graphics) mutable { InstallImage(rhi, graphics, image, imageView, upload, std::move(pending)); });
 	}
 
 
@@ -2405,7 +2429,8 @@ struct Scene::Impl
 		QueueTimelineContextData& graphics,
 		const std::shared_ptr<const EnvironmentTexture>& environment,
 		std::string name,
-		std::string path)
+		std::string path,
+		std::shared_ptr<PendingInstall> pending = {})
 	{
 		ZoneScopedN("WindowedApplication::InstallEnvironment");
 
@@ -2420,7 +2445,7 @@ struct Scene::Impl
 			rhi,
 			graphics,
 			uploads,
-			[this, &rhi, environment, name = std::move(name), path = std::move(path)](QueueTimelineContextData& graphics) mutable
+			[this, &rhi, environment, name = std::move(name), path = std::move(path), pending = std::move(pending)](QueueTimelineContextData& graphics) mutable
 			{
 				auto& device = rhi.GetPrimaryDevice();
 				auto& pipeline = myPipeline;
@@ -2491,8 +2516,9 @@ struct Scene::Impl
 			return;
 		auto name = filePath ? std::filesystem::path(*filePath).filename().string() : std::string("Physical sky");
 		rhi.drawCalls.enqueue(
-			[this, &rhi, environment = std::move(environment), name = std::move(name), path = filePath.value_or(std::string())](
-				QueueTimelineContextData& graphics) { InstallEnvironment(rhi, graphics, environment, name, path); });
+			[this, &rhi, environment = std::move(environment), name = std::move(name), path = filePath.value_or(std::string()),
+			 pending = std::make_shared<PendingInstall>(myPendingInstallCount)](QueueTimelineContextData& graphics) mutable
+			{ InstallEnvironment(rhi, graphics, environment, name, path, std::move(pending)); });
 	}
 
 	// the size frames are rendered at (see Settings::upscaling): RenderScale of the output's each way, rounded
@@ -3582,6 +3608,11 @@ float Scene::GetFocusDistance() const noexcept { return myImpl->FocusDistanceMet
 uint64_t Scene::GetTransientMemory() const noexcept { return myImpl->myTransientMemory.load(std::memory_order_relaxed); }
 uint64_t Scene::GetUnaliasedTransientMemory() const noexcept { return myImpl->myUnaliasedTransientMemory.load(std::memory_order_relaxed); }
 const Renderer& Scene::GetRenderer() const noexcept { return *myImpl->myRenderer; }
+
+bool Scene::HasPendingInstalls() const noexcept
+{
+	return myImpl->myPendingInstallCount.load(std::memory_order_acquire) != 0;
+}
 
 void Scene::RestartSequences()
 {

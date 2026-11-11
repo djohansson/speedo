@@ -242,6 +242,14 @@ Next: what is left of the indirect lighting's (lavapipe: a few percent of the pi
 KosmicKrisp's ambient light, or tolerances for them (step 2's tool measures what a tolerance has to allow); then the
 measurement on Linux's and Windows' lavapipe.
 
+- **Waiting until everything is done** (the user's call, 2026-11-11: "wait until all are done before screenshotting"):
+  the autoload exit waited for the model's install and the graphics pipelines but not for the other installs' binds, so
+  a run that imported its panorama (neutral.hdr, cold) captured its first frames lit by the sky, the panorama bound a
+  few frames later (TransitionThenBind, after its uploads): 24 to 33 levels apart on average from a warm run's. The scene
+  counts the installs a load queued and not yet bound (`Scene::HasPendingInstalls`: models', images', environments'), and
+  the count starts once there are none and the pipelines are made. A cold run against a warm one then: at most 40
+  levels, a mean of 0.24, as two warm runs.
+
 ### Step 2 (2026-11-11)
 
 `src/tools/imagecompare.cpp` (`imagecompare <reference.bmp> <capture.bmp>`): per channel the largest and the mean

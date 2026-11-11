@@ -373,6 +373,11 @@ public:
 	// capture as many frames after it is the same in every run. call on the draw thread, before its frame's Update
 	void RestartSequences();
 
+	// whether an install a load queued (a model's, an image's, an environment's) is yet to be bound: queued to the draw
+	// thread, or waiting for its uploads (TransitionThenBind). what an autoload exit waits for, with the pipelines, before
+	// it counts its frames. any thread
+	[[nodiscard]] bool HasPendingInstalls() const noexcept;
+
 	// records the frame into cmd (see Renderer::Record; until ready, the output cleared and its final passes). draw thread.
 	void Record(CommandBufferHandle cmd, const FrameTarget& target);
 

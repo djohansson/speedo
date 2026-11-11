@@ -2280,14 +2280,22 @@ void WindowedApplication::PrepareDraw()
 	// the placement
 	static std::optional<uint64_t> gAutoLoadExitStart;
 	// nor while the scene's passes wait for their graphics pipelines, not drawing the model meanwhile (a first run after a
-	// shader change makes them for seconds): counted from when they are made
+	// shader change makes them for seconds), nor while a load's install waits to be bound (an environment's uploads: the
+	// first frames of a run that imported its panorama drew the sky before it, a capture of them lit as by another
+	// environment, 2026-11-11): counted from when all of that is done
+	bool sceneSettled = true;
 	if (myScene)
 	{
 		if (auto [created, count] = myScene->GetGraphicsPipelineProgress(); created < count)
-			gAutoLoadExitStart.reset();
+			sceneSettled = false;
+		if (myScene->HasPendingInstalls())
+			sceneSettled = false;
 	}
-	if (gAutoLoadExitFrames && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) && !gAutoCamera &&
-		!gAutoFrame && modelInstalled && (gAutoPath.empty() || (gAutoPathFollowed && !myViews->OnPath())) && presentationTestDone)
+	if (!sceneSettled)
+		gAutoLoadExitStart.reset();
+	if (gAutoLoadExitFrames && sceneSettled && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) &&
+		!gAutoCamera && !gAutoFrame && modelInstalled && (gAutoPath.empty() || (gAutoPathFollowed && !myViews->OnPath())) &&
+		presentationTestDone)
 	{
 		auto drawn = gDrawnFrameCount.load(std::memory_order_relaxed);
 		const char* capture = std::getenv("SPEEDO_CAPTURE");
