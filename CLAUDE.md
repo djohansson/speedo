@@ -34,8 +34,9 @@ Details: docs/notes/layering.md.
   SPEEDO_WINDOW_SIZE=<w>x<h> SPEEDO_CAMERA=x,y,z,pitch,yaw`; a report of an artifact starts from View > Camera > Copy
   Pose's text (SPEEDO_* variables), which Paste Pose and the autoloads take back. `SPEEDO_HEADLESS=1` (or
   `assettest.ps1 -Headless`) needs no display (docs/notes/layering.md); `SPEEDO_REPEATABLE=1` makes a capture the same
-  from run to run as far as it can, and `build/<preset>/imagecompare <reference.bmp> <capture.bmp>` measures two
-  captures' differences (docs/visual-testing-plan.md).
+  from run to run as far as it can, `build/<preset>/imagecompare <reference.bmp> <capture.bmp>` measures two captures'
+  differences, and `scripts/visualtest.ps1 -Preset <preset>` checks the frames against the renderer's own references
+  (docs/visual-testing-plan.md).
 - The shaders compile at the client's startup from their sources (an install's come precompiled, see
   docs/notes/layering.md): don't edit `.slang` files or `capi.h`, and don't rebuild, while client runs are in flight (a
   batch would mix two versions).

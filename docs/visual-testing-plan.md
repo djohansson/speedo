@@ -262,6 +262,29 @@ drawing them, its pipelines still being made, for as long as nothing changed (se
 Fixed: the default frame against every pixel traced 0.035% of the pixels past 16 levels, the traced view against the
 reference 0.004 stops blurred, its edges alone. A bug of the normal frame, not just of the checks.
 
+### Step 3, the checks (2026-11-11)
+
+`scripts/visualtest.ps1 -Preset <preset>` runs them: each a scene rendered twice, headless and repeatable, as a
+reference and a capture, compared by `imagecompare` against thresholds a few times what was measured (each check's
+comment has its measures). `imagecompare` gained the mean luminance ratio (`--ratio`, in stops, signed: light gained or
+lost), which tells light spread differently (a filter's, a reference's blocks) from light gained or lost, where the
+mean |log2| difference counts both. The checks and their measures on KosmicKrisp:
+
+- `traced-shadows`: the traced view against its reference (ShadowScene, neutral.hdr): 0.004 stops blurred, -0.002 of
+  light. It can't tell an atlas gone wrong: both views trace only where the atlas isn't sure, and with the shadow cache's
+  fix taken out they came out the same.
+- `shadow-atlas`: the frame in the default mode against every pixel traced (`SPEEDO_TRACED_SHADOWS=all`): 0.0002 stops
+  blurred, +0.0001 of light. With the fix taken out it fails, cold and warm (0.94% of the pixels past 16 levels, +0.009
+  stops of light: the shadows missing).
+- `emitters`: the emitters' view against its reference (the CornellBox's lamps, 32 frames): 0.085 stops blurred over 24
+  pixels, +0.002 of light; the same light, spread differently. Both views dim alike over longer runs (128 to 512 frames,
+  0.0287 to 0.0268 of linear luminance in the lower half): to look into.
+- `upscaling`: native temporal upscaling against none (DamagedHelmet): 0.7% of the pixels past 16 levels (edges and fine
+  detail), 0.0075 stops blurred, -0.004 of light.
+
+A run takes 38 s on the M4 Pro from a new work dir (the first client's shader compile 30 of them), 9 s warm. Not yet:
+the BVH against the ray queries (on lavapipe), and the checks on CI (Linux's and Windows' lavapipe, their times).
+
 ### Step 2 (2026-11-11)
 
 `src/tools/imagecompare.cpp` (`imagecompare <reference.bmp> <capture.bmp>`): per channel the largest and the mean

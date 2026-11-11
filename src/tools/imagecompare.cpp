@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <numeric>
 #include <optional>
 #include <print>
 #include <string>
@@ -46,6 +47,7 @@ struct Measures
 	std::optional<std::array<int, 4>> differing; // x0, y0, x1, y1 (inclusive) of the pixels that differ at all
 	double log = 0.0;
 	double logBlurred = 0.0;
+	double ratio = 0.0; // log2 of the capture's mean linear luminance over the reference's: light gained or lost, in stops
 	std::vector<int> largest; // each pixel's largest channel difference, for --over and --diff
 };
 
@@ -89,6 +91,12 @@ struct Measures
 	measures.log = capture::LogDifference(imageLuminance, referenceLuminance);
 	measures.logBlurred = capture::LogDifference(
 		capture::Blur(imageLuminance, image.width, image.height, blur), capture::Blur(referenceLuminance, reference.width, reference.height, blur));
+	auto mean = [](const std::vector<float>& values)
+	{ return std::accumulate(values.begin(), values.end(), 0.0) / static_cast<double>(std::max<size_t>(values.size(), 1)); };
+	// both black: the same light. one black: as far apart as a ratio can say
+	double referenceMean = std::max(mean(referenceLuminance), static_cast<double>(capture::kLogFloor));
+	double imageMean = std::max(mean(imageLuminance), static_cast<double>(capture::kLogFloor));
+	measures.ratio = std::log2(imageMean / referenceMean);
 	return measures;
 }
 
@@ -107,6 +115,7 @@ void Print(const Measures& measures, int blur)
 	if (measures.differing)
 		std::println("  differing within x {}..{}, y {}..{}", (*measures.differing)[0], (*measures.differing)[2], (*measures.differing)[1], (*measures.differing)[3]);
 	std::println("mean |log2| luminance: {:.5f} stops, {:.5f} blurred over {} pixels", measures.log, measures.logBlurred, blur);
+	std::println("mean luminance ratio: {:+.5f} stops (the capture's light against the reference's)", measures.ratio);
 }
 
 [[nodiscard]] capture::Image Differences(const Measures& measures, const capture::Image& reference, const capture::Image& image)
@@ -124,6 +133,7 @@ struct Thresholds
 	std::vector<std::pair<int, double>> over; // levels, share (0 to 1)
 	std::optional<double> log;
 	std::optional<double> logBlurred;
+	std::optional<double> ratio; // either way
 };
 
 // whether the measures are within the thresholds, saying which one each is past (unless quiet)
@@ -149,6 +159,8 @@ struct Thresholds
 		fail("mean |log2| luminance {:.5f} stops, past {:.5f}", measures.log, *thresholds.log);
 	if (thresholds.logBlurred && measures.logBlurred > *thresholds.logBlurred)
 		fail("blurred mean |log2| luminance {:.5f} stops, past {:.5f}", measures.logBlurred, *thresholds.logBlurred);
+	if (thresholds.ratio && std::abs(measures.ratio) > *thresholds.ratio)
+		fail("mean luminance ratio {:+.5f} stops, past {:.5f} either way", measures.ratio, *thresholds.ratio);
 	return within;
 }
 
@@ -200,6 +212,14 @@ struct Thresholds
 		// twice the linear light: srgb 128 is 0.2159 linear, and twice that srgb 175.6 (176 is 2.011 times as bright)
 		auto measures = Compare(make(gray), make([](int, int, int) { return uint8_t{176}; }), kBlur);
 		expect(std::abs(measures.log - 1.0) < 0.01 && std::abs(measures.logBlurred - 1.0) < 0.01, "twice the light: a stop, sharp and blurred");
+		expect(std::abs(measures.ratio - 1.0) < 0.01, "and a mean luminance ratio of +1 stop");
+		expect(Within(measures, Thresholds{.ratio = 1.1}, true) && !Within(measures, Thresholds{.ratio = 0.5}, true), "--ratio 1.1 passes it, --ratio 0.5 fails it");
+	}
+	{
+		// the light moved, not lost: a bright half and a dark half swapped
+		auto half = [](bool left) { return [left](int x, int /*y*/, int /*channel*/) { return uint8_t((x < kWidth / 2) == left ? 200 : 60); }; };
+		auto measures = Compare(make(half(true)), make(half(false)), kBlur);
+		expect(std::abs(measures.ratio) < 0.001 && measures.log > 1.0, "light moved, not lost: a ratio of 0, a large log difference");
 	}
 	std::println("{} of the self test's checks failed", failures);
 	return failures == 0 ? 0 : 1;
@@ -244,6 +264,8 @@ int main(int argc, char** argv)
 			thresholds.log = std::strtod(value, nullptr);
 		else if (name == "--log-blurred")
 			thresholds.logBlurred = std::strtod(value, nullptr);
+		else if (name == "--ratio")
+			thresholds.ratio = std::strtod(value, nullptr);
 		else if (name == "--over")
 		{
 			std::string_view text = value;
