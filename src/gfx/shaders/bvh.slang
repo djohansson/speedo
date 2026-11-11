@@ -141,6 +141,12 @@ uint BvhChildHits(
 	return hits;
 }
 
+// slang can't see that stackSize guards every read of the traversals' stacks: it warns of a possible use of an
+// uninitialized variable (E41035) at each pop. zeroing the stacks would add a store per entry to every ray, so the
+// warning is off for the two traversals alone
+#pragma warning(push)
+#pragma warning(disable : 41035)
+
 // the nearest triangle a ray from origin along direction meets before tmax (anyHit false), or any one (anyHit true: a
 // shadow ray, which needs no nearest), of those filter accepts, in a CWBVH's nodes (BVH_NODE_FLOAT4_COUNT float4 each)
 // and triangles (BVH_TRIANGLE_FLOAT4_COUNT each; see gfx/bvh.h). barycentrics: the weights of its second and third
@@ -361,6 +367,8 @@ BvhHit BvhTraverse2<Filter : IBvhFilter>(
 	}
 	return BvhFinish2(hit, triangles, hitTriangle, direction);
 }
+
+#pragma warning(pop)
 
 #if BVH_RAY_QUERY
 // a ray query's geometry (see gfx/accelerationstructures.h): its entry in gBvhTriangles (its flags, its first index, and
