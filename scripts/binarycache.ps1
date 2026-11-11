@@ -33,6 +33,18 @@ function Get-BinaryCacheSources
 	$Sources -join ';'
 }
 
+# FASTBuild's cache in the same bucket, a prefix of its own (the objects FBuild's cache plugin stores, see
+# ports/fastbuild-s3cache): read anonymously and written by the same machines, through S3's API at the same endpoint; its
+# entries expire by the bucket's lifecycle rule for the prefix, not by prune-binary-cache.ps1
+$FastbuildCachePrefix = 'speedo/fastbuild/'
+function Get-FastbuildCacheUrl
+{
+	"https://$BinaryCacheEndpoint/$BinaryCacheBucket/$FastbuildCachePrefix"
+}
+function Get-FastbuildCacheRegion
+{
+	$BinaryCacheRegion
+}
 # the AWS CLI's settings for the bucket (not secrets): B2's S3 endpoint and region, for writing
 function Get-BinaryCacheAwsEnvironment
 {

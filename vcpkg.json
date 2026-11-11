@@ -19,6 +19,10 @@
       "host": true
     },
     {
+      "name": "fastbuild-s3cache",
+      "host": true
+    },
+    {
       "name": "llvm",
       "default-features": false,
       "features": [

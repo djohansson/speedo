@@ -1,0 +1,19 @@
+{
+  "name": "fastbuild-s3cache",
+  "version": "1.0.0",
+  "description": "speedo's FASTBuild cache over S3 (the shared Backblaze B2 bucket's speedo/fastbuild/ prefix), with a local directory in front: FBuild's cache plugin, and the launcher CMake runs as FBuild that hands it to FBuild (CMake's FASTBuild generator can't name a cache plugin yet)",
+  "supports": "!uwp",
+  "dependencies": [
+    {
+      "name": "curl",
+      "default-features": false,
+      "features": [
+        "ssl"
+      ]
+    },
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    }
+  ]
+}

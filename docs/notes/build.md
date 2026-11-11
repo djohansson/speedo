@@ -141,6 +141,60 @@ Ninja on 2026-11-09. Not in the Windows host triplet, though, whose every packag
 overlay of the port turns it off, `ports/glslang` (`-DENABLE_PCH=OFF`, glslang's own switch; mesa[lavapipe]'s
 `glslangValidator`, the first Windows CI run with lavapipe failing on it, 2026-11-11). Drop the overlay with that release.
 
+## FASTBuild's cache
+
+The project's objects are cached (the user's ask, 2026-11-11): FASTBuild's cache, a local directory in front of the shared
+B2 bucket's `speedo/fastbuild/` prefix, so that a build takes what any machine of the platform compiled, CI's runners
+and the user's alike. Until then the cache setup.ps1 configured had never run: caching takes `-cache` or
+`FASTBUILD_CACHE_MODE` in FBuild's own environment, and `cmake --build build/<preset>` gave it neither (the presets'
+environment is the configure's alone).
+
+**How.** FBuild takes a cache plugin only from `.CachePluginDLL` in the `.bff`'s Settings, and CMake's FASTBuild generator
+(4.4.5) can't write it (no variable; `CMAKE_FASTBUILD_CACHE_PATH`'s value is escaped, rightly) nor pass `-cache` in
+`cmake --build`; FBuild reads no variable for it either. So the overlay port `ports/fastbuild-s3cache` (a host tool,
+built from its sources there, so that vcpkg's ABI follows them) builds two things: `FBuildS3Cache`, the plugin
+(FASTBuild's `CachePluginInterface.h`: `CacheInitEx`, `CacheRetrieve`, `CachePublish`, `CacheFreeMemory`, `CacheShutdown`,
+and `CacheOutputInfo` and `CacheTrim` for the local directory), and `fbuild-s3cache`, the launcher the presets make
+`CMAKE_MAKE_PROGRAM`. `cmake --build` runs it as FBuild (first for the `rebuild-bff` target, which regenerates the `.bff`,
+then the build): it adds the plugin's two lines to the `.bff`'s Settings in place (only after CMake wrote it afresh,
+so that FBuild doesn't parse it again), `-cache` to the command line (unless it or `FASTBUILD_CACHE_MODE` chose a mode),
+and runs vcpkg-tool-fastbuild's FBuild beside it (on Windows with its directory on the path: FBuild's `LoadLibrary`
+finds the plugin's dlls, curl's, there and not beside the plugin). The remote's url and region come from the build
+directory's `CMakeCache.txt` (`SPEEDO_FASTBUILD_CACHE_URL`, `SPEEDO_FASTBUILD_CACHE_REGION`, the presets', from
+`scripts/binarycache.ps1`). The plugin reads the local directory (FBuild's cache path, else `~/.fastbuild/cache`), else
+the remote object (an anonymous GET), keeping it locally; it publishes locally, and remotely where the machine writes
+the shared caches (`SPEEDO_BINARY_CACHE_WRITE`, as vcpkg's, with the AWS credentials: `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY`, else `AWS_PROFILE`'s, never written anywhere), a PUT signed with curl's AWS Signature V4.
+`SPEEDO_BINARY_CACHE=0` leaves the remote out, `SPEEDO_FASTBUILD_CACHE=0` the cache; the remote failing never fails a
+build (a miss; 8 failures in a row leave it out for the rest of the build, a 403 on a PUT its writes). The local
+directory grows until trimmed: `cmake --build build/<preset> -- -cachetrim <MiB>` (least recently used first). The
+launcher goes once a CMake release can name the plugin (a patch for the user to offer: `CMAKE_FASTBUILD_CACHE_PLUGIN`,
+its config, and a cache mode for `cmake --build`).
+
+**Keys the same everywhere.** A key holds each compile's command line, its paths too, and a checkout elsewhere (a clone
+at another path, as CI's runners are) took 0 of the profile build's 97 objects from a cache another had filled. What it
+took: relative paths in the compile commands (`CMAKE_FASTBUILD_USE_RELATIVE_PATHS`, the presets'), 2 of 97; the libc++
+headers relative too (CMakeLists.txt rewrites the toolchain's absolute `-isystem` for the project's compiles: the
+toolchain can't, its text being in every package's ABI, and the ports build elsewhere), 93; the slang kernels assettest
+compiles to C++ generated from the build directory with relative paths and their prelude's include by name
+(`scripts/cmake/slangcpp.cmake`), 96; and no `glfw3native.h` in `src/platform` (its `#import <Cocoa/Cocoa.h>`, in an
+`__OBJC__` branch C++ never takes, made FASTBuild's light cache, which reads every branch, preprocess the file instead,
+the output's absolute paths in its key: its two functions are declared instead), every object light cached. Nor
+`-march=native`, which shares an M4's objects with M1s (see the binary cache's cpu above; the project builds for the
+baseline since 2026-11-11). Keys also hold the compiler's binaries, so machines share objects when their LLVM comes from
+the binary cache, and a platform's only with its own. Two consequences: `__FILE__` is relative (an assert names
+`../../src/platform/glfw.cpp`), and an object another machine compiled has that machine's build directory as its debug
+info's compile directory (`DW_AT_comp_dir`, not in the key), so a debugger finds its sources only through a source map
+(lldb's `target.source-map`) until it is compiled here. FASTBuild's `.SourceMapping_Experimental`
+(`CMAKE_FASTBUILD_SOURCE_MAPPING`) would make that one fixed root on every machine, which every debugger would then map:
+not done.
+
+**Measured** (M4 Pro, the profile preset, a clean build, 97 objects): compiled 36 s; with the cache, cold (every object
+looked up, 404s, and uploaded) 48 s; from the bucket alone (the local directory emptied) 13 s; from the local directory
+0.4 to 0.8 s. 71 MB of objects a configuration. The remote's prefix needs CI's key widened to it (the key is the
+`speedo/vcpkg/` prefix's alone: until then CI's PUTs get a 403 and it caches locally) and a lifecycle rule expiring it,
+both the user's (prune-binary-cache.ps1 deletes only under `speedo/vcpkg/`).
+
 ## libc++ migration: MSVC STL "leaks" `<cstdlib>`/`<cmath>`/etc., libc++ doesn't
 
 `scripts/cmake/toolchains/clang.toolchain.cmake` builds the `x64-windows-clang` triplet against

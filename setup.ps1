@@ -178,6 +178,13 @@ $CMakePresets = [ordered] @{
 				# and -march=native would hand an M1 an M4's instructions (the user's call, 2026-11-11). a build directory
 				# configured for native before keeps its flags (CMakeLists.txt refuses it: configure it with --fresh)
 				SPEEDO_TARGET_CPU = 'baseline'
+				#
+				# FBuild run through fastbuild-s3cache's launcher, which turns FASTBuild's cache on with its plugin: a local
+				# directory, then the shared bucket's speedo/fastbuild/ (see ports/fastbuild-s3cache, docs/notes/build.md,
+				# "FASTBuild's cache"). the launcher reads the remote's url and region from the build directory's cache
+				CMAKE_MAKE_PROGRAM = "`${sourceDir}/install/$(Get-HostTriplet)/tools/fastbuild-s3cache/fbuild-s3cache$(if ($IsWindows) { '.exe' } else { '' })"
+				SPEEDO_FASTBUILD_CACHE_URL = "$(Get-FastbuildCacheUrl)"
+				SPEEDO_FASTBUILD_CACHE_REGION = "$(Get-FastbuildCacheRegion)"
 			}
 			environment = [ordered] @{
 				LLVM_ROOT = "`${sourceDir}/install/$(Get-HostTriplet)"
