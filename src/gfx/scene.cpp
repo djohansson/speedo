@@ -1501,6 +1501,20 @@ struct Scene::Impl
 			return SHADER_TYPES_EXPOSURE_LOG2_MIN +
 				   ((static_cast<double>(binIt) + 0.5) / SHADER_TYPES_EXPOSURE_BINS * (SHADER_TYPES_EXPOSURE_LOG2_MAX - SHADER_TYPES_EXPOSURE_LOG2_MIN));
 		};
+		// a view lit by nothing says nothing of the exposure: neither measured nor taken as its first measure. the frames
+		// drawn before the environment is installed are black, every pixel in the histogram's floor (log2 of 1e-8, see
+		// composite.slang), and their target, 21 stops up, was taken as it was: the lit frames after them came out white,
+		// the exposure falling back over seconds (the startup's white flash, the user's report, 2026-11-11). lit is more
+		// than a hundredth of the pixels above 2^-26, past the darkest a lit view keys on (moonlight's ground 2^-21, the
+		// eye's night vision whole at 2^-24)
+		constexpr double kUnlitLog2 = -26.0;
+		constexpr uint64_t kLitPixelShareDivisor = 100;
+		uint64_t litPixelCount = 0;
+		for (size_t binIt = 0; binIt < SHADER_TYPES_EXPOSURE_BINS; binIt++)
+			if (binLog2Luminance(binIt) > kUnlitLog2)
+				litPixelCount += bins[binIt];
+		if (litPixelCount * kLitPixelShareDivisor <= total)
+			return;
 		auto litWeight = [&binLog2Luminance](size_t binIt) { return std::exp2(std::min(binLog2Luminance(binIt) - kPhotopicLog2, 0.0)); };
 		// the mean log2 luminance of the pixels between the 50th and 95th percentile of the histogram with each bin's
 		// pixels weighed by weightOf, none where it weighs nothing
@@ -1550,10 +1564,11 @@ struct Scene::Impl
 		double scotopic = std::clamp((kPhotopicLog2 - mean) / (kPhotopicLog2 - kScotopicLog2), 0.0, 1.0);
 		adapt(myScotopic[view], myScotopicMeasured[view], static_cast<float>(scotopic));
 		double target = std::log2(kAutoExposureKey) - (kNightStops * darkness) - (kMoonlightStops * night) - mean;
-		// SPEEDO_EXPOSURE_LOG=1: what the exposure keys on, every 30th frame: the histogram's percentiles, the lit share,
-		// the mean and the target
+		// SPEEDO_EXPOSURE_LOG=1: what the exposure keys on, every frame for the first 120 measured (the startup's) and every
+		// 30th after: the histogram's percentiles, the lit share, the mean and the target
 		static const bool kLog = [] { const char* log = std::getenv("SPEEDO_EXPOSURE_LOG"); return log != nullptr && std::string_view(log) == "1"; }();
-		if (kLog && view == 0 && (myExposureLogFrame++ % 30) == 0)
+		uint64_t logFrame = view == 0 ? myExposureLogFrame++ : 0;
+		if (kLog && view == 0 && (logFrame < 120 || logFrame % 30 == 0))
 		{
 			auto percentile = [&bins, &binLog2Luminance, total](double share)
 			{
