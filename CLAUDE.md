@@ -256,6 +256,20 @@ a sharded node map (`phmap::parallel_node_hash_map`, where entries don't move an
   futures nothing waited on, with the draw context passed as an unchecked parameter. Code that runs work in the background
   takes the executor (`FrameInputs::executor`, which background pipeline creation, `Pipeline::RequestGraphicsPipeline`'s
   task, is submitted to).
+- A task doesn't loop until something arrives, nor sleep holding its thread until another task has made something: the
+  executor has a thread per core less two, 2 on a 4-core machine (GitHub's runners), where the client's three chains
+  (`Rpc`, `Tick`, `Draw`) already want more. `Rpc` looped until the server answered (none does yet) and a load slept until
+  the scene was ready, so on 2 threads, with the autoload, nothing drew the frame that makes it ready (the Linux CI's
+  lavapipe run, 2026-11-11). `Rpc` polls once and requeues itself; a load waiting for the scene runs the executor's other
+  tasks meanwhile (Scene's `WaitUntilReady`, `TaskExecutor::JoinOne`). `SPEEDO_EXECUTOR_THREAD_COUNT=<n>` gives the
+  executor n threads, a small machine's.
+- The ready queue is moodycamel's, a queue per producing thread, whose dequeue without a consumer token isn't fair: it
+  takes from the fullest of the first three non-empty queues, newest first, a tie to the first, and on 2 threads the
+  `Tick` and `Rpc` chains, requeued into their threads' queues, won over the draw chain and the shader compile (submitted
+  by the main thread) for good. The executor's threads dequeue with consumer tokens of their own, rotating over the queues
+  after every task (`TaskExecutor::ReadyQueueTraits`). A FIFO behind a `std::mutex`, fair as well, took a `ForEach` from
+  3.1 to 9-20 us on 14 threads (`taskbench`); the tokens cost nothing measurable (submit 522-592 ns a task against
+  630-745, foreach 3.2-3.5 us against 3.1-3.2, nested 3.1 ms against 3.3-3.4).
 - Take a callable as a template parameter (`template <typename Fn> void Foo(Fn&& fn)`); where it runs later, or on
   another thread, as a task (`core::TaskHandle`, `core::CreateTask`) or a `move_only_function` queued for that thread
   (`mainCalls`, `drawCalls`); where it is called during the call into a .cpp

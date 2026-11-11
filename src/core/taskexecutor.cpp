@@ -27,6 +27,14 @@ static std::atomic<TaskExecutorState> gTaskExecutorState = kTaskExecutorInitiali
 	return std::format("TaskThread {}", threadIndex);
 }
 
+// the executor whose thread this is, and its index there: its consumer token's (see TaskExecutor::myReadyQueue)
+struct CurrentThread
+{
+	const TaskExecutor* executor = nullptr;
+	uint32_t index = 0;
+};
+static thread_local CurrentThread gCurrentThread;
+
 } // namespace detail
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
@@ -38,6 +46,9 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 	ENSUREF(threadCount > 0, "Thread count must be nonzero");
 
 	myThreads.reserve(threadCount);
+	myConsumerTokens.reserve(threadCount);
+	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
+		myConsumerTokens.emplace_back(myReadyQueue);
 
 	// named, and with stacks as a main thread's (see kThreadStackByteCount)
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
@@ -119,7 +130,9 @@ bool TaskExecutor::InternalTryCallOne()
 	activeTaskCount.fetch_add(1, std::memory_order_acq_rel);
 
 	TaskHandle handle;
-	bool dequeued = myReadyQueue.try_dequeue(handle);
+	bool dequeued = detail::gCurrentThread.executor == this
+		? myReadyQueue.try_dequeue(myConsumerTokens[detail::gCurrentThread.index], handle)
+		: myReadyQueue.try_dequeue(handle);
 	if (dequeued)
 	{
 		std::atomic_ref(myReadyQueueSize).fetch_sub(1, std::memory_order_acq_rel);
@@ -155,11 +168,11 @@ void TaskExecutor::InternalPurgeDeletionQueue()
 	myDeletionQueue.enqueue_bulk(gNextDeletionQueue.begin(), gNextDeletionQueue.size());
 }
 
-void TaskExecutor::JoinOne()
+bool TaskExecutor::JoinOne()
 {
 	ZoneScopedN("TaskExecutor::JoinOne");
 
-	InternalTryCallOne();
+	return InternalTryCallOne();
 }
 
 void TaskExecutor::JoinAll()
@@ -179,7 +192,8 @@ void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 	using namespace detail;
 
 	gTaskExecutorState.wait(kTaskExecutorInitializing, std::memory_order_acquire);
-	
+	gCurrentThread = {.executor = this, .index = threadIndex};
+
 #if defined(TRACY_ENABLE)
 	// the name in Tracy's too (the thread was given it as it started, see TaskExecutor), which it keeps a list of its own
 	// for (it doesn't read the os's: only the thread id showed), the task threads in a group of their own

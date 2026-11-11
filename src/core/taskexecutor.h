@@ -38,8 +38,8 @@ public:
 	template <typename Fn>
 	void ForEach(size_t count, Fn&& body);
 
-	// help out processing the thread pools ready queue one task at a time
-	void JoinOne();
+	// help out processing the thread pools ready queue one task at a time: false if there was none to run
+	[[maybe_unused]] bool JoinOne();
 
 	// help out processing the thread pools ready queue until it is empty and no task is executing on any thread
 	// (including tasks submitted by other tasks while waiting). must not be called from within a task.
@@ -86,7 +86,18 @@ private:
 	std::atomic_uint32_t myWakeCount = 0;
 	// threads waiting for work, which ForEach makes its first workers for (see ForEach)
 	std::atomic_uint32_t myIdleThreadCount = 0;
-	mutable ConcurrentQueue<TaskHandle> myReadyQueue;
+	// the tasks ready to run: moodycamel's queue keeps one per producing thread, and a dequeue without a consumer token
+	// takes from the fullest of the first three non-empty ones, newest first, a tie to the first, so chains resubmitting
+	// themselves into their threads' queues (the client's tick and server connection) won every time over the draw chain
+	// and the shader compile the main thread had submitted, which never ran on 2 threads (a 4-core machine, 2026-11-11).
+	// the executor's threads dequeue with tokens of their own (myConsumerTokens), which rotate over the producers' queues
+	// after every task (ReadyQueueTraits), as the library's fairness; other threads (JoinAll's) without
+	struct ReadyQueueTraits : moodycamel::ConcurrentQueueDefaultTraits
+	{
+		static constexpr std::uint32_t EXPLICIT_CONSUMER_CONSUMPTION_QUOTA_BEFORE_ROTATE = 1; // NOLINT(readability-identifier-naming): the library's name
+	};
+	mutable moodycamel::ConcurrentQueue<TaskHandle, ReadyQueueTraits> myReadyQueue;
+	std::vector<moodycamel::ConsumerToken> myConsumerTokens; // a token for each thread, made before the threads start
 	uint64_t myReadyQueueSize = 0;
 	uint64_t myActiveTaskCount = 0; // tasks dequeued (or about to be) and not yet finished, see InternalTryCallOne
 	mutable ConcurrentQueue<TaskHandle> myDeletionQueue;

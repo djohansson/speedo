@@ -3015,15 +3015,22 @@ struct Scene::Impl
 
 	// waits until Prepare has made the rest (a load's install needs it, its import doesn't: a load imports during the
 	// compile and the pipelines' creation, and installs once ready), unless cancelled or the application exits. returns
-	// whether the scene is ready
+	// whether the scene is ready. it runs the executor's other tasks meanwhile, sleeping only when there are none: loads run
+	// concurrently, any number of them, and a load that only slept here held its thread, so that enough of them left none
+	// for the shader compile nor for the draw chain, whose Prepare makes the scene ready: a deadlock, met on 2 executor
+	// threads (a 4-core machine) with the autoload, the server connection's task holding the other (2026-11-11). a task run
+	// here holds up this load's install until it returns (another load's import, say). call from a load, holding nothing
+	// another task may take (the tasks run here may)
 	[[nodiscard]] bool WaitUntilReady(core::CancelledFn cancelled) const
 	{
 		constexpr auto kPollInterval = std::chrono::milliseconds(10);
+		auto& executor = core::Application::Get()->GetExecutor();
 		while (!myReady.load(std::memory_order_acquire))
 		{
 			if (core::Application::Get()->IsExitRequested() || cancelled())
 				return false;
-			core::SleepUntil(std::chrono::steady_clock::now() + kPollInterval);
+			if (!executor.JoinOne())
+				core::SleepUntil(std::chrono::steady_clock::now() + kPollInterval);
 		}
 		return true;
 	}

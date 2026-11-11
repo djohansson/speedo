@@ -61,6 +61,10 @@ static void WaitTaskStopped(std::atomic<TaskState>& state)
 	state.wait(kTaskStateShuttingDown);
 }
 
+// whether the chain's request is waiting for its response, which a later task of the chain polls for. the chain's tasks
+// run one after another
+static bool gRpcAwaitingResponse = false;
+
 static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 {
 	ZoneScopedN("client::Rpc");
@@ -83,40 +87,37 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 	server::RpcSay::client client{inStream, outStream};
 
-	if (auto result = client.request<"Say"_sha256_int>("hello"s); failure(result))
-		std::println(stderr, "client.request() returned error code: {}", std::make_error_code(result).message());
-
-	if (auto sendResult = socket.send(zmq::buffer(outStream.data().data(), outStream.position()), zmq::send_flags::none); !sendResult)
-		std::println(stderr, "socket.send() failed");
-
-	for (bool responseFailure = true; responseFailure;)
+	// a request, unless the last one's response hasn't come yet (a REQ socket takes no new request until then)
+	if (!gRpcAwaitingResponse)
 	{
-		if (auto socketCount = poller.wait(2ms); socketCount)
+		if (auto result = client.request<"Say"_sha256_int>("hello"s); failure(result))
+			std::println(stderr, "client.request() returned error code: {}", std::make_error_code(result).message());
+
+		if (auto sendResult = socket.send(zmq::buffer(outStream.data().data(), outStream.position()), zmq::send_flags::none); !sendResult)
+			std::println(stderr, "socket.send() failed");
+		else
+			gRpcAwaitingResponse = true;
+	}
+
+	// the response, polled once: the chain's next task polls again. a task looping here until it came held its executor
+	// thread, for good without a server (none answers), which on 2 executor threads (a 4-core machine) left one for
+	// everything else (see Scene's WaitUntilReady, 2026-11-11)
+	if (auto socketCount = poller.wait(2ms); socketCount)
+	{
+		if (auto recvResult = socket.recv(zmq::buffer(responseData), zmq::recv_flags::dontwait); recvResult)
 		{
-			//std::cout << "got " << socketCount << " sockets hit" << std::endl;
-			if (auto recvResult = socket.recv(zmq::buffer(responseData), zmq::recv_flags::dontwait); recvResult)
+			auto responseResult = client.response<"Say"_sha256_int>();
+			if (failure(responseResult))
 			{
-				auto responseResult = client.response<"Say"_sha256_int>();
-				responseFailure = failure(responseResult);
-				if (responseFailure)
-				{
-					std::println(stderr, "client.response() returned error code: {}", std::make_error_code(responseResult.error()).message());
-					SetTaskDone(gRpcTaskState);
-					return;
-				}
-				
-				//std::cout << "Say(\"hello\") returned: " << responseResult.value() << std::endl;
-			}
-			else
-			{
-				std::println(stderr, "socket.recv() failed");
+				std::println(stderr, "client.response() returned error code: {}", std::make_error_code(responseResult.error()).message());
 				SetTaskDone(gRpcTaskState);
 				return;
 			}
+			gRpcAwaitingResponse = false;
 		}
-
-		if (gRpcTaskState == kTaskStateShuttingDown)
+		else
 		{
+			std::println(stderr, "socket.recv() failed");
 			SetTaskDone(gRpcTaskState);
 			return;
 		}
