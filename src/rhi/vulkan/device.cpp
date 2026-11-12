@@ -418,8 +418,9 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 
 #if defined(_WIN32)
 	// exclusive fullscreen (see Swapchain::SetExclusiveFullscreen; VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME is in
-	// vulkan_win32.h, which needs windows.h)
-	if (SupportsExtension("VK_EXT_full_screen_exclusive", GetDesc().physicalDevice))
+	// vulkan_win32.h, which needs windows.h), where something is presented: it needs the swapchain's extension and the
+	// instance's surface ones (the validation layers built with the 1.4.363 headers say so: every headless client failed)
+	if (instance.GetConfig().presentation && SupportsExtension("VK_EXT_full_screen_exclusive", GetDesc().physicalDevice))
 		desiredExtensions.emplace_back("VK_EXT_full_screen_exclusive");
 #endif
 	
