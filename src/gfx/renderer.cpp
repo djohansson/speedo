@@ -2423,8 +2423,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myGpuCulling = myDrawStreams.front().indirect && (gpuCulling == nullptr || std::string_view(gpuCulling) != "0");
 	myCountEmulated = !limits.drawIndirectCount || limits.drawIndirectCountEmulated;
 	myGiMaxVolumeSide = limits.maxImageDimension3d;
-	// the indirect lighting, when FrameInputs::indirectLighting says (View > Indirect Lighting, SPEEDO_GI=1 to start with
-	// it), at FrameInputs::giResolution voxels along the scene's longest axis (View > Indirect Lighting Resolution,
+	// the indirect lighting, when FrameInputs::indirectLighting says (View > Indirect Lighting, on by default, SPEEDO_GI=0
+	// to start without it), at FrameInputs::giResolution voxels along the scene's longest axis (View > Indirect Lighting Resolution,
 	// SPEEDO_GI_RESOLUTION), and the surface cache's rays a voxel a frame and most samples (see GiData::cacheRayCount)
 	if (const char* rays = std::getenv("SPEEDO_GI_CACHE_RAYS"); rays != nullptr && *rays != '\0')
 		myGiCacheRayCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(rays, nullptr, 10)), 1U, 64U);

@@ -8,7 +8,7 @@
 namespace gfx
 {
 
-// temporal upscaling (FSR 2's, see upscale.slang): the frame rendered at a share of the output's size each way and
+// temporal upscaling (FSR 3.1's, see upscale.slang): the frame rendered at a share of the output's size each way and
 // reconstructed at it over frames, from jittered projections (see Views::Upload). off draws at the output's size,
 // without a history; native reconstructs at the output's size (antialiasing alone). View > Upscaling, SPEEDO_UPSCALING
 enum class Upscaling : uint8_t

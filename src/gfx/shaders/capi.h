@@ -379,7 +379,7 @@ extern "C"
 #define DEBUG_VIEW_INDIRECT 13u // the ambient light alone: diffuse and specular (the environment's or the indirect lighting's)
 #define DEBUG_VIEW_INDIRECT_DIFFUSE 14u // the ambient irradiance over pi, a white surface's (whatever lights it)
 #define DEBUG_VIEW_INDIRECT_SPECULAR 15u // the ambient specular alone
-// the indirect lighting's (SPEEDO_GI=1), up to DEBUG_VIEW_GI_END: GiData::debug is the view - DEBUG_VIEW_GI_FIRST + 1 (see
+// the indirect lighting's (View > Indirect Lighting), up to DEBUG_VIEW_GI_END: GiData::debug is the view - DEBUG_VIEW_GI_FIRST + 1 (see
 // GiData::debug)
 #define DEBUG_VIEW_GI_FIRST 16u
 #define DEBUG_VIEW_GI_IRRADIANCE 16u // its indirect diffuse alone, a white surface's (magenta where no clip covers it)
@@ -1442,7 +1442,9 @@ struct GiData
 	// indirect diffuse light alone (a white surface's), 2 with the probes' visibility (the weight of the probes around a
 	// point, see ComputeGiResolve), 3 with the radiance of the voxel behind the point (4: in front of it), 5 with its
 	// albedo (magenta where there is none, cyan outside the volume), 6 the probes' reference (see ComputeGiProbeUpdate),
-	// 7 the clip a point is lit by, 8 the indirect diffuse with the clip's voxel and probe cells drawn
+	// 7 the clip a point is lit by, 8 the indirect diffuse with the clip's voxel and probe cells drawn, 9 to 11 the first
+	// voxel each pixel's ray meets (its radiance, albedo, normal), 12 the probes' irradiance unmasked, 13 the surface
+	// reference, 14 the probes' state: DEBUG_VIEW_GI_FIRST to DEBUG_VIEW_GI_END above
 	alignas(4) UINT1(debug);
 	// the clip's first voxel in gGiVoxels and first cell in gGiLightCells; the clipmap's clip count, and this clip's index
 	// (the coarser levels follow it in gGi, see SHADER_TYPES_GI_CLIP_COUNT), its level (0 the finest) and the next coarser

@@ -99,9 +99,9 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow", "Traced Shadow", DEBUG_VIEW_TRACED_SHADOW, "The first traced light's shadow (View > Ray Traced Shadows), as the main pass takes it: a ray a pixel through the BVH, filtered over the penumbra's width. Magenta where none is traced."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-raw", "Traced Shadow (rays)", DEBUG_VIEW_TRACED_SHADOW_RAW, "The first traced light's shadow rays as traced, before the filter: a ray a pixel toward a point of the light's disk, the 16 points over each 4x4 pixels."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-reference", "Traced Shadow (reference)", DEBUG_VIEW_TRACED_SHADOW_REFERENCE, "The first traced light's shadow where the shadow atlas isn't sure, by 256 rays a pixel over the light's disk, unfiltered: what the filtered shadow should look like. Slow."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"emitters", "Emissive Light (white)", DEBUG_VIEW_EMITTERS, "The emissive surfaces' light (View > Emissive Lights) a white surface reflects, as the main pass takes it: sampled at every 4th pixel each way (SPEEDO_EMITTER_STRIDE), filtered and accumulated over frames, and upsampled. Magenta where it isn't gathered."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-raw", "Emissive Light (rays)", DEBUG_VIEW_EMITTERS_RAW, "The emissive surfaces' light as the traced pixels' rays gathered it this frame, a point and its shadow ray every 4th pixel each way, before the filter and the frames."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-reference", "Emissive Light (reference)", DEBUG_VIEW_EMITTERS_REFERENCE, "The emissive surfaces' light by 64 independent estimates every 4th pixel each way (accumulated while the camera is still), each its own candidates and shadow ray, nothing reused or filtered: what the filtered light should look like. Slow."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"emitters", "Emissive Light (white)", DEBUG_VIEW_EMITTERS, "The emissive surfaces' light (View > Emissive Lights) a white surface reflects, as the main pass takes it: sampled at every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE), filtered and accumulated over frames, and upsampled. Magenta where it isn't gathered."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-raw", "Emissive Light (rays)", DEBUG_VIEW_EMITTERS_RAW, "The emissive surfaces' light as the traced pixels' rays gathered it this frame, a point and its shadow ray every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE), before the filter and the frames."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-reference", "Emissive Light (reference)", DEBUG_VIEW_EMITTERS_REFERENCE, "The emissive surfaces' light by 64 independent estimates every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE; accumulated while the camera is still), each its own candidates and shadow ray, nothing reused or filtered: what the filtered light should look like. Slow."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"light-count", "Light Count", DEBUG_VIEW_LIGHT_COUNT, "The lights each pixel loops over (its cluster's): blue 1, cyan to green about 15, red 255 or more."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-irradiance", "Irradiance", DEBUG_VIEW_GI_IRRADIANCE, "The indirect lighting's diffuse alone, a white surface's. Magenta where no clip covers a point."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-visibility", "Probe Visibility", DEBUG_VIEW_GI_VISIBILITY, "The weight of the probes around a point: how much of them it sees (by their depth maps). Dark where it sees little (inside walls, in corners)."}},
@@ -113,7 +113,7 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world", "Voxel World", DEBUG_VIEW_GI_VOXEL_WORLD, "The voxels themselves, as the probes' rays see them: each pixel's ray from the eye through the clips, and the radiance of the first voxel it meets (the sky where it meets none)."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world-albedo", "Voxel World Albedo", DEBUG_VIEW_GI_VOXEL_WORLD_ALBEDO, "The albedo of the first voxel each pixel's ray meets (dark blue where it meets none)."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world-normal", "Voxel World Normal", DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL, "The normal of the first voxel each pixel's ray meets, dimmed where it faces away from the eye (lit from behind what is seen)."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-surface-reference", "Surface Reference (slow)", DEBUG_VIEW_GI_SURFACE_REFERENCE, "The irradiance at each point itself, from 256 rays through the voxels: what the probes' lookups should come to there (the probe reference is at the probes, a probe spacing off a surface). Seconds a frame."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-surface-reference", "Surface Reference (slow)", DEBUG_VIEW_GI_SURFACE_REFERENCE, "The irradiance at each point itself, from 256 rays through the voxels by default (SPEEDO_GI_REFERENCE_RAYS): what the probes' lookups should come to there (the probe reference is at the probes, a probe spacing off a surface). Seconds a frame."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-probe-state", "Probe State", DEBUG_VIEW_GI_PROBE_STATE, "The 8 probes around a point, trilinear: red the share marked inside something, green the share whose depth map toward the point is empty (no ray that way yet), blue the share that fail the visibility test. Black: every probe sees the point."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-probes", "Probes (unmasked)", DEBUG_VIEW_GI_PROBES, "The irradiance of the 8 probes around a point as they hold it, trilinear: without their visibility and the resolve into the voxels, to tell what the probes see from what the lookups make of it."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-reference", "Reference (slow)", DEBUG_VIEW_GI_REFERENCE, "Each probe's light from 512 rays through the voxels straight to the environment, nothing blended: what the probes' rays converge to. Seconds a frame."}},
@@ -3071,7 +3071,7 @@ void WindowedApplication::PrepareDraw()
 				if (Checkbox("Emissive Lights", &emissiveLights))
 					App().GetScene().GetSettings().emissiveLights.store(emissiveLights, std::memory_order_relaxed);
 				SetItemTooltip(
-					"Emissive surfaces light the scene as area lights: points of them picked through a tree of them by how much each may give, at every 4th pixel each way (and in the indirect lighting's voxels), shadowed by rays through the model's BVH. Off, the indirect lighting's rays take their emission as they meet them.");
+					"Emissive surfaces light the scene as area lights: points of them picked through a tree of them by how much each may give, at every 4th pixel each way by default (and in the indirect lighting's voxels), shadowed by rays through the model's BVH. Off, the indirect lighting's rays take their emission as they meet them.");
 				bool culling = App().GetScene().GetSettings().culling.load(std::memory_order_relaxed);
 				if (Checkbox("Culling", &culling))
 					App().GetScene().GetSettings().culling.store(culling, std::memory_order_relaxed);
@@ -3084,7 +3084,7 @@ void WindowedApplication::PrepareDraw()
 				if (Checkbox("Indirect Lighting", &indirectLighting))
 					App().GetScene().GetSettings().indirectLighting.store(indirectLighting, std::memory_order_relaxed);
 				SetItemTooltip(
-					"Diffuse ambient light from irradiance probes over a voxel clipmap (experimental, SPEEDO_GI=1 to start with it): "
+					"Diffuse ambient light from irradiance probes over a voxel clipmap (on by default, SPEEDO_GI=0 to start without it): "
 					"bounced light, colour bleeding, and the sky occluded indoors. Turned on, the scene is voxelized again.");
 				if (ui::BeginMenu("Indirect Lighting Rays"))
 				{
@@ -3224,7 +3224,7 @@ void WindowedApplication::PrepareDraw()
 				}
 				if (ui::BeginMenu("Upscaling"))
 				{
-					// temporal upscaling (FSR 2's, see upscale.slang): the render size a share of the output's, reconstructed at it over frames
+					// temporal upscaling (FSR 3.1's, see upscale.slang): the render size a share of the output's, reconstructed at it over frames
 					auto current = App().GetScene().GetSettings().upscaling.load(std::memory_order_relaxed);
 					for (auto [label, upscaling, tooltip] : std::array{
 							 std::tuple{"Off", gfx::Upscaling::kOff, "Rendered at the output's size, without a history (SPEEDO_UPSCALING=off)."},

@@ -54,7 +54,7 @@ namespace views
 {
 
 // the textures' mip bias while jittering (see ViewData::textureLodBias), past the render scale's: the resolve averages
-// what the frames sampled, so they may sample finer (FSR 2 takes a whole level, which shimmers more)
+// what the frames sampled, so they may sample finer (FSR's recommendation takes a whole level, which shimmers more)
 constexpr float kJitterTextureLodBias = -0.5F;
 
 // the radical inverse of index in base: Halton's sequence

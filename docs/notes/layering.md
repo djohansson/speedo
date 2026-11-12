@@ -211,8 +211,8 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   name). `SPEEDO_BROWSE=<dir>`,
   `SPEEDO_BROWSE_SELECT=<path>[;<path>...]` (paths from the folder), `SPEEDO_BROWSE_ENVIRONMENT=1`, `SPEEDO_BROWSE_RECURSIVE=0`,
   `SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>`, `SPEEDO_BROWSE_GROUND=0` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at
-  startup, for tests and screenshots (`SPEEDO_BROWSE_OPEN_FRAME_COUNT=<n>` opens once the preview has loaded the selection
-  that many frames: a double click, whose first click started it; a preview is given up when the browser closes, its
+  startup, for tests and screenshots (`SPEEDO_BROWSE_OPEN_FRAME_COUNT=<n>` opens that many frames after the preview starts
+  loading the selection: a double click, whose first click started it; a preview is given up when the browser closes, its
   loads cancelled). Tiles show thumbnails (`client::Thumbnails`, `client/thumbnails.h`): rgba8 in
   one imgui texture registered with `ImGui::RegisterUserTexture` (an atlas of 160 pixel slots, 24x24, reused least
   recently drawn first: the renderer's texture slots, `SHADER_TYPES_IMGUI_TEXTURE_COUNT`, wouldn't hold one each), made on the task executor (4 at a

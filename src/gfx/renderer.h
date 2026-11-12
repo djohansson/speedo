@@ -509,7 +509,7 @@ private:
 	// (myCullCommands, myCullCounts). each list's first job (kNoJob: not culled on the gpu), and the job count, and the
 	// most candidates of a job, the Cull pass's dispatch
 	static constexpr uint32_t kNoJob = ~0U;
-	bool myGpuCulling = false;
+	bool myGpuCulling = true; // where the draws are indirect, unless SPEEDO_GPU_CULLING=0 (the constructor decides)
 	GrowingBuffers myCullCandidates;
 	GrowingBuffers myCullCommandBuffers;
 	GrowingBuffers myCullCountBuffers;
@@ -535,7 +535,7 @@ private:
 	// the main pass's draws seen last frame first, then a depth pyramid of the main depth, then the rest that it doesn't
 	// hide (Main Late). the visibility per draw and main view (gCullVisibility), kept from frame to frame, growing
 	bool myOcclusionCulling = true;
-	bool myShadowOcclusionCulling = true;
+	bool myShadowOcclusionCulling = false; // SPEEDO_SHADOW_OCCLUSION_CULLING=1 (the constructor decides)
 	bool myOcclusionThisFrame = false;
 	// how what is hidden is found (SPEEDO_OCCLUSION_MODE): two-phase (the draws seen last frame, a pyramid of them, then
 	// the rest), reprojected (one phase, against the last frame's depth reprojected, see ComputeDepthReproject) or hybrid
