@@ -172,7 +172,6 @@ struct GiClipView
 	uint4 volumeImage; // see GiData::volumeImage
 	uint volumeImageX;
 	uint voxelFirst;
-	uint radianceFirst;
 	uint flagFirst;
 	uint frameStamp;
 	uint clip;
@@ -191,7 +190,6 @@ GiClipView GiClipViewAt(uint clip)
 	view.volumeImage = gGi[gPushConstants.frameIndex][clip].volumeImage;
 	view.volumeImageX = gGi[gPushConstants.frameIndex][clip].volumeImageX;
 	view.voxelFirst = gGi[gPushConstants.frameIndex][clip].voxelFirst;
-	view.radianceFirst = gGi[gPushConstants.frameIndex][clip].radianceFirst;
 	view.flagFirst = gGi[gPushConstants.frameIndex][clip].flagFirst;
 	view.frameStamp = gGi[gPushConstants.frameIndex][clip].frameStamp;
 	view.clip = clip;
@@ -234,7 +232,7 @@ float4 GiRadianceAt(GiData gi, int3 voxel)
 	uint3 size = GiLevelSize(gi, 0);
 	if (!GiInside(voxel, size))
 		return 0.0;
-	return GiUnpackRgba16(gGiRadiance[gi.radianceFirst + GiVoxelIndex(uint3(voxel), size)]);
+	return GiUnpackRgba16(gGiRadiance[gi.voxelFirst + GiVoxelIndex(uint3(voxel), size)]);
 }
 
 // how far along a ray from origin (world space) it stays in a clip's box around the eye (GiData::fadeCenter): the
@@ -348,7 +346,7 @@ float4 GiMarch(GiData gi, float3 origin, float3 direction, float end, bool skipE
 			if (!skipped)
 			{
 				uint index = GiVoxelIndex(uint3(voxel), size);
-				float4 found = GiUnpackRgba16(gGiRadiance[clip.radianceFirst + index]);
+				float4 found = GiUnpackRgba16(gGiRadiance[clip.voxelFirst + index]);
 				if (found.a > 0.0)
 				{
 					// the voxel a back face alone wrote is a surface's shell on its open side (see GiOccluderHit): passed, and
@@ -658,7 +656,7 @@ float3 GiRadianceAtHit(uint firstClip, float3 position, float3 normal, out float
 		if (!GiInside(voxel, size))
 			continue;
 		uint index = GiVoxelIndex(uint3(voxel), size);
-		float4 found = GiUnpackRgba16(gGiRadiance[clip.radianceFirst + index]);
+		float4 found = GiUnpackRgba16(gGiRadiance[clip.voxelFirst + index]);
 		if (found.a > 0.0)
 		{
 			GiVoxel met = gGiVoxels[clip.voxelFirst + index];
@@ -1243,10 +1241,10 @@ float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool 
 	return emission + albedo.rgb / 3.14159265 * irradiance + (emitters ? GiEmitterRadiance(gi, at, voxel, albedo, moving, open) : 0.0);
 }
 
-// the static voxels' direct radiance (GiData::directFirst), when the clip is voxelized or the lights change: before what
+// the static voxels' direct radiance (gGiDirect), when the clip is voxelized or the lights change: before what
 // moves is voxelized over them, so that nothing moving shadows it for good. the part the lights don't change (the
 // emitters' light, and how far each voxel is open along its normal, see GiOpenAlong: a ray once a voxelizing) is kept
-// (GiData::keptFirst) and taken as it is where the lights changed alone (GiData::lightsOnly): with the emitters' samples
+// (gGiKept) and taken as it is where the lights changed alone (GiData::lightsOnly): with the emitters' samples
 // and shadow rays every time, the sky's sun moving every frame cost Bistro's street 72 ms a frame, 13 without them
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
@@ -1270,7 +1268,7 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 		uint3 at = uint3(voxelIndex % size.x, (voxelIndex / size.x) % size.y, voxelIndex / (size.x * size.y));
 		if (gi.lightsOnly != 0u)
 		{
-			float4 keptValue = GiUnpackRgba16(gGiRadiance[gi.keptFirst + voxelIndex]);
+			float4 keptValue = GiUnpackRgba16(gGiKept[gi.voxelFirst + voxelIndex]);
 			kept = keptValue.rgb;
 			open = keptValue.a * gi.volumeOrigin.w;
 		}
@@ -1282,10 +1280,10 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 		radiance = GiDirectRadiance(gi, at, voxel, albedo, false, open, false) + kept;
 	}
 	if (gi.lightsOnly == 0u)
-		gGiRadiance[gi.keptFirst + voxelIndex] = GiPackRgba16(float4(kept, open / gi.volumeOrigin.w));
-	gGiRadiance[gi.directFirst + voxelIndex] = GiPackRgba16(float4(radiance, open / gi.volumeOrigin.w));
+		gGiKept[gi.voxelFirst + voxelIndex] = GiPackRgba16(float4(kept, open / gi.volumeOrigin.w));
+	gGiDirect[gi.voxelFirst + voxelIndex] = GiPackRgba16(float4(radiance, open / gi.volumeOrigin.w));
 	// and the frame's radiance from nothing: the frame's lighting skips the blocks nothing is near, whose voxels must hold 0
-	gGiRadiance[gi.radianceFirst + voxelIndex] = uint2(0, 0);
+	gGiRadiance[gi.voxelFirst + voxelIndex] = uint2(0, 0);
 }
 
 // before what moves is voxelized over the static voxels: the blocks it was voxelized in last frame (see gGiFlags'
@@ -1342,7 +1340,7 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 	float4 albedo = GiUnpackRgba8(voxel.albedo);
 	if (albedo.a == 0.0)
 	{
-		gGiRadiance[gi.radianceFirst + threadId.x] = uint2(0, 0);
+		gGiRadiance[gi.voxelFirst + threadId.x] = uint2(0, 0);
 		return;
 	}
 	// its block holds something this frame (see gGiFlags): a plain store, every voxel of the block storing the same (an
@@ -1356,7 +1354,7 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 	gGiFlags[flagIndex] = (gi.frameStamp << SHADER_TYPES_GI_FLAG_STAMP_SHIFT) | (gGiFlags[flagIndex] & 0xFu);
 	GiVoxel kept = gGiStaticVoxels[index];
 	bool still = kept.albedo == voxel.albedo && kept.normal == voxel.normal;
-	float4 direct = GiUnpackRgba16(gGiRadiance[gi.directFirst + threadId.x]);
+	float4 direct = GiUnpackRgba16(gGiDirect[gi.voxelFirst + threadId.x]);
 	// how far it is open along its normal (see GiOpenAlong): a static voxel's as kept, a moving one's as far as it reaches
 	// (not traced a frame: what moves is rarely in a slot thinner than a voxel)
 	float open = still ? direct.a * gi.volumeOrigin.w : kGiOpenReach * gi.volumeOrigin.w;
@@ -1378,7 +1376,7 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 		if (!any(isnan(bounce)) && !any(isinf(bounce)))
 			radiance += albedo.rgb * max(bounce, 0.0);
 	}
-	gGiRadiance[gi.radianceFirst + threadId.x] = GiPackRgba16(float4(radiance, 1.0));
+	gGiRadiance[gi.voxelFirst + threadId.x] = GiPackRgba16(float4(radiance, 1.0));
 }
 
 // the flags (gGiFlags, see SHADER_TYPES_GI_FLAG_LEVEL): per block of voxels, after the voxels are lit (which stamps the
@@ -2752,7 +2750,7 @@ float GiCacheEstimate(float3 direction, float3 normal)
 float3 GiCacheOrigin(GiData gi, uint3 at, float3 away)
 {
 	uint3 size = GiLevelSize(gi, 0);
-	float open = GiUnpackRgba16(gGiRadiance[gi.directFirst + GiVoxelIndex(at, size)]).a * gi.volumeOrigin.w;
+	float open = GiUnpackRgba16(gGiDirect[gi.voxelFirst + GiVoxelIndex(at, size)]).a * gi.volumeOrigin.w;
 	float3 center = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
 	return center + away * min(gi.volumeOrigin.w, 0.5 * open);
 }
@@ -3495,7 +3493,7 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 			visibilityBits = kGiVisibilityValid;
 		// no further than halfway to a surface facing back at it (see GiOpenAlong)
 		if ((voxel.albedo >> 24) != 0u)
-			tracedPoint += GiVoxelNormal(voxel.normal) * (min(0.5, 0.5 * GiUnpackRgba16(gGiRadiance[gi.directFirst + voxelIndex]).a) * gi.volumeOrigin.w);
+			tracedPoint += GiVoxelNormal(voxel.normal) * (min(0.5, 0.5 * GiUnpackRgba16(gGiDirect[gi.voxelFirst + voxelIndex]).a) * gi.volumeOrigin.w);
 	}
 	// between the block's cell's probes (the moved center may be past the cell: clamped, since only its probes are in
 	// shared memory; read past them, the floor behind Sponza's fountains came out as black and colored garbage)
@@ -4011,7 +4009,7 @@ float3 GiVoxelWorldDebug(float3 eye, float3 direction, uint debugView)
 	}
 	GiData gi = GiClip(clip);
 	uint local = index - gi.voxelFirst;
-	return GiUnpackRgba16(gGiRadiance[gi.radianceFirst + local]).rgb;
+	return GiUnpackRgba16(gGiRadiance[gi.voxelFirst + local]).rgb;
 }
 
 // the debug view of the probes' state (DEBUG_VIEW_GI_PROBE_STATE): of the 8 probes around the point of the finest clip

@@ -723,7 +723,7 @@ private:
 	Buffer myGiStaticVoxelBuffer;
 	FrameGraph::BufferId myGiStaticVoxels;
 	FrameGraph::PassId myGiKeepPass;
-	// the static voxels' direct light (GiData::directFirst) is made again when the lights change: the last frame's lights,
+	// the static voxels' direct light (gGiDirect) is made again when the lights change: the last frame's lights,
 	// and the fog they come through (see AerialPerspectiveData::fog)
 	FrameGraph::PassId myGiLightStaticPass;
 	std::vector<LightData> myGiLights;
@@ -935,7 +935,9 @@ private:
 	FrameGraph::PassId myGiRestorePass;
 	FrameGraph::PassId myGiVoxelizeMovingPass;
 	Buffer myGiVoxelBuffer;
-	Buffer myGiRadianceBuffer;
+	Buffer myGiRadianceBuffer; // the voxels' radiance: the frame's, the static voxels' direct, its kept part (GiData::voxelFirst)
+	Buffer myGiDirectBuffer;
+	Buffer myGiKeptBuffer;
 	Buffer myGiRayBuffer;
 	Buffer myGiIrradianceBuffer;
 	Buffer myGiProbeDepthBuffer;
@@ -957,6 +959,8 @@ private:
 	GrowingBuffers myGiLightIndices;
 	FrameGraph::BufferId myGiVoxels;
 	FrameGraph::BufferId myGiRadiance;
+	FrameGraph::BufferId myGiDirect;
+	FrameGraph::BufferId myGiKept;
 	FrameGraph::BufferId myGiRays;
 	FrameGraph::BufferId myGiIrradiance;
 	FrameGraph::PassId myGiClearPass;

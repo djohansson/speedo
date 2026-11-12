@@ -33,12 +33,7 @@ Layout MakeLayout(
 	data.voxelFirst = first.voxelCount;
 
 	data.volumeSize[3] = 0;
-	// the radiance: the frame's per voxel, then the static voxels' direct radiance, then the part of it the lights don't
-	// change (see GiData::keptFirst)
-	data.radianceFirst = first.radianceCount;
-	data.directFirst = first.radianceCount + layout.voxelCount;
-	data.keptFirst = first.radianceCount + (2 * layout.voxelCount);
-	layout.radianceCount = 3 * layout.voxelCount;
+	// the radiance buffers (gGiRadiance, gGiDirect, gGiKept) hold a texel per voxel, at voxelFirst too
 	auto flagSize = LevelVoxels(size, SHADER_TYPES_GI_FLAG_LEVEL);
 	layout.flagCount = flagSize.x * flagSize.y * flagSize.z;
 	// in words (see GiFlagIndex): as blocks, the clips' flags overlapped, each clip's second half the next clip's first
@@ -163,7 +158,6 @@ Clipmap MakeClipmap(
 		uint32_t lastClip = clipCount - 1;
 		layout.data.coarser = lastLevel ? clipIt : std::min(clipIt + eyeCount, lastClip);
 		first.voxelCount += layout.voxelCount;
-		first.radianceCount += layout.radianceCount;
 		first.probeCount += layout.probeCount;
 		first.flagCount += layout.flagCount;
 		clipmap.clips.push_back(layout);

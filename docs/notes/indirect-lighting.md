@@ -63,13 +63,18 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   are cleared first (the GI Clear pass: every GI buffer and the volumes filled with 0 when they were replaced,
   `myGiClearBuffers`): the resolve writes only the blocks near a surface, and a lookup's filter reaches into the ones
   beside them, which held whatever their memory had (cyan and red over Bistro's square, in one run of two). Each has its own voxels, radiance, probes
-  and flags, at its offsets in the shared buffers (`GiData::voxelFirst`, `radianceFirst`, `probeFirst`,
+  and flags, at its offsets in the shared buffers (`GiData::voxelFirst`, the radiance buffers' too, `probeFirst`,
   `lightCellFirst`, `flagFirst`; the resolve's volumes stack the clips' slabs along z, `GiData::volumeImage`: the
   images' texels per axis and the clip's first along z;
   `gGi[frame][clip]`), and the kernels take theirs from `PushConstants::giClip`. The flags' offset is in words
   (`SHADER_TYPES_GI_FLAG_WORD_COUNT` a block): in blocks, each clip's second half of flags was the next clip's first,
   whose kernels rewrote them (its bits, and other blocks' stamps), so in the finer clips' far halves blocks near a
   surface went unresolved and probes untraced, at random (found 2026-10-22 reading the flags from the rays' walk). A
+  voxel's radiance is a uint2 in each of three buffers: the frame's (`gGiRadiance`), the static voxels' direct
+  (`gGiDirect`) and its part the lights don't change (`gGiKept`). They were one buffer of three parts
+  (`GiData::radianceFirst`, `directFirst`, `keptFirst`) until 2026-11-12: 144 MiB at the default resolution, past a
+  storage buffer binding's range where the device's `maxStorageBufferRange` is 128 MiB (lavapipe; the validation
+  layer's VUID-VkWriteDescriptorSet-descriptorType-00333 in `visualtest.ps1 -Validate`'s furnace check). A
   clip's rays (`GiMarch`) and shadow rays (`GiOccluderDistance`) that leave it go on through the coarser ones (a box is
   never entered again). All are made again when the model, its bounds or its draws change; a clip that moves scrolls
   (`GiData::scroll`, in voxels, whole probe cells): GI Shift (`ComputeGiShift`) gives each voxel the static one kept at
@@ -180,11 +185,11 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   drew the slot as a band brighter than the room (488 of 765 against the wall's 330 at the user's pose
   `13.6266,14.4950,35.7340,16.977,4.625`, the slot's wall seen from above), now 66 to 133, fading out toward its opening.
   A voxelizing's GI Light Static took 0.14 to 0.24 ms in Sponza, 0.92 to 1.41 in Bistro's street. The
-  static voxels' is kept (GI Light Static, `ComputeGiLightStatic`, into `GiData::directFirst` of `gGiRadiance`) and
+  static voxels' is kept (GI Light Static, `ComputeGiLightStatic`, into `gGiDirect`) and
   made again when a clip is voxelized or the lights change (`Renderer::myGiLights`, compared bytewise: the environment's
   rotation turns its dominant lights, which are among them, and the sky's sun moves with the time of day). The part the
   lights don't change, the emitters' light and how far each voxel is open (`GiOpenAlong`), is kept apart
-  (`GiData::keptFirst`) and taken as it is where the lights changed alone (`GiData::lightsOnly`): remade with them, the
+  (`gGiKept`) and taken as it is where the lights changed alone (`GiData::lightsOnly`): remade with them, the
   sun moving every frame cost Bistro's street 72 ms a frame (its emitters' samples and shadow rays per voxel), 10 now. A
   change of the same lights turned by under 2 degrees and dimmed by under a quarter is gradual
   (`Renderer::myGiLightsGradual`): the surface cache keeps what it has rather than starting over, sampling as where

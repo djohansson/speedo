@@ -52,7 +52,7 @@ inline constexpr uint32_t kDefaultNearStride = 4;
 }
 
 // a volume of size voxels from origin, and its probes: one every probeSpacing voxels. the counts are what the
-// buffers hold for it: voxels, radiance texels (the frame's per voxel, then the direct radiance's), probes and
+// buffers hold for it: voxels (and as many texels in each radiance buffer, see GiData::voxelFirst), probes and
 // flags (see GiData::flagFirst); its GiData's offsets are after first's
 // counts (a clip before it in the buffers; the probes' halves and the rays' offsets are the renderer's, see
 // GiData::probeFirst). origin is a whole number of voxels from anchor, the clipmap's corner
@@ -60,7 +60,6 @@ struct Layout
 {
 	GiData data{};
 	uint32_t voxelCount = 0;
-	uint32_t radianceCount = 0;
 	uint32_t probeCount = 0;
 	uint32_t flagCount = 0;
 };

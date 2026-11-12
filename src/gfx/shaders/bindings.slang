@@ -203,8 +203,14 @@ RWStructuredBuffer<uint> gCullStatistics[SHADER_TYPES_FRAME_COUNT];
 StructuredBuffer<GiData> gGi[SHADER_TYPES_FRAME_COUNT];
 [[vk::binding(22, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<GiVoxel> gGiVoxels;
+// a voxel's radiance, a uint2 each at GiData::voxelFirst: the frame's, the static voxels' direct, and its part the
+// lights don't change (see GiData::voxelFirst)
 [[vk::binding(23, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint2> gGiRadiance;
+[[vk::binding(54, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint2> gGiDirect;
+[[vk::binding(55, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint2> gGiKept;
 [[vk::binding(24, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint2> gGiRays;
 [[vk::binding(25, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]

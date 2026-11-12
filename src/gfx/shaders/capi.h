@@ -1454,16 +1454,14 @@ struct GiData
 	alignas(4) UINT1(level);
 	alignas(4) UINT1(coarser);
 	alignas(4) UINT1(volumeImageX);
-	// the clip's first voxel in gGiRadiance (the frame's radiance per voxel, what the rays see: ComputeGiLight), and where
-	// after them the voxels' direct radiance is kept: the lights' light off the static voxels,
-	// made when the clip is voxelized or the lights change (ComputeGiLightStatic), which the frame's lighting adds the
-	// bounce to (ComputeGiLight: a moving voxel's is made in the frame)
-	alignas(4) UINT1(radianceFirst);
-	alignas(4) UINT1(directFirst);
-	// and where the part of it the lights don't change is kept: the emissive surfaces' light off the static voxels, and how
-	// far each is open along its normal (see GiOpenAlong), made when the clip is voxelized or the emitters start or stop
-	// lighting, so that a light that moves (the sky's sun as the time of day advances) lights the voxels again alone
-	alignas(4) UINT1(keptFirst);
+	// a voxel's radiance, in three buffers of a uint2 per voxel, each at voxelFirst: gGiRadiance, the frame's (what the
+	// rays see: ComputeGiLight); gGiDirect, the lights' light off the static voxels, made when the clip is voxelized or
+	// the lights change (ComputeGiLightStatic), which the frame's lighting adds the bounce to (ComputeGiLight: a moving
+	// voxel's is made in the frame); and gGiKept, the part of that the lights don't change: the emissive surfaces' light
+	// off the static voxels, and how far each is open along its normal (see GiOpenAlong), made when the clip is voxelized
+	// or the emitters start or stop lighting, so that a light that moves (the sky's sun as the time of day advances)
+	// lights the voxels again alone. three buffers rather than one of three parts: one was 144 MiB at the default
+	// resolution, past a storage buffer's binding range where the device's maxStorageBufferRange is 128 MiB (lavapipe)
 	// the clip's first flag in gGiFlags: per voxel of level 2 (a 4x4x4 block), whether anything is voxelized near it
 	// (see ComputeGiFlags)
 	alignas(4) UINT1(flagFirst);
@@ -1495,7 +1493,7 @@ struct GiData
 	// from its rays, and the voxels are lit by the lights alone
 	alignas(4) UINT1(reset);
 	// whether ComputeGiLightStatic lights the static voxels again for the lights alone (they changed, the clip wasn't
-	// voxelized, and the emitters lit as before), taking the part of their light kept (see keptFirst) as it is; and which
+	// voxelized, and the emitters lit as before), taking the part of their light kept (gGiKept) as it is; and which
 	// share of them it lights this update (every relightPhaseCount-th voxel from relightPhase: a gradual change of the
 	// lights, the sun moving, is taken in over that many updates, see Renderer::GiClipClock::relightPhase; 1 is all)
 	alignas(4) UINT1(lightsOnly);

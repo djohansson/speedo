@@ -569,6 +569,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// the indirect lighting's (see InternalPlanGi): the persistent buffers, a texel each until a model is voxelized
 	myGiVoxels = myGraph.ImportBuffer("GI Voxels");
 	myGiRadiance = myGraph.ImportBuffer("GI Radiance");
+	myGiDirect = myGraph.ImportBuffer("GI Direct");
+	myGiKept = myGraph.ImportBuffer("GI Kept");
 	myGiRays = myGraph.ImportBuffer("GI Rays");
 	myGiIrradiance = myGraph.ImportBuffer("GI Irradiance");
 	myGiProbeDepth = myGraph.ImportBuffer("GI Probe Depth");
@@ -585,6 +587,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			 std::tuple{&myGiVoxelBuffer, "GI Voxels", sizeof(GiVoxel)},
 			 std::tuple{&myGiStaticVoxelBuffer, "GI Static Voxels", sizeof(GiVoxel)},
 			 std::tuple{&myGiRadianceBuffer, "GI Radiance", 2 * sizeof(uint32_t)},
+			 std::tuple{&myGiDirectBuffer, "GI Direct", 2 * sizeof(uint32_t)},
+			 std::tuple{&myGiKeptBuffer, "GI Kept", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiRayBuffer, "GI Rays", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiIrradianceBuffer, "GI Irradiance", SHADER_TYPES_GI_IRRADIANCE_COUNT * 4 * sizeof(float)},
 			 std::tuple{&myGiProbeDepthBuffer, "GI Probe Depth", sizeof(uint32_t)},
@@ -1174,7 +1178,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		"GI Clear",
 		[this](FrameGraph::PassBuilder& builder)
 		{
-			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility, myGiCache})
+			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiDirect, myGiKept, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility, myGiCache})
 				builder.Use(buffer, ResourceUse::TransferDestination());
 			// the volumes too: the resolve writes only the blocks near a surface, and a lookup's filter reaches into the
 			// ones beside them
@@ -1184,7 +1188,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this](FrameGraph::PassContext& context)
 		{
 			CommandEncoder encoder(context.cmd);
-			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility, myGiCache})
+			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiDirect, myGiKept, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility, myGiCache})
 				encoder.FillBuffer(context.graph.GetBuffer(buffer), 0, 0, 0);
 			for (auto volume : myGiVolumes)
 				context.graph.GetImage(volume).Clear(context.cmd, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
@@ -1240,13 +1244,16 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 							myGiVoxelBuffer, myGiStaticVoxelBuffer, layout.voxelCount * sizeof(GiVoxel), layout.data.voxelFirst * sizeof(GiVoxel));
 				});
 		});
-	// the static voxels' direct light, kept (GiData::directFirst): when a clip is voxelized, or the lights change
+	// the static voxels' direct light, kept (gGiDirect, and its part the lights don't change, gGiKept): when a clip is
+	// voxelized, or the lights change
 	myGiLightStaticPass = myGraph.AddPass(
 		"GI Light Static",
 		[this](FrameGraph::PassBuilder& builder)
 		{
 			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myGiDirect, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myGiKept, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
 		[this, giKernel, clips](FrameGraph::PassContext& context)
 		{
@@ -1312,6 +1319,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{
 			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myGiDirect, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiRays, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiProbeDepth, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
@@ -3097,6 +3105,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	for (auto [name, buffer] : std::array{
 			 std::pair{"gGiVoxels", &myGiVoxelBuffer},
 			 std::pair{"gGiRadiance", &myGiRadianceBuffer},
+			 std::pair{"gGiDirect", &myGiDirectBuffer},
+			 std::pair{"gGiKept", &myGiKeptBuffer},
 			 std::pair{"gGiRays", &myGiRayBuffer},
 			 std::pair{"gGiIrradiance", &myGiIrradianceBuffer},
 			 std::pair{"gGiProbeDepth", &myGiProbeDepthBuffer},
@@ -4109,6 +4119,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myFrameStatistics.Write().Get() = myFrameStatisticsThisFrame;
 	myGraph.Bind(myGiVoxels, myGiVoxelBuffer);
 	myGraph.Bind(myGiRadiance, myGiRadianceBuffer);
+	myGraph.Bind(myGiDirect, myGiDirectBuffer);
+	myGraph.Bind(myGiKept, myGiKeptBuffer);
 	myGraph.Bind(myGiRays, myGiRayBuffer);
 	myGraph.Bind(myGiIrradiance, myGiIrradianceBuffer);
 	myGraph.Bind(myGiProbeDepth, myGiProbeDepthBuffer);
@@ -4822,12 +4834,16 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			// which probes each voxel sees, in two halves as the probes (see GiData::visibilityFirst)
 			InternalReplaceBuffer(
 				myGiVisibilityBuffer, pipeline, "GI Visibility", "gGiVisibility", 2 * static_cast<uint64_t>(total.voxelCount) * sizeof(uint32_t), kVoxelUsage);
+			// the voxels' radiance, a texel each in three buffers (see GiData::voxelFirst): one of three parts was past
+			// maxStorageBufferRange where that is 128 MiB (lavapipe: 144 MiB at the default resolution)
+			const size_t radianceSize = static_cast<size_t>(total.voxelCount) * 2 * sizeof(uint32_t);
+			InternalReplaceBuffer(myGiRadianceBuffer, pipeline, "GI Radiance", "gGiRadiance", radianceSize);
+			InternalReplaceBuffer(myGiDirectBuffer, pipeline, "GI Direct", "gGiDirect", radianceSize);
+			InternalReplaceBuffer(myGiKeptBuffer, pipeline, "GI Kept", "gGiKept", radianceSize);
 			const auto& size = clipmap.clips.front().data.volumeSize;
 			InternalReplaceGiVolumes(
 				pipeline, glm::uvec3(clipmap.clips.back().data.volumeImage[0], clipmap.clips.back().data.volumeImage[1], clipmap.clips.back().data.volumeImage[2]));
 		}
-		if (total.radianceCount != previous.radianceCount)
-			InternalReplaceBuffer(myGiRadianceBuffer, pipeline, "GI Radiance", "gGiRadiance", total.radianceCount * 2 * sizeof(uint32_t));
 		if (total.flagCount != previous.flagCount)
 			InternalReplaceBuffer(myGiFlagBuffer, pipeline, "GI Flags", "gGiFlags", total.flagCount * SHADER_TYPES_GI_FLAG_WORD_COUNT * sizeof(uint32_t));
 		// the probes' buffers in two halves (see GiData::probeFirst)
@@ -5168,7 +5184,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.hysteresis = hysteresis;
 		clip.reset = myGiReset ? 1 : 0;
 		// the lights alone changed (since the clip was last updated): the part of the static voxels' light they don't change
-		// is kept (see GiData::keptFirst)
+		// is kept (gGiKept)
 		clip.lightsOnly = clock.updated && clock.relight && !clock.emittersToggled && !myGiReset && !myGiClipJobs[clipIt].voxelize ? 1 : 0;
 		clip.relightPhase = clock.relightPhase;
 		clip.relightPhaseCount = clock.relightPhaseCount;
