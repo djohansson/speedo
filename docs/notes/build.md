@@ -519,9 +519,10 @@ same install):
   be part of the download). The SDK's path (`SDKROOT`) isn't tracked: the same SDK from Xcode and from the Command Line
   Tools has two paths, so the shared packages would have matched neither. A minor SDK update keeps the packages (their
   headers differ little; an unguarded call to an API newer than the target would only fail on an older minor macOS).
-- the compiler: the llvm port's version and port version (`LLVM_PORT_VERSION`, from `ports/llvm/vcpkg.json`), tracked by
-  the clang triplets: the target packages are built by that port's clang and link its static libc++, so after an LLVM
-  update the shared cache must not hand out the old ones.
+- the compiler: the llvm port's version and port version (`LLVM_PORT_VERSION`, the version vcpkg installs: an overlay's,
+  else an override's, else the registry baseline's `versions/baseline.json` entry, downloaded once a baseline; see
+  `Get-LlvmPortVersion` in `scripts/binarycache.ps1`), tracked by the clang triplets: the target packages are built by
+  that port's clang and link its static libc++, so after an LLVM update the shared cache must not hand out the old ones.
 - Linux's C library (`GLIBC_VERSION`, `getconf GNU_LIBC_VERSION`), tracked by the Linux triplets, the host's too (LLVM):
   a package built against a newer glibc fails to load with an older one. GitHub's `ubuntu-26.04` has glibc 2.43,
   `ubuntu-24.04` (`ubuntu-latest` until it moves to 26.04) 2.39: a machine seeding the cache for CI runs the same Ubuntu

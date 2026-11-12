@@ -33,6 +33,49 @@ function Get-BinaryCacheSources
 	$Sources -join ';'
 }
 
+# LLVM_PORT_VERSION: the llvm port's version, which the clang triplets track in their packages' ABI
+# (VCPKG_ENV_PASSTHROUGH). The compiler is that port's, a host package of the same install, which vcpkg's compiler
+# tracking can't see (it hashes the compiler before building anything: VCPKG_DISABLE_COMPILER_TRACKING), so without it the
+# shared cache would hand out packages built by an older clang against an older libc++ after an LLVM update. The version
+# vcpkg installs: an overlay's (<root>/ports/llvm), else vcpkg.json's override, else the registry's baseline's
+# (vcpkg-configuration.json), read from the registry's versions/baseline.json at that commit, downloaded once a baseline
+# into downloads (VCPKG_DOWNLOADS)
+function Get-LlvmPortVersion
+{
+	param(
+		[Parameter(Mandatory = $True)] [string] $Root,
+		[Parameter(Mandatory = $True)] [string] $Downloads
+	)
+	$Overlay = Join-Path $Root 'ports/llvm/vcpkg.json'
+	if (Test-Path $Overlay)
+	{
+		$Port = Get-Content -Raw -Path $Overlay | ConvertFrom-Json
+		return "$($Port.version)#$($Port.'port-version' ?? 0)"
+	}
+	$Override = (Get-Content -Raw -Path (Join-Path $Root 'vcpkg.json') | ConvertFrom-Json).overrides | Where-Object name -eq 'llvm'
+	if ($Override)
+	{
+		return "$($Override.version)#$($Override.'port-version' ?? 0)"
+	}
+	$Registry = (Get-Content -Raw -Path (Join-Path $Root 'vcpkg-configuration.json') | ConvertFrom-Json).'default-registry'
+	if ($Registry.repository -notmatch '^https://github\.com/([^/]+/[^/]+?)(\.git)?/?$')
+	{
+		throw "the default registry ($($Registry.repository)) isn't on GitHub: llvm's version is read from its versions/baseline.json there"
+	}
+	$Baseline = Join-Path $Downloads "vcpkg-baseline-$($Registry.baseline).json"
+	if (!(Test-Path $Baseline))
+	{
+		Invoke-WebRequest -Uri "https://raw.githubusercontent.com/$($Matches[1])/$($Registry.baseline)/versions/baseline.json" -OutFile "$Baseline.partial" -MaximumRetryCount 3 -RetryIntervalSec 5
+		Move-Item -Force -Path "$Baseline.partial" -Destination $Baseline
+	}
+	$Llvm = (Get-Content -Raw -Path $Baseline | ConvertFrom-Json -AsHashtable).default['llvm']
+	if (!$Llvm)
+	{
+		throw "the registry's baseline $($Registry.baseline) has no llvm port"
+	}
+	"$($Llvm.baseline)#$($Llvm.'port-version' ?? 0)"
+}
+
 # FASTBuild's cache in the same bucket, a prefix of its own (the objects FBuild's cache plugin stores, see
 # ports/fastbuild-s3cache): read anonymously and written by the same machines, through S3's API at the same endpoint. Its
 # objects expire by age: prune-binary-cache.ps1 deletes what is older than $FastbuildCacheExpiryDays, and the plugin, where

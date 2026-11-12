@@ -81,15 +81,11 @@ $global:Env['VCPKG_ROOT'] = $VcpkgRoot
 $global:Env['VCPKG_DOWNLOADS'] = $env:VCPKG_DOWNLOADS ? $env:VCPKG_DOWNLOADS : (Join-Path $HOME '.vcpkg-tool' 'downloads')
 New-Item -ItemType Directory -Force -Path $global:Env['VCPKG_DOWNLOADS'] | Out-Null
 
-# the llvm port's version, which the clang triplets track in their packages' ABI (VCPKG_ENV_PASSTHROUGH): the compiler is
-# that port's (a host package, which vcpkg's compiler tracking can't see, VCPKG_DISABLE_COMPILER_TRACKING), so without it
-# a shared binary cache would hand out packages built by an older clang against an older libc++ after an LLVM update
-$LlvmPort = Get-Content -Path "$PSScriptRoot/ports/llvm/vcpkg.json" -Raw | ConvertFrom-Json
-$global:Env['LLVM_PORT_VERSION'] = "$($LlvmPort.version)#$($LlvmPort.'port-version' ?? 0)"
-
 # vcpkg's binary sources: the local cache and the shared one (see scripts/binarycache.ps1); the AWS CLI's endpoint and
-# region where this machine writes to the shared one (SPEEDO_BINARY_CACHE_WRITE)
+# region where this machine writes to the shared one (SPEEDO_BINARY_CACHE_WRITE); and the compiler's version, which every
+# package's ABI tracks (see Get-LlvmPortVersion there)
 . $PSScriptRoot/scripts/binarycache.ps1
+$global:Env['LLVM_PORT_VERSION'] = Get-LlvmPortVersion -Root $PSScriptRoot -Downloads $global:Env['VCPKG_DOWNLOADS']
 $global:Env['VCPKG_BINARY_SOURCES'] = Get-BinaryCacheSources
 foreach ($Entry in (Get-BinaryCacheAwsEnvironment).GetEnumerator())
 {
