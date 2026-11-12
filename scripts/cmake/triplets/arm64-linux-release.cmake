@@ -29,7 +29,7 @@ set(
 set(VCPKG_C_FLAGS_RELEASE "-O3 -flto=thin -Wno-gnu-line-marker -Wno-missing-format-attribute")
 set(VCPKG_CXX_FLAGS_RELEASE "-O3 -flto=thin -Wno-gnu-line-marker -Wno-missing-format-attribute")
 set(VCPKG_LINKER_FLAGS_RELEASE "-fuse-ld=lld")
-# vcpkg's llvm port (ports/llvm is it, but for a Windows fix): built with Ninja, since CMake's FASTBuild generator can't
+# vcpkg's llvm port: built with Ninja, since CMake's FASTBuild generator can't
 # build it (see docs/notes/build.md)
 if(PORT STREQUAL "llvm")
 	set(VCPKG_CMAKE_GENERATOR Ninja)

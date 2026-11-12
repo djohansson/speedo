@@ -18,7 +18,7 @@ set(
 )
 set(VCPKG_C_FLAGS_RELEASE "-O3 -flto=thin -Wno-gnu-line-marker -Wno-missing-format-attribute")
 set(VCPKG_CXX_FLAGS_RELEASE "-O3 -flto=thin -Wno-gnu-line-marker -Wno-missing-format-attribute")
-# vcpkg's llvm port (ports/llvm is it, but for a Windows fix): built with Ninja, since CMake's FASTBuild generator can't
+# vcpkg's llvm port: built with Ninja, since CMake's FASTBuild generator can't
 # build it (see docs/notes/build.md); LLVM's libc++ and libc++abi static, since the system's libc++.1.dylib and libc++abi
 # aren't ABI compatible with them (the target packages link them statically); clangd without its XPC service, which
 # nothing here uses

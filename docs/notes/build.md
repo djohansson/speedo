@@ -299,10 +299,11 @@ tool and its scripts bundle (`vcpkg-standalone-bundle.tar.gz`: `scripts/` and `t
 `scripts/vcpkg-tool.json` pins with their SHA-512s, into `~/.vcpkg-tool/<release>` (`SPEEDO_VCPKG_ROOT` for another; not
 `~/.vcpkg`, vcpkg's own one-line install, which updates itself), the downloads in `~/.vcpkg-tool/downloads` (shared by
 every clone and release; `VCPKG_DOWNLOADS`), and the ports' build trees and packages in the clone's `temp/vcpkg`. The
-ports come from the git registry `vcpkg-configuration.json` names (microsoft/vcpkg at the 2026.10.16 release, 9eec002d),
-which vcpkg fetches into `~/.cache/vcpkg/registries` once a machine. The bundle's scripts are a later commit's
-(ab9a05e7, 2026-10-28, tool 2026-10-29) than the ports': newer scripts over a release's ports, as vcpkg's one-line
-install runs them. A bump: the tool release and its hashes in `scripts/vcpkg-tool.json` (upstream's
+ports come from the git registry `vcpkg-configuration.json` names (microsoft/vcpkg at 7f7b217d, its master of
+2026-11-12, past the 2026.10.16 release for the llvm port's fix; it was the release, 9eec002d, until then), which vcpkg
+fetches into `~/.cache/vcpkg/registries` once a machine. The bundle's scripts (ab9a05e7, 2026-10-28, tool 2026-10-29)
+are older than the ports since: a port that calls a newer helper of vcpkg's scripts fails there, and the tool's release
+moves then. A bump: the tool release and its hashes in `scripts/vcpkg-tool.json` (upstream's
 `scripts/vcpkg-tool-metadata.txt` lists the Linux and macOS ones), and the registry's baseline. Every package rebuilds
 then (the scripts a portfile uses, and vcpkg's CMake, are in its hash): seed the shared cache from each platform
 afterwards (see below). An upstream port to rebase an overlay on: `git show <baseline>:ports/<name>/<file>` in the
@@ -353,14 +354,17 @@ FASTBuild generator pitfalls in third-party CMake (see `ports/tracy/0007-*`): a 
 ordered after it, so depend on the produced file (e.g. an `ExternalProject` `INSTALL_BYPRODUCTS`). ld64.lld does not
 add `libobjc` implicitly the way Apple's linker does (`undefined symbol: objc_msgSend`, see `ports/tracy/0008-*`).
 
-`ports/llvm` is vcpkg's own port at the baseline (23.1.3, the 2026.10.16 release's) but for one fix, offered upstream:
-its `libcxx` feature requires `libcxxabi`, which LLVM refuses for MSVC targets (a `FATAL_ERROR` in libcxxabi's
-`CMakeLists.txt`; vcpkg's CI lists `llvm[libcxxabi](windows)=feature-fails` and skips llvm), while Windows takes LLVM's
-libc++ (over the vcruntime ABI) for the clang triplets; so `libcxxabi` is required only off Windows, and supported only
-there. Once vcpkg has it in a release the baseline moves to, `ports/llvm` goes (and `LLVM_PORT_VERSION` comes from
-elsewhere, see the binary cache below). Until 2026-11-09 it was our fork of an older vcpkg port (LLVM 20's, bumped
-since), whose differences were FASTBuild workarounds and our options. CMake's FASTBuild generator (4.4.5, and still on
-its master) can't build LLVM: a custom target with only file `DEPENDS` and no `COMMAND` (clang's `hmaptool`) depends on
+llvm is vcpkg's own port since 2026-11-12 (23.1.5#1), at the registry's baseline: setup reads its version from the
+registry's `versions/baseline.json` at that commit for `LLVM_PORT_VERSION` (see the binary cache below), so a baseline
+move that moves llvm rebuilds every package. An override in `vcpkg.json` would pin it; the user decided against one
+(2026-11-12: one version fewer to maintain). Until then `ports/llvm` was vcpkg's 23.1.3 port but for one fix, upstream
+since (microsoft/vcpkg#54988, merged 2026-11-12): its `libcxx` feature required `libcxxabi`, which LLVM refuses for
+MSVC targets (a `FATAL_ERROR` in libcxxabi's `CMakeLists.txt`; vcpkg's CI lists `llvm[libcxxabi](windows)=feature-fails`
+and skips llvm), while Windows takes LLVM's libc++ (over the vcruntime ABI) for the clang triplets; so `libcxxabi` is
+required only off Windows, and supported only there. The baseline moved past the merge rather than waiting for a vcpkg
+release (the user's call). Until 2026-11-09 it was our fork of an older vcpkg port (LLVM 20's, bumped since), whose
+differences were FASTBuild workarounds and our options. CMake's FASTBuild generator (4.4.5)
+can't build LLVM: a custom target with only file `DEPENDS` and no `COMMAND` (clang's `hmaptool`) depends on
 its never-written `CMakeFiles/<target>` and `.rule` (the generator drops command-less custom commands, then lists the
 target's sources, those symbolic files among them, as its inputs; the fork patched hmaptool's target out), clangd's XPC
 framework is a custom command whose `OUTPUT` is a directory (`File missing despite success`; the fork turned XPC off),
@@ -371,9 +375,9 @@ takes vcpkg's `/c65001` (rc's code page, `CMAKE_RC_FLAGS` in its `windows.cmake`
 directory: '/c65001'`, where cl.exe only warns): the first Windows setup after the switch failed on LLVM's version
 resources, so the Windows host triplet passes `CMAKE_NINJA_CMCLDEPS_RC=OFF` for llvm (rc.exe runs alone, its headers
 untracked, which a port's one build doesn't need; checked by rebuilding the failed `.res` files in the build tree with
-it). The first and third are CMake bugs, fixed on two
-branches of a CMake clone (`~/Repos/cmake`, MR texts in `~/Repos/cmake-mrs`) for the user to submit: CMake's AI policy
-has a human submit every MR, and lists no AI co-author. With a CMake release that has both, llvm can go back to
+it). The first and third are CMake bugs, fixed for CMake 4.6 (cmake/cmake!12803 and !12804, merged to its master on
+2026-11-12 and 11; the user submitted them from a CMake clone, `~/Repos/cmake`, MR texts in `~/Repos/cmake-mrs`: CMake's
+AI policy has a human submit every MR, and lists no AI co-author). With a CMake release that has both, llvm can go back to
 FASTBuild with clangd's XPC off. The directory output is FASTBuild's design (an Exec node must write a file:
 fastbuild#1024, closed as not a bug), and CMake documents outputs as files, so it stays a port patch or Ninja. The macOS
 triplet passes the options the fork had: libc++ and libc++abi static (the system's `libc++.1.dylib` and libc++abi

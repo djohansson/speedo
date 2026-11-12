@@ -1,6 +1,7 @@
 # speedo overlay, not in vcpkg's registry: for the mesa port (mesa_clc). Static, as LLVM is: a shared library with LLVM
-# linked in beside mesa's static LLVM would register LLVM's options twice. Its version follows LLVM's, which mesa
-# checks, and it is built against the SPIRV-Headers commit it pins (spirv-headers-tag.conf), not vcpkg's.
+# linked in beside mesa's static LLVM would register LLVM's options twice. Its version follows LLVM's major and minor,
+# which mesa checks (its latest tag, v23.1.3, serves LLVM 23.1.5: it tags no later patch releases), and it is built
+# against the SPIRV-Headers commit it pins (spirv-headers-tag.conf), not vcpkg's.
 vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 
 vcpkg_from_github(
