@@ -9,7 +9,8 @@ The user's ask, 2026-11-11: write the plan down and start once the lavapipe CI w
 
 ## What is checked today
 
-- **Client runs** (`assettest.ps1 -Client`, the quick tier locally, BumpDomes on CI): each model loaded, uploaded and
+- **Client runs** (`assettest.ps1 -Client`, the quick tier locally, BumpDomes on CI until 2026-11-12, when the validated
+  visual checks took its place there): each model loaded, uploaded and
   drawn until `SPEEDO_AUTOLOAD_EXIT` frames after its install; a run fails on a crash or timeout, a load failure, a failed
   assert, a validation error (`-Validate`) or a sanitizer report. The split screen runs (`splitscreen.txt`) add four views,
   each with its own exposure, shadow cascades and indirect lighting clips. Nothing looks at the frames.
@@ -315,9 +316,23 @@ mean |log2| difference counts both. The checks and their measures on KosmicKrisp
 
 A run takes 38 s on the M4 Pro's KosmicKrisp from a new work dir (the first client's shader compile 30 of them), 9 s
 warm; 151 s on its lavapipe (the mesa port's), all five passing, the first four as on KosmicKrisp although the two
-drivers' frames differ (each check compares a renderer with itself). CI runs them after the client checks on Linux's
-and Windows' lavapipe (Windows' driver registered in a step of its own, the elevated loader's), test assets from
-`SPEEDO_TEST_ASSETS` (the script maps `test-assets/` there); their times there are to be measured.
+drivers' frames differ (each check compares a renderer with itself). CI runs them on Linux's and Windows' lavapipe
+(Windows' driver registered in a step of its own, the elevated loader's), test assets from `SPEEDO_TEST_ASSETS` (the
+script maps `test-assets/` there); their times there are to be measured.
+
+### Step 3, validated (2026-11-12)
+
+`visualtest.ps1 -Validate` runs the clients under the validation layer, with assettest's settings (`VK_LAYER_PATH` the
+install tree's unless set, the layer's own log beside each client's) and its problem patterns (a validation message, a
+failed load, a sanitizer report): any fails the check, the first five printed. A debug client loads the layer itself,
+so there the switch only points `VK_LAYER_PATH` at it. The first validated run on lavapipe failed the furnace on
+VUID-VkWriteDescriptorSet-descriptorType-00333: the GI radiance buffer, three parts of a uint2 per voxel, was 144 MiB at
+the default resolution, past lavapipe's `maxStorageBufferRange` of 128 MiB; it is three buffers now (see
+docs/notes/indirect-lighting.md). BumpDomes' validated client runs on CI never met it. With that, all six pass validated
+on the M4 Pro's lavapipe in 276 s from a new work dir (the furnace 95 s, the ray queries 78 s), and five on its
+KosmicKrisp in 72 s (54 of them the first client's, with the shader compile), the measures as before (the furnace
++0.881 stops). CI's visual checks took `-Validate`, and its client checks (BumpDomes, `assettest.ps1 -ClientOnly`) were
+dropped (the user's call): the visual checks load and draw models the same way, validated, and more of them.
 
 ### Step 2 (2026-11-11)
 

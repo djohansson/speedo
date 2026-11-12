@@ -1,7 +1,8 @@
 # CI: setup, the profile, debug and release builds (the user's ask, 2026-11-07), scripts/assettest.ps1's checks without
 # -Client (the importers, images, environments, the lens check) on the profile build, and on Linux and Windows the client
-# itself, headless on lavapipe, mesa's cpu Vulkan driver, on one small model set (the user's asks, from 2026-11-10; the
-# client's full sets stay too heavy for a hosted runner's software Vulkan, the user's call of 2026-11-06). macOS, Windows and
+# itself, headless and validated on lavapipe, mesa's cpu Vulkan driver, in scripts/visualtest.ps1's checks (the user's
+# asks, from 2026-11-10; the client's full sets stay too heavy for a hosted runner's software Vulkan, the user's call of
+# 2026-11-06). macOS, Windows and
 # Linux, which the shared vcpkg binary cache (docs/notes/build.md) holds packages for: setup restores them, LLVM too, rather
 # than build them on a hosted runner. A job per platform builds the three configurations in turn: their packages are the
 # same (each holds its debug and release builds), and a job per configuration would restore them, about 2 GB, three times.
@@ -182,7 +183,7 @@ jobs:
           & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/assettest" @paths
 
       # lavapipe built here (mesa's lavapipe feature, see ports/mesa: no third-party driver in a job that holds the binary
-      # cache's keys), for the client's checks below, as on Linux (see "CI" in docs/notes/build.md). the runner's processes
+      # cache's keys), for the visual checks below, as on Linux (see "CI" in docs/notes/build.md). the runner's processes
       # are elevated, and the Vulkan loader ignores its path variables in an elevated process (VK_DRIVER_FILES, and
       # VK_LAYER_PATH, which assettest points at the validation layer: loader_secure_getenv), so the clients found no driver
       # (VK_ERROR_INCOMPATIBLE_DRIVER) and would have run without the layer: the driver and the layer registered where the
@@ -202,25 +203,14 @@ jobs:
           }
           "VK_DRIVER_FILES=$driver" >> $env:GITHUB_ENV
 
-      # the client itself, headless on lavapipe
-      - name: Client checks (lavapipe)
-        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
-        env:
-          SPEEDO_WINDOW_SIZE: 320x180
-          SPEEDO_GPU_HANG_TIMEOUT: '300'
-          ASSETTEST_CLIENT_TIMEOUT: '1800'
-        run: |
-          Write-Host "driver: $env:VK_DRIVER_FILES"
-          & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -ClientOnly -Headless -Validate -Jobs 1 -Work "$env:RUNNER_TEMP/assettest-client" resources/test-models/obj/BumpDomes
-
-      # the frames against the renderer's own references (docs/visual-testing-plan.md, step 3): their times measured before
-      # a budget is set (the user's call, 2026-11-11)
+      # the client itself, headless and validated on lavapipe: the frames against the renderer's own references
+      # (docs/visual-testing-plan.md, step 3), their times measured before a budget is set (the user's call, 2026-11-11)
       - name: Visual checks (lavapipe)
         if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
           SPEEDO_GPU_HANG_TIMEOUT: '300'
-        run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
+        run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
 
       - name: Keep list
         if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
@@ -241,7 +231,6 @@ jobs:
           path: |
             temp/vcpkg/buildtrees/*/*.log
             ${{ runner.temp }}/assettest/logs
-            ${{ runner.temp }}/assettest-client/logs
             ${{ runner.temp }}/visualtest
           if-no-files-found: ignore
 
@@ -306,30 +295,26 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/assettest" @paths
 
-      # the client itself, headless (SPEEDO_HEADLESS: no display, no surface or swapchain) on lavapipe, mesa's cpu Vulkan
-      # driver, validated: the warm-up's sky and a model through the load, upload and draw path, small (see "CI" in
-      # docs/notes/build.md for what it costs). the mesa port's lavapipe, as on Windows (a host package): Ubuntu's (26.0.8)
-      # dereferenced a masked-off buffer descriptor, fixed in mesa 26.2 (see "CI" in docs/notes/build.md)
-      - name: Client checks (lavapipe)
+      # lavapipe, mesa's cpu Vulkan driver, for the visual checks below: the mesa port's, as on Windows (a host package):
+      # Ubuntu's (26.0.8) dereferenced a masked-off buffer descriptor, fixed in mesa 26.2 (see "CI" in docs/notes/build.md)
+      - name: Find lavapipe
+        id: lavapipe
         if: ${{ !cancelled() && steps.profile.outcome == 'success' }}
-        env:
-          SPEEDO_WINDOW_SIZE: 320x180
-          SPEEDO_GPU_HANG_TIMEOUT: '300'
-          ASSETTEST_CLIENT_TIMEOUT: '1800'
         run: |
-          $env:VK_DRIVER_FILES = (Get-ChildItem install/x64-linux-release/share/vulkan/icd.d/lvp_icd*.json | Select-Object -First 1).FullName
-          Write-Host "driver: $env:VK_DRIVER_FILES"
-          "VK_DRIVER_FILES=$env:VK_DRIVER_FILES" >> $env:GITHUB_ENV
-          & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -ClientOnly -Headless -Validate -Jobs 1 -Work "$env:RUNNER_TEMP/assettest-client" resources/test-models/obj/BumpDomes
+          $driver = (Get-ChildItem install/x64-linux-release/share/vulkan/icd.d/lvp_icd*.json | Select-Object -First 1).FullName
+          if (-not $driver) { Write-Error 'no lavapipe in install/x64-linux-release'; exit 1 }
+          Write-Host "driver: $driver"
+          "VK_DRIVER_FILES=$driver" >> $env:GITHUB_ENV
 
-      # the frames against the renderer's own references (docs/visual-testing-plan.md, step 3), on the lavapipe the client
-      # checks found: their times measured before a budget is set (the user's call, 2026-11-11)
+      # the client itself, headless (SPEEDO_HEADLESS: no display, no surface or swapchain) and validated on lavapipe: the
+      # frames against the renderer's own references (docs/visual-testing-plan.md, step 3), their times measured before a
+      # budget is set (the user's call, 2026-11-11; see "CI" in docs/notes/build.md for what it costs)
       - name: Visual checks (lavapipe)
-        if: ${{ !cancelled() && env.VK_DRIVER_FILES != '' }}
+        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
           SPEEDO_GPU_HANG_TIMEOUT: '300'
-        run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
+        run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
 
       - name: Keep list
         if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
@@ -350,7 +335,6 @@ jobs:
           path: |
             temp/vcpkg/buildtrees/*/*.log
             ${{ runner.temp }}/assettest/logs
-            ${{ runner.temp }}/assettest-client/logs
             ${{ runner.temp }}/visualtest
           if-no-files-found: ignore
 
