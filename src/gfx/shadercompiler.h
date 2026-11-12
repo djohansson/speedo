@@ -6,7 +6,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -16,6 +18,18 @@
 // response serialized with zpp::bits, plain bytes across the library boundary: each side has its own static libc++
 namespace gfx::shadercompiler
 {
+
+// whether a compile's details are printed (SPEEDO_SHADER_LOG=1): its search paths, each parameter's reflection and each
+// binding it makes, and each file it includes. thousands of lines a cold start, so off unless asked for
+[[nodiscard]] inline bool Logging()
+{
+	static const bool kLog = []
+	{
+		const char* log = std::getenv("SPEEDO_SHADER_LOG");
+		return log != nullptr && std::string_view(log) == "1";
+	}();
+	return kLog;
+}
 
 struct EntryPoint
 {

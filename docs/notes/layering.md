@@ -333,7 +333,9 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   compile (`core::DynamicLibrary`: dlopen, LoadLibraryW; `SPEEDO_SHADERCOMPILER_FILE` names it) and calls through two C
   entry points, a compile's request and response serialized with zpp::bits (each side has its own static libc++); it uses
   core's headers (assertions, containers) but none of its compiled code, which would be a second copy of core's globals.
-  gfx keeps slang's headers alone (a configuration names its enums), and a compile's cache key names slang's version from
+  A compile's details (its search paths, each parameter's reflection, each binding it makes, each file it includes) are
+  printed only with `SPEEDO_SHADER_LOG=1` (`shadercompiler::Logging`; the user's ask, 2026-11-12): a cold start's log was
+  778 lines with them, 24 without. gfx keeps slang's headers alone (a configuration names its enums), and a compile's cache key names slang's version from
   its port (`SPEEDO_SLANG_VERSION`) rather than asking the library. `ShaderLoader::Load` reads an install's shaders
   precompiled, where their source would be (`<stem>-<parameters hash>.shaderset`, the hash of the configuration, slang's
   version and the format: `ShaderLoader::PrecompiledPath`), else the profile's cache, else compiles through the library,

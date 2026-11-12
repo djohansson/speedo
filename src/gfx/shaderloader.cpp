@@ -171,7 +171,8 @@ rhi::ShaderSet ShaderLoader::Compile(
 		for (const auto& dependency : response.dependencies)
 		{
 			// recorded in the asset manifest, so editing an included/imported file recompiles. todo: hot reload
-			std::println("File include/import: {}", dependency);
+			if (shadercompiler::Logging())
+				std::println("File include/import: {}", dependency);
 			dependencies->emplace_back(dependency);
 		}
 

@@ -199,13 +199,14 @@ void AddBinding(
 			rhi::ShaderPushConstants{.stages = binding.stages, .offset = 0, .size = static_cast<uint32_t>(sizeBytes)};
 	}
 
-	std::println(
-		"ADD BINDING \"{}\": Set: {}, Binding: {}, Count: {}, Size: {}",
-		name,
-		bindingSpace,
-		binding.binding,
-		descriptorCount,
-		sizeBytes);
+	if (Logging())
+		std::println(
+			"ADD BINDING \"{}\": Set: {}, Binding: {}, Count: {}, Size: {}",
+			name,
+			bindingSpace,
+			binding.binding,
+			descriptorCount,
+			sizeBytes);
 }
 
 uint32_t CreateLayoutBindings(
@@ -262,34 +263,35 @@ uint32_t CreateLayoutBindings(
 		auto offsetForCategory = parameter->getOffset(subCategory);
 		auto elementStride = (elementTypeLayout != nullptr) ? elementTypeLayout->getElementStride(subCategory) : 0;
 
-		std::println(
-			"DEBUG: name: {}, fullName: {}, space: {}, parent space: {}, index: {}, stage: {}, kind: {}, typeName: {}, "
-			"userAttributeCount: {}, arrayElementCount: {}, fieldCount: {}, category: {}, subCategory: {}, "
-			"spaceForCategory: {}, offsetForCategory: {}, elementStride: {}, elementSize: {}, elementAlignment: {}, "
-			"elementKind: {}, elementFieldCount: {}, size: {}, alignment: {}, genericParamIndex: {}",
-			name,
-			fullName,
-			space,
-			(parentSpace != nullptr) ? std::to_string(*parentSpace) : "(nullptr)",
-			index,
-			static_cast<int>(stage),
-			static_cast<int>(kind),
-			(typeName != nullptr) ? typeName : "(nullptr)",
-			userAttributeCount,
-			arrayElementCount,
-			fieldCount,
-			static_cast<int>(category),
-			static_cast<int>(subCategory),
-			spaceForCategory,
-			offsetForCategory,
-			elementStride,
-			elementSize,
-			elementAlignment,
-			static_cast<int>(elementKind),
-			elementFieldCount,
-			size,
-			alignment,
-			genericParamIndex);
+		if (Logging())
+			std::println(
+				"DEBUG: name: {}, fullName: {}, space: {}, parent space: {}, index: {}, stage: {}, kind: {}, typeName: {}, "
+				"userAttributeCount: {}, arrayElementCount: {}, fieldCount: {}, category: {}, subCategory: {}, "
+				"spaceForCategory: {}, offsetForCategory: {}, elementStride: {}, elementSize: {}, elementAlignment: {}, "
+				"elementKind: {}, elementFieldCount: {}, size: {}, alignment: {}, genericParamIndex: {}",
+				name,
+				fullName,
+				space,
+				(parentSpace != nullptr) ? std::to_string(*parentSpace) : "(nullptr)",
+				index,
+				static_cast<int>(stage),
+				static_cast<int>(kind),
+				(typeName != nullptr) ? typeName : "(nullptr)",
+				userAttributeCount,
+				arrayElementCount,
+				fieldCount,
+				static_cast<int>(category),
+				static_cast<int>(subCategory),
+				spaceForCategory,
+				offsetForCategory,
+				elementStride,
+				elementSize,
+				elementAlignment,
+				static_cast<int>(elementKind),
+				elementFieldCount,
+				size,
+				alignment,
+				genericParamIndex);
 
 		if (subCategory == SLANG_PARAMETER_CATEGORY_REGISTER_SPACE)
 			bindingSpace = spaceForCategory;
@@ -352,7 +354,8 @@ Response Compile(const Request& request)
 			response.diagnostics = std::format("failed to create the intermediate path {}", path.string());
 			return response;
 		}
-		std::println("Set intermediate path: \"{}\"", path.string());
+		if (Logging())
+			std::println("Set intermediate path: \"{}\"", path.string());
 		spSetDumpIntermediatePrefix(slangRequest, (path.generic_string() + "/").c_str());
 		// only where asked for: without a prefix slang dumps them into the working directory (the precompile tool, run
 		// from the checkout's root, left 344 .spv files there)
@@ -369,7 +372,8 @@ Response Compile(const Request& request)
 			response.diagnostics = std::format("the include path {} isn't a directory", includePath);
 			return response;
 		}
-		std::println("Add include search path: \"{}\"", path.string());
+		if (Logging())
+			std::println("Add include search path: \"{}\"", path.string());
 		spAddSearchPath(slangRequest, path.generic_string().c_str());
 	}
 
