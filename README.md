@@ -146,7 +146,7 @@ pwsh -Command '$p = & scripts/fetch-test-assets.ps1 -Quick; & scripts/assettest.
 
 CI runs on every push to `master` and on pull requests, on GitHub's hosted runners for macOS, Windows and Linux, which have no GPU. Each job sets up from the shared caches, builds the debug, profile and release configurations, and runs the importer checks; on Windows and Linux it then runs the visual checks, the client headless on lavapipe with Vulkan validation. A push writes what the runners built to the shared caches, and once every job has passed, prunes them. The GPU drivers (KosmicKrisp, the desktop ones) are tested on developers' machines. See [build](docs/notes/build.md) ("CI").
 
-Environment variables start the client in a known state, for bugs, measurements and screenshots, e.g. `SPEEDO_AUTOLOAD_MODEL`, `SPEEDO_AUTOLOAD_ENVIRONMENT`, `SPEEDO_CAMERA=x,y,z,pitch,yaw`, `SPEEDO_AUTOLOAD_EXIT=<frames>`, `SPEEDO_CAPTURE=<file.bmp>`, `SPEEDO_BACKGROUND=1`, `SPEEDO_HEADLESS=1` and `SPEEDO_GPU_TIMINGS=1`. Copy Pose writes them for you; the notes describe each where its feature is.
+Environment variables start the client in a known state, for bug reports, measurements and screenshots: the model and environment to load, the camera's pose, every View setting, a capture after so many frames and an exit, a window of a given size or none at all, and the renderer's tuning and diagnostics. View > Camera > Copy Pose writes the current view as these variables. [Environment variables](docs/environment-variables.md) lists and describes them all.
 
 ## Profiling
 
@@ -162,6 +162,7 @@ Debug and profile builds are instrumented with [Tracy](https://github.com/wolfpl
 |----------|----------|
 | [CLAUDE.md](CLAUDE.md) | The rules most changes need: the layering, conventions, and the workflow. |
 | [docs/notes/](docs/notes/) | Each subsystem in depth: [core](docs/notes/core.md), [layering](docs/notes/layering.md), [rhi](docs/notes/rhi.md), [rendering](docs/notes/rendering.md), [indirect lighting](docs/notes/indirect-lighting.md), [sky](docs/notes/sky.md), [assets](docs/notes/assets.md), [build](docs/notes/build.md). |
+| [docs/environment-variables.md](docs/environment-variables.md) | Every environment variable the client, the scripts and the build read: what it takes, its default and what it does. |
 | [docs/visual-testing-plan.md](docs/visual-testing-plan.md) | Checking what the client draws: repeatable captures, `imagecompare`, the visual checks, and the steps still to come. |
 | [docs/performance-plan.md](docs/performance-plan.md) | Frame rate and convergence in the heavier scenes: the benchmark poses and baselines. |
 | [TODO.md](TODO.md) | What's planned, in progress and done. |
