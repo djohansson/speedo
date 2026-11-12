@@ -158,8 +158,13 @@ and `CacheOutputInfo` and `CacheTrim` for the local directory), and `fbuild-s3ca
 `CMAKE_MAKE_PROGRAM`. `cmake --build` runs it as FBuild (first for the `rebuild-bff` target, which regenerates the `.bff`,
 then the build): it adds the plugin's two lines to the `.bff`'s Settings in place (only after CMake wrote it afresh,
 so that FBuild doesn't parse it again), `-cache` to the command line (unless it or `FASTBUILD_CACHE_MODE` chose a mode),
-and runs vcpkg-tool-fastbuild's FBuild beside it (on Windows with its directory on the path: FBuild's `LoadLibrary`
-finds the plugin's dlls, curl's, there and not beside the plugin). The remote's url and region come from the build
+and runs vcpkg-tool-fastbuild's FBuild beside it. On Windows the plugin delay-loads curl and loads it by its path from
+beside itself, its zlib with it (`LoadCurl`): imported, FBuild's `LoadLibrary` of the plugin searched FBuild's directory,
+the system's, then the working directory, the build directory, before the path (where the launcher had put its own
+directory), and took the client's `libcurl.dll` and `z.dll` there, which vcpkg's applocal step copies beside the
+executables. Loaded for the whole build, they failed that step once a baseline brought newer ones
+(`copy_file(...z.dll...): The process cannot access the file because it is being used by another process`, the first
+Windows build after the 2026-11-12 baseline, every build after it). The remote's url and region come from the build
 directory's `CMakeCache.txt` (`SPEEDO_FASTBUILD_CACHE_URL`, `SPEEDO_FASTBUILD_CACHE_REGION`, the presets', from
 `scripts/binarycache.ps1`). The plugin reads the local directory (FBuild's cache path, else `~/.fastbuild/cache`), else
 the remote object (an anonymous GET), keeping it locally; it publishes locally, and remotely where the machine writes

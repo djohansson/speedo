@@ -200,18 +200,10 @@ std::wstring Quote(const std::wstring& argument)
 	return out + L"\"";
 }
 
-// FBuild run as a child, the launcher's directory first on its path (the plugin's dlls, which FBuild's LoadLibrary finds
-// on the path and not beside the plugin); ctrl-c left to the child, which shares the console
-int Run(const std::filesystem::path& fbuild, const std::vector<String>& arguments, const std::filesystem::path& directory)
+// FBuild run as a child (the plugin loads its dlls from beside itself, see plugin.cpp's LoadCurl); ctrl-c left to the
+// child, which shares the console
+int Run(const std::filesystem::path& fbuild, const std::vector<String>& arguments)
 {
-	std::wstring path = directory.wstring();
-	if (DWORD size = GetEnvironmentVariableW(L"PATH", nullptr, 0); size > 0)
-	{
-		std::wstring old(size, L'\0');
-		old.resize(GetEnvironmentVariableW(L"PATH", old.data(), size));
-		path += L";" + old;
-	}
-	SetEnvironmentVariableW(L"PATH", path.c_str());
 	std::wstring commandLine = Quote(fbuild.wstring());
 	for (const auto& argument : arguments)
 		commandLine += L" " + Quote(argument);
@@ -232,7 +224,7 @@ int Run(const std::filesystem::path& fbuild, const std::vector<String>& argument
 	return static_cast<int>(code);
 }
 #else
-int Run(const std::filesystem::path& fbuild, const std::vector<String>& arguments, const std::filesystem::path& /*directory*/)
+int Run(const std::filesystem::path& fbuild, const std::vector<String>& arguments)
 {
 	std::vector<char*> argv;
 	std::string program = fbuild.string();
@@ -286,5 +278,5 @@ int main(int argc, char** argv)
 		else
 			std::fprintf(stderr, "fbuild-s3cache: no Settings in %s: building without the cache's plugin\n", bff.string().c_str());
 	}
-	return Run(fbuild, arguments, directory);
+	return Run(fbuild, arguments);
 }

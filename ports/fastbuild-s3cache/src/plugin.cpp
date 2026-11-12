@@ -36,6 +36,7 @@
 #include <vector>
 
 #if defined(_WIN32)
+#	include <windows.h>
 #	define STDCALL __stdcall
 #	define PLUGIN_EXPORT extern "C" __declspec(dllexport)
 #else
@@ -388,6 +389,49 @@ void Configure(std::string_view config)
 			gState->copySource = gState->url.substr(path);
 }
 
+#if defined(_WIN32)
+#	define PLUGIN_STRINGIZE_(x) #x
+#	define PLUGIN_STRINGIZE(x) PLUGIN_STRINGIZE_(x)
+
+// curl from beside the plugin, by its path, and its own dlls (zlib's) beside it too (LOAD_WITH_ALTERED_SEARCH_PATH).
+// Imported, FBuild's LoadLibrary of the plugin found them in its working directory, the build directory, before the path:
+// the client's copies, which vcpkg's applocal step puts there, held loaded for the whole build, so that the step failed
+// to update them once a baseline brought newer ones ("copy_file(...z.dll...): The process cannot access the file because
+// it is being used by another process", 2026-11-12). Delay-loaded (CMakeLists.txt): this comes before the first call
+bool LoadCurl()
+{
+	HMODULE self = nullptr;
+	if (!GetModuleHandleExW(
+			GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+			reinterpret_cast<LPCWSTR>(&LoadCurl),
+			&self))
+		return false;
+	std::wstring path(MAX_PATH, L'\0');
+	for (;;)
+	{
+		DWORD size = GetModuleFileNameW(self, path.data(), static_cast<DWORD>(path.size()));
+		if (size == 0)
+			return false;
+		if (size < path.size())
+		{
+			path.resize(size);
+			break;
+		}
+		path.resize(path.size() * 2);
+	}
+	auto curl = std::filesystem::path(path).parent_path() / PLUGIN_STRINGIZE(CURL_DLL_NAME);
+	if (LoadLibraryExW(curl.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH) != nullptr)
+		return true;
+	Print(std::format("can't load {} (error {}): no cache", curl.string(), GetLastError()));
+	return false;
+}
+#else
+bool LoadCurl()
+{
+	return true;
+}
+#endif
+
 } // namespace
 
 PLUGIN_EXPORT bool STDCALL CacheInitEx(
@@ -401,6 +445,12 @@ PLUGIN_EXPORT bool STDCALL CacheInitEx(
 	gState->output = outputFunc;
 	gState->local = cachePath != nullptr && *cachePath != '\0' ? std::filesystem::path(cachePath) : Home() / ".fastbuild" / "cache";
 	Configure(userConfig != nullptr ? userConfig : "");
+	if (!LoadCurl())
+	{
+		delete gState;
+		gState = nullptr;
+		return false;
+	}
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 	bool remote = !gState->url.empty() && Environment("SPEEDO_BINARY_CACHE") != "0";
 	gState->remoteRead.store(remote && cacheRead);

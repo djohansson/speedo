@@ -20,6 +20,10 @@ add_executable(fbuild-s3cache launcher.cpp)
 if(WIN32)
 	target_compile_definitions(FBuildS3Cache PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
 	target_compile_definitions(fbuild-s3cache PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+	# curl delay-loaded, so that the plugin loads it by its path, from beside itself, before the first call (see LoadCurl)
+	target_link_options(FBuildS3Cache PRIVATE "/DELAYLOAD:$<TARGET_FILE_NAME:CURL::libcurl>")
+	target_link_libraries(FBuildS3Cache PRIVATE delayimp)
+	target_compile_definitions(FBuildS3Cache PRIVATE "CURL_DLL_NAME=$<TARGET_FILE_NAME:CURL::libcurl>")
 endif()
 
 # curl's libraries in the host tree's lib, two levels up from tools/fastbuild-s3cache
@@ -32,3 +36,8 @@ endif()
 install(TARGETS FBuildS3Cache fbuild-s3cache
 	RUNTIME DESTINATION tools/fastbuild-s3cache
 	LIBRARY DESTINATION tools/fastbuild-s3cache)
+# Windows: curl beside the plugin, installed by name, as delay-loaded it isn't among the imports
+# vcpkg_copy_tool_dependencies follows (which then finds curl's own, zlib's)
+if(WIN32)
+	install(FILES $<TARGET_FILE:CURL::libcurl> DESTINATION tools/fastbuild-s3cache)
+endif()

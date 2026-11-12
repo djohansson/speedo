@@ -8,8 +8,10 @@ endif()
 vcpkg_cmake_configure(SOURCE_PATH "${CMAKE_CURRENT_LIST_DIR}/src")
 vcpkg_cmake_install()
 
-# Windows: the dlls the plugin loads (curl's) beside it, which the launcher puts on FBuild's path (FBuild's LoadLibrary
-# searches its own directory and the path, not the plugin's); macOS and Linux find them by the plugin's rpath
+# Windows: the dlls the plugin loads beside it, where it loads them from by their path (FBuild's LoadLibrary searches its
+# own directory, its working directory and the path, not the plugin's: see plugin.cpp's LoadCurl): curl, which the
+# plugin's CMakeLists.txt installs (delay-loaded, it isn't an import this follows), and curl's own, zlib's; macOS and Linux
+# find them by the plugin's rpath
 if(VCPKG_TARGET_IS_WINDOWS)
 	vcpkg_copy_tool_dependencies("${CURRENT_PACKAGES_DIR}/tools/${PORT}")
 endif()
