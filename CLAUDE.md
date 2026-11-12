@@ -1,106 +1,45 @@
 # CLAUDE.md
 
-Notes for working in this codebase, distilled from real build failures. The rules most tasks need are here; their
-details and history, and the subsystems' notes, are under docs/notes (the index at the end): read the one for the area
-you change before changing it, and keep it current when you do (the same depth: what was tried, what it cost, the poses
-the user reported).
+Notes for working in this codebase, distilled from real build failures. The rules most tasks need are here; their details and history, and the subsystems' notes, are under docs/notes (the index at the end): read the one for the area you change before changing it, and keep it current when you do (the same depth: what was tried, what it cost, the poses the user reported).
 
 ## Layering: core ← platform ← rhi ← gfx ← client
 
 - `core`: the application, tasks and executor, files, containers, assertions. No graphics.
-- `platform`: the window system and the only glfw code (`platform/glfw.cpp`), `platform::WindowedApplication`, imgui's
-  context and frames (`platform::ImGuiLayer`), fullscreen and presentation. Its interface knows nothing of graphics;
-  nothing above it includes glfw (core's input vocabulary, `core/capi.h`, instead).
-- `rhi`: the Vulkan backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains),
-  templated on `GraphicsApi`, speaking its own vocabulary (`rhi/vocabulary.h`; convert at the backend boundary with
-  `rhi::vk::ToVk`/`FromVk`). It never includes gfx, imgui or slang.
-- `gfx`: everything above rhi: importers, `Model`, `Scene`, cameras and `Views`, the renderer and frame graph, the
-  shaders (`gfx/shaders`, slang, sharing `capi.h` with the C++), `ImGuiRenderer`. No Vulkan calls, enums or types
-  (the aliases in `gfx/gpu.h`).
-- `client`: the application (`client::WindowedApplication`: the frame loop in `windowedapplication.cpp`, the ui in
-  `ui.cpp`, the loads in `loading.cpp`, the file browser, thumbnails, the preview scene).
-- The backend's type aliases are in the global namespace: a neutral rhi type of the same name is ambiguous under
-  `using namespace rhi`; pick another name or qualify.
+- `platform`: the window system and the only glfw code (`platform/glfw.cpp`), `platform::WindowedApplication`, imgui's context and frames (`platform::ImGuiLayer`), fullscreen and presentation. Its interface knows nothing of graphics; nothing above it includes glfw (core's input vocabulary, `core/capi.h`, instead).
+- `rhi`: the Vulkan backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains), templated on `GraphicsApi`, speaking its own vocabulary (`rhi/vocabulary.h`; convert at the backend boundary with `rhi::vk::ToVk`/`FromVk`). It never includes gfx, imgui or slang.
+- `gfx`: everything above rhi: importers, `Model`, `Scene`, cameras and `Views`, the renderer and frame graph, the shaders (`gfx/shaders`, slang, sharing `capi.h` with the C++), `ImGuiRenderer`. No Vulkan calls, enums or types (the aliases in `gfx/gpu.h`).
+- `client`: the application (`client::WindowedApplication`: the frame loop in `windowedapplication.cpp`, the ui in `ui.cpp`, the loads in `loading.cpp`, the file browser, thumbnails, the preview scene).
+- The backend's type aliases are in the global namespace: a neutral rhi type of the same name is ambiguous under `using namespace rhi`; pick another name or qualify.
 
 Details: docs/notes/layering.md.
 
 ## Workflow
 
-- Configure and build as one command, `cmake --preset <name> && cmake --build build/<name>` (see below). New `.cpp`
-  files go in `CMakeLists.txt`'s source lists (`CORE_SOURCE_FILES`, `GFX_SOURCE_FILES`, ...).
-- Run the client from the repo root (it finds `resources/` from the working directory): `build/<preset>/client -u
-  <scratch profile>`; `SPEEDO_AUTOLOAD_MODEL` and the other paths are relative to `resources/`. For captures:
-  `SPEEDO_HEADLESS=1 SPEEDO_AUTOLOAD_EXIT=<frames> SPEEDO_CAPTURE=<file.bmp> SPEEDO_UI=0 SPEEDO_WINDOW_SIZE=<w>x<h>
-  SPEEDO_CAMERA=x,y,z,pitch,yaw`; a report of an artifact starts from View > Camera > Copy Pose's text (SPEEDO_*
-  variables), which Paste Pose and the autoloads take back. Test runs are headless (`SPEEDO_HEADLESS=1`,
-  `assettest.ps1 -Headless`; the user's call): no display needed, so a locked or dark screen doesn't fail them
-  (docs/notes/layering.md). Windowed (`SPEEDO_BACKGROUND=1`, `SPEEDO_PRESENT_MODE=fifo`) only where a test needs a window:
-  presentation, fullscreen, the ui's input, fifo frame times; then the screen must be on. `SPEEDO_REPEATABLE=1` makes a capture the same
-  from run to run as far as it can, `build/<preset>/imagecompare <reference.bmp> <capture.bmp>` measures two captures'
-  differences, and `scripts/visualtest.ps1 -Preset <preset>` checks the frames against the renderer's own references
-  (docs/visual-testing-plan.md).
-- The shaders compile at the client's startup from their sources (an install's come precompiled, see
-  docs/notes/layering.md): don't edit `.slang` files or `capi.h`, and don't rebuild, while client runs are in flight (a
-  batch would mix two versions).
-- Test with the quick tier before committing: `pwsh -Command '$p = & scripts/fetch-test-assets.ps1 -Quick; &
-  scripts/assettest.ps1 -Preset <preset> -Client -Validate -Headless -Work <scratch>/quick @p'` (a profile preset, validated, headless;
-  the full sets, `fetch-test-assets.ps1` without `-Quick`, before a commit that touches many models). On macOS ray
-  queries are opt in (`SPEEDO_RAY_QUERY=1`: Metal's ray tracing restarts the gpu now and then); test a change to them
-  with that set as well, where the ray query clients run one at a time (see docs/notes/indirect-lighting.md): never run
-  several ray query clients yourself, and never start experiments with several gpu processes without asking.
-- Commit only after the validated quick tier passes, each change its own commit, with the message saying what was
-  measured; a fix for a bug the user reported waits for the user's confirmation.
-- Measure on warm pipelines (the first run after a shader change draws with generic pipelines), interleaving the
-  runs compared; on KosmicKrisp the draw thread's frame time (`SPEEDO_GPU_TIMINGS=1`), since its gpu timestamps
-  miss compute passes; record the platform's numbers as what it costs there (see "Portable by default" below).
+- Configure and build as one command, `cmake --preset <name> && cmake --build build/<name>` (see below). New `.cpp` files go in `CMakeLists.txt`'s source lists (`CORE_SOURCE_FILES`, `GFX_SOURCE_FILES`, ...).
+- Run the client from the repo root (it finds `resources/` from the working directory): `build/<preset>/client -u <scratch profile>`; `SPEEDO_AUTOLOAD_MODEL` and the other paths are relative to `resources/`. For captures: `SPEEDO_HEADLESS=1 SPEEDO_AUTOLOAD_EXIT=<frames> SPEEDO_CAPTURE=<file.bmp> SPEEDO_UI=0 SPEEDO_WINDOW_SIZE=<w>x<h> SPEEDO_CAMERA=x,y,z,pitch,yaw`; a report of an artifact starts from View > Camera > Copy Pose's text (SPEEDO_* variables), which Paste Pose and the autoloads take back. Test runs are headless (`SPEEDO_HEADLESS=1`, `assettest.ps1 -Headless`; the user's call): no display needed, so a locked or dark screen doesn't fail them (docs/notes/layering.md). Windowed (`SPEEDO_BACKGROUND=1`, `SPEEDO_PRESENT_MODE=fifo`) only where a test needs a window: presentation, fullscreen, the ui's input, fifo frame times; then the screen must be on. `SPEEDO_REPEATABLE=1` makes a capture the same from run to run as far as it can, `build/<preset>/imagecompare <reference.bmp> <capture.bmp>` measures two captures' differences, and `scripts/visualtest.ps1 -Preset <preset>` checks the frames against the renderer's own references (docs/visual-testing-plan.md).
+- The shaders compile at the client's startup from their sources (an install's come precompiled, see docs/notes/layering.md): don't edit `.slang` files or `capi.h`, and don't rebuild, while client runs are in flight (a batch would mix two versions).
+- Test with the quick tier before committing: `pwsh -Command '$p = & scripts/fetch-test-assets.ps1 -Quick; & scripts/assettest.ps1 -Preset <preset> -Client -Validate -Headless -Work <scratch>/quick @p'` (a profile preset, validated, headless; the full sets, `fetch-test-assets.ps1` without `-Quick`, before a commit that touches many models). On macOS ray queries are opt in (`SPEEDO_RAY_QUERY=1`: Metal's ray tracing restarts the gpu now and then); test a change to them with that set as well, where the ray query clients run one at a time (see docs/notes/indirect-lighting.md): never run several ray query clients yourself, and never start experiments with several gpu processes without asking.
+- Commit only after the validated quick tier passes, each change its own commit, with the message saying what was measured; a fix for a bug the user reported waits for the user's confirmation.
+- Measure on warm pipelines (the first run after a shader change draws with generic pipelines), interleaving the runs compared; on KosmicKrisp the draw thread's frame time (`SPEEDO_GPU_TIMINGS=1`), since its gpu timestamps miss compute passes; record the platform's numbers as what it costs there (see "Portable by default" below).
 
 ## Always configure via `cmake --preset <name>`, never a hand-reconstructed command
 
-The presets `setup.ps1` generates carry the environment the clang toolchain and vcpkg depend on (`LLVM_ROOT`,
-`LLVM_TOOLS_BINARY_DIR`, `PATH`, the Visual Studio path). A raw `cmake -D... -S ... -B ...` copied from a log, or a bare
-`cmake --build build/<name>` that reconfigures (after `vcpkg.json` or `ports/` changed, or another preset's vcpkg
-install), runs without it: confusing failures, and vcpkg removing the shared `install/` tree's packages. From a shell
-always run `cmake --preset <name> && cmake --build build/<name>`, joined by `&&` alone, however recently the directory
-was configured; `CMakeLists.txt` and a hook (`.claude/hooks/require-preset.ps1`) refuse the rest. `cmake --preset
-<name>` recovers a wiped tree from the binary cache. Details: docs/notes/build.md, "Presets".
+The presets `setup.ps1` generates carry the environment the clang toolchain and vcpkg depend on (`LLVM_ROOT`, `LLVM_TOOLS_BINARY_DIR`, `PATH`, the Visual Studio path). A raw `cmake -D... -S ... -B ...` copied from a log, or a bare `cmake --build build/<name>` that reconfigures (after `vcpkg.json` or `ports/` changed, or another preset's vcpkg install), runs without it: confusing failures, and vcpkg removing the shared `install/` tree's packages. From a shell always run `cmake --preset <name> && cmake --build build/<name>`, joined by `&&` alone, however recently the directory was configured; `CMakeLists.txt` and a hook (`.claude/hooks/require-preset.ps1`) refuse the rest. `cmake --preset <name>` recovers a wiped tree from the binary cache. Details: docs/notes/build.md, "Presets".
 
 ## Code
 
-- Scripts are PowerShell (`.ps1`, run with `pwsh` on every platform), not bash, batch or python; only the bootstrap
-  scripts (`setup_linux.sh`, `setup_osx.sh`, `setup_windows.bat`) aren't, and do no more than install `pwsh` and hand
-  over to `setup.ps1`.
-- The application: create it with `core::CreateApplication<T>(args...)` (it publishes it in `core::gApplication` before
-  constructing it, which objects made during construction need), and tear it down (`WindowedApplication::Shutdown()`:
-  the tasks joined, the gpu waited for, what holds gpu objects released before the RHI) before releasing the last
-  `shared_ptr`: `core::Application::Get()` is null once the count is zero.
-- Math is glm's (`glm::vec3`, `glm::mat4`, `glm::quat`; `glm::dvec3`/`glm::dmat4` where the importers keep doubles), not
-  `std::array` aliases, but where a layout is fixed elsewhere (the structs `capi.h` shares with the shaders, rhi's public
-  API). glm doesn't zero: initialize vectors (`glm::vec3 v{0.0F}`) and quaternions (`glm::identity<glm::quat>()`).
-- Portable by default, measured on one: pick the general method likely to perform well on every platform and gpu, not
-  the one a single driver favors, and record a platform's numbers as what it costs there. A platform that can't do the
-  general method well gets an exception named for what it lacks, decided in rhi (`DeviceLimits::drawIndirectCountEmulated`),
-  saying when to look again.
-- A number that is a size or an amount is a count, and named so (`kChunkCommandCount`, `SPEEDO_SWAPCHAIN_IMAGE_COUNT`); a
-  switch isn't (`SPEEDO_INDIRECT_DRAWS=0`).
-- A fixed capacity that runs out fails hard: `ENSUREF` (`core/assert.h`, which traps in every build) naming the limit.
-  Never warn and drop the rest, truncate, or fall back to something slower; handle real content when it hits a limit. A
-  policy (the shadow atlas's budget, the transparency's node pool) isn't a capacity.
-- Associative containers are core's (`core::UnorderedMap`, `core::UnorderedSet`, `core/utils.h`), never `std::map`,
-  `std::set` or `std::unordered_*`, the tools' included; where an order matters, sort a vector of the keys.
-- Files go through core (`core/file.h`: `core::file::Map`, `Write`, `LoadBinary`/`SaveBinary`), not streams, stdio or a
-  library's own file loading: hand decoders the mapped bytes. `src/tools/filebench.cpp` is the one exception.
-- Locks: `std::mutex` for exclusive ones, `core::UpgradableSharedMutex` where upgrade locks are used (it degrades badly
-  under contention); don't lock what can't change.
-- Parallel and background work is tasks on the application's executor (`core::CreateTask`, `TaskExecutor::Submit`,
-  `ForEach`, `core::AddDependency`, `Join`), never threads of its own; work for a particular thread is queued for it
-  (`mainCalls`, `RHI::drawCalls`). A task never loops until something arrives, nor sleeps holding its thread until
-  another task has made something, and never `Join`s while holding a lock a task may take. `CreateTask` copies its
-  arguments: pass a reference as `std::ref`.
-- Callables: a template parameter; run later or on another thread, a task or a `move_only_function` queued for that
-  thread; called during a call into a .cpp, a `core::std_extra::function_ref` (bound in the call: it dangles after);
-  stored and called again, a `core::std_extra::move_only_function`. Never `std::function`.
-- Sleep until a time with `core::SleepUntil` (`core/time.h`), not `std::this_thread`'s, which Windows rounds up to
-  15.6 ms.
+- Scripts are PowerShell (`.ps1`, run with `pwsh` on every platform), not bash, batch or python; only the bootstrap scripts (`setup_linux.sh`, `setup_osx.sh`, `setup_windows.bat`) aren't, and do no more than install `pwsh` and hand over to `setup.ps1`.
+- The application: create it with `core::CreateApplication<T>(args...)` (it publishes it in `core::gApplication` before constructing it, which objects made during construction need), and tear it down (`WindowedApplication::Shutdown()`: the tasks joined, the gpu waited for, what holds gpu objects released before the RHI) before releasing the last `shared_ptr`: `core::Application::Get()` is null once the count is zero.
+- Math is glm's (`glm::vec3`, `glm::mat4`, `glm::quat`; `glm::dvec3`/`glm::dmat4` where the importers keep doubles), not `std::array` aliases, but where a layout is fixed elsewhere (the structs `capi.h` shares with the shaders, rhi's public API). glm doesn't zero: initialize vectors (`glm::vec3 v{0.0F}`) and quaternions (`glm::identity<glm::quat>()`).
+- Portable by default, measured on one: pick the general method likely to perform well on every platform and gpu, not the one a single driver favors, and record a platform's numbers as what it costs there. A platform that can't do the general method well gets an exception named for what it lacks, decided in rhi (`DeviceLimits::drawIndirectCountEmulated`), saying when to look again.
+- A number that is a size or an amount is a count, and named so (`kChunkCommandCount`, `SPEEDO_SWAPCHAIN_IMAGE_COUNT`); a switch isn't (`SPEEDO_INDIRECT_DRAWS=0`).
+- A fixed capacity that runs out fails hard: `ENSUREF` (`core/assert.h`, which traps in every build) naming the limit. Never warn and drop the rest, truncate, or fall back to something slower; handle real content when it hits a limit. A policy (the shadow atlas's budget, the transparency's node pool) isn't a capacity.
+- Associative containers are core's (`core::UnorderedMap`, `core::UnorderedSet`, `core/utils.h`), never `std::map`, `std::set` or `std::unordered_*`, the tools' included; where an order matters, sort a vector of the keys.
+- Files go through core (`core/file.h`: `core::file::Map`, `Write`, `LoadBinary`/`SaveBinary`), not streams, stdio or a library's own file loading: hand decoders the mapped bytes. `src/tools/filebench.cpp` is the one exception.
+- Locks: `std::mutex` for exclusive ones, `core::UpgradableSharedMutex` where upgrade locks are used (it degrades badly under contention); don't lock what can't change.
+- Parallel and background work is tasks on the application's executor (`core::CreateTask`, `TaskExecutor::Submit`, `ForEach`, `core::AddDependency`, `Join`), never threads of its own; work for a particular thread is queued for it (`mainCalls`, `RHI::drawCalls`). A task never loops until something arrives, nor sleeps holding its thread until another task has made something, and never `Join`s while holding a lock a task may take. `CreateTask` copies its arguments: pass a reference as `std::ref`.
+- Callables: a template parameter; run later or on another thread, a task or a `move_only_function` queued for that thread; called during a call into a .cpp, a `core::std_extra::function_ref` (bound in the call: it dangles after); stored and called again, a `core::std_extra::move_only_function`. Never `std::function`.
+- Sleep until a time with `core::SleepUntil` (`core/time.h`), not `std::this_thread`'s, which Windows rounds up to 15.6 ms.
 
 Details of these, and what each cost to learn: docs/notes/core.md.
 
@@ -108,26 +47,12 @@ Details of these, and what each cost to learn: docs/notes/core.md.
 
 Each as deep as the subsystem's history: what was tried, what it cost, the user's poses.
 
-- docs/notes/core.md: the application's lifecycle and shutdown, glm (serialization, why no intrinsics), portability,
-  capacity limits, containers, file I/O (zip extraction, read-ahead), choosing a lock, the task system (the executor,
-  waiting, fairness, threads and their stacks, the task pool, `CreateTask`).
-- docs/notes/layering.md: the platform (windows, fullscreen and presentation modes, the presentation test, the hangs
-  fixed), the file browser, thumbnails and the preview, the ImGui renderer, the shader module's parts, the shaders'
-  background compile, the shader compiler library and the precompiled shaders, the pipelines made without waiting.
-- docs/notes/rhi.md: Vulkan 1.4, crash reports and hangs, the `Object`/`DeviceObject` base classes and their macros,
-  the swap idiom, specialization ordering, delegating constructors, object identity and tracking, frame slots,
-  command buffers' ownership, the queues' shared locks, descriptor sets and the pool, layouts by name.
-- docs/notes/rendering.md: the frame graph, debug views and the Statistics window, gpu timings and shader tiers,
-  the views, the physical camera, its lenses, their glare, depth of field, motion blur and grain, reversed depth,
-  temporal upscaling (FSR 3.1), culling and occlusion, shadows, ray traced shadows, traced reflections and refractions,
-  the visibility buffer, clustered lighting.
-- docs/notes/indirect-lighting.md: the irradiance probes over the voxel clipmap, the surface cache, the near field,
-  tracing the triangles and the hardware ray queries (and the macOS gpu restarts), emissive surfaces as lights.
+- docs/notes/core.md: the application's lifecycle and shutdown, glm (serialization, why no intrinsics), portability, capacity limits, containers, file I/O (zip extraction, read-ahead), choosing a lock, the task system (the executor, waiting, fairness, threads and their stacks, the task pool, `CreateTask`).
+- docs/notes/layering.md: the platform (windows, fullscreen and presentation modes, the presentation test, the hangs fixed), the file browser, thumbnails and the preview, the ImGui renderer, the shader module's parts, the shaders' background compile, the shader compiler library and the precompiled shaders, the pipelines made without waiting.
+- docs/notes/rhi.md: Vulkan 1.4, crash reports and hangs, the `Object`/`DeviceObject` base classes and their macros, the swap idiom, specialization ordering, delegating constructors, object identity and tracking, frame slots, command buffers' ownership, the queues' shared locks, descriptor sets and the pool, layouts by name.
+- docs/notes/rendering.md: the frame graph, debug views and the Statistics window, gpu timings and shader tiers, the views, the physical camera, its lenses, their glare, depth of field, motion blur and grain, reversed depth, temporal upscaling (FSR 3.1), culling and occlusion, shadows, ray traced shadows, traced reflections and refractions, the visibility buffer, clustered lighting.
+- docs/notes/indirect-lighting.md: the irradiance probes over the voxel clipmap, the surface cache, the near field, tracing the triangles and the hardware ray queries (and the macOS gpu restarts), emissive surfaces as lights.
 - docs/notes/sky.md: Earth's atmosphere, the sun, moon and stars, the time of day, aerial perspective and fog.
-- docs/notes/assets.md: the importers (obj, gltf and its extensions, images), caches, the ground plane, the scene's
-  unit, archives and sets, material variants, auto exposure, tonemapping, the test sets and `assettest.ps1`.
-- docs/notes/build.md: presets, sanitizers, `<windows.h>`, `setup.ps1`, FASTBuild, libc++, the clang toolchain, vcpkg's
-  overlay ports and the mesa fork, vcpkg's shared binary cache (a public B2 bucket, what keeps its packages' hashes
-  portable), CI (the client on lavapipe), releases (installs, the packages, `scripts/package.ps1`, the release workflow
-  on `v*` tags) and the licenses.
+- docs/notes/assets.md: the importers (obj, gltf and its extensions, images), caches, the ground plane, the scene's unit, archives and sets, material variants, auto exposure, tonemapping, the test sets and `assettest.ps1`.
+- docs/notes/build.md: presets, sanitizers, `<windows.h>`, `setup.ps1`, FASTBuild, libc++, the clang toolchain, vcpkg's overlay ports and the mesa fork, vcpkg's shared binary cache (a public B2 bucket, what keeps its packages' hashes portable), CI (the client on lavapipe), releases (installs, the packages, `scripts/package.ps1`, the release workflow on `v*` tags) and the licenses.
 - docs/visual-testing-plan.md: checks of what the client draws (repeatable captures, `imagecompare`, references).
