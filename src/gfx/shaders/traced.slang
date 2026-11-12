@@ -1032,8 +1032,9 @@ void ComputeReflectionTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		{
 			float depth = hitDistance / focus;
 			float4 clipImage = mul(view.previousViewProjection, float4(surface.position - normalize(toEye) * depth, 1.0));
-			float imageWeights;
-			float imageHeld;
+			// 0 where there is no image to take: ReflectionVirtualHistory writes them only where there is
+			float imageWeights = 0.0;
+			float imageHeld = 0.0;
 			float4 imageTotal = clipImage.w > 0.0 ? ReflectionVirtualHistory(lastHistory, lastSurfaces, view, PixelHistoryAt(view, clipImage),
 																			 surface.normal, hitDistance, imageWeights, imageHeld)
 												 : 0.0;

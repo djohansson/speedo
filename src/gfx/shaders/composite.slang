@@ -116,6 +116,11 @@ void ComputeMain(
 		uint node = gOitHeads[y * gPushConstants.framebufferWidth + x];
 		if (node != SHADER_TYPES_OIT_NONE && !voxelWorld)
 		{
+			// slang can't see that layerCount guards every read of the layers and their keys: it warns of a possible use of
+			// an uninitialized variable (E41035) at each. zeroing them would add 32 stores to every pixel with a list, so the
+			// warning is off for the gathering alone (as for bvh.slang's traversals' stacks)
+#pragma warning(push)
+#pragma warning(disable : 41035)
 			uint layers[SHADER_TYPES_OIT_MAX_LAYERS];
 			uint keys[SHADER_TYPES_OIT_MAX_LAYERS];
 			uint layerCount = 0;
@@ -138,6 +143,7 @@ void ComputeMain(
 				}
 				node = current.next;
 			}
+#pragma warning(pop)
 			for (uint layerIt = layerCount; layerIt > 0; layerIt--)
 			{
 				OitNode layer = gOitNodes[layers[layerIt - 1]];
