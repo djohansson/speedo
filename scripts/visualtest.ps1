@@ -13,6 +13,10 @@ yet, it is measured first (the user's call, 2026-11-11).
 The thresholds leave a few times what was measured when each check was made (in its comment), so that they fail on a
 real change and not on a run's noise: a check whose measures move should be looked at, not loosened.
 
+-Validate loads the validation layer into the clients, as assettest.ps1 -Validate does (its settings, each client's
+messages in a file of its own appended to its log), and a check fails on a client's validation messages, load failures
+or sanitizer reports, as assettest's client runs do: CI's checks of the client itself.
+
 -Only <names> runs those checks alone. The client needs a vulkan driver: on macOS the mesa port's KosmicKrisp unless
 VK_DRIVER_FILES is set (lavapipe's, say). The ray query check needs a driver with ray queries other than KosmicKrisp
 (two clients tracing, one after the other, which is more than the rule there allows without asking): lavapipe's.
@@ -26,7 +30,8 @@ param(
 	[string] $Work,
 	[string[]] $Only, # not -Check: PowerShell's names are case-insensitive, and the loop's $check would overwrite it
 	[string] $Size = '640x360',
-	[int] $TimeoutSeconds = 600
+	[int] $TimeoutSeconds = 600,
+	[switch] $Validate
 )
 $ErrorActionPreference = 'Stop'
 # -Only a,b from a shell (pwsh -File) comes as one string
@@ -69,6 +74,41 @@ else
 {
 	$env:PATH = "$lib$separator$env:PATH"
 }
+# -Validate: the validation layer through the environment, with assettest.ps1's settings (a debug client loads it itself);
+# on Windows its manifest is beside its dll, elsewhere in share/vulkan/explicit_layer.d
+$validating = $Validate -and $config -ne 'debug'
+if ($Validate)
+{
+	if (-not $env:VK_LAYER_PATH)
+	{
+		$env:VK_LAYER_PATH = if ($IsWindows) { $lib } else { Join-Path $root "install/$triplet/share/vulkan/explicit_layer.d" }
+	}
+}
+if ($validating)
+{
+	$layer = 'VK_LAYER_KHRONOS_validation'
+	$env:VK_INSTANCE_LAYERS = if ($env:VK_INSTANCE_LAYERS) { "$layer$separator$env:VK_INSTANCE_LAYERS" } else { $layer }
+	$settings = [ordered]@{
+		VALIDATE_CORE = 'true'
+		VALIDATE_SYNC = if ($env:SPEEDO_VALIDATE_SYNC) { 'true' } else { 'false' }
+		THREAD_SAFETY = 'true'
+		DEBUG_ACTION = 'VK_DBG_LAYER_ACTION_LOG_MSG'
+		REPORT_FLAGS = 'info,warn,perf,error'
+		ENABLE_MESSAGE_LIMIT = 'true'
+		DUPLICATE_MESSAGE_LIMIT = '3'
+		MESSAGE_ID_FILTER = 'WARNING-CreateInstance-debug-warning'
+	}
+	foreach ($name in $settings.Keys)
+	{
+		if (-not [Environment]::GetEnvironmentVariable("VK_KHRONOS_VALIDATION_$name"))
+		{
+			[Environment]::SetEnvironmentVariable("VK_KHRONOS_VALIDATION_$name", $settings[$name])
+		}
+	}
+}
+# what fails a client's run besides its exit code, as assettest.ps1's client runs: a load's failure, a failed assert's
+# errno line, the validation layer's messages, the sanitizers' reports
+$problemPattern = 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|Validation (Error|Warning): |WARNING-CoreValidation-|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer'
 # the driver, unless one is chosen: on macOS the mesa port's KosmicKrisp, as assettest.ps1 takes it
 if ($IsMacOS -and -not $env:VK_DRIVER_FILES -and -not $env:VK_ICD_FILENAMES)
 {
@@ -211,6 +251,12 @@ function Invoke-Capture($Check, [string] $Side, [hashtable] $Variables, [string]
 	# the scene's own settings (both runs'), then the side's
 	if ($Check.Variables) { foreach ($name in $Check.Variables.Keys) { $set[$name] = $Check.Variables[$name] } }
 	foreach ($name in $Variables.Keys) { $set[$name] = $Variables[$name] }
+	# -Validate: this client's layer messages in a file of their own, appended to its log after it
+	if ($validating)
+	{
+		Remove-Item -LiteralPath "$log.validation" -ErrorAction SilentlyContinue
+		$set.VK_KHRONOS_VALIDATION_LOG_FILENAME = "$log.validation"
+	}
 	foreach ($name in $set.Keys) { [Environment]::SetEnvironmentVariable($name, $set[$name]) }
 	try
 	{
@@ -230,14 +276,26 @@ function Invoke-Capture($Check, [string] $Side, [hashtable] $Variables, [string]
 		Write-Host "  $Side timed out after $TimeoutSeconds s (log: $log)"
 		return $false
 	}
-	if (Test-Path -LiteralPath "$log.stderr")
+	# one log: what the client printed to stdout, then to stderr, then the validation layer's messages
+	foreach ($part in "$log.stderr", "$log.validation")
 	{
-		Get-Content -LiteralPath "$log.stderr" | Add-Content -LiteralPath $log
-		Remove-Item -LiteralPath "$log.stderr" -ErrorAction SilentlyContinue
+		if (Test-Path -LiteralPath $part)
+		{
+			Get-Content -LiteralPath $part | Add-Content -LiteralPath $log
+			Remove-Item -LiteralPath $part -ErrorAction SilentlyContinue
+		}
 	}
 	if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $capture))
 	{
 		Write-Host "  $Side failed (exit $($process.ExitCode), log: $log)"
+		return $false
+	}
+	$problems = @(Select-String -LiteralPath $log -Pattern $problemPattern | ForEach-Object Line | Group-Object | Sort-Object Name |
+		Select-Object -First 5 | ForEach-Object { '      {0,5} {1}' -f $_.Count, $_.Name })
+	if ($problems.Count -gt 0)
+	{
+		Write-Host "  $Side failed (log: $log):"
+		$problems | ForEach-Object { Write-Host $_ }
 		return $false
 	}
 	return $true
