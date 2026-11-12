@@ -103,7 +103,7 @@ The build puts `client`, the viewer, in the preset's build directory. Run it fro
 | `-r <dir>`: the resource directory (fonts, shaders, test assets) | `resources/` |
 | `-u <dir>`: the user profile directory (settings, caches, logs) | `.speedo/` |
 
-From a checkout the shaders compile from their sources at startup, through a shader compiler library the client loads only for that; an installed client gets them precompiled, and its package ships neither the compiler nor slang. A first launch compiles them in the background (from a checkout) and has the driver create the pipelines, with the progress shown in a Loading window while the interface stays responsive; later launches take them from the profile's caches and start in seconds.
+From a checkout the shaders compile from their sources at startup, through a shader compiler library the client loads only for that; an installed client gets them precompiled, and its package ships neither the compiler nor slang. A first launch compiles them in the background and has the driver create the pipelines, with the progress shown in a Loading window while the interface stays responsive; later launches take them from the profile's caches and start in seconds.
 
 On macOS, point the Vulkan loader at KosmicKrisp, which setup restores from the binary cache (with a workaround for a GPU restart in Apple's ray tracing, see [indirect lighting](docs/notes/indirect-lighting.md)):
 
@@ -150,7 +150,7 @@ Environment variables start the client in a known state, for bug reports, measur
 
 ## Profiling
 
-Debug and profile builds are instrumented with [Tracy](https://github.com/wolfpld/tracy) (release builds, which the installers ship, have none of it): start the profiler from `install/<triplet>/tools/tracy/` or its VS Code launch configuration, then the client. The GPU side has a zone per render pass, from the same timestamps as View > Statistics. [rendering](docs/notes/rendering.md) ("GPU timings")
+Debug and profile builds are instrumented with [Tracy](https://github.com/wolfpld/tracy). Start the profiler from `install/<triplet>/tools/tracy/` or its VS Code launch configuration, then the client. The GPU side has a zone per render pass, from the same timestamps as View > Statistics. [rendering](docs/notes/rendering.md) ("GPU timings")
 
 ## Releasing
 
