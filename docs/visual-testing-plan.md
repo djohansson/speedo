@@ -332,7 +332,11 @@ docs/notes/indirect-lighting.md). BumpDomes' validated client runs on CI never m
 on the M4 Pro's lavapipe in 276 s from a new work dir (the furnace 95 s, the ray queries 78 s), and five on its
 KosmicKrisp in 72 s (54 of them the first client's, with the shader compile), the measures as before (the furnace
 +0.881 stops). CI's visual checks took `-Validate`, and its client checks (BumpDomes, `assettest.ps1 -ClientOnly`) were
-dropped (the user's call): the visual checks load and draw models the same way, validated, and more of them.
+dropped (the user's call): the visual checks load and draw models the same way, validated, and more of them. CI's first
+validated run (2026-11-12) passed all six on both runners' lavapipe, the measures as on the M4 Pro: on Linux the step
+took 617 s (traced-shadows 100 s with the shader compile, shadow-atlas 26, emitters 63, upscaling 75, furnace 254,
+ray-queries 95), on Windows 1223 s (182, 105, 158, 174, 447, 154). No budget yet; the furnace, 256 frames, is the most
+of it on both.
 
 ### Step 2 (2026-11-11)
 

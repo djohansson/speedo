@@ -694,7 +694,9 @@ deref a NULL buffer descriptor with an empty exec mask", MR 42620), not backport
 driver's. What the client checks took (the first client
 compiles the shaders): on Linux 1 min 40 s (82 s and 14 s) and 3 min 38 s (187 s and 25 s) in two runs a few hours apart,
 on Windows 6 min 19 s (224 s and 153 s, 2026-11-11): Windows' second client starts nowhere near as warm as Linux's, to be
-looked into. No time budget yet (the user, 2026-11-11: measure first). What it found on the way:
+looked into. The validated visual checks, which took their place, took 10 min 17 s on Linux and 20 min 23 s on Windows
+(2026-11-12, each check's time in docs/visual-testing-plan.md). No time budget yet (the user, 2026-11-11: measure
+first). What it found on the way:
 
 - **A deadlock on 2 executor threads** (a 4-core runner's): the client's `Rpc` task looped until a server answered,
   loads slept in `WaitUntilReady`, and moodycamel's dequeue starved the draw chain; both clients timed out at 30 minutes
