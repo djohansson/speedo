@@ -374,18 +374,20 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 		});
 	// temporal upscaling (SPEEDO_UPSCALING=off|native|quality|balanced|performance, see gfx::Upscaling)
 	apply(settings.upscaling, kDefaults.upscaling, "SPEEDO_UPSCALING", [](const char* value) { return gfx::ParseUpscaling(value); });
-	// the debug view (SPEEDO_DEBUG_VIEW: a key of kDebugViews, or its number)
+	// the debug view (SPEEDO_DEBUG_VIEW: a key of kDebugViews, or its number; anything else isn't understood, where a
+	// misspelt key used to show the lit image without a word)
 	apply(
 		settings.debugView,
 		kDefaults.debugView,
 		"SPEEDO_DEBUG_VIEW",
 		[](const char* value) -> std::optional<uint32_t>
 		{
-			auto view = static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
 			for (const auto& entry : kDebugViews)
 				if (std::string_view(value) == entry.view.key)
-					view = entry.view.view;
-			return view < DEBUG_VIEW_COUNT ? std::optional<uint32_t>(view) : std::nullopt;
+					return entry.view.view;
+			char* end = nullptr;
+			auto view = static_cast<uint32_t>(std::strtoul(value, &end, 10));
+			return end != value && *end == '\0' && view < DEBUG_VIEW_COUNT ? std::optional<uint32_t>(view) : std::nullopt;
 		});
 	// the environment's rotation (degrees) and intensity (as View > Environment sets them)
 	apply(settings.environmentRotationDegrees, kDefaults.environmentRotationDegrees, "SPEEDO_ENVIRONMENT_ROTATION", number(-kAny, kAny));
