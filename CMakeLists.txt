@@ -80,6 +80,17 @@ endif()
 # is in every package's ABI, and the ports build in other directories). the project's own compiles take them relative to
 # the build directory, where FASTBuild runs them: a checkout elsewhere had 2 of 97 objects from the cache, 93 of 97 so
 # (2026-11-11)
+# macOS: the project's binaries without the toolchain's rpath to the host LLVM's lib (libc++ is linked statically there, so
+# they load nothing from the host tree), which came before their own packages': since the host tree has curl, zlib and
+# OpenSSL too (FASTBuild's cache plugin's), a client from the build tree loaded the host's curl, and the bundle's install
+# found its libraries twice ("Multiple conflicting paths found for libz.1.3.2.dylib", v1.0.1's first macOS package).
+# not in the toolchain, whose text is in every package's ABI
+if(APPLE AND LLVM_ROOT)
+	foreach(SPEEDO_LINK_KIND IN ITEMS EXE SHARED MODULE)
+		string(REPLACE "-Wl,-rpath,\"${LLVM_ROOT}/lib\"" "" CMAKE_${SPEEDO_LINK_KIND}_LINKER_FLAGS "${CMAKE_${SPEEDO_LINK_KIND}_LINKER_FLAGS}")
+	endforeach()
+endif()
+
 if(CMAKE_GENERATOR STREQUAL "FASTBuild" AND CMAKE_FASTBUILD_USE_RELATIVE_PATHS AND LLVM_ROOT)
 	file(RELATIVE_PATH SPEEDO_LLVM_ROOT_RELATIVE "${CMAKE_BINARY_DIR}" "${LLVM_ROOT}")
 	foreach(SPEEDO_LANGUAGE IN ITEMS C CXX OBJC OBJCXX)

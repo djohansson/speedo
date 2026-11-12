@@ -755,8 +755,11 @@ stderr has no handle, so a script's redirects, `assettest.ps1`'s and `perfbaseli
 though the shell doesn't wait for it, and ignores that console's ctrl-c. Debug and profile clients stay console programs. A package's code is built
 for the toolchain's fixed cpu, not the build machine's: the presets' `SPEEDO_TARGET_CPU=baseline` (`-mcpu=apple-m1`;
 until 2026-11-11 they set `native`, `-march=native` on arm64, and the workflow overrode it), and `package.ps1` refuses
-an arm64 build configured for native by hand (x86-64 is always `x86-64-v3`). The macOS bundle's absolute rpaths (the
-toolchain's LLVM) are deleted and it is signed ad hoc (Apple silicon runs only signed code); nothing is signed by a
+an arm64 build configured for native by hand (x86-64 is always `x86-64-v3`). On macOS the project's binaries don't take
+the toolchain's rpath to the host LLVM's lib at all (`CMakeLists.txt` drops it: libc++ is static there): since the host
+tree has curl, zlib and OpenSSL too (FASTBuild's cache plugin's), v1.0.1's first macOS package failed on it, the bundle's
+install finding `libz.1.3.2.dylib` in both trees ("Multiple conflicting paths"), and a client from the build tree loaded
+the host's curl. The macOS bundle's remaining absolute rpaths are deleted and it is signed ad hoc (Apple silicon runs only signed code); nothing is signed by a
 developer id yet (the user's call, 2026-11-07), so Gatekeeper and SmartScreen ask at first (System Settings > Privacy &
 Security > Open Anyway, or `xattr -dr com.apple.quarantine`; More info > Run anyway). Tracy isn't in it (release links
 no Tracy, see "Licenses"). The AppImage runs where the C library is at least the build's (Ubuntu 26.04's 2.43).
