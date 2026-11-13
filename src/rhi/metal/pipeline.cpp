@@ -40,11 +40,18 @@ uint64_t Pipeline<kMetal>::InternalCalculateHashKey(GraphicsPipelineVariant vari
 	result = XXH3_64bits_update(gThreadXxhState.get(), &layoutHandle, sizeof(layoutHandle));
 	ENSURE(result != XXH_ERROR);
 
-	// (a graphics pipeline's render target formats come with the render passes, step 5)
 	if (myBindPoint == PipelineBindPoint::kGraphics)
+	{
 		result = XXH3_64bits_update(gThreadXxhState.get(), &variant, sizeof(variant));
+		ENSURE(result != XXH_ERROR);
+		// and the render target's formats: a variant needs a pipeline per render target layout, as Vulkan's backend has it
+		if (const auto& rendering = myGraphicsState.rendering)
+			result = XXH3_64bits_update(gThreadXxhState.get(), &*rendering, sizeof(*rendering));
+	}
 	else
+	{
 		result = XXH3_64bits_update(gThreadXxhState.get(), &computeVariant, sizeof(computeVariant));
+	}
 	ENSURE(result != XXH_ERROR);
 
 	return XXH3_64bits_digest(gThreadXxhState.get());
@@ -53,31 +60,183 @@ uint64_t Pipeline<kMetal>::InternalCalculateHashKey(GraphicsPipelineVariant vari
 template <>
 void Pipeline<kMetal>::InternalResetGraphicsState()
 {
-	// (the graphics state comes with the render passes, step 5)
+	myGraphicsState = {};
 }
 
 template <>
 void Pipeline<kMetal>::InternalResetComputeState()
 {}
 
+// a copy of the graphics state and the name, what a pipeline is made from on any thread
 template <>
 struct Pipeline<kMetal>::GraphicsSnapshot
 {
+	GraphicsState state;
 	std::string name;
 };
 
 template <>
 std::shared_ptr<const Pipeline<kMetal>::GraphicsSnapshot> Pipeline<kMetal>::InternalSnapshotGraphicsState() const
 {
-	return std::make_shared<const GraphicsSnapshot>(GraphicsSnapshot{.name = GetName()});
+	return std::make_shared<const GraphicsSnapshot>(GraphicsSnapshot{.state = myGraphicsState, .name = GetName()});
 }
+
+namespace pipeline
+{
+
+// an entry point's function, with the variant's specialization as function constant 0 where it isn't 0 (else the shader's
+// default, as Vulkan's backend has it), released by the caller
+static MTL::Function* NewFunction(const PipelineShaderStageCreateInfo<kMetal>& stage, uint32_t specialization)
+{
+	auto* constants = MTL::FunctionConstantValues::alloc()->init();
+	if (specialization != 0)
+		constants->setConstantValue(&specialization, MTL::DataTypeUInt, NS::UInteger{0});
+	NS::Error* error = nullptr;
+	MTL::Function* function = stage.library->newFunction(NS::String::string(stage.name, NS::UTF8StringEncoding), constants, &error);
+	constants->release();
+	ENSUREF(
+		function != nullptr,
+		"Failed to make {}'s Metal function: {}",
+		stage.name,
+		error != nullptr ? error->localizedDescription()->utf8String() : "(no error)");
+	return function;
+}
+
+// a color attachment's blending for a blend mode (Vulkan's backend's factors); false where it writes depth (opaque)
+static bool SetBlend(MTL::RenderPipelineColorAttachmentDescriptor& attachment, BlendMode mode)
+{
+	auto factors = [&attachment](MTL::BlendFactor srcColor, MTL::BlendFactor dstColor, MTL::BlendFactor srcAlpha, MTL::BlendFactor dstAlpha)
+	{
+		attachment.setBlendingEnabled(true);
+		attachment.setSourceRGBBlendFactor(srcColor);
+		attachment.setDestinationRGBBlendFactor(dstColor);
+		attachment.setRgbBlendOperation(MTL::BlendOperationAdd);
+		attachment.setSourceAlphaBlendFactor(srcAlpha);
+		attachment.setDestinationAlphaBlendFactor(dstAlpha);
+		attachment.setAlphaBlendOperation(MTL::BlendOperationAdd);
+	};
+	switch (mode)
+	{
+	case BlendMode::kOpaque: return true;
+	case BlendMode::kAlpha:
+		factors(MTL::BlendFactorSourceAlpha, MTL::BlendFactorOneMinusSourceAlpha, MTL::BlendFactorOne, MTL::BlendFactorOneMinusSourceAlpha);
+		break;
+	case BlendMode::kNone: attachment.setWriteMask(MTL::ColorWriteMaskNone); break;
+	case BlendMode::kAdd: factors(MTL::BlendFactorOne, MTL::BlendFactorOne, MTL::BlendFactorOne, MTL::BlendFactorOne); break;
+	case BlendMode::kMultiplyInverse:
+		factors(MTL::BlendFactorZero, MTL::BlendFactorOneMinusSourceColor, MTL::BlendFactorZero, MTL::BlendFactorOneMinusSourceAlpha);
+		break;
+	case BlendMode::kMultiplyMax:
+		factors(MTL::BlendFactorDestinationColor, MTL::BlendFactorZero, MTL::BlendFactorOne, MTL::BlendFactorOne);
+		attachment.setAlphaBlendOperation(MTL::BlendOperationMax);
+		break;
+	}
+	return false;
+}
+
+} // namespace pipeline
 
 template <>
 PipelineHandle<kMetal> Pipeline<kMetal>::InternalCreateGraphicsPipeline(
-	uint64_t /*hashKey*/, GraphicsPipelineVariant /*variant*/, const GraphicsSnapshot& snapshot) const
+	uint64_t /*hashKey*/, GraphicsPipelineVariant variant, const GraphicsSnapshot& snapshot) const
 {
-	ENSUREF(false, "{}: the Metal backend's graphics pipelines come with its render passes (docs/backends-plan.md, step 5)", snapshot.name);
-	return nullptr;
+	ZoneScopedN("Pipeline::InternalCreateGraphicsPipeline");
+
+	const auto& state = snapshot.state;
+	ENSUREF(state.rendering, "{}: a graphics pipeline without a render target (Pipeline::SetRenderTarget)", snapshot.name);
+	const auto& rendering = *state.rendering;
+
+	// the layout's vertex stage, and the variant's fragment stage of its fragment stages
+	const PipelineShaderStageCreateInfo<kMetal>* vertex = nullptr;
+	const PipelineShaderStageCreateInfo<kMetal>* fragment = nullptr;
+	uint32_t fragmentIt = 0;
+	for (const auto& stage : state.shaderStages)
+	{
+		if (stage.stage == ShaderStage::kVertex)
+			vertex = &stage;
+		else if (stage.stage == ShaderStage::kFragment && fragmentIt++ == variant.fragmentShader)
+			fragment = &stage;
+	}
+	ENSUREF(vertex != nullptr, "{}: the layout has no vertex entry point", snapshot.name);
+	ENSUREF(fragment != nullptr || fragmentIt == 0, "{}: the layout has no fragment entry point {}", snapshot.name, variant.fragmentShader);
+
+	auto creationStart = std::chrono::steady_clock::now();
+	auto* descriptor = MTL::RenderPipelineDescriptor::alloc()->init();
+	auto* vertexFunction = pipeline::NewFunction(*vertex, variant.specialization);
+	descriptor->setVertexFunction(vertexFunction);
+	vertexFunction->release();
+	if (fragment != nullptr)
+	{
+		auto* fragmentFunction = pipeline::NewFunction(*fragment, variant.specialization);
+		descriptor->setFragmentFunction(fragmentFunction);
+		fragmentFunction->release();
+	}
+	// a blend state per color attachment by the variant's blend modes; depth written where one is opaque (a depth only
+	// target: where the first is)
+	bool depthWrite = rendering.colorAttachmentCount == 0 && variant.blend[0] == BlendMode::kOpaque;
+	for (uint32_t attachmentIt = 0; attachmentIt < rendering.colorAttachmentCount; attachmentIt++)
+	{
+		auto* attachment = descriptor->colorAttachments()->object(attachmentIt);
+		attachment->setPixelFormat(metal::ToMetal(rendering.colorAttachmentFormats[attachmentIt]));
+		depthWrite = pipeline::SetBlend(*attachment, variant.blend[attachmentIt]) || depthWrite;
+	}
+	if (rendering.depthAttachmentFormat != Format::kUndefined)
+		descriptor->setDepthAttachmentPixelFormat(metal::ToMetal(rendering.depthAttachmentFormat));
+	if (rendering.stencilAttachmentFormat != Format::kUndefined)
+		descriptor->setStencilAttachmentPixelFormat(metal::ToMetal(rendering.stencilAttachmentFormat));
+	auto* object = new metal::PipelineObject{};
+	switch (variant.topology)
+	{
+	case PrimitiveTopology::kTriangleList:
+		descriptor->setInputPrimitiveTopology(MTL::PrimitiveTopologyClassTriangle);
+		object->primitiveType = MTL::PrimitiveTypeTriangle;
+		break;
+	case PrimitiveTopology::kLineList:
+		descriptor->setInputPrimitiveTopology(MTL::PrimitiveTopologyClassLine);
+		object->primitiveType = MTL::PrimitiveTypeLine;
+		break;
+	case PrimitiveTopology::kPointList:
+		descriptor->setInputPrimitiveTopology(MTL::PrimitiveTopologyClassPoint);
+		object->primitiveType = MTL::PrimitiveTypePoint;
+		break;
+	}
+	descriptor->setLabel(NS::String::string(snapshot.name.c_str(), NS::UTF8StringEncoding));
+	NS::Error* error = nullptr;
+	object->renderPipeline = GetDesc().device->newRenderPipelineState(descriptor, &error);
+	descriptor->release();
+	ENSUREF(
+		object->renderPipeline != nullptr,
+		"{}: Failed to make a Metal render pipeline: {}",
+		snapshot.name,
+		error != nullptr ? error->localizedDescription()->utf8String() : "(no error)");
+
+	// the depth test, reversed (1 at the near plane; over a pre-pass's depth, equal and read only), and what writes depth
+	// writes the stencil's first bit too (the reference is the encoder's, CommandEncoder::SetStencilReference)
+	if (rendering.depthAttachmentFormat != Format::kUndefined)
+	{
+		auto* depthStencil = MTL::DepthStencilDescriptor::alloc()->init();
+		const bool equal = variant.depthTest == DepthTest::kEqual;
+		depthStencil->setDepthCompareFunction(equal ? MTL::CompareFunctionGreaterEqual : MTL::CompareFunctionGreater);
+		depthStencil->setDepthWriteEnabled(depthWrite && !equal);
+		if (rendering.stencilAttachmentFormat != Format::kUndefined && depthWrite && !equal)
+		{
+			auto* stencil = MTL::StencilDescriptor::alloc()->init();
+			stencil->setStencilCompareFunction(MTL::CompareFunctionAlways);
+			stencil->setStencilFailureOperation(MTL::StencilOperationKeep);
+			stencil->setDepthFailureOperation(MTL::StencilOperationKeep);
+			stencil->setDepthStencilPassOperation(MTL::StencilOperationReplace);
+			stencil->setReadMask(0xFFU);
+			stencil->setWriteMask(1U);
+			depthStencil->setFrontFaceStencil(stencil);
+			depthStencil->setBackFaceStencil(stencil);
+			stencil->release();
+		}
+		object->depthStencil = GetDesc().device->newDepthStencilState(depthStencil);
+		depthStencil->release();
+	}
+	pipeline::LogCreation("graphics", fragment != nullptr ? fragment->name : "(no fragment stage)", variant.specialization, creationStart);
+
+	return object;
 }
 
 template <>
@@ -120,8 +279,16 @@ PipelineHandle<kMetal> Pipeline<kMetal>::InternalCreateComputePipeline(
 template <>
 void Pipeline<kMetal>::BindPipeline(CommandBufferHandle<kMetal> cmd, PipelineBindPoint bindPoint, PipelineHandle<kMetal> handle) const
 {
-	ENSUREF(bindPoint == PipelineBindPoint::kCompute, "the Metal backend's graphics pipelines come with its render passes (step 5)");
-	cmd->computePipeline = handle->computePipeline;
+	// set on the encoder at the next dispatch or draw (see commandencoder.cpp): a render pipeline may be bound before its
+	// pass begins
+	if (bindPoint == PipelineBindPoint::kCompute)
+	{
+		cmd->computePipeline = handle->computePipeline;
+		return;
+	}
+	cmd->renderPipeline = handle->renderPipeline;
+	cmd->depthStencil = handle->depthStencil;
+	cmd->primitiveType = handle->primitiveType;
 }
 
 template <>
@@ -137,10 +304,15 @@ void Pipeline<kMetal>::PushConstants(CommandBufferHandle<kMetal> cmd, std::span<
 			[offset, size](const auto& range) { return range.offset < offset + size && offset < range.offset + range.size; }),
 		"No push constant range in the current layout covers the pushed data.");
 
-	// set at the layout's slot for them at the next dispatch (see commandencoder.cpp)
+	// set at the layout's slot for them at the next dispatch or draw (see commandencoder.cpp), padded with zeros to a
+	// multiple of 16 bytes: setBytes must cover the shader's whole struct, which MSL rounds up to its alignment (a float4's
+	// 16 at most), where Vulkan's push constants take fewer bytes than the range (rhitest's draw pushes 36 of 48: Metal's
+	// debug layer stopped the draw)
+	constexpr uint32_t kStructAlignment = 16;
 	cmd->pushConstantSlot = static_cast<PipelineLayoutHandle<kMetal>>(*layoutIt)->pushConstantSlot;
-	if (cmd->pushConstants.size() < offset + size)
-		cmd->pushConstants.resize(offset + size);
+	const size_t padded = (static_cast<size_t>(offset + size) + kStructAlignment - 1) & ~size_t{kStructAlignment - 1};
+	if (cmd->pushConstants.size() < padded)
+		cmd->pushConstants.resize(padded);
 	std::memcpy(cmd->pushConstants.data() + offset, data.data(), size);
 }
 
@@ -185,9 +357,10 @@ void Pipeline<kMetal>::BindLayoutAuto(PipelineLayoutHandle<kMetal> layoutHandle,
 }
 
 template <>
-void Pipeline<kMetal>::SetRenderTarget(IRenderTarget<kMetal>& /*renderTarget*/)
+void Pipeline<kMetal>::SetRenderTarget(IRenderTarget<kMetal>& renderTarget)
 {
-	ENSUREF(false, "the Metal backend's render targets come with its render passes (docs/backends-plan.md, step 5)");
+	myGraphicsState.rendering = renderTarget.GetPipelineRenderingCreateInfo();
+	myGraphicsState.extent = renderTarget.GetExtent();
 }
 
 template <>
@@ -211,7 +384,9 @@ Pipeline<kMetal>::~Pipeline()
 		// null: requested (see RequestGraphicsPipeline), but its job never ran
 		if (handle == nullptr)
 			continue;
-		handle->computePipeline->release();
+		for (NS::Object* object : std::initializer_list<NS::Object*>{handle->computePipeline, handle->renderPipeline, handle->depthStencil})
+			if (object != nullptr)
+				object->release();
 		delete handle;
 	}
 

@@ -32,6 +32,27 @@ void CommandBufferObject::EndEncoders()
 		blitEncoder->release();
 		blitEncoder = nullptr;
 	}
+	if (renderEncoder != nullptr)
+	{
+		renderEncoder->endEncoding();
+		renderEncoder->release();
+		renderEncoder = nullptr;
+	}
+}
+
+MTL::RenderCommandEncoder* CommandBufferObject::BeginRenderPass(MTL::RenderPassDescriptor* descriptor)
+{
+	EndEncoders();
+	NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
+	renderEncoder = commandBuffer->renderCommandEncoder(descriptor)->retain();
+	pool->release();
+	return renderEncoder;
+}
+
+MTL::RenderCommandEncoder* CommandBufferObject::RenderEncoder() const
+{
+	ENSUREF(renderEncoder != nullptr, "a draw outside a render pass (the render target's Begin)");
+	return renderEncoder;
 }
 
 MTL::ComputeCommandEncoder* CommandBufferObject::ComputeEncoder()

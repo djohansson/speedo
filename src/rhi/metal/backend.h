@@ -21,7 +21,17 @@ struct CommandBufferObject
 	MTL::CommandBuffer* commandBuffer = nullptr; // retained
 	MTL::ComputeCommandEncoder* computeEncoder = nullptr; // retained while open
 	MTL::BlitCommandEncoder* blitEncoder = nullptr; // retained while open
+	MTL::RenderCommandEncoder* renderEncoder = nullptr; // retained while open (a render target's pass, Begin to End)
 	MTL::ComputePipelineState* computePipeline = nullptr; // bound (the pipeline's, not retained)
+	MTL::RenderPipelineState* renderPipeline = nullptr; // bound (the pipeline's, not retained)
+	MTL::DepthStencilState* depthStencil = nullptr; // the bound render pipeline's (the pipeline's, not retained)
+	MTL::PrimitiveType primitiveType = MTL::PrimitiveTypeTriangle; // the bound render pipeline's
+	struct IndexBinding
+	{
+		MTL::Buffer* buffer = nullptr; // bound (not retained)
+		uint64_t offset = 0;
+		bool wide = true; // 32 bit indices, else 16
+	} indices;
 	std::vector<uint8_t> pushConstants; // bound at pushConstantSlot (the layout's, see PipelineLayoutObject)
 	uint32_t pushConstantSlot = 0;
 	struct SetBinding
@@ -36,6 +46,9 @@ struct CommandBufferObject
 	void EndEncoders();
 	MTL::ComputeCommandEncoder* ComputeEncoder();
 	MTL::BlitCommandEncoder* BlitEncoder();
+	// a render pass's encoder (a render target's Begin), open until its End: draws need it open
+	MTL::RenderCommandEncoder* BeginRenderPass(MTL::RenderPassDescriptor* descriptor);
+	[[nodiscard]] MTL::RenderCommandEncoder* RenderEncoder() const;
 };
 
 // a command pool: the queue its command buffers are made from and committed to
@@ -44,10 +57,14 @@ struct CommandPoolObject
 	MTL::CommandQueue* queue = nullptr; // the queue's (not retained)
 };
 
-// a pipeline: a compute pipeline state (graphics ones come with the render passes, step 5)
+// a pipeline: a compute pipeline state, or a render pipeline state with its depth stencil state (Metal keeps them apart)
+// and the primitives its draws make (Metal's draws name them)
 struct PipelineObject
 {
 	MTL::ComputePipelineState* computePipeline = nullptr; // retained
+	MTL::RenderPipelineState* renderPipeline = nullptr; // retained
+	MTL::DepthStencilState* depthStencil = nullptr; // retained
+	MTL::PrimitiveType primitiveType = MTL::PrimitiveTypeTriangle;
 };
 
 // a descriptor set layout's flag (DescriptorSetLayoutCreateDesc::flags): its descriptors pushed at each bind

@@ -12,6 +12,7 @@
 #include <rhi/commandencoder.h>
 #include <rhi/image.h>
 #include <rhi/queue.h>
+#include <rhi/renderimageset.h>
 #include <rhi/rhi.h>
 #include <rhi/sampler.h>
 
@@ -472,11 +473,143 @@ std::vector<EnvironmentOutput> RunEnvironment(const std::filesystem::path& shade
 	return outputs;
 }
 
-// the backend's run: the buffer and image kernels' checks, and the environment kernels' outputs (for main's comparison)
+// a draw through a render pass (tools/rhitestdraw.slang): a 64x64 color target cleared, with a depth buffer cleared to
+// the far plane (0: depth reversed), three triangles drawn into it (one big, one behind it, one in front of it), the
+// color read back for main to compare the backends'
+constexpr uint32_t kDrawSize = 64;
+
+template <GraphicsApi G>
+std::vector<uint8_t> RunDraw(const std::filesystem::path& shaderDir, rhi::Device<G>& device)
+{
+	using namespace rhi;
+
+	struct RhiTestDrawConstants
+	{
+		std::array<float, 4> color;
+		std::array<float, 2> offset;
+		std::array<float, 2> scale;
+		float depth;
+	};
+
+	auto& pipeline = device.GetPipeline();
+	gfx::ShaderLoader::SlangConfiguration config{
+		.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+		.entryPoints = {{"VertexRhiTestDraw", SLANG_STAGE_VERTEX}, {"FragmentRhiTestDraw", SLANG_STAGE_FRAGMENT}},
+		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+	};
+	config.format = G == kMetal ? ShaderFormat::kMsl : ShaderFormat::kSpirv16;
+	auto layout = pipeline.CreateLayout(
+		"RhiTestDraw", gfx::ShaderLoader::Compile(shaderDir / "rhitestdraw.slang", config, {shaderDir}, std::nullopt));
+
+	auto attachment = [&device](const char* name, Format format, ImageUsage usage, ImageAspect aspect)
+	{
+		return std::make_shared<Image<G>>(ImageCreateDesc<G>{
+			device.CreateDeviceObjectCreateDesc(name),
+			Extent3d{.width = kDrawSize, .height = kDrawSize, .depth = 1},
+			format,
+			ImageTiling::kOptimal,
+			usage,
+			MemoryProperty::kDeviceLocal,
+			aspect,
+			ImageLayout::kUndefined});
+	};
+	RenderImageSet<G> target(std::vector{
+		attachment("RhiTest Draw Color", Format::kR8G8B8A8Unorm, ImageUsage::kColorAttachment | ImageUsage::kTransferSource, ImageAspect::kColor),
+		attachment("RhiTest Draw Depth", Format::kD32Sfloat, ImageUsage::kDepthStencilAttachment, ImageAspect::kDepth)});
+	target.SetLoadOp(LoadOp::kClear, 0);
+	target.SetStoreOp(StoreOp::kStore, 0);
+	target.SetClearValue(ClearValue{.color = {0.1F, 0.2F, 0.3F, 1.0F}}, 0);
+	target.SetLoadOp(LoadOp::kClear, 1);
+	target.SetClearValue(ClearValue{.depth = 0.0F}, 1);
+	Buffer<G> readback(BufferCreateDesc<G>{
+		device.CreateDeviceObjectCreateDesc("RhiTest Draw Readback"),
+		uint64_t{kDrawSize} * kDrawSize * 4,
+		BufferUsage::kTransferDestination,
+		MemoryProperty::kHostVisible | MemoryProperty::kHostCoherent});
+
+	Submit(
+		device,
+		[&](CommandBuffer<G>& cmd, std::vector<core::TaskHandle>& /*callbacks*/)
+		{
+			CommandEncoder<G> encoder(cmd);
+			pipeline.BindLayoutAuto(layout, PipelineBindPoint::kGraphics);
+			pipeline.SetRenderTarget(target);
+			// the attachments in their layouts before the pass (a dynamic rendering pass doesn't transition them)
+			target.Transition(cmd, ImageLayout::kColorAttachment, ImageAspect::kColor, 0);
+			target.Transition(cmd, ImageLayout::kDepthStencilAttachment, ImageAspect::kDepth, 1);
+			target.Begin(cmd, SubpassContents::kInline);
+			encoder.SetViewport(Viewport{.width = static_cast<float>(kDrawSize), .height = static_cast<float>(kDrawSize)});
+			encoder.SetScissor(Rect{.width = kDrawSize, .height = kDrawSize});
+			encoder.SetCullMode(CullMode::kNone);
+			encoder.SetFrontFace(FrontFace::kCounterClockwise);
+			encoder.SetStencilReference(0);
+			pipeline.BindPipelineAuto(cmd, GraphicsPipelineVariant{.blend = {BlendMode::kOpaque}});
+			auto draw = [&](const RhiTestDrawConstants& constants)
+			{
+				pipeline.PushConstants(cmd, std::as_bytes(std::span(&constants, 1)));
+				encoder.Draw(3);
+			};
+			// the big one, one behind it (nearer is greater: depth reversed) and one in front of it, overlapping it
+			draw({.color = {1.0F, 1.0F, 1.0F, 1.0F}, .offset = {0.0F, 0.0F}, .scale = {1.0F, 1.0F}, .depth = 0.5F});
+			draw({.color = {1.0F, 0.0F, 0.0F, 1.0F}, .offset = {0.2F, 0.2F}, .scale = {0.5F, 0.5F}, .depth = 0.25F});
+			draw({.color = {0.0F, 1.0F, 0.0F, 1.0F}, .offset = {-0.3F, -0.1F}, .scale = {0.4F, 0.4F}, .depth = 0.75F});
+			// back faces culled: two in the lower right, one wound the other way (mirrored in x), so one of them is culled
+			// (the same one on every backend)
+			encoder.SetCullMode(CullMode::kBack);
+			draw({.color = {0.0F, 0.0F, 1.0F, 1.0F}, .offset = {0.45F, 0.45F}, .scale = {0.25F, 0.25F}, .depth = 0.9F});
+			draw({.color = {1.0F, 1.0F, 0.0F, 1.0F}, .offset = {0.75F, 0.75F}, .scale = {-0.2F, 0.2F}, .depth = 0.9F});
+			target.End(cmd);
+			target.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor, 0);
+			encoder.CopyImageToBuffer(*target.GetImage(0), readback);
+			encoder.Barrier(PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kHost, Access::kHostRead);
+		});
+
+	auto bytes = readback.Map();
+	return {reinterpret_cast<const uint8_t*>(bytes.data()), reinterpret_cast<const uint8_t*>(bytes.data()) + bytes.size()};
+}
+
+// the draw's pixels: some the clear color, some the triangles', and, given a second backend's, the same but for rounding
+// (at most 1 of 255 a channel)
+bool CheckDraw(const char* backend, const std::vector<uint8_t>& pixels, const std::vector<uint8_t>* reference, const char* referenceName)
+{
+	constexpr std::array<uint8_t, 4> kClear{26, 51, 77, 255}; // 0.1, 0.2, 0.3 in unorm8, rounded
+	uint32_t cleared = 0;
+	for (size_t pixelIt = 0; pixelIt + 4 <= pixels.size(); pixelIt += 4)
+	{
+		bool clear = true;
+		for (size_t channelIt = 0; channelIt < 4; channelIt++)
+			clear = clear && std::abs(int{pixels[pixelIt + channelIt]} - int{kClear[channelIt]}) <= 1;
+		cleared += clear ? 1 : 0;
+	}
+	const uint32_t pixelCount = static_cast<uint32_t>(pixels.size() / 4);
+	bool drawn = cleared > 0 && cleared < pixelCount;
+	if (reference == nullptr)
+	{
+		std::println("{} {} (draw): {} of {} pixels drawn", drawn ? "PASS" : "FAIL", backend, pixelCount - cleared, pixelCount);
+		return drawn;
+	}
+	uint32_t apart = 0;
+	int most = 0;
+	for (size_t channelIt = 0; channelIt < pixels.size(); channelIt++)
+	{
+		const int difference = std::abs(int{pixels[channelIt]} - int{(*reference)[channelIt]});
+		most = std::max(most, difference);
+		apart += difference > 1 ? 1 : 0;
+	}
+	bool ok = drawn && apart == 0;
+	std::println(
+		"{} {} (draw): against {}, {} of {} pixels drawn, {} channels more than 1 apart (at most {})",
+		ok ? "PASS" : "FAIL", backend, referenceName, pixelCount - cleared, pixelCount, apart, most);
+	return ok;
+}
+
+// the backend's run: the buffer and image kernels' checks, and the environment kernels' outputs and the draw's pixels
+// (for main's comparison)
 struct RunResult
 {
 	bool passed = false;
 	std::vector<EnvironmentOutput> environment;
+	std::vector<uint8_t> draw;
 };
 
 template <GraphicsApi G>
@@ -498,7 +631,8 @@ RunResult Run(const char* backend, const std::filesystem::path& shaderDir)
 	auto& device = rhi.GetPrimaryDevice();
 	bool buffers = RunBuffers<G>(backend, shaderDir, device);
 	bool images = RunImages<G>(backend, shaderDir, device);
-	return {.passed = buffers && images, .environment = RunEnvironment<G>(shaderDir, device)};
+	auto environment = RunEnvironment<G>(shaderDir, device);
+	return {.passed = buffers && images, .environment = std::move(environment), .draw = RunDraw<G>(shaderDir, device)};
 }
 
 // the environment kernels' outputs: each finite and not all black, and, given a second backend's, the same within what
@@ -603,9 +737,11 @@ int main(int argc, char** argv)
 
 	auto vulkan = Run<kVk>("vulkan", shaderDir);
 	bool passed = vulkan.passed && CheckEnvironment("vulkan", vulkan.environment, nullptr, nullptr);
+	passed = CheckDraw("vulkan", vulkan.draw, nullptr, nullptr) && passed;
 #if defined(__OSX__)
 	auto metal = Run<kMetal>("metal", shaderDir);
 	passed = metal.passed && CheckEnvironment("metal", metal.environment, &vulkan.environment, "vulkan") && passed;
+	passed = CheckDraw("metal", metal.draw, &vulkan.draw, "vulkan") && passed;
 #endif
 	return passed ? 0 : 1;
 }

@@ -2,14 +2,14 @@
 // generic headers compiled with Metal's types (rhi/metal/types.inl), so that generic code reaching into the Vulkan
 // backend's structs, or naming its types, fails the macOS build here rather than when the Metal backend grows into it.
 // The backend's own members (declared in the headers, specialized in rhi/metal) aren't emitted; nothing references
-// this file's code, so it adds no symbol a binary needs. Frame and RenderImageSet wait for the backend's RenderTarget
-// specialization (rhi/rendertarget.inl has Vulkan's alone, which they implement IRenderTarget through), step 5 of the
-// plan
+// this file's code, so it adds no symbol a binary needs. Frame waits for the backend's swapchain (step 6), whose frames
+// it is
 #include <rhi/accelerationstructure.h>
 #include <rhi/commandencoder.h>
 #include <rhi/crashreport.h>
 #include <rhi/gpuprofiler.h>
 #include <rhi/image.h>
+#include <rhi/renderimageset.h>
 #include <rhi/rhi.h>
 
 template class rhi::AccelerationStructure<kMetal>;
@@ -32,6 +32,7 @@ template class rhi::MemoryBlock<kMetal>;
 template class rhi::Pipeline<kMetal>;
 template class rhi::PipelineLayout<kMetal>;
 template class rhi::QueryPool<kMetal>;
+template class rhi::RenderImageSet<kMetal>;
 template class rhi::Queue<kMetal>;
 template class rhi::SamplerVector<kMetal>;
 template class rhi::Semaphore<kMetal>;

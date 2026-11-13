@@ -8,6 +8,7 @@
 #include <rhi/capi.h>
 #include <rhi/vocabulary.h>
 
+#include <array>
 #include <cstdint>
 
 namespace MTL
@@ -146,7 +147,13 @@ struct PushConstantRange // set at buffer 0 (setBytes)
 	uint32_t offset = 0;
 	uint32_t size = 0;
 };
-struct PipelineRenderingCreateInfo {};
+struct PipelineRenderingCreateInfo // a render target's attachments' formats, which a render pipeline state is made for
+{
+	uint32_t colorAttachmentCount = 0;
+	std::array<rhi::Format, rhi::kMaxColorAttachments> colorAttachmentFormats{};
+	rhi::Format depthAttachmentFormat = rhi::Format::kUndefined;
+	rhi::Format stencilAttachmentFormat = rhi::Format::kUndefined;
+};
 
 } // namespace rhi::metal
 

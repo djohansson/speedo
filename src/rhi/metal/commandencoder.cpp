@@ -44,6 +44,44 @@ static MTL::ComputeCommandEncoder* PrepareDispatch(metal::CommandBufferObject& c
 	return encoder;
 }
 
+// what the pipeline bound, set on the render encoder (the pass's, open) before a draw: the render pipeline and its depth
+// stencil state, and for both stages the push constants and each set's argument buffer at their slots, what the sets
+// reference made resident for both
+static MTL::RenderCommandEncoder* PrepareDraw(metal::CommandBufferObject& cmd)
+{
+	ENSUREF(cmd.renderPipeline != nullptr, "a draw without a render pipeline bound (Pipeline::BindPipelineAuto)");
+	auto* encoder = cmd.RenderEncoder();
+	encoder->setRenderPipelineState(cmd.renderPipeline);
+	if (cmd.depthStencil != nullptr)
+		encoder->setDepthStencilState(cmd.depthStencil);
+	if (!cmd.pushConstants.empty())
+	{
+		encoder->setVertexBytes(cmd.pushConstants.data(), cmd.pushConstants.size(), cmd.pushConstantSlot);
+		encoder->setFragmentBytes(cmd.pushConstants.data(), cmd.pushConstants.size(), cmd.pushConstantSlot);
+	}
+	for (NS::UInteger slot = 0; slot < cmd.sets.size(); slot++)
+	{
+		const auto& binding = cmd.sets[slot];
+		if (binding.argumentBuffer != nullptr)
+		{
+			encoder->setVertexBuffer(binding.argumentBuffer, binding.offset, slot);
+			encoder->setFragmentBuffer(binding.argumentBuffer, binding.offset, slot);
+		}
+		else if (!binding.pushed.empty())
+		{
+			encoder->setVertexBytes(binding.pushed.data(), binding.pushed.size(), slot);
+			encoder->setFragmentBytes(binding.pushed.data(), binding.pushed.size(), slot);
+		}
+		else
+		{
+			continue;
+		}
+		for (auto* resource : binding.resources)
+			encoder->useResource(resource, MTL::ResourceUsageRead | MTL::ResourceUsageWrite, MTL::RenderStageVertex | MTL::RenderStageFragment);
+	}
+	return encoder;
+}
+
 // a texture's format's texel block (for a copy's rows), from its Metal pixel format: rhi's formats that have one
 static FormatBlock BlockOf(MTL::Texture* texture)
 {
@@ -70,6 +108,83 @@ static std::pair<uint64_t, uint64_t> CopyStrides(const FormatBlock& block, MTL::
 }
 
 } // namespace commandencoder
+
+template <>
+void CommandEncoder<kMetal>::SetViewport(const Viewport& viewport) const
+{
+	// flipped: rhi's clip space is Vulkan's, y down, Metal's y up (the shaders are the same for both), so the viewport
+	// starts at its bottom and goes up (a negative height), as MoltenVK flips Vulkan's
+	myCmd->RenderEncoder()->setViewport(MTL::Viewport{
+		.originX = viewport.x,
+		.originY = viewport.y + viewport.height,
+		.width = viewport.width,
+		.height = -viewport.height,
+		.znear = viewport.minDepth,
+		.zfar = viewport.maxDepth});
+}
+
+template <>
+void CommandEncoder<kMetal>::SetScissor(const Rect& rect) const
+{
+	myCmd->RenderEncoder()->setScissorRect(MTL::ScissorRect{
+		.x = static_cast<NS::UInteger>(std::max(rect.x, 0)),
+		.y = static_cast<NS::UInteger>(std::max(rect.y, 0)),
+		.width = rect.width,
+		.height = rect.height});
+}
+
+template <>
+void CommandEncoder<kMetal>::SetCullMode(CullMode mode) const
+{
+	myCmd->RenderEncoder()->setCullMode(
+		mode == CullMode::kNone ? MTL::CullModeNone : (mode == CullMode::kFront ? MTL::CullModeFront : MTL::CullModeBack));
+}
+
+template <>
+void CommandEncoder<kMetal>::SetFrontFace(FrontFace face) const
+{
+	myCmd->RenderEncoder()->setFrontFacingWinding(
+		face == FrontFace::kCounterClockwise ? MTL::WindingCounterClockwise : MTL::WindingClockwise);
+}
+
+template <>
+void CommandEncoder<kMetal>::SetStencilReference(uint32_t reference) const
+{
+	myCmd->RenderEncoder()->setStencilReferenceValue(reference);
+}
+
+template <>
+void CommandEncoder<kMetal>::BindIndexBuffer(const Buffer<kMetal>& buffer, uint64_t offset, IndexType type) const
+{
+	myCmd->indices = {.buffer = buffer, .offset = offset, .wide = type == IndexType::kUint32};
+}
+
+template <>
+void CommandEncoder<kMetal>::Draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) const
+{
+	ZoneScopedN("CommandEncoder::Draw");
+
+	commandencoder::PrepareDraw(*myCmd)->drawPrimitives(myCmd->primitiveType, firstVertex, vertexCount, instanceCount, firstInstance);
+}
+
+template <>
+void CommandEncoder<kMetal>::DrawIndexed(
+	uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) const
+{
+	ZoneScopedN("CommandEncoder::DrawIndexed");
+
+	const auto& indices = myCmd->indices;
+	ENSUREF(indices.buffer != nullptr, "an indexed draw without an index buffer bound (CommandEncoder::BindIndexBuffer)");
+	commandencoder::PrepareDraw(*myCmd)->drawIndexedPrimitives(
+		myCmd->primitiveType,
+		indexCount,
+		indices.wide ? MTL::IndexTypeUInt32 : MTL::IndexTypeUInt16,
+		indices.buffer,
+		indices.offset + (uint64_t{firstIndex} * (indices.wide ? 4 : 2)),
+		instanceCount,
+		vertexOffset,
+		firstInstance);
+}
 
 template <>
 void CommandEncoder<kMetal>::CopyImageToBuffer(ImageHandle<kMetal> image, Extent2d extent, const Buffer<kMetal>& buffer) const

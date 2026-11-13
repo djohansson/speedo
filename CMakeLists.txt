@@ -413,6 +413,7 @@ if(APPLE)
 		${SPEEDO_SOURCE_DIR}/rhi/metal/pipelinelayout.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/querypool.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/queue.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/rendertarget.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/rhi.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/sampler.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/semaphore.cpp
