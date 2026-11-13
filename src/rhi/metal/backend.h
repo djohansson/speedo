@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace rhi::metal
@@ -44,6 +45,7 @@ struct CommandBufferObject
 	CommandBufferObject* primary = nullptr;
 	MTL::ComputeCommandEncoder* computeEncoder = nullptr; // retained while open
 	MTL::BlitCommandEncoder* blitEncoder = nullptr; // retained while open
+	MTL::AccelerationStructureCommandEncoder* accelerationStructureEncoder = nullptr; // retained while open
 	MTL::RenderCommandEncoder* renderEncoder = nullptr; // retained while open (a render target's pass, Begin to End)
 	// a render target's pass begun, its encoder made at its first command (RenderEncoder, or EndEncoders for a pass of
 	// clears alone), so that a timestamp written just inside the pass samples where it starts (retained until then)
@@ -72,6 +74,7 @@ struct CommandBufferObject
 		uint64_t offset = 0;
 		std::vector<uint8_t> pushed; // a pushed set's argument buffer (Pipeline::InternalPushDescriptorSet), set by setBytes
 		std::vector<MTL::Resource*> resources; // what it references, made resident at the dispatch
+		bool accelerationStructures = false; // it references a top level structure: the bottom levels made resident too
 	};
 	std::vector<SetBinding> sets; // by slot (the buffer index the layout gives the set, see PipelineLayoutObject)
 	// the render encoder's state as CommandEncoder set it, which a clear inside the pass (RenderTarget::ClearRect, a draw)
@@ -87,6 +90,7 @@ struct CommandBufferObject
 	void EndEncoders();
 	MTL::ComputeCommandEncoder* ComputeEncoder();
 	MTL::BlitCommandEncoder* BlitEncoder();
+	MTL::AccelerationStructureCommandEncoder* AccelerationStructureEncoder();
 	// a render pass (a render target's Begin), open until its End: its encoder made at the first command that needs it
 	// (RenderEncoder: a secondary's is its primary's)
 	void BeginRenderPass(MTL::RenderPassDescriptor* descriptor);
@@ -115,7 +119,8 @@ struct QueryPoolObject
 	};
 
 	std::mutex mutex; // the pairs' and the queries' (written while recording, read by the profiler's Collect)
-	std::vector<MTL::CounterSampleBuffer*> buffers; // retained
+	std::vector<MTL::CounterSampleBuffer*> buffers; // retained (a pool of timestamps')
+	MTL::Buffer* sizes = nullptr; // a pool of acceleration structures' compacted sizes': 8 bytes a query (retained, shared)
 	std::vector<Query> queries;
 	uint64_t nextPair = 0;
 
@@ -170,6 +175,7 @@ struct DescriptorSetObject
 	MTL::Buffer* argumentBuffer = nullptr; // retained, shared storage
 	uint64_t offset = 0;
 	std::vector<MTL::Resource*> resources;
+	bool accelerationStructures = false; // see CommandBufferObject::SetBinding
 };
 
 // a pipeline layout: no object in Metal, but where its code takes each set and the push constants: their slots, the
@@ -208,7 +214,26 @@ struct SwapchainObject
 struct AllocatorObject
 {
 	MTL::Device* device = nullptr; // the device's (not retained)
+	// what top level builds convert their instances with (accelerationstructure.cpp), made at the first (retained)
+	std::mutex mutex;
+	MTL::ComputePipelineState* instancePipeline = nullptr;
 };
+
+// the buffers by their gpu addresses (every Buffer<kMetal>'s while it lives), for what rhi names by address (an
+// acceleration structure build's inputs and scratch memory) as Metal takes it: a buffer and an offset in it
+void RegisterBuffer(MTL::Buffer* buffer);
+void UnregisterBuffer(MTL::Buffer* buffer) noexcept;
+[[nodiscard]] std::pair<MTL::Buffer*, uint64_t> FindBuffer(uint64_t address);
+
+// the live bottom level structures declared used on an encoder (read): a top level structure references them by
+// resource id, which Metal neither makes resident nor tracks hazards through (accelerationstructure.cpp)
+void UseBottomLevels(MTL::ComputeCommandEncoder* encoder);
+void UseBottomLevels(MTL::RenderCommandEncoder* encoder);
+void UseBottomLevels(MTL::AccelerationStructureCommandEncoder* encoder);
+
+// whether the application asks for ray queries: opt in (SPEEDO_RAY_QUERY=1), as Vulkan's backend's on macOS
+// (rhi::vk::RayQueriesEnabled: Apple's gpu restarts with ray tracing beside other gpu work)
+[[nodiscard]] bool RayQueriesEnabled();
 
 // a memory block's allocation: a placement heap, resources placed at offsets in it (see MemoryBlock)
 struct AllocationObject

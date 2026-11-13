@@ -2,7 +2,8 @@
 // where encoders begin and end (Apple's gpus sample nowhere else: MTLCounterSamplingPointAtStageBoundary). A timestamp
 // written while recording is one of those samples (CommandBufferObject::Timestamp: the next encoder's start, or the end of
 // the encoder open or just ended), read back once its command buffer has completed. The timestamps are nanoseconds, the
-// cpu's clock (DeviceLimits::timestampPeriod 1). Acceleration structures' compacted sizes come with them (step 7)
+// cpu's clock (DeviceLimits::timestampPeriod 1). A pool of acceleration structures' compacted sizes is a shared buffer
+// of them, 8 bytes a query
 #include <rhi/metal/backend.h>
 
 #include <rhi/querypool.h>
@@ -51,12 +52,22 @@ QueryPool<kMetal>::QueryPool(CreateDescType&& desc)
 	: DeviceObject<QueryPool<kMetal>>(std::forward<CreateDescType>(desc))
 {
 	const auto& poolDesc = GetDesc();
-	ENSUREF(
-		poolDesc.type == QueryType::kTimestamp,
-		"the Metal backend's query pools of acceleration structures' compacted sizes come with them (docs/backends-plan.md, step 7)");
 	ENSURE(poolDesc.count > 0);
 
 	auto* device = static_cast<MTL::Device*>(GetDevice());
+	if (poolDesc.type == QueryType::kAccelerationStructureCompactedSize)
+	{
+		// 8 bytes a query, written by the acceleration structure encoder (CommandEncoder::
+		// WriteAccelerationStructureCompactedSize), read once its command buffer has completed
+		auto* object = new metal::QueryPoolObject{};
+		object->queries.resize(poolDesc.count);
+		object->sizes = device->newBuffer(uint64_t{poolDesc.count} * sizeof(uint64_t), MTL::ResourceStorageModeShared);
+		ENSUREF(object->sizes != nullptr, "Failed to make a Metal buffer of {} compacted sizes", poolDesc.count);
+		object->sizes->setLabel(NS::String::string(std::string(GetName()).c_str(), NS::UTF8StringEncoding));
+		myPool = object;
+		return;
+	}
+
 	MTL::CounterSet* timestamps = nullptr;
 	NS::Array* sets = device->counterSets();
 	for (NS::UInteger setIt = 0; sets != nullptr && setIt < sets->count(); setIt++)
@@ -110,6 +121,8 @@ QueryPool<kMetal>::~QueryPool()
 		querypool::Release(query);
 	for (auto* buffer : myPool->buffers)
 		buffer->release();
+	if (myPool->sizes != nullptr)
+		myPool->sizes->release();
 	delete myPool; //NOLINT(cppcoreguidelines-owning-memory)
 }
 
@@ -140,6 +153,7 @@ template <>
 void QueryPool<kMetal>::WriteTimestamp(CommandBufferHandle<kMetal> cmd, uint32_t index, PipelineStage /*stage*/) const
 {
 	std::scoped_lock lock{myPool->mutex};
+	ENSUREF(myPool->sizes == nullptr, "a timestamp written to a query pool of compacted sizes");
 	auto& query = myPool->queries.at(index);
 	querypool::Release(query);
 	query.sample = cmd->Timestamp(*myPool);
@@ -169,6 +183,8 @@ void QueryPool<kMetal>::Read(uint32_t first, std::span<std::optional<uint64_t>> 
 		if (query.commandBuffer == nullptr || query.commandBuffer->status() < MTL::CommandBufferStatusCompleted)
 			continue;
 		timestamps[queryIt] = 0;
+		if (myPool->sizes != nullptr)
+			timestamps[queryIt] = static_cast<const uint64_t*>(myPool->sizes->contents())[first + queryIt];
 		if (!query.sample)
 			continue;
 		auto range = std::ranges::find(ranges, query.sample->buffer, &Range::buffer);

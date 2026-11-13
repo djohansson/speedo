@@ -10,10 +10,14 @@
 #include <core/assert.h>
 #include <core/profiling.h>
 
+#include <algorithm>
+#include <iterator>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 namespace rhi
 {
@@ -21,11 +25,60 @@ namespace rhi
 IMPLEMENT_OBJECT_GETINSTANCE(Buffer<kMetal>);
 IMPLEMENT_DEVICEOBJECT_GETDEVICE(Buffer<kMetal>);
 
+namespace metal
+{
+
+namespace
+{
+
+// the live buffers sorted by their gpu address (the address, the length, the buffer)
+struct BufferRange
+{
+	uint64_t address = 0;
+	uint64_t length = 0;
+	MTL::Buffer* buffer = nullptr;
+};
+std::mutex gBuffersMutex;
+std::vector<BufferRange> gBuffers;
+
+} // namespace
+
+void RegisterBuffer(MTL::Buffer* buffer)
+{
+	const BufferRange range{.address = buffer->gpuAddress(), .length = buffer->length(), .buffer = buffer};
+	std::scoped_lock lock{gBuffersMutex};
+	gBuffers.insert(std::ranges::upper_bound(gBuffers, range.address, {}, &BufferRange::address), range);
+}
+
+void UnregisterBuffer(MTL::Buffer* buffer) noexcept
+{
+	std::scoped_lock lock{gBuffersMutex};
+	if (auto it = std::ranges::find(gBuffers, buffer, &BufferRange::buffer); it != gBuffers.end())
+		gBuffers.erase(it);
+}
+
+std::pair<MTL::Buffer*, uint64_t> FindBuffer(uint64_t address)
+{
+	std::scoped_lock lock{gBuffersMutex};
+	auto it = std::ranges::upper_bound(gBuffers, address, {}, &BufferRange::address);
+	ENSUREF(
+		it != gBuffers.begin() && address < std::prev(it)->address + std::prev(it)->length,
+		"no Metal buffer at gpu address {:#x}",
+		address);
+	--it;
+	return {it->buffer, address - it->address};
+}
+
+} // namespace metal
+
 template <>
 Buffer<kMetal>::Buffer(CreateDescType&& desc, ValueType&& buffer)
 	: DeviceObject<Buffer<kMetal>>(std::forward<CreateDescType>(desc))
 	, myBuffer(std::forward<ValueType>(buffer))
-{}
+{
+	if (std::get<0>(myBuffer) != nullptr)
+		metal::RegisterBuffer(std::get<0>(myBuffer));
+}
 
 template <>
 Buffer<kMetal>::Buffer(CreateDescType&& desc)
@@ -68,7 +121,10 @@ template <>
 Buffer<kMetal>::~Buffer()
 {
 	if (IsValid() && std::get<0>(myBuffer) != nullptr)
+	{
+		metal::UnregisterBuffer(std::get<0>(myBuffer));
 		std::get<0>(myBuffer)->release();
+	}
 }
 
 template <>

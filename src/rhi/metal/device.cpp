@@ -11,12 +11,24 @@
 #include <filesystem>
 #include <format>
 #include <memory>
+#include <print>
 #include <utility>
 
 namespace rhi
 {
 
 IMPLEMENT_OBJECT_GETINSTANCE(Device<kMetal>);
+
+namespace device
+{
+
+// ray queries where the device traces from every stage and the application asks for them (opt in on macOS)
+[[nodiscard]] static bool RayQueries(MTL::Device* device)
+{
+	return metal::RayQueriesEnabled() && device->supportsRaytracing() && device->supportsRaytracingFromRender();
+}
+
+} // namespace device
 
 template <>
 Device<kMetal>::Device(CreateDescType&& desc, const Instance<kMetal>& /*instance*/)
@@ -38,6 +50,8 @@ Device<kMetal>::Device(CreateDescType&& desc, const Instance<kMetal>& /*instance
 		.flags = kQueueFamilyFlagBitsGraphics | kQueueFamilyFlagBitsCompute | kQueueFamilyFlagBitsTransfer,
 		.timestampValidBits = timestamps ? 64U : 0U,
 	});
+	std::println("\"{}\" is selected as primary graphics device (Metal)", myDevice->name()->utf8String());
+	std::println("ray queries: {}", device::RayQueries(myDevice) ? "yes" : "no (the shaders traverse gfx's BVHs)");
 }
 
 template <>
@@ -76,6 +90,8 @@ Device<kMetal>::~Device()
 	myResources.clear();
 	myPipeline = Pipeline<kMetal>{};
 	myQueues.clear();
+	if (myAllocator->instancePipeline != nullptr)
+		myAllocator->instancePipeline->release();
 	delete myAllocator;
 	myDevice->release();
 }
@@ -86,7 +102,8 @@ DeviceLimits Device<kMetal>::GetLimits() const
 	// Apple's gpus' (the Metal feature set tables, Apple7 and up): argument buffers of tier 2 hold up to 500000 textures;
 	// no draw count indirect in Metal (the renderer draws its commands' slots then, zeroed past the count, see
 	// DeviceLimits::drawIndirectCountEmulated), an indirect draw's commands issued one by one (CommandEncoder::
-	// DrawIndexedIndirect); timestamps in nanoseconds (counter sample buffers, step 7); no ray queries yet (step 7)
+	// DrawIndexedIndirect); timestamps in nanoseconds (counter sample buffers); ray queries where the device traces from
+	// every stage and they're asked for (opt in on macOS, metal::RayQueriesEnabled)
 	constexpr uint32_t kArgumentBufferTextureCount = 500000;
 	constexpr uint32_t kMaxDrawIndirectCount = 1U << 24U;
 	constexpr uint32_t kMaxImageDimension2d = 16384;
@@ -101,7 +118,7 @@ DeviceLimits Device<kMetal>::GetLimits() const
 		.timestampPeriod = 1.0F,
 		.drawIndirectCount = false,
 		.drawIndirectCountEmulated = false,
-		.rayQuery = false,
+		.rayQuery = device::RayQueries(myDevice),
 		.accelerationStructureScratchAlignment = kScratchAlignment};
 }
 

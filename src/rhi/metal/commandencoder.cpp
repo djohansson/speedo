@@ -4,16 +4,20 @@
 // docs/backends-plan.md), and copies between buffers and images on its blit encoder
 #include <rhi/metal/backend.h>
 
+#include <rhi/accelerationstructure.h>
 #include <rhi/buffer.h>
 #include <rhi/command.h>
 #include <rhi/commandencoder.h>
 #include <rhi/image.h>
+#include <rhi/querypool.h>
 
 #include <core/assert.h>
 #include <core/profiling.h>
 
 #include <algorithm>
 #include <array>
+#include <mutex>
+#include <optional>
 #include <utility>
 
 namespace rhi
@@ -41,6 +45,8 @@ static MTL::ComputeCommandEncoder* PrepareDispatch(metal::CommandBufferObject& c
 			continue;
 		for (auto* resource : binding.resources)
 			encoder->useResource(resource, MTL::ResourceUsageRead | MTL::ResourceUsageWrite);
+		if (binding.accelerationStructures)
+			metal::UseBottomLevels(encoder);
 	}
 	return encoder;
 }
@@ -79,6 +85,8 @@ static MTL::RenderCommandEncoder* PrepareDraw(metal::CommandBufferObject& cmd)
 		}
 		for (auto* resource : binding.resources)
 			encoder->useResource(resource, MTL::ResourceUsageRead | MTL::ResourceUsageWrite, MTL::RenderStageVertex | MTL::RenderStageFragment);
+		if (binding.accelerationStructures)
+			metal::UseBottomLevels(encoder);
 	}
 	return encoder;
 }
@@ -337,9 +345,20 @@ void CommandEncoder<kMetal>::AcquireOwnership(const Image<kMetal>&, uint32_t, ui
 
 template <>
 void CommandEncoder<kMetal>::WriteAccelerationStructureCompactedSize(
-	const AccelerationStructure<kMetal>& /*structure*/, const QueryPool<kMetal>& /*pool*/, uint32_t /*query*/) const
+	const AccelerationStructure<kMetal>& structure, const QueryPool<kMetal>& pool, uint32_t query) const
 {
-	ENSUREF(false, "the Metal backend's acceleration structures come with ray queries (docs/backends-plan.md, step 7)");
+	// into the pool's buffer of sizes, 8 bytes a query, read once the command buffer has completed (see QueryPool::Read)
+	QueryPoolHandle<kMetal> object = pool;
+	AccelerationStructureHandle<kMetal> handle = structure;
+	ENSUREF(object->sizes != nullptr, "a compacted size written to a query pool of timestamps");
+	std::scoped_lock lock{object->mutex};
+	auto& slot = object->queries.at(query);
+	if (slot.commandBuffer != nullptr)
+		slot.commandBuffer->release();
+	auto* commandBuffer = myCmd->primary != nullptr ? myCmd->primary->commandBuffer : myCmd->commandBuffer;
+	slot = {.commandBuffer = commandBuffer->retain(), .sample = std::nullopt};
+	myCmd->AccelerationStructureEncoder()->writeCompactedAccelerationStructureSize(
+		handle, object->sizes, NS::UInteger{query} * sizeof(uint64_t), MTL::DataTypeULong);
 }
 
 template <>
@@ -381,6 +400,11 @@ void CommandEncoder<kMetal>::Barrier(PipelineStage srcStages, Access /*srcAccess
 								  (dstStages & PipelineStage::kComputeShader) == PipelineStage::kComputeShader;
 	if (computeToCompute && myCmd->computeEncoder != nullptr)
 		myCmd->computeEncoder->memoryBarrier(MTL::BarrierScopeBuffers | MTL::BarrierScopeTextures);
+	// after acceleration structure builds: what follows in an encoder of its own, so that Metal orders it after them (a
+	// top level build after its bottom levels', which it declares used: see BuildAccelerationStructure)
+	if ((srcStages & PipelineStage::kAccelerationStructureBuild) == PipelineStage::kAccelerationStructureBuild &&
+		myCmd->accelerationStructureEncoder != nullptr)
+		myCmd->EndEncoders();
 }
 
 } // namespace rhi

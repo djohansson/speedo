@@ -9,6 +9,8 @@
 #include <core/assert.h>
 #include <core/profiling.h>
 
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <print>
 #include <utility>
@@ -24,15 +26,16 @@ void CommandBufferObject::EndEncoders()
 	// a pass begun but not drawn in: its encoder made now, for what its attachments load and store (a clear)
 	if (pendingRenderPass != nullptr)
 		(void)RenderEncoder();
-	MTL::CommandEncoder* open = computeEncoder != nullptr ? static_cast<MTL::CommandEncoder*>(computeEncoder)
-							  : blitEncoder != nullptr	  ? static_cast<MTL::CommandEncoder*>(blitEncoder)
-														  : static_cast<MTL::CommandEncoder*>(renderEncoder);
-	if (open == nullptr)
+	// one at most is open
+	const std::array<MTL::CommandEncoder*, 4> encoders{computeEncoder, blitEncoder, accelerationStructureEncoder, renderEncoder};
+	const auto open = std::ranges::find_if(encoders, [](const MTL::CommandEncoder* encoder) { return encoder != nullptr; });
+	if (open == encoders.end())
 		return;
-	open->endEncoding();
-	open->release();
+	(*open)->endEncoding();
+	(*open)->release();
 	computeEncoder = nullptr;
 	blitEncoder = nullptr;
+	accelerationStructureEncoder = nullptr;
 	renderEncoder = nullptr;
 	lastSamples = std::exchange(openSamples, std::nullopt);
 }
@@ -72,8 +75,6 @@ MTL::RenderCommandEncoder* CommandBufferObject::RenderEncoder()
 			attachment->setStartOfFragmentSampleIndex(MTL::CounterDontSample);
 			attachment->setEndOfFragmentSampleIndex(samples->start + 1);
 		}
-		else
-			BeginSamples();
 		NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
 		renderEncoder = commandBuffer->renderCommandEncoder(pendingRenderPass)->retain();
 		pool->release();
@@ -126,11 +127,32 @@ MTL::BlitCommandEncoder* CommandBufferObject::BlitEncoder()
 	return blitEncoder;
 }
 
+MTL::AccelerationStructureCommandEncoder* CommandBufferObject::AccelerationStructureEncoder()
+{
+	if (accelerationStructureEncoder == nullptr)
+	{
+		EndEncoders();
+		NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
+		auto* descriptor = MTL::AccelerationStructurePassDescriptor::alloc()->init();
+		if (auto samples = BeginSamples())
+		{
+			auto* attachment = descriptor->sampleBufferAttachments()->object(0);
+			attachment->setSampleBuffer(samples->buffer);
+			attachment->setStartOfEncoderSampleIndex(samples->start);
+			attachment->setEndOfEncoderSampleIndex(samples->start + 1);
+		}
+		accelerationStructureEncoder = commandBuffer->accelerationStructureCommandEncoder(descriptor)->retain();
+		descriptor->release();
+		pool->release();
+	}
+	return accelerationStructureEncoder;
+}
+
 std::optional<TimestampSample> CommandBufferObject::Timestamp(QueryPoolObject& pool)
 {
 	if (primary != nullptr)
 		return primary->Timestamp(pool);
-	if (computeEncoder != nullptr || blitEncoder != nullptr || renderEncoder != nullptr)
+	if (computeEncoder != nullptr || blitEncoder != nullptr || accelerationStructureEncoder != nullptr || renderEncoder != nullptr)
 	{
 		const bool render = renderEncoder != nullptr;
 		if (openSamples)

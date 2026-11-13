@@ -25,13 +25,15 @@ static void EncodeDescriptorSet(
 	const BindingsData<kMetal>& bindingsData,
 	const std::vector<DescriptorUpdateTemplateEntry<kMetal>>& entries,
 	uint8_t* argumentBuffer,
-	std::vector<MTL::Resource*>& resources)
+	std::vector<MTL::Resource*>& resources,
+	bool& accelerationStructures)
 {
 	ZoneScopedN("Pipeline::EncodeDescriptorSet");
 
 	static_assert(sizeof(MTL::ResourceID) == metal::DescriptorSetLayoutObject::kEntrySize);
 
 	resources.clear();
+	accelerationStructures = false;
 	std::memset(argumentBuffer, 0, layout.size);
 	for (const auto& entry : entries)
 	{
@@ -82,6 +84,7 @@ static void EncodeDescriptorSet(
 				MTL::ResourceID id = (*accelerationStructure)->gpuResourceID();
 				std::memcpy(slot, &id, sizeof(id));
 				resources.push_back(*accelerationStructure);
+				accelerationStructures = true;
 			}
 			else
 			{
@@ -174,7 +177,8 @@ void Pipeline<kMetal>::InternalUpdateDescriptorSet(
 		bindingsData,
 		setTemplate.GetEntries(),
 		static_cast<uint8_t*>(set->argumentBuffer->contents()) + set->offset,
-		set->resources);
+		set->resources,
+		set->accelerationStructures);
 }
 
 template <>
@@ -198,7 +202,8 @@ void Pipeline<kMetal>::InternalPushDescriptorSet(
 	binding.argumentBuffer = nullptr;
 	binding.offset = 0;
 	binding.pushed.resize(layout.size);
-	pipeline::EncodeDescriptorSet(layout, bindingsData, setTemplate.GetEntries(), binding.pushed.data(), binding.resources);
+	pipeline::EncodeDescriptorSet(
+		layout, bindingsData, setTemplate.GetEntries(), binding.pushed.data(), binding.resources, binding.accelerationStructures);
 }
 
 template <>
@@ -251,6 +256,7 @@ void Pipeline<kMetal>::BindDescriptorSet(
 	binding.offset = handle->offset;
 	binding.pushed.clear();
 	binding.resources = handle->resources;
+	binding.accelerationStructures = handle->accelerationStructures;
 }
 
 // (InvalidateDescriptorSets, TakeDescriptorSets and BindDescriptorSetAuto are every backend's, in pipeline.inl)
