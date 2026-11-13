@@ -283,13 +283,9 @@ set(GFX_SOURCE_FILES
 # graphics api (speedo_gfx_library, below), and a library's functions twice in one executable don't link
 add_library(gfxlibraries STATIC ${SPEEDO_SOURCE_DIR}/gfx/libraries.cpp)
 target_compile_features(gfxlibraries PUBLIC cxx_std_26)
-target_include_directories(
-	gfxlibraries
-	PRIVATE
-		${SPEEDO_SOURCE_DIR}
-	SYSTEM PRIVATE
-		${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include
-)
+target_include_directories(gfxlibraries PRIVATE ${SPEEDO_SOURCE_DIR})
+# system headers, as the imported targets' are to gfx (their warnings aren't ours)
+target_include_directories(gfxlibraries SYSTEM PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include)
 
 # the installed versions of the import libraries, which the asset caches of their output depend on (see
 # gfx/importversions.h.in). read from vcpkg's package metadata, since the libraries don't define their versions.
