@@ -204,18 +204,7 @@ void Image<kVk>::Clear(
 	}
 }
 
-template <>
-void Image<kVk>::Swap(Image& rhs) noexcept
-{
-	DeviceObject<Image<kVk>>::Swap(rhs);
-	std::swap(myImage, rhs.myImage);
-}
-
-template <>
-Image<kVk>::Image(Image&& other) noexcept
-{
-	Swap(other);
-}
+// (Image's and ImageView's Swap and moves are every backend's, in image.inl)
 
 template <>
 Image<kVk>::Image(CreateDescType&& desc, ValueType&& data)
@@ -307,26 +296,6 @@ Image<kVk>::~Image()
 }
 
 template <>
-Image<kVk>& Image<kVk>::operator=(Image<kVk>&& other) noexcept
-{
-	Swap(other);
-	return *this;
-}
-
-template <>
-void ImageView<kVk>::Swap(ImageView& rhs) noexcept
-{
-	DeviceObject<ImageView<kVk>>::Swap(rhs);
-	std::swap(myView, rhs.myView);
-}
-
-template <>
-ImageView<kVk>::ImageView(ImageView&& other) noexcept
-{
-	Swap(other);
-}
-
-template <>
 ImageView<kVk>::ImageView(
 	CreateDescType&& desc,
 	ImageViewHandle<kVk>&& view)
@@ -362,13 +331,6 @@ ImageView<kVk>::~ImageView()
 {
 	if (IsValid())
 		DestroyImageView(GetDevice(), &GetInstance().GetHostAllocationCallbacks(), myView);
-}
-
-template <>
-ImageView<kVk>& ImageView<kVk>::operator=(ImageView&& other) noexcept
-{
-	Swap(other);
-	return *this;
 }
 
 } // namespace rhi

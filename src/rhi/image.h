@@ -223,3 +223,5 @@ private:
 };
 
 } // namespace rhi
+
+#include "image.inl"
