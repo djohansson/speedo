@@ -54,6 +54,7 @@ struct CommandPoolObject; // the command buffers' allocator
 struct CommandBufferObject; // an MTL::CommandBuffer, its current encoder and what the pipeline bound on it
 struct FenceObject; // an MTL::SharedEvent and the value it waits for
 struct RenderTargetClearObject; // a render target's clears of rects: the pipelines drawing them (no handle, its member)
+struct QueryPoolObject; // counter sample buffers of timestamps, and the queries' samples
 
 // placeholders for the Vulkan backend's structs (see the file's comment)
 struct StructureType {};
@@ -249,7 +250,7 @@ struct BackendTypes<kMetal>
 	using CommandPoolCreateFlags = uint32_t;
 	using CommandPoolHandle = rhi::metal::CommandPoolObject*;
 	using FenceHandle = rhi::metal::FenceObject*;
-	using QueryPoolHandle = MTL::CounterSampleBuffer*;
+	using QueryPoolHandle = rhi::metal::QueryPoolObject*;
 	using SemaphoreHandle = MTL::SharedEvent*;
 	using ImageSubresourceRange = rhi::metal::ImageSubresourceRange;
 	using CommandBufferInheritanceRenderingInfo = rhi::metal::CommandBufferInheritanceRenderingInfo;

@@ -53,9 +53,9 @@ struct PassAttachment
 	ClearValue clear{};
 };
 
-// a render pass over attachments, its encoder open on cmd: color attachments in their order, a depth stencil one's depth
-// and stencil
-static MTL::RenderCommandEncoder* BeginPass(metal::CommandBufferObject& cmd, std::span<const PassAttachment> attachments)
+// a render pass over attachments, begun on cmd (its encoder made at its first command): color attachments in their
+// order, a depth stencil one's depth and stencil
+static void BeginPass(metal::CommandBufferObject& cmd, std::span<const PassAttachment> attachments)
 {
 	auto* descriptor = MTL::RenderPassDescriptor::alloc()->init();
 	NS::UInteger colorIt = 0;
@@ -88,9 +88,8 @@ static MTL::RenderCommandEncoder* BeginPass(metal::CommandBufferObject& cmd, std
 			stencil->setClearStencil(attachment.clear.stencil);
 		}
 	}
-	auto* encoder = cmd.BeginRenderPass(descriptor);
+	cmd.BeginRenderPass(descriptor);
 	descriptor->release();
-	return encoder;
 }
 
 // ClearRect's shaders: a triangle over the viewport (set to the rect) at the clear's depth, and per color attachment

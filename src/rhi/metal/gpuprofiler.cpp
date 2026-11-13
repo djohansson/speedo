@@ -1,44 +1,33 @@
-// the Metal backend's gpu profiler and crash breadcrumbs: none yet (counter sample buffers, and the command buffers'
-// error information, come with docs/backends-plan.md's step 7): scopes are empty, as Vulkan's backend's are without
-// profiling. the queue makes no profiler (the device reports no timestamp bits), so only these are called
+// the Metal backend's gpu profiler: its first timestamp, the device's (the rest is every backend's,
+// rhi/gpuprofiler.inl; the timestamps are counter samples where encoders begin and end, see querypool.cpp), and crash
+// breadcrumbs: none yet (the command buffers' errors are reported as they complete, see command.cpp)
 #include <rhi/metal/backend.h>
 
 #include <rhi/crashreport.h>
+#include <rhi/device.h>
 #include <rhi/gpuprofiler.h>
 #include <rhi/rhi.h>
 
+#include <core/profiling.h>
+
 #include <string_view>
-#include <vector>
 
 namespace rhi
 {
 
+#if (SPEEDO_PROFILING_LEVEL > 0)
+
+// the gpu's clock now, in the counters' units (nanoseconds, as the cpu's: no command buffer needed)
 template <>
-GpuProfiler<kMetal>::Scope GpuProfiler<kMetal>::Begin(CommandBufferHandle<kMetal> /*cmd*/, const SourceLocationData& /*location*/, PipelineStage /*stage*/)
+uint64_t GpuProfiler<kMetal>::InternalFirstTimestamp(QueueHandle<kMetal> /*queue*/, CommandBufferHandle<kMetal> /*setup*/)
 {
-	return {};
+	MTL::Timestamp cpu = 0;
+	MTL::Timestamp gpu = 0;
+	static_cast<MTL::Device*>(myPool.GetDevice())->sampleTimestamps(&cpu, &gpu);
+	return gpu;
 }
 
-template <>
-GpuProfiler<kMetal>::Scope GpuProfiler<kMetal>::Begin(
-	CommandBufferHandle<kMetal> /*cmd*/, std::string_view /*name*/, const SourceLocationData& /*location*/, uint64_t /*group*/, PipelineStage /*stage*/)
-{
-	return {};
-}
-
-template <>
-void GpuProfiler<kMetal>::InternalEnd(CommandBufferHandle<kMetal> /*cmd*/, uint64_t /*begin*/, PipelineStage /*stage*/)
-{}
-
-template <>
-void GpuProfiler<kMetal>::Collect()
-{}
-
-template <>
-std::vector<GpuProfiler<kMetal>::Timing> GpuProfiler<kMetal>::TakeTimings(uint64_t /*group*/)
-{
-	return {};
-}
+#endif
 
 template <>
 CrashBreadcrumb<kMetal>::CrashBreadcrumb(CommandBufferHandle<kMetal> cmd, std::string_view /*name*/)
@@ -52,3 +41,7 @@ void CrashBreadcrumb<kMetal>::End()
 }
 
 } // namespace rhi
+
+#include <rhi/gpuprofiler.inl>
+
+template class rhi::GpuProfiler<kMetal>;

@@ -17,6 +17,22 @@
 namespace rhi::metal
 {
 
+struct QueryPoolObject;
+
+// timestamps (QueryPool::WriteTimestamp): Apple's gpus sample counters only where an encoder begins or ends
+// (MTLCounterSamplingPointAtStageBoundary), so a timestamp is one of those samples: an encoder sampled has a pair of them
+// in a query pool's sample buffer, its start's and its end's
+struct TimestampSamples
+{
+	MTL::CounterSampleBuffer* buffer = nullptr; // the pool's
+	NS::UInteger start = 0; // the encoder's start's (a compute or blit encoder's, a render pass's vertex stage's); its end's next
+};
+struct TimestampSample
+{
+	MTL::CounterSampleBuffer* buffer = nullptr;
+	NS::UInteger index = 0;
+};
+
 // a command buffer: Metal's (one-shot, made from the pool's queue), the encoder open on it (one at a time: ended when
 // the commands' kind changes, and at End), and what was bound for the next dispatch, which the compute encoder takes
 // once it is open
@@ -29,6 +45,14 @@ struct CommandBufferObject
 	MTL::ComputeCommandEncoder* computeEncoder = nullptr; // retained while open
 	MTL::BlitCommandEncoder* blitEncoder = nullptr; // retained while open
 	MTL::RenderCommandEncoder* renderEncoder = nullptr; // retained while open (a render target's pass, Begin to End)
+	// a render target's pass begun, its encoder made at its first command (RenderEncoder, or EndEncoders for a pass of
+	// clears alone), so that a timestamp written just inside the pass samples where it starts (retained until then)
+	MTL::RenderPassDescriptor* pendingRenderPass = nullptr;
+	// the timestamps' samples (see Timestamp): the next encoder's, the open one's, and the one just ended's (none begun
+	// since)
+	std::optional<TimestampSamples> pendingSamples;
+	std::optional<TimestampSamples> openSamples;
+	std::optional<TimestampSamples> lastSamples;
 	MTL::ComputePipelineState* computePipeline = nullptr; // bound (the pipeline's, not retained)
 	std::array<uint64_t, 3> computeThreadGroupSize{1, 1, 1}; // the bound compute pipeline's (Dispatch's group size)
 	MTL::RenderPipelineState* renderPipeline = nullptr; // bound (the pipeline's, not retained)
@@ -63,9 +87,39 @@ struct CommandBufferObject
 	void EndEncoders();
 	MTL::ComputeCommandEncoder* ComputeEncoder();
 	MTL::BlitCommandEncoder* BlitEncoder();
-	// a render pass's encoder (a render target's Begin), open until its End: draws need it open
-	MTL::RenderCommandEncoder* BeginRenderPass(MTL::RenderPassDescriptor* descriptor);
-	[[nodiscard]] MTL::RenderCommandEncoder* RenderEncoder() const;
+	// a render pass (a render target's Begin), open until its End: its encoder made at the first command that needs it
+	// (RenderEncoder: a secondary's is its primary's)
+	void BeginRenderPass(MTL::RenderPassDescriptor* descriptor);
+	[[nodiscard]] MTL::RenderCommandEncoder* RenderEncoder();
+	// where a timestamp written now is sampled: the end of the open encoder if it was begun with samples (a compute or
+	// blit encoder ended there, so that the work after it is timed apart; a render pass's open to its End), else the start
+	// of the next encoder (a pair of pool's samples for it), or the end of the one just ended if none was begun since.
+	// none in a render pass whose encoder was begun without samples. a secondary's are its primary's
+	[[nodiscard]] std::optional<TimestampSample> Timestamp(QueryPoolObject& pool);
+	// the samples an encoder begun now takes (those a timestamp left pending)
+	std::optional<TimestampSamples> BeginSamples();
+};
+
+// a query pool of timestamps: pairs of samples in counter sample buffers (of the device's timestamp counter set, at most
+// kSampleCount samples each: Metal's 32 KB), a pair per encoder sampled, handed out in a ring of as many pairs as the
+// pool has queries (a timestamp takes at most one pair, so the ring can't overtake a query not yet read before the
+// queries' own ring does), and per query its sample and the command buffer it's in (done once that has completed)
+struct QueryPoolObject
+{
+	static constexpr NS::UInteger kSampleCount = 4096;
+
+	struct Query
+	{
+		MTL::CommandBuffer* commandBuffer = nullptr; // retained while written
+		std::optional<TimestampSample> sample; // none: never sampled (reads 0)
+	};
+
+	std::mutex mutex; // the pairs' and the queries' (written while recording, read by the profiler's Collect)
+	std::vector<MTL::CounterSampleBuffer*> buffers; // retained
+	std::vector<Query> queries;
+	uint64_t nextPair = 0;
+
+	[[nodiscard]] TimestampSamples NewPair();
 };
 
 // a command pool: the queue its command buffers are made from and committed to

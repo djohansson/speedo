@@ -26,10 +26,17 @@ Device<kMetal>::Device(CreateDescType&& desc, const Instance<kMetal>& /*instance
 
 	myDevice = reinterpret_cast<MTL::Device*>(GetPhysicalDevice())->retain();
 	myAllocator = new metal::AllocatorObject{.device = myDevice};
+	// timestamps where the device has the timestamp counter set and samples it where encoders begin and end (see
+	// QueryPool): 64 bits of nanoseconds
+	bool timestamps = false;
+	NS::Array* sets = myDevice->counterSets();
+	for (NS::UInteger setIt = 0; sets != nullptr && setIt < sets->count(); setIt++)
+		timestamps = timestamps || sets->object<MTL::CounterSet>(setIt)->name()->isEqualToString(MTL::CommonCounterSetTimestamp);
+	timestamps = timestamps && myDevice->supportsCounterSampling(MTL::CounterSamplingPointAtStageBoundary);
 	myQueueFamilyDescs.push_back(QueueFamilyDesc<kMetal>{
 		.queueCount = 1,
 		.flags = kQueueFamilyFlagBitsGraphics | kQueueFamilyFlagBitsCompute | kQueueFamilyFlagBitsTransfer,
-		.timestampValidBits = 0, // timestamps come with the gpu profiler (counter sample buffers), step 7
+		.timestampValidBits = timestamps ? 64U : 0U,
 	});
 }
 
@@ -156,7 +163,8 @@ void Device<kMetal>::InternalCreateQueues()
 		graphics->queues = std::vector<QueueContext<kMetal>>(1);
 		graphics->queueFamilyIndex = 0;
 		auto& [queue, syncInfo] = graphics->queues.FetchAdd();
-		queue = Queue<kMetal>(QueueCreateDesc<kMetal>{CreateDeviceObjectCreateDesc("Graphics Queue 0"), 0, 0, 0});
+		queue = Queue<kMetal>(QueueCreateDesc<kMetal>{
+			CreateDeviceObjectCreateDesc("Graphics Queue 0"), 0, 0, static_cast<uint32_t>(GetQueueFamilies()[0].timestampValidBits > 0)});
 	}
 	// one queue to start: the compute and transfer types share its context (the whole ConcurrentAccess, so that locking an
 	// alias locks the same mutex)

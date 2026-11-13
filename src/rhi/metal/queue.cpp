@@ -11,6 +11,8 @@
 #include <core/profiling.h>
 
 #include <algorithm>
+#include <format>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -30,7 +32,19 @@ Queue<kMetal>::Queue(CreateDescType&& desc, QueueHandle<kMetal>&& handle)
 		  CommandPool<kMetal>(CommandPoolCreateDesc<kMetal>{
 			  SuperType::CreateDeviceObjectCreateDesc("CommandPool 1"), 0, GetDesc().queueFamilyIndex, myQueue}),
 	  })
-{}
+{
+#if (SPEEDO_PROFILING_LEVEL > 0)
+	// a ring of 4096 timestamps, as Vulkan's backend has (a frame writes about 40): two counter sample buffers of their
+	// samples (see QueryPool). no setup command buffer: the first timestamp is the device's (sampleTimestamps)
+	if (GetDesc().supportsProfiling)
+		myProfiler = std::make_unique<GpuProfiler<kMetal>>(
+			QueryPool<kMetal>(QueryPoolCreateDesc<kMetal>{
+				SuperType::CreateDeviceObjectCreateDesc(std::format("{} Profiler", GetDesc().name)), 4096}),
+			myQueue,
+			nullptr,
+			GetDesc().name);
+#endif
+}
 
 template <>
 Queue<kMetal>::Queue(QueueCreateDesc<kMetal>&& queueDesc)

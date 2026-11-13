@@ -115,6 +115,9 @@ private:
 		std::string name; // a scope's begin of a group: its name
 	};
 
+	// the backend's: a timestamp of now, the context's first (Vulkan's written by setup on queue and read back, Metal's
+	// the device's sampleTimestamps); the rest is every backend's (rhi/gpuprofiler.inl)
+	[[nodiscard]] uint64_t InternalFirstTimestamp(QueueHandle<G> queue, CommandBufferHandle<G> setup);
 	[[nodiscard]] uint64_t InternalWrite(CommandBufferHandle<G> cmd, PipelineStage stage);
 	void InternalEnd(CommandBufferHandle<G> cmd, uint64_t begin, PipelineStage stage);
 
