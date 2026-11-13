@@ -47,6 +47,15 @@ What the renderer uses, which a backend must provide or have an exception for: V
 
 The Metal api from C++: metal-cpp, Apple's header only C++ wrapper (the user's call, 2026-11-13). It is plain C++ calling the Objective-C runtime (`objc_msgSend`), as the platform layer already does without Objective-C (`platform/windowedapplication.cpp`'s presentation options and fullscreen, `platform/glfw.cpp`'s user defaults), so the project stays C and C++, and its handles (`MTL::Buffer*`, ...) are types gfx's translation units can name. The `CAMetalLayer` on glfw's view (`glfwGetCocoaWindow`) is set the same way. vcpkg's registry has no metal-cpp: an overlay port (`ports/metal-cpp`, Apple's github.com/apple/metal-cpp at its release tag for macOS 27.0.1, headers only, nothing built); the backend links Metal, QuartzCore and Foundation.
 
+### The Metal backend's design (decided as it was built)
+
+- **One command queue** to start, the compute and transfer queue types aliasing the graphics one (as Vulkan's do on a device without dedicated queues); an async compute queue later.
+- **Command buffers** are one-shot in Metal: a pool's `Begin` makes a new one from the pool's queue (so `CommandPoolCreateDesc` names the queue, which Vulkan's ignores), `Retire` releases it. The handle (`CommandBufferHandle<kMetal>`) is the backend's own object: the `MTL::CommandBuffer`, its current encoder (one at a time, ended when the commands' kind changes), and what the pipeline bound on it, since rhi's bind calls and the encoder's commands meet only through the handle.
+- **Timelines** are `MTL::SharedEvent`s. Submit encodes a signal on the last command buffer of a submission, before it is committed (rhi records the commands before it submits them); a wait on another queue's timeline goes in a command buffer committed just before the work (`encodeWait`), and one on the queue's own timeline needs nothing, the queue running in order. The host waits with `waitUntilSignaledValue`.
+- **Descriptor sets are argument buffers** (tier 2): slang gives a parameter block's struct plain 8 byte fields in order (no `[[id]]`), so a set is a buffer in which binding b is at 8 × the counts of the bindings before it: a buffer's `gpuAddress`, a texture's or sampler's `gpuResourceID`. Set N is bound at `[[buffer(N)]]` and the push constants at `[[buffer(0)]]` (`setBytes`), as slang numbers them (rhitest's MSL: `gRhiTest [[buffer(0)]]`, `gSetRhiTest [[buffer(1)]]`). What a set references is made resident at its bind (`useResource`).
+- **Barriers**: the resources are hazard tracked to start, so a barrier between dispatches is the compute encoder's `memoryBarrier`, and the host's reads after a wait need nothing (shared storage).
+- **Shaders**: MSL, an entry point a library (a whole file in one fails, see the check above), compiled with `newLibraryWithSource` when the pipeline is made; `rhi::ShaderFormat::kMsl`, the format a backend's (`kShaderFormat` is one build's today).
+
 ## D3D12
 
 | rhi | D3D12 |
