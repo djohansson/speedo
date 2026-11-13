@@ -1582,12 +1582,15 @@ int main(int argc, char* argv[])
 {
 	bool models = true;
 	bool images = true;
-	// how many models or images are checked at once (--jobs N): a thread each, by default the hardware's
-	unsigned jobs = std::max(1U, std::thread::hardware_concurrency());
+	// the executor's threads: the hardware's, or SPEEDO_EXECUTOR_THREAD_COUNT's (a small machine's, see
+	// core::ExecutorThreadCount: CI's 3-core macOS runner)
+	const uint32_t threadCount = core::ExecutorThreadCount(std::max(1U, std::thread::hardware_concurrency()));
+	// how many models or images are checked at once (--jobs N): a thread each, by default the executor's
+	unsigned jobs = threadCount;
 	bool archiveFailed = false;
 	// runs the checks (see CheckInOrder), the environment kernels and the zip archives' extraction (an entry per thread, see
 	// core::zip::ExtractAll)
-	core::TaskExecutor executor(std::max(1U, std::thread::hardware_concurrency()));
+	core::TaskExecutor executor(threadCount);
 	std::vector<std::filesystem::path> modelFiles;
 	std::vector<std::filesystem::path> environmentFiles;
 	ImageChecks imageFiles;

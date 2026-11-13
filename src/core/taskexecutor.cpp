@@ -3,7 +3,10 @@
 #include <core/profiling.h>
 
 #include <atomic>
+#include <charconv>
+#include <cstdlib>
 #include <format>
+#include <string_view>
 
 // #if !defined(__cpp_lib_atomic_shared_ptr) || __cpp_lib_atomic_shared_ptr < 201711L
 // static_assert(false, "std::atomic<std::shared_ptr> is not supported by the standard library!");
@@ -11,6 +14,19 @@
 
 namespace core
 {
+
+uint32_t ExecutorThreadCount(uint32_t defaultCount)
+{
+	if (const char* value = std::getenv("SPEEDO_EXECUTOR_THREAD_COUNT"); value != nullptr)
+	{
+		std::string_view text(value);
+		uint32_t count = 0;
+		if (auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), count);
+			error == std::errc{} && end == text.data() + text.size() && count > 0)
+			return count;
+	}
+	return defaultCount;
+}
 
 namespace detail
 {

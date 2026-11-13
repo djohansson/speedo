@@ -14,6 +14,10 @@
 namespace core
 {
 
+// an executor's threads: SPEEDO_EXECUTOR_THREAD_COUNT where set (a small machine's, to reproduce its runs: a 4-core
+// runner's application executor is 2 threads), else defaultCount
+[[nodiscard]] uint32_t ExecutorThreadCount(uint32_t defaultCount);
+
 class TaskExecutor
 {
 public:
