@@ -51,3 +51,5 @@ private:
 };
 
 } // namespace rhi
+
+#include "sampler.inl"

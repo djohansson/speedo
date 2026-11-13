@@ -12,13 +12,7 @@ namespace rhi
 IMPLEMENT_OBJECT_GETINSTANCE(ShaderModule<kVk>);
 IMPLEMENT_DEVICEOBJECT_GETDEVICE(ShaderModule<kVk>);
 
-template <>
-void ShaderModule<kVk>::Swap(ShaderModule& rhs) noexcept
-{
-	SuperType::Swap(rhs);
-	std::swap(myShaderModule, rhs.myShaderModule);
-	std::swap(myEntryPoint, rhs.myEntryPoint);
-}
+// (Swap and the moves are every backend's, in shader.inl)
 
 template <>
 ShaderModule<kVk>::ShaderModule(
@@ -94,12 +88,6 @@ ShaderModule<kVk>::ShaderModule(CreateDescType&& desc)
 {}
 
 template <>
-ShaderModule<kVk>::ShaderModule(ShaderModule&& other) noexcept
-{
-	Swap(other);
-}
-
-template <>
 ShaderModule<kVk>::~ShaderModule()
 {
 	if (myShaderModule == nullptr)
@@ -110,13 +98,6 @@ ShaderModule<kVk>::~ShaderModule()
 		GetDevice(),
 		myShaderModule,
 		&GetInstance().GetHostAllocationCallbacks());
-}
-
-template <>
-ShaderModule<kVk>& ShaderModule<kVk>::operator=(ShaderModule&& other) noexcept
-{
-	Swap(other);
-	return *this;
 }
 
 } // namespace rhi

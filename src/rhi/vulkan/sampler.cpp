@@ -49,19 +49,7 @@ SamplerVector<kVk>::SamplerVector(CreateDescType&& desc)
 		}())
 {}
 
-template <>
-void SamplerVector<kVk>::Swap(SamplerVector& rhs) noexcept
-{
-	DeviceObject<SamplerVector<kVk>>::Swap(rhs);
-	std::swap(mySamplers, rhs.mySamplers);
-}
-
-
-template <>
-SamplerVector<kVk>::SamplerVector(SamplerVector&& other) noexcept
-{
-	Swap(other);
-}
+// (Swap and the moves are every backend's, in sampler.inl)
 
 template <>
 SamplerVector<kVk>::~SamplerVector()
@@ -74,13 +62,6 @@ SamplerVector<kVk>::~SamplerVector()
 			sampler,
 			&GetInstance().GetHostAllocationCallbacks());
 	}
-}
-
-template <>
-SamplerVector<kVk>& SamplerVector<kVk>::operator=(SamplerVector&& other) noexcept
-{
-	Swap(other);
-	return *this;
 }
 
 } // namespace rhi

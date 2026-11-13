@@ -29,6 +29,31 @@ const DescriptorSetLayout<G>& PipelineLayout<G>::GetDescriptorSetLayout(uint32_t
 	return setLayout;
 }
 
+// PipelineLayout's Swap and moves: the same for every backend
+
+template <GraphicsApi G>
+void PipelineLayout<G>::Swap(PipelineLayout& rhs) noexcept
+{
+	DeviceObject<PipelineLayout<G>>::Swap(rhs);
+	std::swap(myShaderModules, rhs.myShaderModules);
+	std::swap(myDescriptorSetLayouts, rhs.myDescriptorSetLayouts);
+	std::swap(myPushConstantRanges, rhs.myPushConstantRanges);
+	std::swap(myLayout, rhs.myLayout);
+}
+
+template <GraphicsApi G>
+PipelineLayout<G>::PipelineLayout(PipelineLayout&& other) noexcept
+{
+	Swap(other);
+}
+
+template <GraphicsApi G>
+PipelineLayout<G>& PipelineLayout<G>::operator=(PipelineLayout&& other) noexcept
+{
+	Swap(other);
+	return *this;
+}
+
 // the pipelines' map, their requests and binds, the compute layouts' launch parameters and the layouts by name: the same
 // for every backend, which creates the pipelines (InternalCreateGraphicsPipeline, InternalCreateComputePipeline) and binds
 // them (BindPipeline)

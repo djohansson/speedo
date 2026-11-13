@@ -12,28 +12,7 @@ namespace rhi
 IMPLEMENT_OBJECT_GETINSTANCE(PipelineLayout<kVk>);
 IMPLEMENT_DEVICEOBJECT_GETDEVICE(PipelineLayout<kVk>);
 
-template <>
-void PipelineLayout<kVk>::Swap(PipelineLayout& rhs) noexcept
-{
-	DeviceObject<PipelineLayout<kVk>>::Swap(rhs);
-	std::swap(myShaderModules, rhs.myShaderModules);
-	std::swap(myDescriptorSetLayouts, rhs.myDescriptorSetLayouts);
-	std::swap(myPushConstantRanges, rhs.myPushConstantRanges);
-	std::swap(myLayout, rhs.myLayout);
-}
-
-template <>
-PipelineLayout<kVk>& PipelineLayout<kVk>::operator=(PipelineLayout<kVk>&& other) noexcept
-{
-	Swap(other);
-	return *this;
-}
-
-template <>
-PipelineLayout<kVk>::PipelineLayout(PipelineLayout<kVk>&& other) noexcept
-{
-	Swap(other);
-}
+// (Swap and the moves are every backend's, in pipeline.inl)
 
 template <>
 PipelineLayout<kVk>::PipelineLayout(

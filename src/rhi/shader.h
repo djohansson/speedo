@@ -54,3 +54,5 @@ private:
 
 } // namespace rhi
 
+#include "shader.inl"
+
