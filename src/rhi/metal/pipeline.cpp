@@ -92,7 +92,8 @@ static MTL::Function* NewFunction(const PipelineShaderStageCreateInfo<kMetal>& s
 	if (specialization != 0)
 		constants->setConstantValue(&specialization, MTL::DataTypeUInt, NS::UInteger{0});
 	NS::Error* error = nullptr;
-	MTL::Function* function = stage.library->newFunction(NS::String::string(stage.name, NS::UTF8StringEncoding), constants, &error);
+	MTL::Function* function =
+		stage.module->Library()->newFunction(NS::String::string(stage.name, NS::UTF8StringEncoding), constants, &error);
 	constants->release();
 	ENSUREF(
 		function != nullptr,
@@ -254,7 +255,8 @@ PipelineHandle<kMetal> Pipeline<kMetal>::InternalCreateComputePipeline(
 	if (variant.specialization != 0)
 		constants->setConstantValue(&specializationValue, MTL::DataTypeUInt, NS::UInteger{0});
 	NS::Error* error = nullptr;
-	MTL::Function* function = stage.library->newFunction(NS::String::string(stage.name, NS::UTF8StringEncoding), constants, &error);
+	MTL::Function* function =
+		stage.module->Library()->newFunction(NS::String::string(stage.name, NS::UTF8StringEncoding), constants, &error);
 	constants->release();
 	ENSUREF(
 		function != nullptr,
@@ -336,7 +338,7 @@ void Pipeline<kMetal>::BindLayoutAuto(PipelineLayoutHandle<kMetal> layoutHandle,
 		{
 			const auto& [entryPointName, shaderStage, launchParams] = shader.GetEntryPoint();
 			if (Any(shaderStage & ShaderStage::kAllGraphics))
-				myGraphicsState.shaderStages.push_back({.library = shader, .name = entryPointName.c_str(), .stage = shaderStage});
+				myGraphicsState.shaderStages.push_back({.module = shader, .name = entryPointName.c_str(), .stage = shaderStage});
 		}
 		break;
 	case PipelineBindPoint::kCompute:
@@ -350,7 +352,7 @@ void Pipeline<kMetal>::BindLayoutAuto(PipelineLayoutHandle<kMetal> layoutHandle,
 				continue;
 			const auto launch = launchParams.value_or(ComputeLaunchParameters{});
 			myComputeState.shaderStages.push_back(
-				{.library = shader, .name = entryPointName.c_str(), .stage = shaderStage, .threadGroupSize = launch.threadGroupSize});
+				{.module = shader, .name = entryPointName.c_str(), .stage = shaderStage, .threadGroupSize = launch.threadGroupSize});
 			myComputeState.launchParameters.push_back(launch);
 		}
 		ENSUREF(!myComputeState.shaderStages.empty(), "the layout has no compute entry point");

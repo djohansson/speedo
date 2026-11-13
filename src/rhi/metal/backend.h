@@ -9,8 +9,10 @@
 #include <QuartzCore/QuartzCore.hpp>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <string>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -246,6 +248,22 @@ struct FenceObject
 {
 	MTL::SharedEvent* event = nullptr; // retained
 	uint64_t value = 0;
+};
+
+// a shader module: its entry point's library, compiled by Metal's runtime compiler asynchronously from the module's
+// creation (a layout's dozens of entry points compile in parallel, on Metal's threads), waited for by the first pipeline
+// made of it, where the pipelines are made (the executor's tasks). compiled at the layout's creation, on the draw thread
+// (Scene's first frames), a layout's libraries held the draw thread one after another: past the client's 20 s hang
+// check in the quick tier's first batch of clients (3 of 61 lost, twice)
+struct ShaderModuleObject
+{
+	std::string name; // the entry point's
+	std::atomic<bool> done{false}; // the compile's ended (library or error set)
+	MTL::Library* library = nullptr; // retained, once done (none where the compile failed)
+	std::string error; // the compile's, where it failed
+
+	// waits for the compile (Metal's, not a task's), failing hard where it failed
+	[[nodiscard]] MTL::Library* Library();
 };
 
 // a render target's clears of a rect inside its pass (RenderTarget::ClearRect): Metal clears no part of an attachment, so

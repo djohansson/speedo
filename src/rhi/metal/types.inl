@@ -55,6 +55,7 @@ struct CommandBufferObject; // an MTL::CommandBuffer, its current encoder and wh
 struct FenceObject; // an MTL::SharedEvent and the value it waits for
 struct RenderTargetClearObject; // a render target's clears of rects: the pipelines drawing them (no handle, its member)
 struct QueryPoolObject; // counter sample buffers of timestamps, and the queries' samples
+struct ShaderModuleObject; // an entry point's library, compiled asynchronously
 
 // placeholders for the Vulkan backend's structs (see the file's comment)
 struct StructureType {};
@@ -114,9 +115,9 @@ enum class DescriptorUpdateTemplateType : uint8_t
 	kDescriptorSet, // written into an argument buffer of the set's (Pipeline::InternalUpdateDescriptorSet)
 	kPushDescriptors, // written at each bind into the command buffer's own (Pipeline::InternalPushDescriptorSet)
 };
-struct PipelineShaderStageCreateInfo // an entry point: its library (one per entry point) and name
+struct PipelineShaderStageCreateInfo // an entry point: its module (a library each, compiled asynchronously) and name
 {
-	MTL::Library* library = nullptr;
+	ShaderModuleObject* module = nullptr;
 	const char* name = nullptr; // the layout's shader module's
 	rhi::ShaderStage stage{};
 	std::array<uint64_t, 3> threadGroupSize{1, 1, 1}; // a compute entry point's (its numthreads: Metal takes it at the dispatch)
@@ -224,7 +225,7 @@ struct BackendTypes<kMetal>
 	using PhysicalDeviceAccelerationStructureProperties = rhi::metal::PhysicalDeviceAccelerationStructureProperties;
 	using QueueHandle = MTL::CommandQueue*;
 	using CommandBufferHandle = rhi::metal::CommandBufferObject*;
-	using ShaderModuleHandle = MTL::Library*;
+	using ShaderModuleHandle = rhi::metal::ShaderModuleObject*;
 	using DescriptorUpdateTemplateEntry = rhi::metal::DescriptorUpdateTemplateEntry;
 	using DescriptorUpdateTemplateType = rhi::metal::DescriptorUpdateTemplateType;
 	using DescriptorSetLayoutHandle = rhi::metal::DescriptorSetLayoutObject*;
