@@ -61,6 +61,9 @@ struct CommandPoolCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	CommandPoolCreateFlags<G> flags{};
 	uint32_t queueFamilyIndex = 0;
+	// the queue the pool's command buffers are submitted to: Metal makes a command buffer from its queue (Vulkan's pools
+	// are a queue family's, and don't need it)
+	QueueHandle<G> queue{};
 };
 
 template <GraphicsApi G>

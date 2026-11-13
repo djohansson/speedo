@@ -27,7 +27,8 @@ Queue<kVk>::Queue(
 				{
 					SuperType::CreateDeviceObjectCreateDesc("CommandPool 0"),
 					VK_COMMAND_POOL_CREATE_TRANSIENT_BIT|VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-					GetDesc().queueFamilyIndex
+					GetDesc().queueFamilyIndex,
+					myQueue
 				}
 			),
 			CommandPool<kVk>(
@@ -35,7 +36,8 @@ Queue<kVk>::Queue(
 				{
 					SuperType::CreateDeviceObjectCreateDesc("CommandPool 1"),
 					VK_COMMAND_POOL_CREATE_TRANSIENT_BIT|VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-					GetDesc().queueFamilyIndex
+					GetDesc().queueFamilyIndex,
+					myQueue
 				}
 			)
 		}

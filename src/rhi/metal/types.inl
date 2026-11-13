@@ -48,6 +48,7 @@ struct DescriptorPoolObject; // the argument buffers' memory
 struct DescriptorSetObject; // an argument buffer
 struct PipelineObject; // an MTL::RenderPipelineState or MTL::ComputePipelineState
 struct CommandPoolObject; // the command buffers' allocator
+struct CommandBufferObject; // an MTL::CommandBuffer, its current encoder and what the pipeline bound on it
 struct FenceObject; // an MTL::SharedEvent and the value it waits for
 
 // placeholders for the Vulkan backend's structs (see the file's comment)
@@ -159,7 +160,7 @@ struct BackendTypes<kMetal>
 	using PhysicalDeviceRayQueryFeatures = rhi::metal::PhysicalDeviceRayQueryFeatures;
 	using PhysicalDeviceAccelerationStructureProperties = rhi::metal::PhysicalDeviceAccelerationStructureProperties;
 	using QueueHandle = MTL::CommandQueue*;
-	using CommandBufferHandle = MTL::CommandBuffer*;
+	using CommandBufferHandle = rhi::metal::CommandBufferObject*;
 	using ShaderModuleHandle = MTL::Library*;
 	using DescriptorUpdateTemplateEntry = rhi::metal::DescriptorUpdateTemplateEntry;
 	using DescriptorUpdateTemplateType = rhi::metal::DescriptorUpdateTemplateType;
