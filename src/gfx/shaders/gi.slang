@@ -925,7 +925,8 @@ void GiVoxelizeSampleTogether(
 	GiData gi, uint3 size, bool pending, float3 start, float3 edgeA, float3 edgeB, uint steps, float3 boxLow, float3 boxHigh, GiVoxel voxel,
 	uint sideIt, bool doubleSided, bool moving)
 {
-	uint lane = WavePrefixCountBits(true);
+	// the active lanes below this one (WavePrefixCountBits(true), which slang's Metal target doesn't have)
+	uint lane = WavePrefixSum(1u);
 	uint laneCount = WaveActiveCountBits(true);
 	while (WaveActiveAnyTrue(pending))
 	{
@@ -952,7 +953,7 @@ void GiVoxelizeRasterizeTogether(
 	GiData gi, uint3 size, bool pending, float3 q0, float3 q1, float3 q2, float3 boxLow, float3 boxHigh, GiVoxel voxel, uint sideIt, bool doubleSided,
 	bool moving)
 {
-	uint lane = WavePrefixCountBits(true);
+	uint lane = WavePrefixSum(1u); // as GiVoxelizeSampleTogether's
 	uint laneCount = WaveActiveCountBits(true);
 	while (WaveActiveAnyTrue(pending))
 	{

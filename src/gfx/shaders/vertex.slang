@@ -62,20 +62,23 @@ struct VertexZPrepassOutput : IInterpolants
 	float4 hPos : SV_Position;
 };
 
+// each field with a semantic: Metal links the stages by their names, and VertexMain's output nests this struct, which
+// slang names otherwise by where a field is (and its Metal target crashes on unnamed nested fields, slang 2026.22, see
+// docs/backends-plan.md). SPIR-V's locations don't change with them
 struct VertexOutput : IInterpolants
 {
-	VertexP3fN3fTa4fT014fC4f vertex;
+	VertexP3fN3fTa4fT014fC4f vertex : VERTEX;
 	float4 hPos : SV_Position;
 	// the instance transform's scale (the cube root of its volume scale), for KHR_materials_volume's thickness
-	float modelScale;
+	float modelScale : MODEL_SCALE;
 	// the draw's material (see DrawRecord), for the fragment stage
-	nointerpolation uint materialId;
+	nointerpolation uint materialId : MATERIAL_ID;
 	// where the point was in the last frame, in world space (where it moves, see DRAW_FLAG_MOVES; else where it is)
-	float3 previousPosition;
+	float3 previousPosition : PREVIOUS_POSITION;
 	// the draw's record (gDrawRecords') and its instance above the record's primitive bits, which the pre-pass writes to
 	// the visibility buffer with the triangle (see FragmentPrepass)
-	nointerpolation uint drawRecord;
-	nointerpolation uint visibilityInstance;
+	nointerpolation uint drawRecord : DRAW_RECORD;
+	nointerpolation uint visibilityInstance : VISIBILITY_INSTANCE;
 };
 
 // VertexOutput, and what only the vertex stage writes (a system value the fragment stage can't take as input)

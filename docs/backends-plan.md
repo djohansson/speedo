@@ -86,3 +86,4 @@ Each named in rhi for what the platform lacks, as `drawIndirectCountEmulated` is
 ## Progress
 
 - 2026-11-13: the shader check and the rhi survey above; no blockers. Branch `metal-backend`.
+- 2026-11-13, step 1: `WavePrefixSum(1u)` in the voxelizer, and a semantic on each of `VertexOutput`'s fields (one on the nested `vertex` alone wasn't enough: `VertexMainOutput` nests `VertexOutput` itself, and Metal links a fragment stage's inputs to the vertex stage's outputs by name, which slang derives from where an unnamed field is, so `FragmentMain`'s took `_SLANG_ATTR_5` where `VertexMain`'s were `VARYINGS_1`). All 172 entry points compile with slang's Metal target; every vertex and fragment stage's SPIR-V is byte for byte the same, the voxelizer's not (the scan).
