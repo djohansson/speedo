@@ -19,6 +19,16 @@ namespace rhi
 // where reports are written (the application's user profile's crashes directory): before the RHI is made
 void SetCrashReportDirectory(std::string_view directory);
 
+// for a backend whose device the report doesn't describe itself (Metal's; Vulkan's describes its own): its name
+void SetCrashReportDevice(std::string_view name);
+// a submit, for the report's log of them, from a backend without its own hook for them (Metal's; Vulkan's logs its own):
+// the queue (its handle as a number), its command buffers, and the timeline value it signals (0: none). any thread
+void CrashSubmit(uint64_t queue, uint32_t commandBufferCount, uint64_t timelineValue);
+// a fatal gpu error a backend found (Metal's failed command buffer: what it knows of it, which passes' encoders
+// faulted), as Vulkan's lost device: writes the report and ends the process; a thread meeting one while another reports
+// waits for it. any thread
+[[noreturn]] void CrashFatal(std::string_view result, std::string_view what);
+
 // something the application did that a report should tell (a swapchain recreated, a fullscreen switch, a model
 // installed, ...), stamped with the frame and the time: the last few hundred are kept. any thread
 void CrashEvent(std::string_view what);

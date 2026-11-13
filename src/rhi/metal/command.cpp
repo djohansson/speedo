@@ -3,6 +3,7 @@
 #include <rhi/metal/backend.h>
 
 #include <rhi/command.h>
+#include <rhi/crashreport.h>
 #include <rhi/device.h>
 #include <rhi/rhi.h>
 
@@ -257,8 +258,8 @@ void Free(metal::CommandBufferObject* object)
 }
 
 // a command buffer that fails says so once it completes (on Metal's thread): its error, and each encoder that faulted
-// or was affected (its label, the error state). its signals don't run, so what waits for them waits forever: the
-// client's hang check reports it then (see docs/backends-plan.md, step 7's crash reports)
+// or was affected (its label, the error state, its breadcrumbs), printed and then the crash report's (rhi::CrashFatal: a
+// failed command buffer is Vulkan's lost device, its signals never run), which ends the process
 void ReportErrors(MTL::CommandBuffer* commandBuffer)
 {
 	commandBuffer->addCompletedHandler([](MTL::CommandBuffer* completed)
@@ -267,15 +268,10 @@ void ReportErrors(MTL::CommandBuffer* commandBuffer)
 			return;
 		auto text = [](NS::String* string) { return string != nullptr ? string->utf8String() : "(none)"; };
 		NS::Error* error = completed->error();
-		std::println(
-			stderr,
-			"Metal: command buffer \"{}\" failed: {} (code {})",
-			text(completed->label()),
-			error != nullptr ? text(error->localizedDescription()) : "(no error)",
-			error != nullptr ? error->code() : 0);
-		if (error == nullptr || error->userInfo() == nullptr)
-			return;
-		auto* infos = error->userInfo()->object<NS::Array>(MTL::CommandBufferEncoderInfoErrorKey);
+		const std::string result = error != nullptr ? std::format("{} (code {})", text(error->localizedDescription()), error->code()) : "(no error)";
+		std::string what = std::format("command buffer \"{}\" failed", text(completed->label()));
+		std::println(stderr, "Metal: {}: {}", what, result);
+		auto* infos = error != nullptr && error->userInfo() != nullptr ? error->userInfo()->object<NS::Array>(MTL::CommandBufferEncoderInfoErrorKey) : nullptr;
 		for (NS::UInteger infoIt = 0; infos != nullptr && infoIt < infos->count(); infoIt++)
 		{
 			auto* info = infos->object<MTL::CommandBufferEncoderInfo>(infoIt);
@@ -285,14 +281,16 @@ void ReportErrors(MTL::CommandBuffer* commandBuffer)
 			std::string signposts;
 			for (NS::UInteger signpostIt = 0; info->debugSignposts() != nullptr && signpostIt < info->debugSignposts()->count(); signpostIt++)
 				signposts += std::format("{}{}", signposts.empty() ? "" : ", ", text(info->debugSignposts()->object<NS::String>(signpostIt)));
-			std::println(
-				stderr,
-				"Metal:   encoder \"{}\": {}{}",
+			auto encoder = std::format(
+				"encoder \"{}\": {}{}",
 				text(info->label()),
 				info->errorState() == MTL::CommandEncoderErrorStateFaulted ? "faulted" : "affected",
 				signposts.empty() ? "" : std::format(" (in {})", signposts));
+			std::println(stderr, "Metal:   {}", encoder);
+			what += "; " + encoder;
 		}
 		std::fflush(stderr);
+		CrashFatal(result, what);
 	});
 }
 

@@ -2,6 +2,7 @@
 // type (compute and transfer alias graphics, see docs/backends-plan.md), and the pipeline
 #include <rhi/metal/backend.h>
 
+#include <rhi/crashreport.h>
 #include <rhi/device.h>
 #include <rhi/rhi.h>
 
@@ -58,6 +59,7 @@ Device<kMetal>::Device(CreateDescType&& desc, const Instance<kMetal>& /*instance
 			.timestampValidBits = timestamps ? 64U : 0U,
 		});
 	std::println("\"{}\" is selected as primary graphics device (Metal)", myDevice->name()->utf8String());
+	SetCrashReportDevice(std::format("{} (Metal)", myDevice->name()->utf8String()));
 	std::println("ray queries: {}", device::RayQueries(myDevice) ? "yes" : "no (the shaders traverse gfx's BVHs)");
 }
 

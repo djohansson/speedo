@@ -80,12 +80,12 @@ struct Section
 std::mutex gSectionMutex;
 std::vector<Section> gSections;
 
-// the log of submits
+// the log of submits (any backend's: the queue its handle as a number, see rhi::CrashSubmit)
 struct Submit
 {
 	double seconds = 0.0;
 	uint64_t frame = 0;
-	VkQueue queue = VK_NULL_HANDLE;
+	uint64_t queue = 0;
 	uint32_t commandBufferCount = 0;
 	uint64_t timelineValue = 0;
 };
@@ -430,7 +430,9 @@ std::string ReadDeviceFault(const std::filesystem::path& reportPath, std::string
 
 // writes the report (kind: "device lost", "hang", or the error) and ends the process. the first caller only: the others
 // wait for it
-[[noreturn]] void Report(std::string_view kind, VkResult result, VkQueue queue, std::string_view what)
+// the report: of kind, of result (its name: a VkResult's, or another backend's error), on queue (its handle as a number;
+// 0: none). deviceLost reads the device's fault (VK_EXT_device_fault)
+[[noreturn]] void Report(std::string_view kind, std::string_view result, bool deviceLost, uint64_t queue, std::string_view what)
 {
 	if (gReporting.exchange(true, std::memory_order_acq_rel))
 		for (;;)
@@ -450,7 +452,7 @@ std::string ReadDeviceFault(const std::filesystem::path& reportPath, std::string
 	std::string checkpoints = layer ? std::string{} : ReadCheckpoints(checkpointsInFlight);
 	std::ranges::sort(checkpointsInFlight, {}, &Crumb::sequence);
 	std::string faultType;
-	std::string fault = (layer || result != VK_ERROR_DEVICE_LOST) ? std::string{} : ReadDeviceFault(path, faultType);
+	std::string fault = (layer || !deviceLost) ? std::string{} : ReadDeviceFault(path, faultType);
 
 	std::vector<const Crumb*> inFlight;
 	std::vector<const Crumb*> completed;
@@ -471,13 +473,12 @@ std::string ReadDeviceFault(const std::filesystem::path& reportPath, std::string
 	// what tells crashes of the same cause from others: the gpu, its driver, the result, the first pass in flight and
 	// the kind of fault
 	auto signatureText = std::format(
-		"{:#x}|{:#x}|{}|{}|{}|{}", gDescription.vendorId, gDescription.driverVersion, kind, string_VkResult(result), suspect,
-		faultType);
+		"{:#x}|{:#x}|{}|{}|{}|{}", gDescription.vendorId, gDescription.driverVersion, kind, result, suspect, faultType);
 	auto signature = XXH3_64bits(signatureText.data(), signatureText.size());
 
 	std::string json = "{\n";
 	json += std::format("  \"kind\": \"{}\",\n", Escape(kind));
-	json += std::format("  \"result\": \"{}\",\n", string_VkResult(result));
+	json += std::format("  \"result\": \"{}\",\n", Escape(result));
 	if (!what.empty())
 		json += std::format("  \"what\": \"{}\",\n", Escape(what));
 	json += std::format("  \"signature\": \"{:016x}\",\n", signature);
@@ -499,8 +500,8 @@ std::string ReadDeviceFault(const std::filesystem::path& reportPath, std::string
 	for (size_t toolIt = 0; toolIt < gDescription.tools.size(); toolIt++)
 		json += std::format("{}\"{}\"", toolIt == 0 ? "" : ", ", Escape(gDescription.tools[toolIt]));
 	json += "],\n";
-	if (queue != VK_NULL_HANDLE)
-		json += std::format("  \"queue\": \"{}\",\n", static_cast<void*>(queue));
+	if (queue != 0)
+		json += std::format("  \"queue\": \"{:#x}\",\n", queue);
 	json += std::format(
 		"  \"breadcrumbs\": \"{}\",\n",
 		layer ? "the Crash Diagnostic Layer's dump" : gCapabilities.bufferMarker ? "buffer markers" : gCapabilities.checkpoints ? "checkpoints" : "none");
@@ -529,9 +530,9 @@ std::string ReadDeviceFault(const std::filesystem::path& reportPath, std::string
 		{
 			const auto& submit = gSubmits[submitIt % kSubmitCount];
 			json += std::format(
-				"{}\n    {{\"seconds\": {:.3f}, \"frame\": {}, \"queue\": \"{}\", \"commandBuffers\": {}, \"timeline\": {}}}",
-				submitIt == first ? "" : ",", submit.seconds, submit.frame, static_cast<void*>(submit.queue),
-				submit.commandBufferCount, submit.timelineValue);
+				"{}\n    {{\"seconds\": {:.3f}, \"frame\": {}, \"queue\": \"{:#x}\", \"commandBuffers\": {}, \"timeline\": {}}}",
+				submitIt == first ? "" : ",", submit.seconds, submit.frame, submit.queue, submit.commandBufferCount,
+				submit.timelineValue);
 		}
 	}
 	json += "],\n";
@@ -564,7 +565,7 @@ std::string ReadDeviceFault(const std::filesystem::path& reportPath, std::string
 	}
 
 	std::println(
-		stderr, "crash report: {} ({}), signature {:016x}, in flight: {}{}", kind, string_VkResult(result), signature, suspect,
+		stderr, "crash report: {} ({}), signature {:016x}, in flight: {}{}", kind, result, signature, suspect,
 		written ? std::format(", written to {}", path.string()) : std::string(", not written"));
 	if (!written)
 		std::println(stderr, "{}", json);
@@ -772,15 +773,7 @@ void OnSubmit(VkQueue queue, uint32_t commandBufferCount, uint64_t timelineValue
 {
 	using namespace detail;
 
-	{
-		std::scoped_lock lock(gSubmitMutex);
-		gSubmits[gSubmitTotal++ % kSubmitCount] = Submit{
-			.seconds = Seconds(),
-			.frame = gFrame.load(std::memory_order_relaxed),
-			.queue = queue,
-			.commandBufferCount = commandBufferCount,
-			.timelineValue = timelineValue};
-	}
+	rhi::CrashSubmit(reinterpret_cast<uint64_t>(queue), commandBufferCount, timelineValue);
 
 	// the queues seen, once each
 	for (auto& entry : gQueues)
@@ -799,12 +792,14 @@ void OnSubmit(VkQueue queue, uint32_t commandBufferCount, uint64_t timelineValue
 
 void ReportFatal(VkResult result, VkQueue queue)
 {
-	detail::Report(result == VK_ERROR_DEVICE_LOST ? "device lost" : "error", result, queue, {});
+	detail::Report(
+		result == VK_ERROR_DEVICE_LOST ? "device lost" : "error", string_VkResult(result), result == VK_ERROR_DEVICE_LOST,
+		reinterpret_cast<uint64_t>(queue), {});
 }
 
 void ReportHang(std::string_view what)
 {
-	detail::Report("hang", VK_TIMEOUT, VK_NULL_HANDLE, what);
+	detail::Report("hang", "VK_TIMEOUT", false, 0, what);
 }
 
 uint64_t HangTimeout() noexcept
@@ -829,6 +824,29 @@ namespace rhi
 void SetCrashReportDirectory(std::string_view directory)
 {
 	vk::crash::detail::gDirectory = directory;
+}
+
+void SetCrashReportDevice(std::string_view name)
+{
+	vk::crash::detail::gDescription.name = name;
+}
+
+void CrashSubmit(uint64_t queue, uint32_t commandBufferCount, uint64_t timelineValue)
+{
+	using namespace vk::crash::detail;
+
+	std::scoped_lock lock(gSubmitMutex);
+	gSubmits[gSubmitTotal++ % kSubmitCount] = Submit{
+		.seconds = Seconds(),
+		.frame = gFrame.load(std::memory_order_relaxed),
+		.queue = queue,
+		.commandBufferCount = commandBufferCount,
+		.timelineValue = timelineValue};
+}
+
+void CrashFatal(std::string_view result, std::string_view what)
+{
+	vk::crash::detail::Report("error", result, false, 0, what);
 }
 
 void CrashEvent(std::string_view what)

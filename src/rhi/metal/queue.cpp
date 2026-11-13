@@ -3,6 +3,7 @@
 // command buffer committed just before the submission's
 #include <rhi/metal/backend.h>
 
+#include <rhi/crashreport.h>
 #include <rhi/device.h>
 #include <rhi/queue.h>
 #include <rhi/rhi.h>
@@ -142,6 +143,8 @@ QueueHostSyncInfo<kMetal> Queue<kMetal>::Submit()
 			signal(signals);
 			signals->commit();
 		}
+		// the crash report's log of submits (Metal's backend has no hook of its own in it)
+		CrashSubmit(reinterpret_cast<uint64_t>(myQueue), static_cast<uint32_t>(submit.commandBuffers.size()), submit.timelineValue);
 
 		if (!submit.callbacks.empty())
 			myTimelineCallbacks.enqueue({std::move(submit.callbacks), submit.timelineValue});
