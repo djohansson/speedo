@@ -1,7 +1,7 @@
 # Visual testing plan: what the client draws, checked
 
-Since 2026-11-11 CI runs the client itself, headless on lavapipe (mesa's Vulkan driver on the cpu: Ubuntu's on Linux, the
-mesa port's on Windows, see "CI" in docs/notes/build.md). What those runs check is that the client runs, not what it
+Since 2026-11-11 CI runs the client itself, headless on lavapipe (mesa's Vulkan driver on the cpu: the mesa port's, on
+Linux and Windows, and on macOS since 2026-11-13; Ubuntu's on Linux at first, see "CI" in docs/notes/build.md). What those runs check is that the client runs, not what it
 draws: a model that comes out black or garbled passes as long as nothing crashes or reports an error. This plan adds checks
 of the output, in an order where each step is useful on its own, and the non-visual checks a cpu driver makes cheap.
 
@@ -336,7 +336,9 @@ dropped (the user's call): the visual checks load and draw models the same way, 
 validated run (2026-11-12) passed all six on both runners' lavapipe, the measures as on the M4 Pro: on Linux the step
 took 617 s (traced-shadows 100 s with the shader compile, shadow-atlas 26, emitters 63, upscaling 75, furnace 254,
 ray-queries 95), on Windows 1223 s (182, 105, 158, 174, 447, 154). No budget yet; the furnace, 256 frames, is the most
-of it on both.
+of it on both. macOS's job runs them too since 2026-11-13 (the user's ask), on the mesa port's lavapipe beside
+KosmicKrisp in the host package: all six pass on the M4 Pro's in 305 s from a new work dir (69, 10, 25, 28, 95, 74), the
+measures as before.
 
 ### Step 2 (2026-11-11)
 

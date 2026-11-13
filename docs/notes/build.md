@@ -431,8 +431,8 @@ the SPIRV-Headers commit it pins (`spirv-headers-tag.conf`), put ahead of LLVM's
 which holds vcpkg's older spirv-headers (`0001-*`).
 
 Its `lavapipe` feature builds lavapipe (meson's `swrast` Vulkan driver over gallium's `llvmpipe`), mesa's Vulkan driver on
-the cpu, for CI's visual checks on Windows and Linux (see "CI"): a host package on windows and linux x64 (`vcpkg.json`),
-from the same source and LLVM. On Linux without a window system platform (`-Dplatforms=`: CI's clients are headless, and
+the cpu, for CI's visual checks (see "CI"): a host package on every platform (`vcpkg.json`; on macOS beside KosmicKrisp,
+since 2026-11-13), from the same source and LLVM. On Linux without a window system platform (`-Dplatforms=`: CI's clients are headless, and
 x11's and wayland's would look for the system's xcb and wayland outside the vcpkg tree), with the port's zlib and the
 system's bison and flex (the Linux port build tools). lavapipe links LLVM (`default-targets`: llvmpipe compiles shaders for the cpu at run time),
 and builds its BVH builder's shaders with `glslangValidator` (a host `glslang[tools]`, overlaid without precompiled
@@ -446,9 +446,12 @@ DirectX-Headers (Vulkan's Win32 WSI includes `d3d12.h`, though meson.build finds
 change is the user's to submit). On Windows the port bootstraps pip itself before
 `x_vcpkg_get_python_packages` (mako, packaging and pyyaml for meson): the registry release's helper uses get-pip 24.2,
 whose pip doesn't run on the Python 3.15 the newer scripts acquire there (upstream's took 26.2.2 on 2026-10-27,
-d90cb72e90); drop it with a baseline past that commit. The feature builds on macOS too (2026-11-10, a scratch tree: the
-client headless on it, BumpDomes in 17 s), but nothing there asks for it. Release packages don't ship lavapipe, and list
-mesa's license only on macOS, where KosmicKrisp ships.
+d90cb72e90); drop it with a baseline past that commit. The feature built on macOS first in a scratch tree (2026-11-10:
+the client headless on it, BumpDomes in 17 s); macOS's host package has it since 2026-11-13 (the user's ask: CI's macOS
+job runs the visual checks on it too), with the macos platform as KosmicKrisp. The portfile's first comment still calls
+the feature Windows' and Linux's: the port's files are in its hash on every platform, so it is corrected with the next
+change that rebuilds mesa everywhere anyway. Release packages don't ship lavapipe (the bundle takes KosmicKrisp's dylib
+and manifest by name), and list mesa's license only on macOS, where KosmicKrisp ships.
 
 The port patches the fork's source, locally, with `0001-kk-workaround-63-encoder-end-resolve.patch`: a workaround for an
 Apple bug (Metal ray tracing beside other gpu work restarts the gpu, see "Hardware ray queries"), until Apple fixes it,
@@ -685,16 +688,17 @@ in turn (the user's ask, 2026-11-07), the asset checks on the profile build: one
 share their packages and a job each would restore them, about 2 GB, three times. It replaced three workflows from an early trial
 (`lukka/run-vcpkg` templates, on a `main` branch this repository doesn't have, so they never ran).
 
-**The client on lavapipe** (the user's asks, from 2026-11-10): Linux and Windows run the client itself after the asset
-checks, headless and validated on lavapipe, mesa's Vulkan driver on the cpu: the visual checks (`visualtest.ps1
+**The client on lavapipe** (the user's asks, from 2026-11-10): every platform runs the client itself after the asset
+checks (Linux and Windows since 2026-11-11, macOS since 2026-11-13), headless and validated on lavapipe, mesa's Vulkan driver on the cpu: the visual checks (`visualtest.ps1
 -Validate`, docs/visual-testing-plan.md), whose scenes go through the load, upload and draw path. Until 2026-11-12 a step
 of client checks ran before them (`assettest.ps1 -ClientOnly -Headless -Validate -Jobs 1`, `SPEEDO_WINDOW_SIZE=320x180`:
 BumpDomes' two models), dropped (the user's call) once the visual checks took `-Validate` (assettest's validation layer
 settings and problem patterns): they load and draw models the same way, and their first validated run found what the
 client checks never had, the GI radiance buffer past lavapipe's `maxStorageBufferRange` (VUID-00333 in the furnace check,
-see docs/notes/indirect-lighting.md). The Linux job finds the driver in a step of its own, as Windows registers it. Both build
-the mesa port's (`mesa[lavapipe]`, a host package, see the mesa port above; no third-party driver in a job that holds the
-cache's keys), so that every platform tests the mesa it pins. Linux took Ubuntu's (`mesa-vulkan-drivers` from apt, mesa
+see docs/notes/indirect-lighting.md). The Linux and macOS jobs find the driver in a step of their own, as Windows
+registers it. All three take the mesa port's (`mesa[lavapipe]`, a host package, see the mesa port above; no third-party
+driver in a job that holds the cache's keys), so that every platform tests the mesa it pins; macOS's beside KosmicKrisp,
+which it doesn't run there: lavapipe is the others' driver, with ray queries, and the runner's gpu a virtual machine's. Linux took Ubuntu's (`mesa-vulkan-drivers` from apt, mesa
 26.0.8) until the visual checks' ray-queries check crashed on it (2026-11-11): the software BVH's frame (the check's
 reference, `SPEEDO_RAY_QUERY=0`, which nothing on Linux had run, its clients taking the ray queries) segfaulted in a
 shader llvmpipe compiled, reading a buffer descriptor through a null pointer. With no lane of a divergent descriptor

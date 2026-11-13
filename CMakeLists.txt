@@ -861,7 +861,7 @@ install(
 	EXCLUDE_FROM_ALL
 )
 # each port's license, as <port>.txt (the host's too: LLVM's libc++, statically linked, and on macOS mesa's driver, which
-# the bundle ships; Windows' and Linux's host mesa is lavapipe for CI's client checks, not shipped)
+# the bundle ships, KosmicKrisp; lavapipe, every platform's host mesa for CI's visual checks, isn't shipped)
 file(GLOB SPEEDO_PACKAGE_LICENSES "${SPEEDO_PACKAGE_VCPKG}/share/*/copyright")
 if(DEFINED VCPKG_HOST_TRIPLET)
 	file(GLOB SPEEDO_PACKAGE_HOST_LICENSES "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}/share/llvm/copyright")

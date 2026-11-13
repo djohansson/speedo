@@ -1,8 +1,8 @@
 # CI: setup, the profile, debug and release builds (the user's ask, 2026-11-07), scripts/assettest.ps1's checks without
-# -Client (the importers, images, environments, the lens check) on the profile build, and on Linux and Windows the client
-# itself, headless and validated on lavapipe, mesa's cpu Vulkan driver, in scripts/visualtest.ps1's checks (the user's
-# asks, from 2026-11-10; the client's full sets stay too heavy for a hosted runner's software Vulkan, the user's call of
-# 2026-11-06). macOS, Windows and
+# -Client (the importers, images, environments, the lens check) on the profile build, and the client itself, headless and
+# validated on lavapipe, mesa's cpu Vulkan driver, in scripts/visualtest.ps1's checks (the user's asks: Linux and Windows
+# from 2026-11-10, macOS from 2026-11-13; the client's full sets stay too heavy for a hosted runner's software Vulkan, the
+# user's call of 2026-11-06). macOS, Windows and
 # Linux, which the shared vcpkg binary cache (docs/notes/build.md) holds packages for: setup restores them, LLVM too, rather
 # than build them on a hosted runner. A job per platform builds the three configurations in turn: their packages are the
 # same (each holds its debug and release builds), and a job per configuration would restore them, about 2 GB, three times.
@@ -101,6 +101,26 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & scripts/assettest.ps1 -Preset "$env:TRIPLET-profile" -Work "$env:RUNNER_TEMP/assettest" @paths
 
+      # lavapipe, beside KosmicKrisp in the mesa port's host package (its lavapipe feature), for the visual checks below:
+      # the same driver as Linux's and Windows', with ray queries, rather than KosmicKrisp on the runner's virtual gpu (see
+      # "CI" in docs/notes/build.md)
+      - name: Find lavapipe
+        id: lavapipe
+        if: ${{ !cancelled() && steps.profile.outcome == 'success' }}
+        run: |
+          $driver = (Get-ChildItem install/arm64-osx-release/share/vulkan/icd.d/lvp_icd*.json | Select-Object -First 1).FullName
+          if (-not $driver) { Write-Error 'no lavapipe in install/arm64-osx-release'; exit 1 }
+          Write-Host "driver: $driver"
+          "VK_DRIVER_FILES=$driver" >> $env:GITHUB_ENV
+
+      # the client itself, headless and validated on lavapipe, as on Linux
+      - name: Visual checks (lavapipe)
+        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
+        env:
+          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+          SPEEDO_GPU_HANG_TIMEOUT: '300'
+        run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
+
       # the packages this platform installs (the three configurations share them), which the prune job keeps
       - name: Keep list
         if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
@@ -121,6 +141,7 @@ jobs:
           path: |
             temp/vcpkg/buildtrees/*/*.log
             ${{ runner.temp }}/assettest/logs
+            ${{ runner.temp }}/visualtest
           if-no-files-found: ignore
 
   windows:

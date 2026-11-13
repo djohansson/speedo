@@ -18,7 +18,7 @@ messages in a file of its own appended to its log), and a check fails on a clien
 or sanitizer reports, as assettest's client runs do: CI's checks of the client itself.
 
 -Only <names> runs those checks alone. The client needs a vulkan driver: on macOS the mesa port's KosmicKrisp unless
-VK_DRIVER_FILES is set (lavapipe's, say). The ray query check needs a driver with ray queries other than KosmicKrisp
+VK_DRIVER_FILES is set (lavapipe's, say, beside it: install/arm64-osx-release/share/vulkan/icd.d/lvp_icd.aarch64.json). The ray query check needs a driver with ray queries other than KosmicKrisp
 (two clients tracing, one after the other, which is more than the rule there allows without asking): lavapipe's.
 
 .EXAMPLE

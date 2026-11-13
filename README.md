@@ -111,7 +111,7 @@ On macOS, point the Vulkan loader at KosmicKrisp, which setup restores from the 
 export VK_DRIVER_FILES=$(ls $PWD/install/*/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json | head -1)
 ```
 
-On Windows and Linux, the client uses the system's GPU driver unless told otherwise. To render without a GPU, for reference renders or on a machine without one, choose lavapipe explicitly with the same variable (setup installs it there; it is slow), e.g. `VK_DRIVER_FILES=$PWD/install/x64-linux-release/share/vulkan/icd.d/lvp_icd.x86_64.json`.
+On Windows and Linux, the client uses the system's GPU driver unless told otherwise. To render without a GPU, for reference renders or on a machine without one, choose lavapipe explicitly with the same variable (setup installs it on every platform; it is slow), e.g. `VK_DRIVER_FILES=$PWD/install/x64-linux-release/share/vulkan/icd.d/lvp_icd.x86_64.json` (on macOS `install/arm64-osx-release/share/vulkan/icd.d/lvp_icd.aarch64.json`).
 
 For a debug build from a shell, also set `VK_LAYER_PATH=$PWD/install/<triplet>/share/vulkan/explicit_layer.d` so the validation layers are found. The VS Code launch configurations set the layer path, and on macOS the KosmicKrisp driver.
 
