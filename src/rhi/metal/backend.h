@@ -232,7 +232,8 @@ struct RenderTargetClearObject
 	MTL::Library* library = nullptr; // retained
 	std::vector<MTL::RenderPipelineState*> pipelines; // by attachment (retained, null until its first clear)
 	MTL::DepthStencilState* keep = nullptr; // a color clear's: depth and stencil kept (retained)
-	MTL::DepthStencilState* write = nullptr; // a depth clear's: depth written, the stencil replaced (retained)
+	MTL::DepthStencilState* write = nullptr; // a depth clear's: depth written (retained)
+	MTL::DepthStencilState* writeStencil = nullptr; // a depth stencil clear's: depth written, the stencil replaced (retained)
 
 	RenderTargetClearObject() noexcept = default;
 	RenderTargetClearObject(const RenderTargetClearObject&) = delete;

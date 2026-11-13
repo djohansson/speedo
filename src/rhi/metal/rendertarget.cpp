@@ -130,12 +130,14 @@ static MTL::Function* NewFunction(MTL::Library* library, const std::string& name
 	return function;
 }
 
-static MTL::DepthStencilState* NewDepthStencilState(MTL::Device* device, bool write)
+// a clear's depth stencil state: depth written or kept, the stencil replaced where there is one (a pass without a stencil
+// attachment takes no state with stencil operations: Metal's debug layer stops the draw)
+static MTL::DepthStencilState* NewDepthStencilState(MTL::Device* device, bool write, bool stencil)
 {
 	auto* descriptor = MTL::DepthStencilDescriptor::alloc()->init();
 	descriptor->setDepthCompareFunction(MTL::CompareFunctionAlways);
 	descriptor->setDepthWriteEnabled(write);
-	if (write)
+	if (stencil)
 	{
 		auto* stencil = MTL::StencilDescriptor::alloc()->init();
 		stencil->setStencilCompareFunction(MTL::CompareFunctionAlways);
@@ -176,8 +178,9 @@ static MTL::RenderPipelineState* ClearPipeline(
 			clear.library != nullptr,
 			"Failed to compile ClearRect's MSL: {}",
 			error != nullptr ? error->localizedDescription()->utf8String() : "(no error)");
-		clear.keep = NewDepthStencilState(device, false);
-		clear.write = NewDepthStencilState(device, true);
+		clear.keep = NewDepthStencilState(device, false, false);
+		clear.write = NewDepthStencilState(device, true, false);
+		clear.writeStencil = NewDepthStencilState(device, true, true);
 	}
 
 	auto* descriptor = MTL::RenderPipelineDescriptor::alloc()->init();
@@ -231,7 +234,7 @@ RenderTargetClearObject::~RenderTargetClearObject()
 	for (auto* pipeline : pipelines)
 		if (pipeline != nullptr)
 			pipeline->release();
-	for (NS::Object* object : std::initializer_list<NS::Object*>{library, keep, write})
+	for (NS::Object* object : std::initializer_list<NS::Object*>{library, keep, write, writeStencil})
 		if (object != nullptr)
 			object->release();
 }
@@ -420,7 +423,10 @@ void RenderTarget<DerivedType, kMetal>::ClearRect(
 
 	auto* encoder = cmd->RenderEncoder();
 	encoder->setRenderPipelineState(pipeline);
-	encoder->setDepthStencilState(color ? myClear->keep : myClear->write);
+	MTL::DepthStencilState* depthStencil = myClear->keep;
+	if (!color)
+		depthStencil = HasStencilComponent(desc.imageFormats[index]) ? myClear->writeStencil : myClear->write;
+	encoder->setDepthStencilState(depthStencil);
 	encoder->setCullMode(MTL::CullModeNone);
 	encoder->setViewport(MTL::Viewport{
 		.originX = static_cast<double>(scissor.x),
