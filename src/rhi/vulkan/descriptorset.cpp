@@ -17,18 +17,8 @@ IMPLEMENT_DEVICEOBJECT_GETDEVICE(DescriptorSetArray<kVk>);
 IMPLEMENT_OBJECT_GETINSTANCE(DescriptorUpdateTemplate<kVk>);
 IMPLEMENT_DEVICEOBJECT_GETDEVICE(DescriptorUpdateTemplate<kVk>);
 
-template <>
-void DescriptorSetLayout<kVk>::Swap(DescriptorSetLayout& rhs) noexcept
-{
-	DeviceObject<DescriptorSetLayout<kVk>>::Swap(rhs);
-	std::swap(myLayout, rhs.myLayout);
-}
-
-template <>
-DescriptorSetLayout<kVk>::DescriptorSetLayout(DescriptorSetLayout&& other) noexcept
-{
-	Swap(other);
-}
+// (the descriptor classes' Swap, moves and DescriptorUpdateTemplate's destructor are every backend's, in
+// descriptorset.inl)
 
 template <>
 DescriptorSetLayout<kVk>::DescriptorSetLayout(
@@ -107,32 +97,12 @@ DescriptorSetLayout<kVk>::~DescriptorSetLayout()
 }
 
 template <>
-DescriptorSetLayout<kVk>& DescriptorSetLayout<kVk>::operator=(DescriptorSetLayout&& other) noexcept
-{
-	Swap(other);
-	return *this;
-}
-
-template <>
 DescriptorSetArray<kVk>::DescriptorSetArray(
 	CreateDescType&& desc,
 	ArrayType&& descriptorSetHandles)
 	: DeviceObject<DescriptorSetArray<kVk>>(std::forward<CreateDescType>(desc))
 	, myDescriptorSets(std::forward<ArrayType>(descriptorSetHandles))
 {}
-
-template <>
-void DescriptorSetArray<kVk>::Swap(DescriptorSetArray& rhs) noexcept
-{
-	DeviceObject<DescriptorSetArray<kVk>>::Swap(rhs);
-	std::swap(myDescriptorSets, rhs.myDescriptorSets);
-}
-
-template <>
-DescriptorSetArray<kVk>::DescriptorSetArray(DescriptorSetArray&& other) noexcept
-{
-	Swap(other);
-}
 
 template <>
 DescriptorSetArray<kVk>::DescriptorSetArray(
@@ -184,12 +154,6 @@ DescriptorSetArray<kVk>::~DescriptorSetArray()
 	}
 }
 
-template <>
-DescriptorSetArray<kVk>& DescriptorSetArray<kVk>::operator=(DescriptorSetArray&& other) noexcept
-{
-	Swap(other);
-	return *this;
-}
 
 template <>
 void DescriptorUpdateTemplate<kVk>::InternalDestroyTemplate()
@@ -239,20 +203,6 @@ void DescriptorUpdateTemplate<kVk>::SetEntries(
 }
 
 template <>
-void DescriptorUpdateTemplate<kVk>::Swap(DescriptorUpdateTemplate& rhs) noexcept
-{
-	DeviceObject<DescriptorUpdateTemplate<kVk>>::Swap(rhs);
-	std::swap(myEntries, rhs.myEntries);
-	std::swap(myHandle, rhs.myHandle);
-}
-
-template <>
-DescriptorUpdateTemplate<kVk>::DescriptorUpdateTemplate(DescriptorUpdateTemplate&& other) noexcept
-{
-	Swap(other);
-}
-
-template <>
 DescriptorUpdateTemplate<kVk>::DescriptorUpdateTemplate(
 	CreateDescType&& desc,
 	DescriptorUpdateTemplateHandle<kVk>&& handle)
@@ -267,20 +217,5 @@ DescriptorUpdateTemplate<kVk>::DescriptorUpdateTemplate(
 		std::forward<DescriptorUpdateTemplateCreateDesc<kVk>>(desc),
 		VK_NULL_HANDLE)
 {}
-
-template <>
-DescriptorUpdateTemplate<kVk>::~DescriptorUpdateTemplate()
-{
-	if (IsValid())
-		InternalDestroyTemplate();
-}
-
-template <>
-DescriptorUpdateTemplate<kVk>&
-DescriptorUpdateTemplate<kVk>::operator=(DescriptorUpdateTemplate&& other) noexcept
-{
-	Swap(other);
-	return *this;
-}
 
 } // namespace rhi
