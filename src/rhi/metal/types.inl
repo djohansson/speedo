@@ -2,9 +2,11 @@
 // (declared here, defined in the backend's own sources, so that the translation units that include rhi don't take
 // Metal.hpp), or where no one class is the handle, an opaque type the backend casts; each a type of its own, since
 // rhi's interface tells handles apart by type and compares them as pointers. the structs rhi's classes keep in the
-// Vulkan backend's layout are empty placeholders, each its own: where generic code reads one of their fields, the Metal
-// build doesn't compile, which shows where rhi's interface still holds Vulkan's structs (the abstraction to correct)
+// Vulkan backend's layout are the Metal backend's own where it uses them (the descriptors', the push constants', a
+// pipeline's entry point), empty placeholders otherwise, each its own: where generic code reads one of their fields, the
+// Metal build doesn't compile, which shows where rhi's interface still holds Vulkan's structs (the abstraction to correct)
 #include <rhi/capi.h>
+#include <rhi/vocabulary.h>
 
 #include <cstdint>
 
@@ -63,7 +65,12 @@ struct PresentMode {};
 struct SurfaceCapabilities {};
 struct QueueFamilyProperties {};
 struct AttachmentDescription {};
-struct DescriptorSetLayoutBinding {};
+struct DescriptorSetLayoutBinding // a binding of an argument buffer's layout
+{
+	uint32_t binding = 0;
+	rhi::DescriptorType descriptorType{};
+	uint32_t descriptorCount = 0;
+};
 struct PhysicalDeviceProperties {};
 struct PhysicalDeviceProperties11Ex {};
 struct PhysicalDeviceProperties12Ex {};
@@ -83,9 +90,26 @@ struct PhysicalDeviceCoherentMemoryFeatures {};
 struct PhysicalDeviceAccelerationStructureFeatures {};
 struct PhysicalDeviceRayQueryFeatures {};
 struct PhysicalDeviceAccelerationStructureProperties {};
-struct DescriptorUpdateTemplateEntry {};
-struct DescriptorUpdateTemplateType {};
-struct PipelineShaderStageCreateInfo {};
+struct DescriptorUpdateTemplateEntry // a range of a binding's elements, and where their values are among the set's
+{
+	uint32_t dstBinding = 0;
+	uint32_t dstArrayElement = 0;
+	uint32_t descriptorCount = 0;
+	rhi::DescriptorType descriptorType{};
+	size_t offset = 0; // in bytes, as Vulkan's: the first value's
+	size_t stride = 0;
+};
+enum class DescriptorUpdateTemplateType : uint8_t
+{
+	kDescriptorSet, // written into an argument buffer of the set's (Pipeline::InternalUpdateDescriptorSet)
+	kPushDescriptors, // written at each bind into the command buffer's own (Pipeline::InternalPushDescriptorSet)
+};
+struct PipelineShaderStageCreateInfo // an entry point: its library (one per entry point) and name
+{
+	MTL::Library* library = nullptr;
+	const char* name = nullptr; // the layout's shader module's
+	rhi::ShaderStage stage{};
+};
 struct PipelineVertexInputStateCreateInfo {};
 struct PipelineInputAssemblyStateCreateInfo {};
 struct PipelineViewportStateCreateInfo {};
@@ -101,10 +125,27 @@ struct CommandBufferInheritanceRenderingInfo {};
 struct RenderPassBeginInfo {};
 struct RenderingInfo {};
 struct ImageSubresourceLayers {};
-struct DescriptorType {};
-struct DescriptorBufferInfo {};
-struct DescriptorImageInfo {};
-struct PushConstantRange {};
+struct DescriptorBufferInfo // an argument buffer's entry: the buffer's gpu address plus the offset
+{
+	MTL::Buffer* buffer = nullptr;
+	uint64_t offset = 0;
+	uint64_t range = 0;
+
+	[[nodiscard]] bool operator==(const DescriptorBufferInfo&) const = default;
+};
+struct DescriptorImageInfo // an argument buffer's entry: the texture's or the sampler's resource id (no layouts in Metal)
+{
+	MTL::SamplerState* sampler = nullptr;
+	ImageViewObject* imageView = nullptr;
+
+	[[nodiscard]] bool operator==(const DescriptorImageInfo&) const = default;
+};
+struct PushConstantRange // set at buffer 0 (setBytes)
+{
+	rhi::ShaderStage stages{};
+	uint32_t offset = 0;
+	uint32_t size = 0;
+};
 struct PipelineRenderingCreateInfo {};
 
 } // namespace rhi::metal
@@ -194,7 +235,7 @@ struct BackendTypes<kMetal>
 	using RenderPassBeginInfo = rhi::metal::RenderPassBeginInfo;
 	using RenderingInfo = rhi::metal::RenderingInfo;
 	using ImageSubresourceLayers = rhi::metal::ImageSubresourceLayers;
-	using DescriptorType = rhi::metal::DescriptorType;
+	using DescriptorType = rhi::DescriptorType;
 	using DescriptorBufferInfo = rhi::metal::DescriptorBufferInfo;
 	using DescriptorImageInfo = rhi::metal::DescriptorImageInfo;
 	using AccelerationStructureHandle = MTL::AccelerationStructure*;

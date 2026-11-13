@@ -1,5 +1,15 @@
 #include <rhi/crashreport.h>
 
+#include <type_traits>
+
+// the backends' parts of SetDescriptorData (a neutral binding in the backend's stored form, and how two stored values
+// compare), before the generic definitions below: those find them by ordinary lookup at their definition, since the
+// backends' structs (vulkan's are global) put rhi::pipeline out of argument-dependent lookup's reach
+#include "vulkan/pipeline.inl"
+#if defined(__OSX__)
+#include "metal/pipeline.inl"
+#endif
+
 namespace rhi
 {
 
@@ -328,6 +338,324 @@ void Pipeline<G>::BindDescriptorSetAuto(CommandBufferHandle<G> cmd, uint32_t set
 	mutex.unlock_shared();
 }
 
-} // namespace rhi
+namespace pipeline
+{
 
-#include "vulkan/pipeline.inl"
+template <typename T>
+[[nodiscard]] bool SameBindingValue(const T& lhs, const T& rhs) noexcept // handles, inline uniform blocks, a backend's comparable structs
+{
+	return lhs == rhs;
+}
+
+// the stored form of a descriptor value: neutral bindings become the backend's structs (its ToBackendBinding),
+// everything else is stored as is
+template <typename T>
+[[nodiscard]] decltype(auto) ToBindingValue(T&& value) noexcept
+{
+	if constexpr (requires { ToBackendBinding(value); })
+		return ToBackendBinding(value);
+	else
+		return std::forward<T>(value);
+}
+
+template <typename T>
+[[nodiscard]] std::vector<std::remove_cvref_t<decltype(ToBindingValue(std::declval<const T&>()))>> ToBindingValues(
+	const std::vector<T>& values)
+{
+	std::vector<std::remove_cvref_t<decltype(ToBindingValue(std::declval<const T&>()))>> result;
+	result.reserve(values.size());
+	for (const auto& value : values)
+		result.push_back(ToBindingValue(value));
+	return result;
+}
+
+// used to skip redundant descriptor updates: every update marks the descriptor set dirty, and binding a dirty set
+// consumes a fresh descriptor set from the pool
+template <GraphicsApi G, typename T>
+[[nodiscard]] bool SameBinding(const BindingVariant<G>& existing, const T& data) noexcept
+{
+	const auto* current = std::get_if<std::remove_cvref_t<T>>(&existing);
+	return current != nullptr && SameBindingValue(*current, data);
+}
+
+} // namespace pipeline
+
+template <GraphicsApi G>
+template <typename T>
+void Pipeline<G>::SetDescriptorData(
+	uint64_t shaderVariableNameHash, const DescriptorSetLayout<G>& layout, T&& data)
+{
+	const auto& [binding, descriptorType, descriptorCount] =
+		layout.GetShaderVariableBinding(shaderVariableNameHash);
+	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
+		myDescriptorMap.at(layout);
+
+	auto lock = std::lock_guard(mutex);
+
+	auto [bindingIt, emplaceResult] =
+		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, core::RangeSet<uint32_t>{}));
+
+	ENSURE(bindingIt != bindingsMap.end());
+
+	auto& [offset, count, type, ranges] = bindingIt->second;
+
+	if (emplaceResult)
+	{
+		ENSURE(count == 0);
+		ENSURE(ranges.empty());
+
+		count = 1;
+		ranges.insert({0U, 1U});
+
+		if (bindingIt == bindingsMap.begin())
+			offset = 0;
+		else
+			offset = std::get<0>(std::prev(bindingIt)->second) +
+					 std::get<1>(std::prev(bindingIt)->second);
+
+		bindingsData.emplace(bindingsData.begin() + offset, std::forward<T>(data));
+
+		// prefix sum offset
+		for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end();
+			 it++, prev++)
+			std::get<0>(it->second) = std::get<0>(prev->second) + std::get<1>(prev->second);
+	}
+	else
+	{
+		ENSURE(count == 1);
+
+		if (pipeline::SameBinding<G>(bindingsData[offset], data))
+			return;
+
+		std::get<std::remove_cvref_t<T>>(bindingsData[offset]) = std::forward<T>(data);
+	}
+
+	std::atomic_ref(setState).store(DescriptorSetStatus::kDirty, std::memory_order_release);
+
+	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
+}
+
+template <GraphicsApi G>
+template <typename T>
+void Pipeline<G>::SetDescriptorData(
+	std::string_view shaderVariableName, T&& data, uint32_t set)
+{
+	auto layoutIt = InternalGetLayout();
+	ENSURE(layoutIt != myPipelineLayouts.end());
+	SetDescriptorData(
+		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
+		layoutIt->GetDescriptorSetLayout(set),
+		pipeline::ToBindingValue(std::forward<T>(data)));
+}
+
+template <GraphicsApi G>
+template <typename T>
+void Pipeline<G>::SetDescriptorData(
+	uint64_t shaderVariableNameHash,
+	const DescriptorSetLayout<G>& layout,
+	const std::vector<T>& data)
+{
+	const auto& [binding, descriptorType, descriptorCount] =
+		layout.GetShaderVariableBinding(shaderVariableNameHash);
+	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
+		myDescriptorMap.at(layout);
+
+	ENSURE(data.size() <= descriptorCount);
+
+	auto lock = std::lock_guard(mutex);
+
+	auto [bindingIt, emplaceResult] =
+		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, core::RangeSet<uint32_t>{}));
+
+	ENSURE(bindingIt != bindingsMap.end());
+
+	auto& [offset, count, type, ranges] = bindingIt->second;
+
+	if (emplaceResult)
+	{
+		ENSURE(count == 0);
+		ENSURE(ranges.empty());
+
+		count = data.size();
+		ranges.insert({0U, count});
+
+		if (bindingIt == bindingsMap.begin())
+			offset = 0;
+		else
+			offset = std::get<0>(std::prev(bindingIt)->second) +
+					 std::get<1>(std::prev(bindingIt)->second);
+
+		bindingsData.insert(bindingsData.begin() + offset, data.begin(), data.end());
+
+		// prefix sum offset
+		for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end();
+			 it++, prev++)
+			std::get<0>(it->second) = std::get<0>(prev->second) + std::get<1>(prev->second);
+	}
+	else
+	{
+		ENSURE(count > 0);
+
+		if (count == data.size())
+		{
+			if (std::equal(data.begin(), data.end(), bindingsData.begin() + offset,
+					[](const T& value, const BindingVariant<G>& existing) { return pipeline::SameBinding<G>(existing, value); }))
+				return;
+
+			std::copy(data.begin(), data.end(), bindingsData.begin() + offset);
+		}
+		else
+		{
+			auto minCount = std::min(static_cast<uint32_t>(data.size()), count);
+
+			std::copy(data.begin(), data.begin() + minCount, bindingsData.begin() + offset);
+
+			if (count < data.size())
+				bindingsData.insert(
+					bindingsData.begin() + offset + minCount, data.begin() + minCount, data.end());
+			else // must erase: bindingsData is packed, each binding's offset is the prefix sum of the counts before it
+				bindingsData.erase(
+					bindingsData.begin() + offset + minCount,
+					bindingsData.begin() + offset + count);
+
+			count = data.size();
+			ranges.clear();
+			ranges.insert({0U, count});
+
+			// prefix sum offset
+			for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end();
+				 it++, prev++)
+				std::get<0>(it->second) = std::get<0>(prev->second) + std::get<1>(prev->second);
+		}
+	}
+
+	std::atomic_ref(setState).store(DescriptorSetStatus::kDirty, std::memory_order_release);
+
+	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
+}
+
+template <GraphicsApi G>
+template <typename T>
+void Pipeline<G>::SetDescriptorData(
+	std::string_view shaderVariableName, const std::vector<T>& data, uint32_t set)
+{
+	auto layoutIt = InternalGetLayout();
+	ENSURE(layoutIt != myPipelineLayouts.end());
+	SetDescriptorData(
+		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
+		layoutIt->GetDescriptorSetLayout(set),
+		pipeline::ToBindingValues(data));
+}
+
+template <GraphicsApi G>
+template <typename T>
+void Pipeline<G>::SetDescriptorData(
+	uint64_t shaderVariableNameHash,
+	const DescriptorSetLayout<G>& layout,
+	T&& data,
+	uint32_t index)
+{
+	const auto& [binding, descriptorType, descriptorCount] =
+		layout.GetShaderVariableBinding(shaderVariableNameHash);
+	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
+		myDescriptorMap.at(layout);
+
+	auto lock = std::lock_guard(mutex);
+
+	auto [bindingIt, emplaceResult] =
+		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, core::RangeSet<uint32_t>{}));
+
+	ENSURE(bindingIt != bindingsMap.end());
+
+	auto& [offset, count, type, ranges] = bindingIt->second;
+
+	if (emplaceResult)
+	{
+		ENSURE(count == 0);
+		ENSURE(ranges.empty());
+
+		count = 1;
+		ranges.insert({index, index + 1});
+
+		if (bindingIt == bindingsMap.begin())
+			offset = 0;
+		else
+			offset = std::get<0>(std::prev(bindingIt)->second) +
+					 std::get<1>(std::prev(bindingIt)->second);
+
+		bindingsData.emplace(bindingsData.begin() + offset, std::forward<T>(data));
+
+		// prefix sum offset
+		for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end();
+			 it++, prev++)
+			std::get<0>(it->second) = std::get<0>(prev->second) + std::get<1>(prev->second);
+	}
+	else
+	{
+		ENSURE(count > 0);
+
+		// the binding's elements are stored in index order (the update template walks ranges in order): the element's
+		// position is the number of elements in the ranges before it. a new index goes before the first range above it,
+		// not at the end.
+		auto rangeIt = ranges.begin();
+		uint32_t indexOffset = 0;
+		bool found = false;
+		for (; rangeIt != ranges.end(); rangeIt++)
+		{
+			const auto& [low, high] = *rangeIt;
+
+			if (index < low)
+				break;
+
+			if (index < high)
+			{
+				indexOffset += index - low;
+				found = true;
+				break;
+			}
+
+			indexOffset += high - low;
+		}
+
+		if (found)
+		{
+			if (pipeline::SameBinding<G>(bindingsData[offset + indexOffset], data))
+				return;
+
+			std::get<std::remove_cvref_t<T>>(bindingsData[offset + indexOffset]) = std::forward<T>(data);
+		}
+		else
+		{
+			bindingsData.emplace(
+				bindingsData.begin() + offset + indexOffset, std::forward<T>(data));
+
+			count++;
+			ranges.insert({index, index + 1});
+
+			// prefix sum offset
+			for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end();
+				 it++, prev++)
+				std::get<0>(it->second) = std::get<0>(prev->second) + std::get<1>(prev->second);
+		}
+	}
+
+	std::atomic_ref(setState).store(DescriptorSetStatus::kDirty, std::memory_order_release);
+
+	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
+}
+
+template <GraphicsApi G>
+template <typename T>
+void Pipeline<G>::SetDescriptorData(
+	std::string_view shaderVariableName, T&& data, uint32_t set, uint32_t index)
+{
+	auto layoutIt = InternalGetLayout();
+	ENSURE(layoutIt != myPipelineLayouts.end());
+	SetDescriptorData(
+		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
+		layoutIt->GetDescriptorSetLayout(set),
+		pipeline::ToBindingValue(std::forward<T>(data)),
+		index);
+}
+
+} // namespace rhi
