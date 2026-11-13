@@ -338,7 +338,8 @@ took 617 s (traced-shadows 100 s with the shader compile, shadow-atlas 26, emitt
 ray-queries 95), on Windows 1223 s (182, 105, 158, 174, 447, 154). No budget yet; the furnace, 256 frames, is the most
 of it on both. macOS's job runs them too since 2026-11-13 (the user's ask), on the mesa port's lavapipe beside
 KosmicKrisp in the host package: all six pass on the M4 Pro's in 305 s from a new work dir (69, 10, 25, 28, 95, 74), the
-measures as before.
+measures as before. Its first CI run (2026-11-13, the macOS runner's 3 cores) passed all six in 1076 s (171, 35, 112,
+128, 463, 167), between Linux's and Windows'.
 
 ### Step 2 (2026-11-11)
 

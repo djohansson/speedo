@@ -709,7 +709,10 @@ driver's. What the client checks took (the first client
 compiles the shaders): on Linux 1 min 40 s (82 s and 14 s) and 3 min 38 s (187 s and 25 s) in two runs a few hours apart,
 on Windows 6 min 19 s (224 s and 153 s, 2026-11-11): Windows' second client starts nowhere near as warm as Linux's, to be
 looked into. The validated visual checks, which took their place, took 10 min 17 s on Linux and 20 min 23 s on Windows
-(2026-11-12, each check's time in docs/visual-testing-plan.md). No time budget yet (the user, 2026-11-11: measure
+(2026-11-12), and 17 min 56 s on macOS (2026-11-13; each check's time in docs/visual-testing-plan.md). The macOS job's
+first run on 7a0676ca hung in its asset checks (assettest silent for two hours after the zips' extraction, the job
+cancelled at its timeout); its rerun passed them in 1 min 42 s, and assettest on 2 and 3 threads doesn't hang
+(SPEEDO_EXECUTOR_THREAD_COUNT, which it honors since): a one-off, to look at if it comes back. No time budget yet (the user, 2026-11-11: measure
 first). What it found on the way:
 
 - **A deadlock on 2 executor threads** (a 4-core runner's): the client's `Rpc` task looped until a server answered,
