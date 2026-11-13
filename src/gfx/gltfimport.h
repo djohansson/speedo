@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace gfx::gltf
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::gltf
 {
 
 // imports a glTF 2.0 file (.gltf with external or embedded buffers, or .glb) and its materials, with cgltf (see
@@ -42,4 +42,4 @@ namespace gfx::gltf
 // the image files a gltf file names (not the ones embedded in its buffers or data uris), sorted
 [[nodiscard]] std::vector<std::filesystem::path> ImageFiles(const std::filesystem::path& path);
 
-} // namespace gfx::gltf
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::gltf

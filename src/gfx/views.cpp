@@ -15,7 +15,7 @@
 #include <format>
 
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 Views::Views(Device& device, glm::uvec2 framebufferExtent)
@@ -652,4 +652,4 @@ void Views::OnInputStateChanged(const core::InputState& input)
 		view.UpdateViewMatrix();
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

@@ -18,7 +18,7 @@ namespace core
 class TaskExecutor;
 }
 
-namespace gfx::image
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::image
 {
 
 enum class Format : uint8_t
@@ -135,4 +135,4 @@ struct Pixels
 // reconstructed z (each * 0.5 + 0.5) in rgb, both with alpha 255. for testing.
 void DecompressBlock(Format format, std::span<const std::byte> block, std::span<uint8_t, 64> rgbaOut) noexcept;
 
-} // namespace gfx::image
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::image

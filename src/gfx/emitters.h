@@ -6,7 +6,7 @@
 #include <span>
 #include <vector>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 struct ModelDesc;
 }
@@ -14,7 +14,7 @@ struct ModelDesc;
 // emissive surfaces as lights (see EmitterTriangle, gfx/shaders/emitters.slang): a model's emissive triangles that don't
 // move, which the main pass's pixels and the indirect lighting's voxels sample points of, through a tree of them, for
 // the light they give, shadowed by rays through the BVHs
-namespace gfx::emitters
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::emitters
 {
 
 // what a model's emitters are: its triangle lists' triangles whose material emits (its emissive factor, times its
@@ -33,4 +33,4 @@ struct Data
 
 [[nodiscard]] Data Build(const ModelDesc& desc, std::span<const uint32_t> indices, std::span<const VertexP3fN3fTa4fT014fC4f> vertices);
 
-} // namespace gfx::emitters
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::emitters

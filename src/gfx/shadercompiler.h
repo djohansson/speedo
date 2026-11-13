@@ -40,7 +40,7 @@ struct EntryPoint
 // a slang file and how to compile it (see ShaderLoader::SlangConfiguration): slang's enums as their integers
 struct Request
 {
-	rhi::ShaderFormat format{}; // the backend's (the client's rhi::kShaderFormat), the binaries' format
+	rhi::ShaderFormat format{}; // the backend's (a copy of gfx's gfx::kShaderFormat), the binaries' format
 	std::string file;
 	std::vector<std::string> includePaths;
 	std::string intermediatePath; // where slang dumps its intermediates, or none

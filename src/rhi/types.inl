@@ -1,5 +1,5 @@
-// the build's backends' types (their BackendTypes, see types.h): Vulkan's, rhi::kGraphicsApi's; and on macOS Metal's
-// beside it while that backend grows (docs/backends-plan.md), which rhi's classes instantiate for its own tests
+// the build's backends' types (their BackendTypes, see types.h): Vulkan's, and on macOS Metal's beside it (a copy of gfx
+// and the client is compiled for each, see gfx/graphicsapi.h)
 #include "vulkan/types.inl"
 #if defined(__OSX__)
 #include "metal/types.inl"

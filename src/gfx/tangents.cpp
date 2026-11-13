@@ -11,7 +11,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <mikktspace.h>
 
-namespace gfx::mesh
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::mesh
 {
 
 namespace detail
@@ -111,4 +111,4 @@ std::vector<uint32_t> GenerateTangents(std::vector<VertexP3fN3fTa4fT014fC4f>& ve
 	return sources;
 }
 
-} // namespace gfx::mesh
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::mesh

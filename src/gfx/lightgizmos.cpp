@@ -11,7 +11,7 @@
 #include <glm/matrix.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 namespace lightgizmos
@@ -157,4 +157,4 @@ LightGizmos BuildLightGizmos(const LightCapture& capture, const LightGizmoOption
 	return gizmos;
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

@@ -22,7 +22,7 @@
 #include <vector>
 
 
-namespace client
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 using namespace core;
@@ -355,20 +355,14 @@ Client::Client(std::string_view name, Environment&& env)
 	WindowedApplication::OnInputStateChanged(myInput);
 }
 
-} // namespace client
-
-bool ClientMain()
+bool Main()
 {
-	using namespace client;
-
 	rhi::CrashWatch(); // the main thread never waits for the draw thread: it watches it
 	return gClientApplication.Read()->Main();
 }
 
-void ClientCreate(const PathConfig* paths)
+void Create(const PathConfig* paths)
 {
-	using namespace client;
-
 	ENSURE(paths != nullptr);
 
 	// where the client's data is: a repository's checkout run from its root (resources/ and the shader sources beside
@@ -439,10 +433,8 @@ void ClientCreate(const PathConfig* paths)
 	appPtrRef->GetExecutor().Submit(handles);
 }
 
-void ClientDestroy()
+void Destroy()
 {
-	using namespace client;
-
 	// however the client is closing (window closed, interrupted, or the exit menu item), tell work that checks for it,
 	// e.g. loads, to wind down
 	gClientApplication.Read()->RequestExit();
@@ -471,3 +463,5 @@ void ClientDestroy()
 	ASSERT(appPtrRef.use_count() == 1);
 	appPtrRef.reset();
 }
+
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

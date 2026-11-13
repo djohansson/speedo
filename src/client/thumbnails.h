@@ -15,7 +15,7 @@
 
 #include <imgui.h>
 
-namespace client
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // small rgba8 pictures (srgb encoded, as the ui draws them) of files, kept in one imgui texture: an atlas of square slots,
@@ -143,4 +143,4 @@ private:
 // after imgui's renderer, as the thumbnails' atlases are
 [[nodiscard]] std::expected<std::unique_ptr<ImTextureData>, std::string> LoadUiImage(const std::filesystem::path& path);
 
-} // namespace client
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

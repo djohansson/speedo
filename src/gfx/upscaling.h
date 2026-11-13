@@ -5,7 +5,7 @@
 #include <optional>
 #include <string_view>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // temporal upscaling (FSR 3.1's, see upscale.slang): the frame rendered at a share of the output's size each way and
@@ -59,4 +59,4 @@ inline constexpr Upscaling kDefaultUpscaling = Upscaling::kBalanced;
 	return std::nullopt;
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

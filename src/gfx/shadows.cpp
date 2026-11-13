@@ -15,7 +15,7 @@
 #include <numeric>
 #include <optional>
 
-namespace gfx::shadows
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::shadows
 {
 
 namespace detail
@@ -469,4 +469,4 @@ ShadowPlan Plan(std::span<const LightData> lights, std::span<const ShadowCamera>
 	return plan;
 }
 
-} // namespace gfx::shadows
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::shadows

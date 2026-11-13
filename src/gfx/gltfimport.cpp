@@ -22,8 +22,7 @@
 #include <system_error>
 #include <tuple>
 
-#define CGLTF_IMPLEMENTATION
-#include <cgltf.h>
+#include <gfx/libraries.h> // cgltf's declarations, and its implementation's jsmn (gfx/libraries.cpp)
 #include <draco/compression/decode.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -33,7 +32,7 @@
 
 #include <xxhash.h>
 
-namespace gfx::gltf
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::gltf
 {
 
 using mesh::Mesh;
@@ -765,73 +764,6 @@ size_t GenerateTangents(Part& part, uint32_t texCoordSet)
 	return part.vertices.size();
 }
 
-// KHR_animation_pointer: each animation's channels' pointers (empty where a channel has none), read from the json with
-// cgltf's jsmn, since cgltf skips a channel target's extensions. JSON pointer escapes (~1, ~0) are undone per segment
-// by ParsePointer.
-[[nodiscard]] std::vector<std::vector<std::string>> AnimationPointers(const cgltf_data& data)
-{
-	std::vector<std::vector<std::string>> result(data.animations_count);
-	for (cgltf_size animationIt = 0; animationIt < data.animations_count; animationIt++)
-		result[animationIt].resize(data.animations[animationIt].channels_count);
-	if (data.json == nullptr || data.json_size == 0)
-		return result;
-
-	jsmn_parser parser;
-	jsmn_init(&parser);
-	auto count = jsmn_parse(&parser, data.json, data.json_size, nullptr, 0);
-	if (count <= 0)
-		return result;
-	std::vector<jsmntok_t> tokens(static_cast<size_t>(count));
-	jsmn_init(&parser);
-	if (jsmn_parse(&parser, data.json, data.json_size, tokens.data(), tokens.size()) < 0)
-		return result;
-
-	std::string_view json(data.json, data.json_size);
-	auto text = [&](int token) { return json.substr(tokens[token].start, tokens[token].end - tokens[token].start); };
-	// the token after token's subtree (an object's keys have their value as their one child)
-	auto skip = [&](int token)
-	{
-		for (int pending = 1; pending > 0 && std::cmp_less(token, tokens.size()); token++)
-			pending += tokens[token].size - 1;
-		return token;
-	};
-	auto member = [&](int object, std::string_view key) -> int
-	{
-		if (object < 0 || tokens[object].type != JSMN_OBJECT)
-			return -1;
-		auto token = object + 1;
-		for (int keyIt = 0; keyIt < tokens[object].size && std::cmp_less(token + 1, tokens.size()); keyIt++)
-		{
-			if (tokens[token].type == JSMN_STRING && text(token) == key)
-				return token + 1;
-			token = skip(token);
-		}
-		return -1;
-	};
-	auto elements = [&](int array)
-	{
-		std::vector<int> result;
-		if (array < 0 || tokens[array].type != JSMN_ARRAY)
-			return result;
-		for (int elementIt = 0, token = array + 1; elementIt < tokens[array].size; elementIt++, token = skip(token))
-			result.push_back(token);
-		return result;
-	};
-
-	auto animations = elements(member(0, "animations"));
-	for (size_t animationIt = 0; animationIt < std::min(animations.size(), result.size()); animationIt++)
-	{
-		auto channels = elements(member(animations[animationIt], "channels"));
-		for (size_t channelIt = 0; channelIt < std::min(channels.size(), result[animationIt].size()); channelIt++)
-		{
-			auto pointer = member(member(member(member(channels[channelIt], "target"), "extensions"), "KHR_animation_pointer"), "pointer");
-			if (pointer >= 0 && tokens[pointer].type == JSMN_STRING)
-				result[animationIt][channelIt] = std::string(text(pointer));
-		}
-	}
-	return result;
-}
-
 // what a KHR_animation_pointer pointer targets, of what the renderer can apply
 struct ParsedPointer
 {
@@ -1150,7 +1082,7 @@ std::expected<Mesh, std::string> Import(
 	// KHR_animation_pointer: what each channel's pointer targets. the node transforms and weights are channels as any
 	// other; the node visibilities, material values and texture transforms get a ScenePointerTarget each (a texture's
 	// transform three: offset, rotation and scale, see TextureRef::animatedTransform), with their values at rest
-	auto pointers = AnimationPointers(data);
+	auto pointers = libraries::AnimationPointers(data);
 	std::vector<std::vector<ParsedPointer>> parsedPointers(pointers.size());
 	std::vector<uint8_t> visibilityMoves(data.nodes_count, 0);
 	std::vector<uint8_t> animatedBaseColor(data.materials_count, 0);
@@ -2571,4 +2503,4 @@ std::vector<std::filesystem::path> ImageFiles(const std::filesystem::path& path)
 	return files;
 }
 
-} // namespace gfx::gltf
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::gltf

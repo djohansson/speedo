@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // what a model file animates (gltf nodes, skins and animations), kept for drawing it moving: the node hierarchy at
@@ -326,4 +326,4 @@ void WriteJoints(const SceneAnimationData& data, std::span<const SceneMatrix> wo
 [[nodiscard]] glm::vec3 SkinPosition(
 	std::span<const SceneMatrix> joints, uint32_t jointBase, const SkinVertex& skin, const glm::vec3& position);
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

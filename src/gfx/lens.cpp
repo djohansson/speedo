@@ -6,7 +6,7 @@
 #include <cmath>
 #include <numbers>
 
-namespace gfx::lens
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::lens
 {
 
 namespace
@@ -853,4 +853,4 @@ std::vector<Ghost> Ghosts(const Prescription& lens, float fNumber)
 	return ghosts;
 }
 
-} // namespace gfx::lens
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::lens

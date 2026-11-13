@@ -18,18 +18,14 @@
 #include <webp/decode.h>
 #include <webp/demux.h>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
-#define STB_DXT_IMPLEMENTATION
+// their implementations in gfx/libraries.cpp
 #include <stb_dxt.h>
-
-#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include <stb_image.h>
 #include <stb_image_resize2.h>
 
 //NOLINTBEGIN(readability-magic-numbers)
 
-namespace gfx::image
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::image
 {
 
 namespace detail
@@ -745,6 +741,6 @@ void DecompressBlock(Format format, std::span<const std::byte> block, std::span<
 		rgbaOut[(pixelIt * 4) + 3] = alphas[pixelIt];
 }
 
-} // namespace gfx::image
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::image
 
 //NOLINTEND(readability-magic-numbers)

@@ -14,7 +14,7 @@
 #include <cstring>
 #include <utility>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 namespace sceneanimation
@@ -458,4 +458,4 @@ void WriteJoints(const SceneAnimationData& data, std::span<const SceneMatrix> wo
 	}
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

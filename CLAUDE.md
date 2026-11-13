@@ -10,6 +10,7 @@ Notes for working in this codebase, distilled from real build failures. The rule
 - `gfx`: everything above rhi: importers, `Model`, `Scene`, cameras and `Views`, the renderer and frame graph, the shaders (`gfx/shaders`, slang, sharing `capi.h` with the C++), `ImGuiRenderer`. No Vulkan calls, enums or types (the aliases in `gfx/gpu.h`).
 - `client`: the application (`client::WindowedApplication`: the frame loop in `windowedapplication.cpp`, the ui in `ui.cpp`, the loads in `loading.cpp`, the file browser, thumbnails, the preview scene).
 - The backend's type aliases are in the global namespace: a neutral rhi type of the same name is ambiguous under `using namespace rhi`; pick another name or qualify.
+- gfx and the client are compiled once per graphics api (Vulkan's, and Metal's on macOS; `SPEEDO_GRAPHICS_API` picks one at run time), each copy in an inline namespace of its own: their files open `namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE` (or `client::inline ...`, nested ones `gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::mesh`), never a plain `namespace gfx`, and a header only library's implementation goes in `gfx/libraries.cpp` (compiled once), not in a copy (docs/notes/build.md).
 
 Details: docs/notes/layering.md.
 

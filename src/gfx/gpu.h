@@ -1,5 +1,7 @@
 #pragma once
 
+#include <gfx/graphicsapi.h>
+
 #include <rhi/accelerationstructure.h>
 #include <rhi/buffer.h>
 #include <rhi/commandencoder.h>
@@ -13,46 +15,46 @@
 #include <rhi/sampler.h>
 #include <rhi/swapchain.h>
 
-// the rhi types gfx uses, for the build's graphics api, so that gfx itself needn't be templated on it
-namespace gfx
+// the rhi types gfx uses, for the copy's graphics api (gfx/graphicsapi.h), so that gfx itself needn't be templated on it
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
-using RHI = rhi::RHI<rhi::kGraphicsApi>;
-using DrawCall = rhi::DrawCall<rhi::kGraphicsApi>;
-using Device = rhi::Device<rhi::kGraphicsApi>;
-using Buffer = rhi::Buffer<rhi::kGraphicsApi>;
-using BufferCreateDesc = rhi::BufferCreateDesc<rhi::kGraphicsApi>;
-using Image = rhi::Image<rhi::kGraphicsApi>;
-using ImageCreateDesc = rhi::ImageCreateDesc<rhi::kGraphicsApi>;
-using ImageView = rhi::ImageView<rhi::kGraphicsApi>;
-using ImageViewCreateDesc = rhi::ImageViewCreateDesc<rhi::kGraphicsApi>;
-using Swapchain = rhi::Swapchain<rhi::kGraphicsApi>;
-using Semaphore = rhi::Semaphore<rhi::kGraphicsApi>;
-using QueryPool = rhi::QueryPool<rhi::kGraphicsApi>;
-using QueryPoolCreateDesc = rhi::QueryPoolCreateDesc<rhi::kGraphicsApi>;
-using GpuProfiler = rhi::GpuProfiler<rhi::kGraphicsApi>;
-using CrashBreadcrumb = rhi::CrashBreadcrumb<rhi::kGraphicsApi>;
-using SemaphoreCreateDesc = rhi::SemaphoreCreateDesc<rhi::kGraphicsApi>;
-using Queue = rhi::Queue<rhi::kGraphicsApi>;
-using CommandBuffer = rhi::CommandBuffer<rhi::kGraphicsApi>;
-using QueueDeviceSyncInfo = rhi::QueueDeviceSyncInfo<rhi::kGraphicsApi>;
-using QueueTimelineContextData = rhi::QueueTimelineContextData<rhi::kGraphicsApi>;
-using QueueTimelineContext = rhi::QueueTimelineContext<rhi::kGraphicsApi>;
-using Pipeline = rhi::Pipeline<rhi::kGraphicsApi>;
-using RenderImageSet = rhi::RenderImageSet<rhi::kGraphicsApi>;
-using SamplerVector = rhi::SamplerVector<rhi::kGraphicsApi>;
-using SamplerVectorCreateDesc = rhi::SamplerVectorCreateDesc<rhi::kGraphicsApi>;
-using CommandEncoder = rhi::CommandEncoder<rhi::kGraphicsApi>;
-using CommandBufferHandle = ::CommandBufferHandle<rhi::kGraphicsApi>;
-using SemaphoreHandle = ::SemaphoreHandle<rhi::kGraphicsApi>;
-using PipelineLayoutHandle = ::PipelineLayoutHandle<rhi::kGraphicsApi>;
-using ImageViewHandle = ::ImageViewHandle<rhi::kGraphicsApi>;
-using BufferBinding = rhi::BufferBinding<rhi::kGraphicsApi>;
-using ImageBinding = rhi::ImageBinding<rhi::kGraphicsApi>;
-using IRenderTarget = rhi::IRenderTarget<rhi::kGraphicsApi>;
-using RenderTargetBeginInfo = rhi::RenderTargetBeginInfo<rhi::kGraphicsApi>;
-using MemoryBlock = rhi::MemoryBlock<rhi::kGraphicsApi>;
-using AccelerationStructure = rhi::AccelerationStructure<rhi::kGraphicsApi>;
-using AccelerationStructureCreateDesc = rhi::AccelerationStructureCreateDesc<rhi::kGraphicsApi>;
+using RHI = rhi::RHI<kGraphicsApi>;
+using DrawCall = rhi::DrawCall<kGraphicsApi>;
+using Device = rhi::Device<kGraphicsApi>;
+using Buffer = rhi::Buffer<kGraphicsApi>;
+using BufferCreateDesc = rhi::BufferCreateDesc<kGraphicsApi>;
+using Image = rhi::Image<kGraphicsApi>;
+using ImageCreateDesc = rhi::ImageCreateDesc<kGraphicsApi>;
+using ImageView = rhi::ImageView<kGraphicsApi>;
+using ImageViewCreateDesc = rhi::ImageViewCreateDesc<kGraphicsApi>;
+using Swapchain = rhi::Swapchain<kGraphicsApi>;
+using Semaphore = rhi::Semaphore<kGraphicsApi>;
+using QueryPool = rhi::QueryPool<kGraphicsApi>;
+using QueryPoolCreateDesc = rhi::QueryPoolCreateDesc<kGraphicsApi>;
+using GpuProfiler = rhi::GpuProfiler<kGraphicsApi>;
+using CrashBreadcrumb = rhi::CrashBreadcrumb<kGraphicsApi>;
+using SemaphoreCreateDesc = rhi::SemaphoreCreateDesc<kGraphicsApi>;
+using Queue = rhi::Queue<kGraphicsApi>;
+using CommandBuffer = rhi::CommandBuffer<kGraphicsApi>;
+using QueueDeviceSyncInfo = rhi::QueueDeviceSyncInfo<kGraphicsApi>;
+using QueueTimelineContextData = rhi::QueueTimelineContextData<kGraphicsApi>;
+using QueueTimelineContext = rhi::QueueTimelineContext<kGraphicsApi>;
+using Pipeline = rhi::Pipeline<kGraphicsApi>;
+using RenderImageSet = rhi::RenderImageSet<kGraphicsApi>;
+using SamplerVector = rhi::SamplerVector<kGraphicsApi>;
+using SamplerVectorCreateDesc = rhi::SamplerVectorCreateDesc<kGraphicsApi>;
+using CommandEncoder = rhi::CommandEncoder<kGraphicsApi>;
+using CommandBufferHandle = ::CommandBufferHandle<kGraphicsApi>;
+using SemaphoreHandle = ::SemaphoreHandle<kGraphicsApi>;
+using PipelineLayoutHandle = ::PipelineLayoutHandle<kGraphicsApi>;
+using ImageViewHandle = ::ImageViewHandle<kGraphicsApi>;
+using BufferBinding = rhi::BufferBinding<kGraphicsApi>;
+using ImageBinding = rhi::ImageBinding<kGraphicsApi>;
+using IRenderTarget = rhi::IRenderTarget<kGraphicsApi>;
+using RenderTargetBeginInfo = rhi::RenderTargetBeginInfo<kGraphicsApi>;
+using MemoryBlock = rhi::MemoryBlock<kGraphicsApi>;
+using AccelerationStructure = rhi::AccelerationStructure<kGraphicsApi>;
+using AccelerationStructureCreateDesc = rhi::AccelerationStructureCreateDesc<kGraphicsApi>;
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

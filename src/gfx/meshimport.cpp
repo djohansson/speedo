@@ -16,7 +16,7 @@
 
 #include <meshoptimizer.h>
 
-namespace gfx::mesh
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::mesh
 {
 
 namespace detail
@@ -198,4 +198,4 @@ std::vector<std::filesystem::path> ImageFiles(const std::filesystem::path& path)
 	}
 }
 
-} // namespace gfx::mesh
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::mesh

@@ -263,7 +263,8 @@ The renderer's, but for `SPEEDO_CULLING`, which is View > Culling's starting sta
 
 | Variable | Values (default) | What it does |
 |---|---|---|
-| `SPEEDO_RAY_QUERY` | macOS: exactly `1` on; elsewhere `0` off. Default: off on macOS, on elsewhere. | Hardware ray queries where the device has them; without, the shaders' BVHs trace the rays. Opt in on macOS while Metal's ray tracing restarts the gpu now and then (see [indirect lighting](notes/indirect-lighting.md)), on the Vulkan backend (KosmicKrisp) and the Metal backend alike (the `<triplet>-metal` preset, docs/backends-plan.md); with Vulkan it also sets `MESA_KK_EXPERIMENTAL=ray_query` for KosmicKrisp. |
+| `SPEEDO_GRAPHICS_API` | `vulkan` or `metal` (macOS). Default: `vulkan`. | The graphics api the client runs on: every build has a client of each the platform has (gfx and the client compiled per api, see [the build](notes/build.md)); `metal` is the Metal backend (docs/backends-plan.md), which needs no `VK_DRIVER_FILES`. Any other name, or `metal` elsewhere, fails at start. |
+| `SPEEDO_RAY_QUERY` | macOS: exactly `1` on; elsewhere `0` off. Default: off on macOS, on elsewhere. | Hardware ray queries where the device has them; without, the shaders' BVHs trace the rays. Opt in on macOS while Metal's ray tracing restarts the gpu now and then (see [indirect lighting](notes/indirect-lighting.md)), on the Vulkan backend (KosmicKrisp) and the Metal backend (`SPEEDO_GRAPHICS_API=metal`) alike; with Vulkan it also sets `MESA_KK_EXPERIMENTAL=ray_query` for KosmicKrisp. |
 | `SPEEDO_EXECUTOR_THREAD_COUNT` | Threads, at least 1. Default: the hardware's threads less 2. | The task executor's worker threads: `2` reproduces a small machine or a CI runner. |
 | `SPEEDO_GPU_HANG_TIMEOUT` | Seconds; 0 (or text) never. Default: 20. | How long a gpu wait, or the draw thread without a heartbeat, may last before the client writes a hang report (in the profile's `crashes`) and exits. |
 

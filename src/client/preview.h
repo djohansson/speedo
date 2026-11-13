@@ -13,7 +13,7 @@
 #include <optional>
 #include <vector>
 
-namespace client
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // an off-screen view of a file, for the file browser: a scene of its own (with its own pipeline, views and image output),
@@ -42,7 +42,7 @@ public:
 	void RequestCapture(CaptureDone done);
 	// records the requested capture, if any, after the frame was recorded into cmd (outside of render passes), with the
 	// task reading it back added to callbacks (run once the gpu is done with cmd's submission). draw thread
-	void RecordCapture(CommandBufferHandle<rhi::kGraphicsApi> cmd, std::vector<core::TaskHandle>& callbacks);
+	void RecordCapture(gfx::CommandBufferHandle cmd, std::vector<core::TaskHandle>& callbacks);
 
 private:
 	// destroyed in reverse: the scene first, then what it draws with and into
@@ -56,4 +56,4 @@ private:
 	std::optional<CaptureDone> myCapture; // guarded by myCaptureMutex
 };
 
-} // namespace client
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

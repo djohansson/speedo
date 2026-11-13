@@ -31,7 +31,7 @@
 #include <utility>
 #include <vector>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 Model::Model(
@@ -1675,7 +1675,7 @@ std::shared_ptr<Model> Model::Load(
 {
 	ZoneScopedN("gfx::Model::Load");
 
-	auto* rhi = rhi::GetRHI<rhi::kGraphicsApi>();
+	auto* rhi = rhi::GetRHI<kGraphicsApi>();
 	ENSURE(rhi);
 	auto& device = rhi->GetPrimaryDevice();
 
@@ -1718,7 +1718,7 @@ std::shared_ptr<Model> Model::Load(
 	ENSURE(!filePaths.empty());
 	ENSURE(options.empty() || options.size() == filePaths.size());
 
-	auto* rhi = rhi::GetRHI<rhi::kGraphicsApi>();
+	auto* rhi = rhi::GetRHI<kGraphicsApi>();
 	ENSURE(rhi);
 	auto& device = rhi->GetPrimaryDevice();
 
@@ -1819,4 +1819,4 @@ std::shared_ptr<Model> Model::Load(
 }
 //NOLINTEND(readability-magic-numbers)
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

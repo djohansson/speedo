@@ -18,7 +18,7 @@
 
 #include <glm/glm.hpp>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // a viewport of the output's in the render target, which is scale of its size each way (see FrameInputs::upscaling): its
@@ -211,4 +211,4 @@ private:
 	core::ConcurrentAccess<Path> myPath;
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

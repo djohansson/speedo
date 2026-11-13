@@ -22,7 +22,7 @@
 // glasses' dispersion); and each ghost, a pair of reflecting surfaces, as an affine map of the entrance pupil onto the
 // sensor with its color (Fresnel at both, per wavelength through the coating) and its share of the light. the pinhole
 // (kPinhole) has no surfaces: no artifacts, the camera as it was
-namespace gfx::lens
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::lens
 {
 
 struct Surface
@@ -187,4 +187,4 @@ struct Streak
 // interference; a glass to glass surface, cemented, is never coated)
 [[nodiscard]] float Reflectance(float indexBefore, float indexAfter, float wavelength, bool coated, float tuned = 550.0F) noexcept;
 
-} // namespace gfx::lens
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::lens

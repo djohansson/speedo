@@ -1,4 +1,4 @@
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 template <FrustumPlane Plane>
@@ -22,4 +22,4 @@ glm::vec4 Camera::GetFrustumPlane() const noexcept
 	return result;
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

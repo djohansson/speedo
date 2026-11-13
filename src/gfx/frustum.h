@@ -6,7 +6,7 @@
 
 #include <glm/glm.hpp>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // a view's frustum as six planes in world space (xyz the inward normal, w the distance), from its view projection
@@ -44,4 +44,4 @@ struct Frustum
 	}
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

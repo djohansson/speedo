@@ -19,14 +19,14 @@ namespace core
 class TaskExecutor;
 }
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 struct ModelDesc;
 }
 
 // a ray tracing structure over a model's triangles, which the indirect lighting's rays traverse in compute (see
 // gfx/shaders/bvh.slang and GiData::trace): tinybvh's compressed wide BVH (CWBVH, Ylitie et al. 2017), built on the cpu
-namespace gfx::bvh
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::bvh
 {
 
 // a CWBVH as the shaders read it (gBvhNodes, gBvhTriangles): nodes of 5 float4 (BVH_NODE_FLOAT4_COUNT), and
@@ -141,4 +141,4 @@ private:
 // a tag of what Build makes (tinybvh's version, and ours), for the caches that keep it (the model's, see Model::Load)
 [[nodiscard]] std::string Version();
 
-} // namespace gfx::bvh
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::bvh

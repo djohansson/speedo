@@ -108,19 +108,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # appended after CMAKE_<LANG>_FLAGS_DEBUG, so this -O0 wins over the toolchain's -Og.
 add_compile_options($<$<CONFIG:debug>:-O0>)
 
-# the graphics api the code above rhi uses (rhi::kGraphicsApi): vulkan, or metal on macOS (the <triplet>-metal preset,
-# docs/backends-plan.md, step 8). rhi has both backends on macOS either way
-set(SPEEDO_GRAPHICS_API "vulkan" CACHE STRING "The graphics api the client uses: vulkan, or metal (macOS)")
-set_property(CACHE SPEEDO_GRAPHICS_API PROPERTY STRINGS vulkan metal)
-if(SPEEDO_GRAPHICS_API STREQUAL "metal")
-	if(NOT APPLE)
-		message(FATAL_ERROR "SPEEDO_GRAPHICS_API=metal: the Metal backend is macOS's")
-	endif()
-	add_compile_definitions(SPEEDO_GRAPHICS_API_METAL)
-elseif(NOT SPEEDO_GRAPHICS_API STREQUAL "vulkan")
-	message(FATAL_ERROR "SPEEDO_GRAPHICS_API=${SPEEDO_GRAPHICS_API}: vulkan or metal")
-endif()
-
 # sanitizers (-fsanitize=, e.g. address,undefined or thread) for our own targets: the vcpkg packages aren't instrumented.
 # they replace malloc themselves, so the executables are built without mimalloc (whose dylib interposes malloc)
 set(SPEEDO_SANITIZE "" CACHE STRING "Sanitizers for our own targets (-fsanitize=), e.g. address,undefined or thread")
@@ -291,19 +278,19 @@ set(GFX_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/gfx/tangents.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/texture.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/views.cpp)
-add_library(gfx STATIC ${GFX_SOURCE_FILES})
 
-target_compile_features(
-	gfx
-	PUBLIC
-		cxx_std_26
-)
+# the header only libraries gfx uses, their implementations compiled once (gfx/libraries.cpp): gfx is compiled per
+# graphics api (speedo_gfx_library, below), and a library's functions twice in one executable don't link
+add_library(gfxlibraries STATIC ${SPEEDO_SOURCE_DIR}/gfx/libraries.cpp)
+target_compile_features(gfxlibraries PUBLIC cxx_std_26)
 target_include_directories(
-	gfx
-	PUBLIC
-		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
-		$<INSTALL_INTERFACE:include/speedo>
+	gfxlibraries
+	PRIVATE
+		${SPEEDO_SOURCE_DIR}
+	SYSTEM PRIVATE
+		${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include
 )
+
 # the installed versions of the import libraries, which the asset caches of their output depend on (see
 # gfx/importversions.h.in). read from vcpkg's package metadata, since the libraries don't define their versions.
 function(speedo_port_version port outVar)
@@ -331,39 +318,60 @@ speedo_port_version(ktx SPEEDO_KTX_VERSION)
 speedo_port_version(draco SPEEDO_DRACO_VERSION)
 speedo_port_version(meshoptimizer SPEEDO_MESHOPTIMIZER_VERSION)
 configure_file(${SPEEDO_SOURCE_DIR}/gfx/importversions.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/gfx/importversions.h @ONLY)
-target_include_directories(
-	gfx
-	PRIVATE
-		${CMAKE_CURRENT_BINARY_DIR}/generated
-)
-target_link_libraries(
-	gfx
-	PUBLIC
-		core
-		platform
-		rhi
-		xxHash::xxhash
-		imgui::imgui
-		glm::glm
-	PRIVATE
-		WebP::webpdecoder
-		WebP::webpdemux
-		KTX::ktx
-		draco::draco
-		meshoptimizer::meshoptimizer
-		mikktspace::mikktspace
-)
 # slang's headers alone (a shader's configuration names its enums, see gfx/shaderloader.h): the compiling is the shader
 # compiler library's (shadercompiler, below), which the client loads only when it must compile, so it links no slang and
 # a package ships none. its version names a compile in the shaders' cache, and the library is found by its file's name
 get_target_property(SPEEDO_SLANG_INCLUDE_DIRS slang::slang INTERFACE_INCLUDE_DIRECTORIES)
-target_include_directories(gfx SYSTEM PUBLIC $<BUILD_INTERFACE:${SPEEDO_SLANG_INCLUDE_DIRS}>)
-target_compile_definitions(
-	gfx
-	PRIVATE
-		SPEEDO_SLANG_VERSION="${slang_VERSION}"
-		SPEEDO_SHADERCOMPILER_FILE="$<TARGET_FILE_NAME:shadercompiler>"
-)
+
+# gfx for a graphics api: gfx is compiled once per graphics api the platform has (Vulkan's copy gfx, and on macOS Metal's
+# gfx_metal), each copy in an inline namespace of its own, SPEEDO_GRAPHICS_API_NAMESPACE (gfx/graphicsapi.h: gfx::vk,
+# gfx::metal), so that both link into the one client, which runs the copy SPEEDO_GRAPHICS_API names (client/capi.cpp,
+# docs/backends-plan.md, step 9). the tools take Vulkan's copy
+function(speedo_gfx_library target apiNamespace)
+	add_library(${target} STATIC ${GFX_SOURCE_FILES})
+	target_compile_features(${target} PUBLIC cxx_std_26)
+	target_include_directories(
+		${target}
+		PUBLIC
+			$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
+			$<INSTALL_INTERFACE:include/speedo>
+		PRIVATE
+			${CMAKE_CURRENT_BINARY_DIR}/generated
+	)
+	target_include_directories(${target} SYSTEM PUBLIC $<BUILD_INTERFACE:${SPEEDO_SLANG_INCLUDE_DIRS}>)
+	target_compile_definitions(
+		${target}
+		PUBLIC
+			SPEEDO_GRAPHICS_API_NAMESPACE=${apiNamespace}
+			$<$<STREQUAL:${apiNamespace},metal>:SPEEDO_GRAPHICS_API_METAL>
+		PRIVATE
+			SPEEDO_SLANG_VERSION="${slang_VERSION}"
+			SPEEDO_SHADERCOMPILER_FILE="$<TARGET_FILE_NAME:shadercompiler>"
+	)
+	target_link_libraries(
+		${target}
+		PUBLIC
+			core
+			platform
+			rhi
+			xxHash::xxhash
+			imgui::imgui
+			glm::glm
+		PRIVATE
+			gfxlibraries
+			WebP::webpdecoder
+			WebP::webpdemux
+			KTX::ktx
+			draco::draco
+			meshoptimizer::meshoptimizer
+			mikktspace::mikktspace
+	)
+endfunction()
+
+speedo_gfx_library(gfx vk)
+if(APPLE)
+	speedo_gfx_library(gfx_metal metal)
+endif()
 
 # the shader compiler library (gfx/shadercompiler.h): slang and the code that calls it, loaded by the client at its first
 # compile from beside the executable. core's headers only (its compiled code would be a second copy of its globals)
@@ -514,33 +522,34 @@ set(CLIENTLIB_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/client/thumbnails.cpp
 	${SPEEDO_SOURCE_DIR}/client/ui.cpp
 	${SPEEDO_SOURCE_DIR}/client/windowedapplication.cpp)
-add_library(clientlib STATIC ${CLIENTLIB_SOURCE_FILES})
 
-set_property(
-	TARGET
-		clientlib
-	PROPERTY OUTPUT_NAME
-		client
-)
-target_compile_features(
-	clientlib
-	PUBLIC
-		cxx_std_26
-)
-target_include_directories(
-	clientlib
-	PUBLIC
-		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
-		$<INSTALL_INTERFACE:include/speedo>
-)
-target_link_libraries(
-	clientlib
-	PUBLIC
-		gfx
-	PRIVATE
-		serverlib # todo: redesign so that we can remove this (quite unsafe) dependency
-		CURL::libcurl # the test assets' download (see client/testassets.h)
-)
+# the client for a graphics api, over its copy of gfx (speedo_gfx_library): Vulkan's clientlib, and on macOS Metal's
+# clientlib_metal, each in the copy's inline namespace (client::vk, client::metal), which the executable's C api runs
+# (client/capi.cpp)
+function(speedo_client_library target gfxTarget outputName)
+	add_library(${target} STATIC ${CLIENTLIB_SOURCE_FILES})
+	set_property(TARGET ${target} PROPERTY OUTPUT_NAME ${outputName})
+	target_compile_features(${target} PUBLIC cxx_std_26)
+	target_include_directories(
+		${target}
+		PUBLIC
+			$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
+			$<INSTALL_INTERFACE:include/speedo>
+	)
+	target_link_libraries(
+		${target}
+		PUBLIC
+			${gfxTarget}
+		PRIVATE
+			serverlib # todo: redesign so that we can remove this (quite unsafe) dependency
+			CURL::libcurl # the test assets' download (see client/testassets.h)
+	)
+endfunction()
+
+speedo_client_library(clientlib gfx client)
+if(APPLE)
+	speedo_client_library(clientlib_metal gfx_metal client-metal)
+endif()
 
 ###############################################################################
 
@@ -578,7 +587,8 @@ endif()
 ###############################################################################
 
 set(CLIENT_SOURCE_FILES
-	${SPEEDO_SOURCE_DIR}/client/main.c)
+	${SPEEDO_SOURCE_DIR}/client/main.c
+	${SPEEDO_SOURCE_DIR}/client/capi.cpp)
 add_executable(client ${CLIENT_SOURCE_FILES})
 
 target_compile_features(
@@ -592,13 +602,20 @@ target_include_directories(
 		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
 		$<INSTALL_INTERFACE:include/speedo>
 )
+# every graphics api's copy of the client and gfx (speedo_client_library), linked alone: their usage requirements name
+# each its own copy (SPEEDO_GRAPHICS_API_NAMESPACE), which the executable's sources (main.c and client/capi.cpp, the C
+# api that runs one of them) don't take
 target_link_libraries(
 	client
 	PRIVATE
 		${SPEEDO_MIMALLOC}
-		gfx
+		core
+		platform
 		rhi
-		clientlib
+		$<LINK_ONLY:clientlib>
+		$<LINK_ONLY:gfx>
+		$<$<BOOL:${APPLE}>:$<LINK_ONLY:clientlib_metal>>
+		$<$<BOOL:${APPLE}>:$<LINK_ONLY:gfx_metal>>
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
 # the shader compiler beside it, which it loads (not links) to compile its shaders in a checkout

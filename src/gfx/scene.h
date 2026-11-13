@@ -30,7 +30,7 @@ namespace core
 class TaskExecutor;
 } // namespace core
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // how the camera's autofocus picks what to focus at (see Scene::Settings::focusMode), as a system camera's modes:
@@ -417,4 +417,4 @@ private:
 	std::unique_ptr<Impl> myImpl;
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

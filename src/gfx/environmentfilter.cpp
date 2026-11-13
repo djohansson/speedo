@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 using namespace rhi;
@@ -301,4 +301,4 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	return std::make_shared<std::pair<decltype(views), std::shared_ptr<void>>>(views, pipeline.TakeDescriptorSets(kSet));
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

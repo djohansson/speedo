@@ -21,7 +21,7 @@
 #include <ranges>
 #include <string_view>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 using namespace rhi;
@@ -5392,4 +5392,4 @@ void Renderer::InternalDrawFlares(FrameGraph::PassContext& context)
 	pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

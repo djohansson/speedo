@@ -18,7 +18,7 @@
 
 // the environment the scene is lit by (image based lighting): a panorama of the radiance around it, prefiltered for the
 // glTF brdf (see Shade in the shaders). cpu only, as the importers.
-namespace gfx::environment
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::environment
 {
 
 // an equirectangular panorama of radiance, linear rgb, row by row: direction d is at u = 0.5 + atan2(d.x, -d.z) / 2pi
@@ -171,4 +171,4 @@ struct Environment
 [[nodiscard]] glm::dvec3 MeanRadiance(const Panorama& panorama);
 [[nodiscard]] glm::dvec3 MeanRadiance(const image::MipLevel& level, std::span<const std::byte> data);
 
-} // namespace gfx::environment
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::environment

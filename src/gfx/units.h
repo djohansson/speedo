@@ -6,7 +6,7 @@
 #include <optional>
 #include <string_view>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // the scene's unit: what a file's coordinates are in (View > Units, SPEEDO_UNITS; Scene::Settings::metersPerUnit holds
@@ -117,4 +117,4 @@ inline constexpr float kCentimeterExtent = 500.0F;
 	return !gltf && !set && longestExtent > kCentimeterExtent ? SceneUnit::kCentimeters : SceneUnit::kMeters;
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

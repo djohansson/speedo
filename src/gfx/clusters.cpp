@@ -10,7 +10,7 @@
 #include <array>
 #include <cmath>
 
-namespace gfx::clusters
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::clusters
 {
 
 namespace detail
@@ -189,4 +189,4 @@ ClusterPlan Plan(std::span<const LightData> lights, std::span<const glm::mat4> v
 	return plan;
 }
 
-} // namespace gfx::clusters
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::clusters

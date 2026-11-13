@@ -13,7 +13,7 @@
 // which lights get them (a budget: the tiles the atlas holds, by priority), and the views they are drawn from.
 // directional lights get SHADER_TYPES_SHADOW_CASCADE_COUNT cascades fitted to the camera, point lights a cube of 6
 // faces, spot lights one perspective view around their cone.
-namespace gfx::shadows
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::shadows
 {
 
 constexpr uint32_t kAtlasSize = 4096; // texels, square
@@ -59,4 +59,4 @@ struct ShadowPlan
 // camera's view light nothing seen, and get none; the others are sized for the view they look biggest in
 [[nodiscard]] ShadowPlan Plan(std::span<const LightData> lights, std::span<const ShadowCamera> cameras, const Bounds3f& sceneBounds);
 
-} // namespace gfx::shadows
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::shadows

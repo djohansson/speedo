@@ -7,7 +7,7 @@
 #include <mutex>
 #include <string>
 
-namespace client::testassets
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE::testassets
 {
 
 // the test assets the client downloads into the test asset directory (the environment's TestAssetsPath), from the manifests
@@ -60,4 +60,4 @@ struct Download
 void DrawMenuItem();
 void Draw();
 
-} // namespace client::testassets
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE::testassets

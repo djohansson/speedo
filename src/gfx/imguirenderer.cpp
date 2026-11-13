@@ -20,7 +20,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 using namespace rhi;
@@ -708,4 +708,4 @@ void ImGuiRenderer::RemoveTexture(ImTextureID id)
 	myState->Release(id, nullptr, myState->sequence + 1);
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

@@ -41,7 +41,7 @@
 #	define SHORTCUT_LABEL(key) "Ctrl+" key
 #endif
 
-namespace client
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 namespace ui
@@ -1155,7 +1155,7 @@ void WindowedApplication::PrepareDraw()
 				CloseOnEscape(gShowStatistics);
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 				if (CollapsingHeader("Vulkan Objects"))
-					for (const auto& [name, count] : GetObjectCounts<kGraphicsApi>())
+					for (const auto& [name, count] : GetObjectCounts<gfx::kGraphicsApi>())
 						Text("%.*s: %u", static_cast<int>(name.size()), name.data(), count);
 #endif
 
@@ -3265,4 +3265,4 @@ void WindowedApplication::PrepareDraw()
 	myImGui->EndFrame([this](uint64_t sequence) { myImGuiRenderer->UpdateTextures(sequence); });
 }
 
-} // namespace client
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

@@ -8,7 +8,7 @@
 #include <cstring>
 #include <filesystem>
 
-namespace client
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 Preview::Preview(gfx::RHI& rhi, rhi::Extent2d extent)
@@ -20,7 +20,7 @@ Preview::Preview(gfx::RHI& rhi, rhi::Extent2d extent)
 
 	// a pipeline of its own: a pipeline's descriptor sets hold one scene's bindings (it loads the window's pipeline cache,
 	// and saves it when destroyed, before the window's pipeline does at exit)
-	myPipeline = std::make_unique<gfx::Pipeline>(rhi::PipelineCreateDesc<rhi::kGraphicsApi>{
+	myPipeline = std::make_unique<gfx::Pipeline>(rhi::PipelineCreateDesc<gfx::kGraphicsApi>{
 		device.CreateDeviceObjectCreateDesc("Preview Pipeline"),
 		(std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string(),
 		gfx::Scene::DescriptorPoolSizes()});
@@ -43,7 +43,7 @@ void Preview::RequestCapture(CaptureDone done)
 	myCapture = std::move(done);
 }
 
-void Preview::RecordCapture(CommandBufferHandle<rhi::kGraphicsApi> cmd, std::vector<core::TaskHandle>& callbacks)
+void Preview::RecordCapture(gfx::CommandBufferHandle cmd, std::vector<core::TaskHandle>& callbacks)
 {
 	std::optional<CaptureDone> done;
 	{
@@ -83,4 +83,4 @@ void Preview::RecordCapture(CommandBufferHandle<rhi::kGraphicsApi> cmd, std::vec
 			}).handle);
 }
 
-} // namespace client
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

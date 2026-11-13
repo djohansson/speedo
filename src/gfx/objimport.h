@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace gfx::obj
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::obj
 {
 
 // imports a Wavefront OBJ file and its materials. polygons are triangulated, vertices are welded where they share all
@@ -26,4 +26,4 @@ namespace gfx::obj
 // options before it skipped; backslashes as separators), sorted
 [[nodiscard]] std::vector<std::filesystem::path> TextureFiles(const std::filesystem::path& path);
 
-} // namespace gfx::obj
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::obj

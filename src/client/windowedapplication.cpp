@@ -1,6 +1,6 @@
 #include "windowedapplicationdetail.h"
 
-namespace client
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 std::mutex WindowedApplication::gDrawMutex{};
@@ -848,4 +848,4 @@ void WindowedApplication::OnResizeFramebuffer(WindowHandle window, int width, in
 	myResizeRequested.store(true, std::memory_order_release);
 }
 
-} // namespace client
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

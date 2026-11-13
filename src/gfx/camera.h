@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 enum class ViewType : uint8_t
@@ -81,6 +81,6 @@ private:
 	CameraCreateDesc myDesc{};
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 
 #include "camera.inl"

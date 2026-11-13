@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <ranges>
 
-namespace client::windowedapplication
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE::windowedapplication
 {
 
 void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ModelGround ground, LoadChoice choice)
@@ -353,4 +353,4 @@ std::string RecentFileDetail(const RecentFile& file)
 	return detail;
 }
 
-} // namespace client::windowedapplication
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE::windowedapplication

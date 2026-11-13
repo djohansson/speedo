@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // the transfer queue submission that uploads a loaded resource (see Model::Load and LoadTexture), which return
@@ -18,4 +18,4 @@ struct Upload
 	uint32_t queueFamilyIndex = 0; // the transfer queue's
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

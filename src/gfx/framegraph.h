@@ -21,7 +21,7 @@
 // call it with the gpu idle, as on a resize) and places them; Execute records the enabled passes into a command
 // buffer, each after the barriers its uses need, given how the resources were last used (tracked across frames, and
 // across the transients sharing memory). raster passes get their attachments begun as a render target.
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // what a pass does with a resource: for an image, the layout it must be in; and the pipeline stages that access it
@@ -269,4 +269,4 @@ namespace framegraph
 
 } // namespace framegraph
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <memory>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 struct FrameInputs;
@@ -106,4 +106,4 @@ private:
 	std::unique_ptr<RenderImageSet> myTarget;
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

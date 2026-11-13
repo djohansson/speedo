@@ -23,7 +23,7 @@
 
 // what the model importers (obj::Import, gltf::Import) produce: a triangle mesh in the renderer's conventions
 // (counter-clockwise front faces, y up, v = 0 at the top of the image), with its materials baked into the vertex colors
-namespace gfx::mesh
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::mesh
 {
 
 struct Material
@@ -283,4 +283,4 @@ void Chunk(Mesh& mesh, uint32_t maxTriangles = kChunkTriangles);
 // file a model's render depends on (e.g. for keying a thumbnail of it)
 [[nodiscard]] std::vector<std::filesystem::path> ImageFiles(const std::filesystem::path& path);
 
-} // namespace gfx::mesh
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::mesh

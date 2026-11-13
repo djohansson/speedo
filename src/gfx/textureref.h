@@ -10,7 +10,7 @@
 #include <optional>
 #include <string>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // a texture as a material samples it: its file, which texcoord set (0 or 1) it reads, how that is transformed, and the
@@ -45,4 +45,4 @@ struct TextureRef
 	return {c * scale.x, s * scale.y, offset.x, -s * scale.x, c * scale.y, offset.y};
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // diagnostic: what the device's ray queries do (SPEEDO_RAY_QUERY_WATCH set to anything but 0, where the device has them), for a crash report
@@ -54,4 +54,4 @@ private:
 // what a watch's words say, as json: the counts, and the queries in flight
 std::string RayQueryWatchJson(std::span<const std::byte> memory);
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

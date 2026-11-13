@@ -5,7 +5,7 @@
 #include <array>
 #include <string>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // a camera a model file defines (gltf cameras), in world space: what the views can be set to (see Views::SetScene)
@@ -29,4 +29,4 @@ struct SceneCamera
 	bool animated = false;
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

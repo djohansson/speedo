@@ -12,7 +12,7 @@
 
 // indirect lighting (see GiData in gfx/shaders/capi.h and gi.slang): world space irradiance probes over a voxel radiance
 // volume. what the cpu plans: the volume's and the probes' layout over the scene, and the lights per cell of it
-namespace gfx::gi
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::gi
 {
 
 // how far a clip that follows the eye moves at a time: this many of its probes (see MakeClipmap; one of 8 voxels: the box
@@ -106,4 +106,4 @@ struct LightCells
 // each clip's cells after the one before's (GiData::lightCellFirst, which it sets), their indices after its indices
 [[nodiscard]] LightCells BinLights(std::span<GiData> clips, std::span<const LightData> lights);
 
-} // namespace gfx::gi
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::gi

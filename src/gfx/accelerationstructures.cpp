@@ -10,7 +10,7 @@
 #include <print>
 #include <utility>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 using namespace rhi;
@@ -326,4 +326,4 @@ std::shared_ptr<void> AccelerationStructures::RecordCompaction(CommandBufferHand
 	return previous;
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

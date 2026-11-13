@@ -16,7 +16,7 @@
 // 1.2 * 2^EV100 cd/m^2 (Lagarde and de Rousiers' physically based camera: the standard output sensitivity, its lens's
 // transmittance and vignetting folded into the 1.2), so the exposure that shows a unit as white, the renderer's 0 stops,
 // is EV100 kSaturationEv100, sunny sixteen's: f/16 at 1/160 s and ISO 100
-namespace gfx::camera
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::camera
 {
 
 inline constexpr float kUnitLuminance = 128000.0F / static_cast<float>(SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE); // cd/m^2
@@ -220,4 +220,4 @@ struct SensorSize
 	return sensorHeight / (2.0F * std::tan(std::clamp(0.5F * fieldOfView, 1e-3F, 1.5F)));
 }
 
-} // namespace gfx::camera
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::camera

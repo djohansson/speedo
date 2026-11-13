@@ -11,7 +11,7 @@
 
 // clustered lighting (see SHADER_TYPES_CLUSTER_COUNT in gfx/shaders/capi.h): which lights may reach each cluster of each
 // view, planned on the cpu each frame from the views' view projections (what the gpu draws with) and the scene's bounds
-namespace gfx::clusters
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::clusters
 {
 
 // a frame's clusters: per view its slicing (gClusterViews), per cluster its first index and count (gClusters, pairs of
@@ -31,4 +31,4 @@ struct ClusterPlan
 // SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT get none (enabled 0: they loop over all lights)
 [[nodiscard]] ClusterPlan Plan(std::span<const LightData> lights, std::span<const glm::mat4> viewProjections, const Bounds3f& sceneBounds);
 
-} // namespace gfx::clusters
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::clusters

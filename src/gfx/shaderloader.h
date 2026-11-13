@@ -1,5 +1,7 @@
 #pragma once
 
+#include <gfx/graphicsapi.h>
+
 #include <rhi/shaderset.h>
 
 #include <filesystem>
@@ -18,7 +20,7 @@
 #endif
 #include <slang.h>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // the debug information the shaders are compiled with: all of it in the builds that profile (for gpu captures), none in
@@ -26,7 +28,7 @@ namespace gfx
 inline constexpr SlangDebugInfoLevel kShaderDebugInfoLevel =
 	SPEEDO_PROFILING_LEVEL > 0 ? SLANG_DEBUG_INFO_LEVEL_MAXIMAL : SLANG_DEBUG_INFO_LEVEL_NONE;
 
-// slang shaders for the build's graphics api (rhi::kShaderFormat), with the resources they use: an install's precompiled
+// slang shaders for the copy's graphics api (gfx::kShaderFormat), with the resources they use: an install's precompiled
 // (beside where their source would be, <stem>-<parameters hash>.shaderset, made when it was packaged: see
 // tools/shaderprecompile.cpp), else compiled through the shader compiler library (gfx/shadercompiler.h: slang, loaded at
 // the first compile, beside the executable) and cached as assets (see core::file::LoadAsset), recompiled when the source
@@ -43,8 +45,8 @@ public:
 		SlangDebugInfoFormat debugInfoFormat = SLANG_DEBUG_INFO_FORMAT_DEFAULT;
 		SlangMatrixLayoutMode matrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
 		std::vector<std::pair<std::string, std::string>> preprocessorDefinitions = { {"SHADERTYPES_H_GPU_TARGET", "true"} };
-		// the build's backend's (rhi::kShaderFormat), unless asked otherwise (rhitest compiles for each backend)
-		rhi::ShaderFormat format = rhi::kShaderFormat;
+		// the copy's backend's (gfx::kShaderFormat), unless asked otherwise (rhitest compiles for each backend)
+		rhi::ShaderFormat format = kShaderFormat;
 
 		[[nodiscard]] std::string ToString() const;
 	};
@@ -85,4 +87,4 @@ private:
 	std::optional<std::filesystem::path> myIntermediatePath;
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

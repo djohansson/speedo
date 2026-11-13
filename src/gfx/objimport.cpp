@@ -20,14 +20,13 @@
 #include <string_view>
 #include <system_error>
 
-#define TINYOBJLOADER_IMPLEMENTATION
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <tiny_obj_loader.h>
 
 #include <xxhash.h>
 
-namespace gfx::obj
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::obj
 {
 
 using mesh::Mesh;
@@ -768,4 +767,4 @@ std::vector<std::filesystem::path> TextureFiles(const std::filesystem::path& pat
 	return files;
 }
 
-} // namespace gfx::obj
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::obj

@@ -16,7 +16,7 @@
 #include <span>
 #include <utility>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 namespace shaderloader
@@ -240,4 +240,4 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 	return shaderSet;
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

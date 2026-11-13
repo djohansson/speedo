@@ -6,7 +6,7 @@
 
 #include <cmath>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 void Camera::UpdateViewMatrix()
@@ -77,4 +77,4 @@ void Camera::UpdateProjectionMatrix()
 	}
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 using namespace rhi;
@@ -738,4 +738,4 @@ void FrameGraph::InternalRecord(CommandBufferHandle cmd, Pass& pass, uint32_t pa
 	target->End(cmd);
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

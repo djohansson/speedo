@@ -12,7 +12,7 @@
 
 #include <gfx/shaders/capi.h>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // what the device's ray queries trace of a model (DeviceLimits::rayQuery, BVH_RAY_QUERY in the shaders), in place of its
@@ -112,4 +112,4 @@ private:
 	uint64_t myTopLevelScratchOffset = 0; // and past the moving glass's
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

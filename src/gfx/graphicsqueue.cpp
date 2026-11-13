@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <utility>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 using namespace rhi;
@@ -164,4 +164,4 @@ void TransitionThenBind(RHI& rhi, QueueTimelineContextData& graphics, const Uplo
 	graphicsSubmits |= graphicsQueue.Submit();
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

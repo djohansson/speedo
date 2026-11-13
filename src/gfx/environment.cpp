@@ -23,7 +23,7 @@
 #include <stb_image.h>
 #include <stb_image_resize2.h>
 
-namespace gfx::environment
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::environment
 {
 
 namespace detail
@@ -512,4 +512,4 @@ glm::dvec3 MeanRadiance(const image::MipLevel& level, std::span<const std::byte>
 	return MeanRadiance(panorama);
 }
 
-} // namespace gfx::environment
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::environment

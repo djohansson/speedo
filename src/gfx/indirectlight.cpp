@@ -9,7 +9,7 @@
 #include <bit>
 #include <cmath>
 
-namespace gfx::gi
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::gi
 {
 
 Layout MakeLayout(
@@ -258,4 +258,4 @@ LightCells BinLights(std::span<GiData> clips, std::span<const LightData> lights)
 	return cells;
 }
 
-} // namespace gfx::gi
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::gi

@@ -24,7 +24,7 @@
 #include <string_view>
 #include <vector>
 
-namespace client
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 namespace windowedapplication
@@ -133,7 +133,7 @@ private:
 	// per frame slot, what its frame presented with: the semaphore the present waited on, and its present fences, where the
 	// device has them (VK_EXT_swapchain_maintenance1). released when the slot comes round again (InternalRetirePresents)
 	std::array<std::vector<gfx::Semaphore>, SHADER_TYPES_FRAME_COUNT> myPresentSemaphores;
-	std::array<std::vector<rhi::Fence<rhi::kGraphicsApi>>, SHADER_TYPES_FRAME_COUNT> myPresentFences;
+	std::array<std::vector<rhi::Fence<gfx::kGraphicsApi>>, SHADER_TYPES_FRAME_COUNT> myPresentFences;
 	void InternalRetirePresents(uint32_t frameSlot);
 	void InternalRetirePresents(gfx::Swapchain& swapchain);
 	std::array<uint64_t, SHADER_TYPES_FRAME_COUNT> myFrameSlotTimelines{};
@@ -173,5 +173,5 @@ private:
 	static bool gShowTps; //NOLINT(readability-identifier-naming)
 };
 
-} // namespace client
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 

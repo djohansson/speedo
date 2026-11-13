@@ -22,7 +22,7 @@
 #include <string_view>
 #include <vector>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 namespace bvh
@@ -376,4 +376,4 @@ private:
 	std::vector<SceneCamera> myCameras;
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

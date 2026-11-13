@@ -57,7 +57,7 @@
 #include <string_view>
 #include <vector>
 
-namespace client
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 using namespace gfx;
@@ -234,4 +234,4 @@ bool RecreateWindowDependentObjects(RHI& rhi, platform::Window& window);
 
 } // namespace windowedapplication
 
-} // namespace client
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

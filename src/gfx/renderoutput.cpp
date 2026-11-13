@@ -5,7 +5,7 @@
 
 #include <format>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 using namespace rhi;
@@ -166,4 +166,4 @@ void ImageOutput::AddFinalPasses(FrameGraph& graph, FrameGraph::ImageId output, 
 		[](FrameGraph::PassContext& /*context*/) {});
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

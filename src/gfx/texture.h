@@ -14,7 +14,7 @@
 #include <memory>
 #include <string_view>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // an image uploaded for sampling, and a view of it
@@ -74,4 +74,4 @@ struct EnvironmentTexture
 [[nodiscard]] EnvironmentTexture LoadEnvironment(
 	std::optional<std::string_view> filePath, std::atomic_uint8_t& progress, core::CancelledFn cancelled = core::NeverCancelled);
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

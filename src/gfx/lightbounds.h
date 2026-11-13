@@ -8,7 +8,7 @@
 #include <cmath>
 #include <optional>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // the space a light can reach, as a sphere
@@ -50,4 +50,4 @@ struct LightSphere
 	return LightSphere{position + (direction * radius), radius};
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

@@ -10,7 +10,7 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // a frame's lights as the renderer used them, for debugging (see Renderer::CaptureLights): gLights (the model's lights,
@@ -60,4 +60,4 @@ struct LightGizmos
 
 [[nodiscard]] LightGizmos BuildLightGizmos(const LightCapture& capture, const LightGizmoOptions& options);
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

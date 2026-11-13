@@ -19,7 +19,7 @@
 #include <string_view>
 #include <vector>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 namespace
@@ -226,4 +226,4 @@ std::string RayQueryWatchJson(std::span<const std::byte> memory)
 	return json;
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

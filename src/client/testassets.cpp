@@ -31,7 +31,7 @@
 #include <utility>
 #include <vector>
 
-namespace client::testassets
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE::testassets
 {
 
 namespace
@@ -822,4 +822,4 @@ void Draw()
 	}
 }
 
-} // namespace client::testassets
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE::testassets

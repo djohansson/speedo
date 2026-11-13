@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 namespace detail
@@ -458,4 +458,4 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 	return result;
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

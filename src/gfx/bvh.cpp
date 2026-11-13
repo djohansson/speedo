@@ -19,14 +19,8 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
-// the builds run on the application's executor (see detail::Executor), not on tinybvh's own threads
-#define TINYBVH_NO_BUILTIN_POOL
-// the depth its builds and conversions walk (no traversal runs on the cpu here): a polygon of hundreds of vertices is a fan
-// of slivers around one corner, which the builders peel off a few at a time (geodesic.zip's duals, faces of up to 384
-// vertices, went past tinybvh's 128: "CombineLeafs, tree too deep")
-#define TINYBVH_STACK_SIZE 1024
-#define TINYBVH_IMPLEMENTATION
-#include <tinybvh/tiny_bvh.h>
+// tinybvh as gfx configures it (its implementation in gfx/libraries.cpp)
+#include <gfx/tinybvh.h>
 
 // bvh.slang reads the compressed triangles (4 float4: Baldwin and Weber's transform, then the index), which tiny_bvh.h
 // selects at the commit the port pins; its dev branch stores them uncompressed (3 float4)
@@ -34,7 +28,7 @@
 #error "gfx/shaders/bvh.slang reads tinybvh's compressed CWBVH triangles"
 #endif
 
-namespace gfx::bvh
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::bvh
 {
 
 // the most triangles a leaf of the binary layout holds: BVH_GPU's leaf references have 7 bits for the count (tinybvh's
@@ -539,4 +533,4 @@ std::string Version()
 		detail::SpatialSplits() ? "-sbvh" : "");
 }
 
-} // namespace gfx::bvh
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::bvh

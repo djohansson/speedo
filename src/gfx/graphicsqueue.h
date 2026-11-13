@@ -16,7 +16,7 @@
 // work the draw thread submits to the graphics queue between frames, ordered with the frames by the graphics timeline
 // (each submission waits for all graphics work submitted before it): updates, uploads made usable, and resources freed
 // once the gpu is done with them
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // buffers and images uploaded by the loaders (see Upload), to install
@@ -48,4 +48,4 @@ void RecordOnGraphics(QueueTimelineContextData& graphics, core::std_extra::funct
 // bind(QueueTimelineContextData& graphics), a draw call (see RHI::drawCalls). call on the draw thread.
 void TransitionThenBind(RHI& rhi, QueueTimelineContextData& graphics, const Uploads& uploads, DrawCall bind);
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

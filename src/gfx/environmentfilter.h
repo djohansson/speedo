@@ -7,7 +7,7 @@
 #include <filesystem>
 #include <memory>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // prefilters environments on the gpu (environment.slang's kernels, in a layout of their own: "Environment"): the source
@@ -66,4 +66,4 @@ private:
 	float mySkyTablesAerosols = 1.0F;
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

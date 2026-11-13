@@ -33,7 +33,7 @@ namespace core
 class TaskExecutor;
 } // namespace core
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 class Model;
@@ -1014,4 +1014,4 @@ private:
 	DrawList myScatterDrawList;
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

@@ -10,7 +10,7 @@
 
 #include <imgui.h>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // draws imgui's frames (see platform::ImGuiLayer) with rhi, through a pipeline and a layout ("ImGui", imgui.slang) of
@@ -60,4 +60,4 @@ private:
 	std::unique_ptr<State> myState;
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

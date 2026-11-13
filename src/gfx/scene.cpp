@@ -53,7 +53,7 @@
 #include <span>
 #include <utility>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 using namespace rhi;
@@ -1685,7 +1685,7 @@ struct Scene::Impl
 		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 			myPipeline.SetDescriptorData(
 				"gBvhScene",
-				static_cast<::AccelerationStructureHandle<rhi::kGraphicsApi>>(structures.GetTopLevel(frameIt)),
+				static_cast<::AccelerationStructureHandle<kGraphicsApi>>(structures.GetTopLevel(frameIt)),
 				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 				frameIt);
 	}
@@ -3621,4 +3621,4 @@ void Scene::RestartSequences()
 	myImpl->myLensFrame = 0;
 }
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

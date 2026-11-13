@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <string>
 
-namespace gfx
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 // a light a model file defines (gltf KHR_lights_punctual), in world space (see LightData in gfx/shaders/capi.h)
@@ -31,4 +31,4 @@ struct SceneLight
 	uint32_t source = ~0U; // the file's light (gltf: its index in KHR_lights_punctual's lights), for animations to find
 };
 
-} // namespace gfx
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

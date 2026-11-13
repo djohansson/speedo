@@ -20,7 +20,7 @@
 #include <utility>
 #include <vector>
 
-namespace client
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 namespace browser
@@ -962,4 +962,4 @@ void WindowedApplication::InternalDrawBrowser()
 	SetPreviewVisible(gShowBrowser && state.texture != ImTextureID_Invalid);
 }
 
-} // namespace client
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

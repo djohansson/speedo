@@ -16,13 +16,8 @@
 namespace rhi
 {
 
-// the graphics api the code above rhi uses (one per build: SPEEDO_GRAPHICS_API, the <triplet>-metal preset's metal; the
-// shader binaries it takes are rhi::kShaderFormat, rhi/shaderset.h)
-#if defined(SPEEDO_GRAPHICS_API_METAL)
-inline constexpr GraphicsApi kGraphicsApi = kMetal;
-#else
-inline constexpr GraphicsApi kGraphicsApi = kVk;
-#endif
+// (the graphics api the code above rhi uses is a copy's of it: gfx and the client are compiled once per graphics api, see
+// gfx/graphicsapi.h; rhi has every backend the platform has)
 
 struct RHIInitializationData
 {

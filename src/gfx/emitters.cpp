@@ -18,7 +18,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-namespace gfx::emitters
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::emitters
 {
 
 namespace detail
@@ -317,4 +317,4 @@ Data Build(const ModelDesc& desc, std::span<const uint32_t> indices, std::span<c
 	return data;
 }
 
-} // namespace gfx::emitters
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::emitters

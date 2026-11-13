@@ -29,7 +29,7 @@
 #include <imgui_internal.h>
 #include <xxhash.h>
 
-namespace client
+namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 namespace thumbnails
@@ -560,4 +560,4 @@ std::expected<std::unique_ptr<ImTextureData>, std::string> LoadUiImage(const std
 	return texture;
 }
 
-} // namespace client
+} // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

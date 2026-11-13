@@ -94,9 +94,9 @@ on 2026-11-09, not the quick tier: its binned builder, the moving BVH's and `Bui
 passes `slicebinbox[i]` (`ports/tinybvh/0001-neon-slice-rows.patch`; the same addresses, so the BVHs and their caches
 are unchanged).
 
-## The metal preset: the client on the Metal backend
+## Every graphics api in one build: gfx and the client compiled per api
 
-`<triplet>-metal` (macOS, from `setup.ps1`) is the profile configuration with `SPEEDO_GRAPHICS_API=metal` (`CMakeLists.txt`, a cache variable, `vulkan` by default), which defines `SPEEDO_GRAPHICS_API_METAL`: rhi's `kGraphicsApi` is `kMetal` (`rhi/rhi.h`) and `kShaderFormat` MSL (`rhi/shaderset.h`), so gfx and the client, whose code names the build's backend alone (`gfx/gpu.h`), run on Metal; rhi builds both backends on macOS either way (rhitest compares them). Its build dir is `build/<triplet>-metal`, its shaders cached apart from the Vulkan builds' by their format. Run it as the others, from the repo root (no `VK_DRIVER_FILES` needed). The backend's design and progress: docs/backends-plan.md.
+Every preset builds a client of every graphics api the platform has (Vulkan, and Metal on macOS), chosen at run time by `SPEEDO_GRAPHICS_API` (`vulkan`, the default, or `metal`; docs/environment-variables.md). rhi has every backend already (templated on `GraphicsApi`); gfx and the client name one (`gfx/gpu.h`'s aliases of `gfx::kGraphicsApi`), so they are compiled once per api (`CMakeLists.txt`'s `speedo_gfx_library` and `speedo_client_library`: `gfx` and `clientlib` Vulkan's, `gfx_metal` and `clientlib_metal` Metal's), each copy in an inline namespace of its own (`gfx::vk`, `gfx::metal`, `client::vk`, ...: every `namespace gfx` and `namespace client` is `namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE`, the macro a copy's public compile definition, with `SPEEDO_GRAPHICS_API_METAL` for Metal's, `gfx/graphicsapi.h`), so that both link into one executable without clashing and each stays monomorphic (no virtual calls, no templates through gfx). The executable's C api (`client/capi.cpp`, compiled once) runs the copy the variable names; it links the copies with `$<LINK_ONLY:...>`, since their compile definitions name each its own copy. What can't be compiled twice is outside the copies: the header only libraries' implementations (`gfx/libraries.cpp`, the `gfxlibraries` target: tinybvh, tinyobjloader, stb_image, stb_dxt, stb_image_resize2 and cgltf, whose functions twice don't link; with the code over cgltf's jsmn, `gfx::libraries`), the shader compiler library (`gfx::shadercompiler`, plain), core, platform and rhi. The tools take Vulkan's copy (`gfx`). The cost: gfx and the client compiled twice on macOS, and a larger executable (11.5 MB, profile). Was until 2026-11-13 a preset of its own, `<triplet>-metal` (the `SPEEDO_GRAPHICS_API` cache variable), the backends plan's step 9 replaced it. The backend's design and progress: docs/backends-plan.md.
 
 ## Gotcha: `<windows.h>` macros
 
@@ -733,9 +733,10 @@ first). What it found on the way:
   get-pip on Python 3.15, zlib and DirectX-Headers missing from the port's Windows dependencies, mesa's generators run
   with python's `-I`, clang-cl lacking MSVC's lower-case interlocked intrinsics (`0002`, offered upstream by the user),
   and the driver's manifest written as invalid json (the mesa port section above).
-- **To do (the user's ask, 2026-11-13)**: build the metal, tsan and sanitize presets in CI as well (the metal one on
-  macOS: the client on the Metal backend, docs/backends-plan.md, step 8), and give them launch configurations in VS Code
-  (`setup.ps1`'s `$VSCodeLaunchConfiguration`, beside the profile, debug and release ones); and in CI run the visual
+- **To do (the user's ask, 2026-11-13)**: build the tsan and sanitize presets in CI as well, and run the macOS job's
+  client on Metal too (`SPEEDO_GRAPHICS_API=metal`: every build has it since the backends plan's step 9, which replaced
+  the metal preset), and give them launch configurations in VS Code (`setup.ps1`'s `$VSCodeLaunchConfiguration`, beside
+  the profile, debug and release ones: Metal's a profile client with the variable set); and in CI run the visual
   checks (`visualtest.ps1`, on lavapipe as the profile build's) on the sanitizer builds too, so that what asan, ubsan
   and tsan report about the client's frames is caught as soon as it is pushed.
 

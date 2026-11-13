@@ -6,7 +6,7 @@
 #include <span>
 #include <vector>
 
-namespace gfx::mesh
+namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::mesh
 {
 
 // MikkTSpace tangents for triangles (indices into vertices, 3 per triangle), from a texcoord set (0 or 1, with v down the
@@ -18,4 +18,4 @@ namespace gfx::mesh
 [[nodiscard]] std::vector<uint32_t> GenerateTangents(
 	std::vector<VertexP3fN3fTa4fT014fC4f>& vertices, std::span<uint32_t> indices, uint32_t texCoordSet);
 
-} // namespace gfx::mesh
+} // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::mesh
