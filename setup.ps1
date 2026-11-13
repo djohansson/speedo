@@ -380,6 +380,26 @@ if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $PlatformSettings.Length)
 			foreach ($Entry in (& $Settings.LaunchOptions $LaunchEnvironment).GetEnumerator()) { $LaunchConfiguration[$Entry.Key] = $Entry.Value }
 
 			$VSCodeLaunchConfiguration.configurations += @($LaunchConfiguration)
+
+			# the client on Metal: every build's client has both backends on macOS, SPEEDO_GRAPHICS_API picking one
+			# (docs/backends-plan.md, step 9)
+			if ($IsMacOS -and $Target -eq 'client')
+			{
+				$MetalEnvironment = [ordered] @{}
+				foreach ($Entry in $LaunchEnvironment.GetEnumerator()) { $MetalEnvironment[$Entry.Key] = $Entry.Value }
+				$MetalEnvironment['SPEEDO_GRAPHICS_API'] = 'metal'
+				$MetalConfiguration = [ordered] @{
+					name = "($(Get-TargetTriplet)) $Config/client (metal)"
+					type = $Settings.Debugger
+					request = "launch"
+					program = "`${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/client$exeSuffix"
+					args = @("-u `${userHome}/.speedo")
+					cwd = "`${workspaceFolder}"
+				}
+				foreach ($Entry in (& $Settings.LaunchOptions $MetalEnvironment).GetEnumerator()) { $MetalConfiguration[$Entry.Key] = $Entry.Value }
+
+				$VSCodeLaunchConfiguration.configurations += @($MetalConfiguration)
+			}
 		}
 	}
 
