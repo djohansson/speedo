@@ -12,27 +12,7 @@ namespace rhi
 IMPLEMENT_OBJECT_GETINSTANCE(Queue<kVk>);
 IMPLEMENT_DEVICEOBJECT_GETDEVICE(Queue<kVk>);
 
-template <>
-bool Queue<kVk>::SubmitCallbacks(core::TaskExecutor& executor, uint64_t timelineValue) const
-{
-	ZoneScopedN("Queue::SubmitCallbacks");
-
-	TimelineCallbackData callbackData;
-	std::vector<TimelineCallbackData> waitingCallbacks;
-	while (myTimelineCallbacks.try_dequeue(callbackData))
-	{
-		auto& [callbackVector, callbackTimelineValue] = callbackData;
-
-		if (timelineValue <= callbackTimelineValue)
-			waitingCallbacks.emplace_back(std::move(callbackData));
-		else
-			executor.Submit(std::span(callbackVector.data(), callbackVector.size()));
-	}
-
-	myTimelineCallbacks.enqueue_bulk(waitingCallbacks.data(), waitingCallbacks.size());
-
-	return true;
-}
+// (SubmitCallbacks and EnqueueSubmit are every backend's, in queue.inl)
 
 template <>
 Queue<kVk>::Queue(
@@ -331,38 +311,6 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present(PresentResult* presentResult)
 	myPendingPresent = {};
 
 	return result;
-}
-
-template <>
-void Queue<kVk>::EnqueueSubmit(QueueDeviceSyncInfo<kVk>&& syncInfo, std::vector<CommandBuffer<kVk>>&& commands)
-{
-	ZoneScopedN("Queue::EnqueueSubmit");
-
-	QueueSubmitInfo<kVk> submitInfo{std::move(syncInfo), {}, 0};
-	submitInfo.commandBuffers.reserve(commands.size());
-	for (auto& command : commands)
-	{
-		ENSURE(!command.IsSecondary());
-		submitInfo.commandBuffers.push_back(command.Release());
-	}
-	if (!submitInfo.signalSemaphoreValues.empty())
-		submitInfo.timelineValue = *std::ranges::max_element(submitInfo.signalSemaphoreValues);
-
-	myPendingSubmits.emplace_back(std::move(submitInfo));
-}
-
-template <>
-void Queue<kVk>::EnqueueSubmit(QueueDeviceSyncInfo<kVk>&& syncInfo, CommandBuffer<kVk>&& commands)
-{
-	std::vector<CommandBuffer<kVk>> list;
-	list.push_back(std::move(commands));
-	EnqueueSubmit(std::move(syncInfo), std::move(list));
-}
-
-template <>
-void Queue<kVk>::EnqueueSubmit(QueueDeviceSyncInfo<kVk>&& syncInfo)
-{
-	EnqueueSubmit(std::move(syncInfo), std::vector<CommandBuffer<kVk>>{});
 }
 
 } // namespace rhi

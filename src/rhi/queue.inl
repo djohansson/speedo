@@ -68,6 +68,62 @@ void Queue<G>::SwapAndResetPool()
 	myPools[0].Reset();
 }
 
+// the submissions enqueued and the timeline callbacks: the same for every backend (Submit hands them to the backend)
+
+template <GraphicsApi G>
+bool Queue<G>::SubmitCallbacks(core::TaskExecutor& executor, uint64_t timelineValue) const
+{
+	ZoneScopedN("Queue::SubmitCallbacks");
+
+	TimelineCallbackData callbackData;
+	std::vector<TimelineCallbackData> waitingCallbacks;
+	while (myTimelineCallbacks.try_dequeue(callbackData))
+	{
+		auto& [callbackVector, callbackTimelineValue] = callbackData;
+
+		if (timelineValue <= callbackTimelineValue)
+			waitingCallbacks.emplace_back(std::move(callbackData));
+		else
+			executor.Submit(std::span(callbackVector.data(), callbackVector.size()));
+	}
+
+	myTimelineCallbacks.enqueue_bulk(waitingCallbacks.data(), waitingCallbacks.size());
+
+	return true;
+}
+
+template <GraphicsApi G>
+void Queue<G>::EnqueueSubmit(QueueDeviceSyncInfo<G>&& syncInfo, std::vector<CommandBuffer<G>>&& commands)
+{
+	ZoneScopedN("Queue::EnqueueSubmit");
+
+	QueueSubmitInfo<G> submitInfo{std::move(syncInfo), {}, 0};
+	submitInfo.commandBuffers.reserve(commands.size());
+	for (auto& command : commands)
+	{
+		ENSURE(!command.IsSecondary());
+		submitInfo.commandBuffers.push_back(command.Release());
+	}
+	if (!submitInfo.signalSemaphoreValues.empty())
+		submitInfo.timelineValue = *std::ranges::max_element(submitInfo.signalSemaphoreValues);
+
+	myPendingSubmits.emplace_back(std::move(submitInfo));
+}
+
+template <GraphicsApi G>
+void Queue<G>::EnqueueSubmit(QueueDeviceSyncInfo<G>&& syncInfo, CommandBuffer<G>&& commands)
+{
+	std::vector<CommandBuffer<G>> list;
+	list.push_back(std::move(commands));
+	EnqueueSubmit(std::move(syncInfo), std::move(list));
+}
+
+template <GraphicsApi G>
+void Queue<G>::EnqueueSubmit(QueueDeviceSyncInfo<G>&& syncInfo)
+{
+	EnqueueSubmit(std::move(syncInfo), std::vector<CommandBuffer<G>>{});
+}
+
 } // namespace rhi
 
 #include "vulkan/queue.inl"
