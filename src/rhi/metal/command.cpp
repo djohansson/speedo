@@ -12,7 +12,11 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <format>
 #include <print>
+#include <ranges>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace rhi
@@ -26,18 +30,67 @@ void CommandBufferObject::EndEncoders()
 	// a pass begun but not drawn in: its encoder made now, for what its attachments load and store (a clear)
 	if (pendingRenderPass != nullptr)
 		(void)RenderEncoder();
-	// one at most is open
-	const std::array<MTL::CommandEncoder*, 4> encoders{computeEncoder, blitEncoder, accelerationStructureEncoder, renderEncoder};
-	const auto open = std::ranges::find_if(encoders, [](const MTL::CommandEncoder* encoder) { return encoder != nullptr; });
-	if (open == encoders.end())
+	auto* open = OpenEncoder();
+	if (open == nullptr)
 		return;
-	(*open)->endEncoding();
-	(*open)->release();
+	// the passes' debug groups pushed on it popped first, innermost first (they must balance within it)
+	for (auto& breadcrumb : std::ranges::reverse_view(breadcrumbs))
+		if (breadcrumb.encoder == open)
+		{
+			open->popDebugGroup();
+			breadcrumb.encoder = nullptr;
+		}
+	open->endEncoding();
+	open->release();
 	computeEncoder = nullptr;
 	blitEncoder = nullptr;
 	accelerationStructureEncoder = nullptr;
 	renderEncoder = nullptr;
 	lastSamples = std::exchange(openSamples, std::nullopt);
+}
+
+MTL::CommandEncoder* CommandBufferObject::OpenEncoder() const
+{
+	// one at most is open
+	const std::array<MTL::CommandEncoder*, 4> encoders{computeEncoder, blitEncoder, accelerationStructureEncoder, renderEncoder};
+	const auto open = std::ranges::find_if(encoders, [](const MTL::CommandEncoder* encoder) { return encoder != nullptr; });
+	return open != encoders.end() ? *open : nullptr;
+}
+
+void CommandBufferObject::LabelEncoder(MTL::CommandEncoder* encoder) const
+{
+	if (breadcrumbs.empty())
+		return;
+	std::string label;
+	for (const auto& breadcrumb : breadcrumbs)
+		label += (label.empty() ? "" : " > ") + breadcrumb.name;
+	encoder->setLabel(NS::String::string(label.c_str(), NS::UTF8StringEncoding));
+}
+
+void CommandBufferObject::BeginBreadcrumb(std::string_view name)
+{
+	if (primary != nullptr)
+	{
+		primary->BeginBreadcrumb(name);
+		return;
+	}
+	auto* open = OpenEncoder();
+	if (open != nullptr)
+		open->pushDebugGroup(NS::String::string(std::string(name).c_str(), NS::UTF8StringEncoding));
+	breadcrumbs.push_back({.name = std::string(name), .encoder = open});
+}
+
+void CommandBufferObject::EndBreadcrumb()
+{
+	if (primary != nullptr)
+	{
+		primary->EndBreadcrumb();
+		return;
+	}
+	ENSURE(!breadcrumbs.empty());
+	if (breadcrumbs.back().encoder != nullptr && breadcrumbs.back().encoder == OpenEncoder())
+		breadcrumbs.back().encoder->popDebugGroup();
+	breadcrumbs.pop_back();
 }
 
 std::optional<TimestampSamples> CommandBufferObject::BeginSamples()
@@ -77,6 +130,7 @@ MTL::RenderCommandEncoder* CommandBufferObject::RenderEncoder()
 		}
 		NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
 		renderEncoder = commandBuffer->renderCommandEncoder(pendingRenderPass)->retain();
+		LabelEncoder(renderEncoder);
 		pool->release();
 		pendingRenderPass->release();
 		pendingRenderPass = nullptr;
@@ -100,6 +154,7 @@ MTL::ComputeCommandEncoder* CommandBufferObject::ComputeEncoder()
 			attachment->setEndOfEncoderSampleIndex(samples->start + 1);
 		}
 		computeEncoder = commandBuffer->computeCommandEncoder(descriptor)->retain();
+		LabelEncoder(computeEncoder);
 		descriptor->release();
 		pool->release();
 	}
@@ -121,6 +176,7 @@ MTL::BlitCommandEncoder* CommandBufferObject::BlitEncoder()
 			attachment->setEndOfEncoderSampleIndex(samples->start + 1);
 		}
 		blitEncoder = commandBuffer->blitCommandEncoder(descriptor)->retain();
+		LabelEncoder(blitEncoder);
 		descriptor->release();
 		pool->release();
 	}
@@ -142,6 +198,7 @@ MTL::AccelerationStructureCommandEncoder* CommandBufferObject::AccelerationStruc
 			attachment->setEndOfEncoderSampleIndex(samples->start + 1);
 		}
 		accelerationStructureEncoder = commandBuffer->accelerationStructureCommandEncoder(descriptor)->retain();
+		LabelEncoder(accelerationStructureEncoder);
 		descriptor->release();
 		pool->release();
 	}
@@ -222,12 +279,18 @@ void ReportErrors(MTL::CommandBuffer* commandBuffer)
 		for (NS::UInteger infoIt = 0; infos != nullptr && infoIt < infos->count(); infoIt++)
 		{
 			auto* info = infos->object<MTL::CommandBufferEncoderInfo>(infoIt);
-			if (info->errorState() == MTL::CommandEncoderErrorStateFaulted || info->errorState() == MTL::CommandEncoderErrorStateAffected)
-				std::println(
-					stderr,
-					"Metal:   encoder \"{}\": {}",
-					text(info->label()),
-					info->errorState() == MTL::CommandEncoderErrorStateFaulted ? "faulted" : "affected");
+			if (info->errorState() != MTL::CommandEncoderErrorStateFaulted && info->errorState() != MTL::CommandEncoderErrorStateAffected)
+				continue;
+			// its label (the passes it was begun in) and debug signposts (those begun while it was open): the breadcrumbs
+			std::string signposts;
+			for (NS::UInteger signpostIt = 0; info->debugSignposts() != nullptr && signpostIt < info->debugSignposts()->count(); signpostIt++)
+				signposts += std::format("{}{}", signposts.empty() ? "" : ", ", text(info->debugSignposts()->object<NS::String>(signpostIt)));
+			std::println(
+				stderr,
+				"Metal:   encoder \"{}\": {}{}",
+				text(info->label()),
+				info->errorState() == MTL::CommandEncoderErrorStateFaulted ? "faulted" : "affected",
+				signposts.empty() ? "" : std::format(" (in {})", signposts));
 		}
 		std::fflush(stderr);
 	});

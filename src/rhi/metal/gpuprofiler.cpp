@@ -1,6 +1,6 @@
 // the Metal backend's gpu profiler: its first timestamp, the device's (the rest is every backend's,
 // rhi/gpuprofiler.inl; the timestamps are counter samples where encoders begin and end, see querypool.cpp), and crash
-// breadcrumbs: none yet (the command buffers' errors are reported as they complete, see command.cpp)
+// breadcrumbs: the passes' names on the encoders, which a failed command buffer's report prints (see command.cpp)
 #include <rhi/metal/backend.h>
 
 #include <rhi/crashreport.h>
@@ -29,15 +29,24 @@ uint64_t GpuProfiler<kMetal>::InternalFirstTimestamp(QueueHandle<kMetal> /*queue
 
 #endif
 
+// a pass's name on the command buffer's encoders, which a failed command buffer's report prints (an encoder's label and
+// debug signposts, see CommandBufferObject::BeginBreadcrumb); no report of the device's own yet (docs/backends-plan.md,
+// step 10)
 template <>
-CrashBreadcrumb<kMetal>::CrashBreadcrumb(CommandBufferHandle<kMetal> cmd, std::string_view /*name*/)
+CrashBreadcrumb<kMetal>::CrashBreadcrumb(CommandBufferHandle<kMetal> cmd, std::string_view name)
 	: myCmd(cmd)
-{}
+{
+	myCmd->BeginBreadcrumb(name);
+	mySequence = 1;
+}
 
 template <>
 void CrashBreadcrumb<kMetal>::End()
 {
-	myCmd = nullptr;
+	if (mySequence == 0)
+		return;
+	myCmd->EndBreadcrumb();
+	mySequence = 0;
 }
 
 } // namespace rhi

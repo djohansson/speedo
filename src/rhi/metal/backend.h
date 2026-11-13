@@ -10,10 +10,13 @@
 
 #include <array>
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <optional>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -57,6 +60,16 @@ struct CommandBufferObject
 	std::optional<TimestampSamples> pendingSamples;
 	std::optional<TimestampSamples> openSamples;
 	std::optional<TimestampSamples> lastSamples;
+	// the passes being recorded (CrashBreadcrumb's: the frame graph's), innermost last, so that a failed command buffer's
+	// report names them (each encoder's label and debug signposts, see commandpool::ReportErrors): an encoder made
+	// meanwhile is labelled by them, and one open when a pass begins takes its name as a debug group, popped at the pass's
+	// end or before the encoder ends, whichever is first (Metal's debug groups must balance within an encoder)
+	struct Breadcrumb
+	{
+		std::string name;
+		MTL::CommandEncoder* encoder = nullptr; // the one it was pushed on, while it's open (not retained)
+	};
+	std::vector<Breadcrumb> breadcrumbs;
 	MTL::ComputePipelineState* computePipeline = nullptr; // bound (the pipeline's, not retained)
 	std::array<uint64_t, 3> computeThreadGroupSize{1, 1, 1}; // the bound compute pipeline's (Dispatch's group size)
 	MTL::RenderPipelineState* renderPipeline = nullptr; // bound (the pipeline's, not retained)
@@ -104,6 +117,13 @@ struct CommandBufferObject
 	[[nodiscard]] std::optional<TimestampSample> Timestamp(QueryPoolObject& pool);
 	// the samples an encoder begun now takes (those a timestamp left pending)
 	std::optional<TimestampSamples> BeginSamples();
+	// the encoder open (none, or one of the four)
+	[[nodiscard]] MTL::CommandEncoder* OpenEncoder() const;
+	// an encoder begun now labelled by the passes being recorded (see breadcrumbs)
+	void LabelEncoder(MTL::CommandEncoder* encoder) const;
+	// a pass's breadcrumb begun and ended (CrashBreadcrumb; a secondary's are its primary's)
+	void BeginBreadcrumb(std::string_view name);
+	void EndBreadcrumb();
 };
 
 // a query pool of timestamps: pairs of samples in counter sample buffers (of the device's timestamp counter set, at most
@@ -209,6 +229,18 @@ struct SwapchainObject
 {
 	CA::MetalLayer* layer = nullptr; // the swapchain's surface (not retained here)
 	std::vector<MTL::Texture*> textures; // retained
+
+	// the presents' ids (from 1, Queue::Present's) and the last a drawable's presented handler reported (shown or
+	// dropped: the frame is off the display's queue either way), which Swapchain::WaitPresent waits for. shared with the
+	// handlers, which may run after the swapchain is gone
+	struct Presents
+	{
+		std::mutex mutex;
+		std::condition_variable presentedChanged;
+		uint64_t submitted = 0;
+		uint64_t presented = 0;
+	};
+	std::shared_ptr<Presents> presents = std::make_shared<Presents>();
 };
 
 // the device's allocator: the device heaps are made from (no allocator of Metal's own: a resource not placed in a memory

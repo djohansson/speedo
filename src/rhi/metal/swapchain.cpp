@@ -19,8 +19,10 @@
 #include <objc/runtime.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <format>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <utility>
@@ -216,17 +218,31 @@ QueuePresentInfo<kMetal> Swapchain<kMetal>::PreparePresent()
 	return presentInfo;
 }
 
-// a present's showing isn't waited for (no present ids yet: a drawable's presented handler would tell): "can't tell"
+// the presents' ids are the queue's (Queue::Present), each reported by its drawable's presented handler (shown or dropped)
 template <>
-bool Swapchain<kMetal>::WaitPresent(uint64_t /*presentId*/, uint64_t /*timeout*/) const
+bool Swapchain<kMetal>::WaitPresent(uint64_t presentId, uint64_t timeout) const
 {
-	return false;
+	auto& presents = *mySwapchain->presents;
+	std::unique_lock lock{presents.mutex};
+	auto reported = [&presents, presentId] { return presents.presented >= presentId; };
+	// a timeout past what a duration holds is none
+	if (timeout >= static_cast<uint64_t>(std::chrono::nanoseconds::max().count()))
+	{
+		presents.presentedChanged.wait(lock, reported);
+		return true;
+	}
+	return presents.presentedChanged.wait_for(lock, std::chrono::nanoseconds(timeout), reported);
 }
 
 template <>
-bool Swapchain<kMetal>::WaitPresented(uint64_t /*timeout*/) const
+bool Swapchain<kMetal>::WaitPresented(uint64_t timeout) const
 {
-	return false;
+	uint64_t last = 0;
+	{
+		std::scoped_lock lock{mySwapchain->presents->mutex};
+		last = mySwapchain->presents->submitted;
+	}
+	return last == 0 || WaitPresent(last, timeout);
 }
 
 template <>

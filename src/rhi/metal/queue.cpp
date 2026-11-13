@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <format>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 
@@ -180,6 +181,21 @@ QueueHostSyncInfo<kMetal> Queue<kMetal>::Present(PresentResult* presentResult)
 			result = PresentResult::kSuboptimal;
 			continue;
 		}
+		// the present's id, and its drawable's report once presented (Swapchain::WaitPresent)
+		uint64_t presentId = 0;
+		{
+			std::scoped_lock lock{swapchain->presents->mutex};
+			presentId = ++swapchain->presents->submitted;
+		}
+		drawable->addPresentedHandler(
+			[presents = swapchain->presents, presentId](MTL::Drawable* /*presented*/)
+			{
+				{
+					std::scoped_lock lock{presents->mutex};
+					presents->presented = std::max(presents->presented, presentId);
+				}
+				presents->presentedChanged.notify_all();
+			});
 		MTL::CommandBuffer* commandBuffer = myQueue->commandBuffer();
 		auto* blit = commandBuffer->blitCommandEncoder();
 		blit->copyFromTexture(image, drawable->texture());
