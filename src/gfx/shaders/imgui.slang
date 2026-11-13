@@ -7,16 +7,22 @@
 [[vk::push_constant]]
 ConstantBuffer<ImGuiConstants> gImGui;
 
-// per frame slot, imgui's vertices (ImDrawVert), SHADER_TYPES_IMGUI_VERTEX_WORD_COUNT words each: the position (x, y), the
-// texture coordinates (u, v) and the color (8 bits a channel), as capi.h lays them out
+// set 1's resources, a parameter block's fields in their bindings' order, named as gfx binds them (see bindings.slang)
+struct ImGuiSet
+{
+	// per frame slot, imgui's vertices (ImDrawVert), SHADER_TYPES_IMGUI_VERTEX_WORD_COUNT words each: the position (x, y),
+	// the texture coordinates (u, v) and the color (8 bits a channel), as capi.h lays them out
+	StructuredBuffer<uint> gImGuiVertices[SHADER_TYPES_FRAME_COUNT];
+	// imgui's textures (its font atlas) and those the ui shows (ImGuiRenderer::AddTexture), by slot
+	Texture2D gImGuiTextures[SHADER_TYPES_IMGUI_TEXTURE_COUNT];
+	// linear, clamped to the edge (as imgui's own backends sample)
+	SamplerState gImGuiSampler;
+};
 [[vk::binding(0, 1)]]
-StructuredBuffer<uint> gImGuiVertices[SHADER_TYPES_FRAME_COUNT];
-// imgui's textures (its font atlas) and those the ui shows (ImGuiRenderer::AddTexture), by slot
-[[vk::binding(1, 1)]]
-Texture2D gImGuiTextures[SHADER_TYPES_IMGUI_TEXTURE_COUNT];
-// linear, clamped to the edge (as imgui's own backends sample)
-[[vk::binding(2, 1)]]
-SamplerState gImGuiSampler;
+ParameterBlock<ImGuiSet> gSetImGui;
+#define gImGuiVertices gSetImGui.gImGuiVertices
+#define gImGuiTextures gSetImGui.gImGuiTextures
+#define gImGuiSampler gSetImGui.gImGuiSampler
 
 struct ImGuiVertexOutput
 {

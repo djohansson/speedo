@@ -7,38 +7,43 @@ module environment;
 
 #include "capi.h"
 
-// the source's pyramid (all of its mips), sampled with gSampler (linear, around in u, clamped in v)
+// set 1's resources, a parameter block's fields in their bindings' order, named as gfx binds them (see bindings.slang)
+struct EnvironmentSet
+{
+	// the source's pyramid (all of its mips), sampled with gSampler (linear, around in u, clamped in v)
+	Texture2D gSource;
+	SamplerState gSampler;
+	// one mip of a texture, read by texel (EnvironmentDownsample's level above, EnvironmentCopy's panorama)
+	Texture2D gInput;
+	// the mip level written
+	RWTexture2D<float4> gOutput;
+	// gEnvironment: the sky's sun (read), and the irradiance (written by EnvironmentIrradiance)
+	RWStructuredBuffer<EnvironmentData> gEnvironment;
+	// the sky's tables (see sky.h), sampled with gSampler at their texels' centers and between them (SkySubUv: never past
+	// their edges, so its wrapping in u doesn't matter): the transmittance, the multiple scattering, and the sky's view of
+	// itself, each written through gOutput by its kernel before the next reads it
+	Texture2D gSkyTransmittance;
+	Texture2D gSkyMultipleScattering;
+	Texture2D gSkyView;
+	// and lit by the moon (see EnvironmentSkyView), which the panorama adds to the sun's
+	Texture2D gSkyMoonView;
+};
 [[vk::binding(0, 1)]]
-Texture2D gSource;
-[[vk::binding(1, 1)]]
-SamplerState gSampler;
-// one mip of a texture, read by texel (EnvironmentDownsample's level above, EnvironmentCopy's panorama)
-[[vk::binding(2, 1)]]
-Texture2D gInput;
-// the mip level written
-[[vk::binding(3, 1)]]
-RWTexture2D<float4> gOutput;
-// gEnvironment: the sky's sun (read), and the irradiance (written by EnvironmentIrradiance)
-[[vk::binding(4, 1)]]
-RWStructuredBuffer<EnvironmentData> gEnvironment;
+ParameterBlock<EnvironmentSet> gSetEnvironment;
+#define gSource gSetEnvironment.gSource
+#define gSampler gSetEnvironment.gSampler
+#define gInput gSetEnvironment.gInput
+#define gOutput gSetEnvironment.gOutput
+#define gEnvironment gSetEnvironment.gEnvironment
+#define gSkyTransmittance gSetEnvironment.gSkyTransmittance
+#define gSkyMultipleScattering gSetEnvironment.gSkyMultipleScattering
+#define gSkyView gSetEnvironment.gSkyView
+#define gSkyMoonView gSetEnvironment.gSkyMoonView
 
 // set 0 is the push constants' (as in the main layout), the resources are in set 1
 [[vk::binding(0, 0)]]
 [[vk::push_constant]]
 ConstantBuffer<EnvironmentFilterConstants> gFilter;
-
-// the sky's tables (see sky.h), sampled with gSampler at their texels' centers and between them (SkySubUv: never past
-// their edges, so its wrapping in u doesn't matter): the transmittance, the multiple scattering, and the sky's view of
-// itself, each written through gOutput by its kernel before the next reads it
-[[vk::binding(5, 1)]]
-Texture2D gSkyTransmittance;
-[[vk::binding(6, 1)]]
-Texture2D gSkyMultipleScattering;
-[[vk::binding(7, 1)]]
-Texture2D gSkyView;
-// and lit by the moon (see EnvironmentSkyView), which the panorama adds to the sun's
-[[vk::binding(8, 1)]]
-Texture2D gSkyMoonView;
 
 #include "sky.h"
 

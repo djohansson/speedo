@@ -295,16 +295,22 @@ uint32_t CreateLayoutBindings(
 
 		if (subCategory == SLANG_PARAMETER_CATEGORY_REGISTER_SPACE)
 			bindingSpace = spaceForCategory;
+		else if (subCategory == SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE)
+			bindingSpace = static_cast<unsigned>(offsetForCategory); // a parameter block's set: its fields' (see bindings.slang)
 		else if (subCategory == SLANG_PARAMETER_CATEGORY_UNIFORM)
 			uniformsTotalSize += size;
 	}
 
+	// a parameter block's fields are a descriptor set's bindings, named as the fields are (gfx binds them by name, see
+	// bindings.slang); a struct's are named by their path
+	const bool parameterBlock = kind == slang::TypeReflection::Kind::ParameterBlock;
 	for (auto elementFieldIndex = 0; std::cmp_less(elementFieldIndex, elementFieldCount); elementFieldIndex++)
 	{
 		auto* elementField = (elementTypeLayout != nullptr) ? elementTypeLayout->getFieldByIndex(elementFieldIndex) : nullptr;
 		auto* elementFieldType = (elementField != nullptr) ? elementField->getTypeLayout() : nullptr;
 		auto count = (elementFieldType != nullptr) && elementFieldType->isArray() ? elementFieldType->getFieldCount() : 1;
-		uniformsTotalSize += count * CreateLayoutBindings(elementField, genericParameterIndices, layouts, &bindingSpace, fullName.c_str());
+		uniformsTotalSize += count * CreateLayoutBindings(
+			elementField, genericParameterIndices, layouts, &bindingSpace, parameterBlock ? nullptr : fullName.c_str());
 	}
 
 	for (auto categoryIndex = 0; std::cmp_less(categoryIndex, categoryCount); categoryIndex++)

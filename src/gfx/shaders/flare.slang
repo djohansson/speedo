@@ -13,16 +13,22 @@
 [[vk::push_constant]]
 ConstantBuffer<FlareConstants> gFlare;
 
-// the lens (LensData) and its ghosts, per frame index (the renderer's gLensData and gLensGhosts)
+// set 1's resources, a parameter block's fields in their bindings' order, named as gfx binds them (see bindings.slang)
+struct FlareSet
+{
+	// the lens (LensData) and its ghosts, per frame index (the renderer's gLensData and gLensGhosts)
+	StructuredBuffer<LensData> gFlareLens[SHADER_TYPES_FRAME_COUNT];
+	StructuredBuffer<LensGhost> gFlareGhosts[SHADER_TYPES_FRAME_COUNT];
+	// the frame's sources: how many, then the sources (gLensSourceCount, gLensSources)
+	StructuredBuffer<uint> gFlareSourceCount;
+	StructuredBuffer<LensSource> gFlareSources;
+};
 [[vk::binding(0, 1)]]
-StructuredBuffer<LensData> gFlareLens[SHADER_TYPES_FRAME_COUNT];
-[[vk::binding(1, 1)]]
-StructuredBuffer<LensGhost> gFlareGhosts[SHADER_TYPES_FRAME_COUNT];
-// the frame's sources: how many, then the sources (gLensSourceCount, gLensSources)
-[[vk::binding(2, 1)]]
-StructuredBuffer<uint> gFlareSourceCount;
-[[vk::binding(3, 1)]]
-StructuredBuffer<LensSource> gFlareSources;
+ParameterBlock<FlareSet> gSetFlare;
+#define gFlareLens gSetFlare.gFlareLens
+#define gFlareGhosts gSetFlare.gFlareGhosts
+#define gFlareSourceCount gSetFlare.gFlareSourceCount
+#define gFlareSources gSetFlare.gFlareSources
 
 static const float kFlareLeastVisible = 1e-3; // of white at the view's exposure (lens.slang's)
 static const float kPi = 3.14159265;
