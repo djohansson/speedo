@@ -43,7 +43,7 @@ What the renderer uses, which a backend must provide or have an exception for: V
 | validation, names | Metal's api and shader validation (`MTL_DEBUG_LAYER`, `MTL_SHADER_VALIDATION`); `label`s |
 | memory | buffers and textures from the device or `MTLHeap`s, shared or private storage (unified memory: uploads through shared buffers); no VMA |
 
-The Metal api from C++: metal-cpp (Apple's header only C++ wrapper, `MTL::Buffer*` handles that gfx's translation units can name, the whole backend in the project's C++ toolchain) or Objective-C++ (no dependency, but the project enables C and C++ only, and the handles in `BackendTypes` would be opaque pointers bridged in `.mm` files). vcpkg's registry has no metal-cpp: it would be an overlay port (a download of Apple's headers, nothing built). Recommended: metal-cpp; the user's call, early, since the handles' types follow from it.
+The Metal api from C++: metal-cpp, Apple's header only C++ wrapper (the user's call, 2026-11-13). It is plain C++ calling the Objective-C runtime (`objc_msgSend`), as the platform layer already does without Objective-C (`platform/windowedapplication.cpp`'s presentation options and fullscreen, `platform/glfw.cpp`'s user defaults), so the project stays C and C++, and its handles (`MTL::Buffer*`, ...) are types gfx's translation units can name. The `CAMetalLayer` on glfw's view (`glfwGetCocoaWindow`) is set the same way. vcpkg's registry has no metal-cpp: an overlay port, a download of Apple's headers with nothing built; the backend links Metal, QuartzCore and Foundation.
 
 ## D3D12
 
@@ -76,7 +76,7 @@ Each named in rhi for what the platform lacks, as `drawIndirectCountEmulated` is
 
 1. Portable shader fixes, checked on Vulkan: `WavePrefixSum(1u)` for `WavePrefixCountBits(true)`; a semantic on `VertexOutput.vertex` for slang's crash.
 2. Parameter blocks, one per descriptor set, in every layout's shaders; the reflection names a block's fields as today's globals. Vulkan's sets and bindings unchanged (quick tier, visual checks); then the Metal check over every entry point again, and the HLSL one with `-parameter-blocks-use-register-spaces`.
-3. The backend chosen at build time: `kMetal` beside `kVk`, a preset option, `RHI_SOURCE_FILES` per backend, `BackendTypes<kMetal>`, the backend's files compiling with every function failing at run time (the null backend's compile time proof, as scaffolding), and metal-cpp's port (or Objective-C++, the user's call).
+3. The backend chosen at build time: `kMetal` beside `kVk`, a preset option, `RHI_SOURCE_FILES` per backend, `BackendTypes<kMetal>`, the backend's files compiling with every function failing at run time (the null backend's compile time proof, as scaffolding), and metal-cpp's overlay port.
 4. Device, queues and timelines, buffers and images, shaders (MSL compiled at run time), compute pipelines and argument buffers: the environment filter's dispatches.
 5. Render pipelines and passes, the headless output: a captured frame, compared with KosmicKrisp's (`imagecompare`).
 6. The swapchain (`CAMetalLayer`), present modes, the ImGui renderer.
