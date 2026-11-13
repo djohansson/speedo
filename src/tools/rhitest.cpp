@@ -12,8 +12,10 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <print>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace
@@ -117,6 +119,32 @@ int main(int argc, char** argv)
 	core::Environment env;
 	env.variables["UserProfilePath"] = profile;
 	auto app = core::CreateApplication<TestApplication>("rhitest", std::move(env));
+
+	// the kernel compiled to MSL has the layouts spir-v's has (the shader compiler reflects the spir-v target for both,
+	// see shadercompiler.cpp): a set, a binding, a buffer, and the push constants
+	{
+		gfx::ShaderLoader::SlangConfiguration config{
+			.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+			.entryPoints = {{"ComputeRhiTest", SLANG_STAGE_COMPUTE}},
+			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+		};
+		auto spirv = gfx::ShaderLoader::Compile(shaderDir / "rhitest.slang", config, {shaderDir}, std::nullopt);
+		config.format = rhi::ShaderFormat::kMsl;
+		auto msl = gfx::ShaderLoader::Compile(shaderDir / "rhitest.slang", config, {shaderDir}, std::nullopt);
+		auto bindings = [](const rhi::ShaderSet& set)
+		{
+			std::string text;
+			for (const auto& [index, layout] : set.layouts)
+				for (const auto& binding : layout.bindings)
+					text += std::format("{}:{}:{}:{} ", index, binding.binding, binding.name, binding.count);
+			return text;
+		};
+		std::string_view source(std::get<0>(msl.shaders.front()).data(), std::get<0>(msl.shaders.front()).size());
+		bool same = bindings(spirv) == bindings(msl) && source.contains("[[kernel]]");
+		std::println("{} msl: layouts {}, the kernel's MSL {} bytes", same ? "PASS" : "FAIL", bindings(msl), source.size());
+		if (!same)
+			return 1;
+	}
 
 	bool passed = Run<kVk>("vulkan", shaderDir);
 	return passed ? 0 : 1;

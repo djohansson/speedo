@@ -46,6 +46,7 @@ std::tuple<SlangCompileTarget, const char*> SlangTarget(rhi::ShaderFormat format
 	switch (format)
 	{
 	case rhi::ShaderFormat::kSpirv16: return {SLANG_SPIRV, "SPIRV_1_6"};
+	case rhi::ShaderFormat::kMsl: return {SLANG_METAL, ""};
 	}
 	ASSERT(false);
 	return {SLANG_TARGET_UNKNOWN, ""};
@@ -391,9 +392,19 @@ Response Compile(const Request& request)
 	for (const auto& [key, value] : request.definitions)
 		spAddPreprocessorDefine(slangRequest, key.c_str(), value.c_str());
 
+	// the code's target. for a format other than spir-v, spir-v first all the same: the reflection is the first target's,
+	// and rhi's layouts are its descriptor sets and bindings (slang reflects Metal's argument buffers otherwise), which
+	// the other backends map their own way (see docs/backends-plan.md); the code is then the second target's
+	if (request.format != rhi::ShaderFormat::kSpirv16)
+	{
+		auto [reflectionTarget, reflectionProfile] = SlangTarget(rhi::ShaderFormat::kSpirv16);
+		int reflectionIndex = spAddCodeGenTarget(slangRequest, reflectionTarget);
+		spSetTargetProfile(slangRequest, reflectionIndex, spFindProfile(gSession, reflectionProfile));
+	}
 	auto [target, targetProfile] = SlangTarget(request.format);
-	int targetIndex = spAddCodeGenTarget(slangRequest, target);
-	spSetTargetProfile(slangRequest, targetIndex, spFindProfile(gSession, targetProfile));
+	const int codeTargetIndex = spAddCodeGenTarget(slangRequest, target);
+	if (*targetProfile != '\0')
+		spSetTargetProfile(slangRequest, codeTargetIndex, spFindProfile(gSession, targetProfile));
 
 	// keep the entry points' names in the binaries (rhi::EntryPoint names them): for spir-v, slang otherwise renames every
 	// entry point to "main"
@@ -438,7 +449,7 @@ Response Compile(const Request& request)
 	for (size_t entryPointIt = 0; entryPointIt < entryPoints.size(); entryPointIt++)
 	{
 		ISlangBlob* blob = nullptr;
-		if (SLANG_FAILED(spGetEntryPointCodeBlob(slangRequest, static_cast<int>(entryPointIt), 0, &blob)))
+		if (SLANG_FAILED(spGetEntryPointCodeBlob(slangRequest, static_cast<int>(entryPointIt), codeTargetIndex, &blob)))
 		{
 			spDestroyCompileRequest(slangRequest);
 			response.diagnostics += std::format("failed to get the code of the entry point {}", std::get<0>(entryPoints[entryPointIt]));

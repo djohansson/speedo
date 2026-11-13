@@ -105,7 +105,7 @@ std::string ShaderLoader::ParametersHash(const SlangConfiguration& config)
 	params.append("slang-");
 	params.append(SPEEDO_SLANG_VERSION); // slang's version (its port's), so upgrading it recompiles
 	params.append("|cache-v7"); // bump when the serialized ShaderSet layout changes, to invalidate stale caches
-	params.append(std::format("|format-{}", std::to_underlying(rhi::kShaderFormat)));
+	params.append(std::format("|format-{}", std::to_underlying(config.format)));
 	params.append(config.ToString());
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2{};
@@ -137,7 +137,7 @@ rhi::ShaderSet ShaderLoader::Compile(
 		compiler.error);
 
 	shadercompiler::Request request{
-		.format = rhi::kShaderFormat,
+		.format = config.format,
 		.file = file.generic_string(),
 		.intermediatePath = intermediatePath ? intermediatePath->generic_string() : std::string{},
 		.sourceLanguage = static_cast<int32_t>(config.sourceLanguage),

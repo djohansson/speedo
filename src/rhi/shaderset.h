@@ -16,10 +16,11 @@
 namespace rhi
 {
 
-// the shader binary format the build's graphics api takes
+// the shader binary formats the backends take: a build's client takes rhi::kShaderFormat
 enum class ShaderFormat : uint8_t
 {
-	kSpirv16, // spir-v 1.6
+	kSpirv16, // spir-v 1.6 (Vulkan)
+	kMsl, // Metal shading language source, an entry point each (Metal, see docs/backends-plan.md)
 };
 
 using ShaderBinary = std::vector<char>;
