@@ -474,8 +474,9 @@ std::vector<EnvironmentOutput> RunEnvironment(const std::filesystem::path& shade
 }
 
 // a draw through a render pass (tools/rhitestdraw.slang): a 64x64 color target cleared, with a depth buffer cleared to
-// the far plane (0: depth reversed), three triangles drawn into it (one big, one behind it, one in front of it), the
-// color read back for main to compare the backends'
+// the far plane (0: depth reversed), three triangles drawn into it (one big, one behind it, one in front of it), two
+// with back faces culled (one wound the other way), and an indirect draw of two (each its record by its first
+// instance), the color read back for main to compare the backends'
 constexpr uint32_t kDrawSize = 64;
 
 template <GraphicsApi G>
@@ -483,23 +484,49 @@ std::vector<uint8_t> RunDraw(const std::filesystem::path& shaderDir, rhi::Device
 {
 	using namespace rhi;
 
+	// as the shader lays it out, padded to 48 bytes explicitly (see rhitestdraw.slang: the same on both backends)
 	struct RhiTestDrawConstants
 	{
 		std::array<float, 4> color;
 		std::array<float, 2> offset;
 		std::array<float, 2> scale;
 		float depth;
+		std::array<float, 3> padding{};
 	};
+	static_assert(sizeof(RhiTestDrawConstants) == 48);
 
 	auto& pipeline = device.GetPipeline();
-	gfx::ShaderLoader::SlangConfiguration config{
-		.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
-		.entryPoints = {{"VertexRhiTestDraw", SLANG_STAGE_VERTEX}, {"FragmentRhiTestDraw", SLANG_STAGE_FRAGMENT}},
-		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+	auto drawLayout = [&](const char* name, const char* vertexEntryPoint)
+	{
+		gfx::ShaderLoader::SlangConfiguration config{
+			.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+			.entryPoints = {{vertexEntryPoint, SLANG_STAGE_VERTEX}, {"FragmentRhiTestDraw", SLANG_STAGE_FRAGMENT}},
+			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+		};
+		config.format = G == kMetal ? ShaderFormat::kMsl : ShaderFormat::kSpirv16;
+		return pipeline.CreateLayout(name, gfx::ShaderLoader::Compile(shaderDir / "rhitestdraw.slang", config, {shaderDir}, std::nullopt));
 	};
-	config.format = G == kMetal ? ShaderFormat::kMsl : ShaderFormat::kSpirv16;
-	auto layout = pipeline.CreateLayout(
-		"RhiTestDraw", gfx::ShaderLoader::Compile(shaderDir / "rhitestdraw.slang", config, {shaderDir}, std::nullopt));
+	auto layout = drawLayout("RhiTestDraw", "VertexRhiTestDraw");
+	auto indirectLayout = drawLayout("RhiTestDrawIndirect", "VertexRhiTestDrawIndirect");
+
+	// an indirect draw's: two records (gDraws), an index buffer of one triangle, and two commands naming a record each by
+	// their first instance (index count, instance count, first index, vertex offset, first instance)
+	auto hostBuffer = [&device](const char* name, uint64_t size, BufferUsage usage, const void* data)
+	{
+		Buffer<G> buffer(BufferCreateDesc<G>{
+			device.CreateDeviceObjectCreateDesc(name), size, usage, MemoryProperty::kHostVisible | MemoryProperty::kHostCoherent});
+		std::memcpy(buffer.Map().data(), data, size);
+		return buffer;
+	};
+	const std::array<RhiTestDrawConstants, 2> records{{
+		{.color = {1.0F, 0.0F, 1.0F, 1.0F}, .offset = {-0.75F, 0.55F}, .scale = {0.2F, 0.2F}, .depth = 0.9F},
+		{.color = {0.0F, 1.0F, 1.0F, 1.0F}, .offset = {-0.35F, 0.75F}, .scale = {0.15F, 0.15F}, .depth = 0.9F},
+	}};
+	const std::array<uint32_t, 3> indices{0, 1, 2};
+	const std::array<std::array<uint32_t, 5>, 2> commands{{{3, 1, 0, 0, 0}, {3, 1, 0, 0, 1}}};
+	auto recordBuffer = hostBuffer("RhiTest Draw Records", sizeof(records), BufferUsage::kStorage, records.data());
+	auto indexBuffer = hostBuffer("RhiTest Draw Indices", sizeof(indices), BufferUsage::kIndex, indices.data());
+	auto commandBuffer = hostBuffer("RhiTest Draw Commands", sizeof(commands), BufferUsage::kIndirect, commands.data());
 
 	auto attachment = [&device](const char* name, Format format, ImageUsage usage, ImageAspect aspect)
 	{
@@ -558,6 +585,14 @@ std::vector<uint8_t> RunDraw(const std::filesystem::path& shaderDir, rhi::Device
 			encoder.SetCullMode(CullMode::kBack);
 			draw({.color = {0.0F, 0.0F, 1.0F, 1.0F}, .offset = {0.45F, 0.45F}, .scale = {0.25F, 0.25F}, .depth = 0.9F});
 			draw({.color = {1.0F, 1.0F, 0.0F, 1.0F}, .offset = {0.75F, 0.75F}, .scale = {-0.2F, 0.2F}, .depth = 0.9F});
+			// an indirect draw of two commands, each its record by its first instance, in the lower left
+			encoder.SetCullMode(CullMode::kNone);
+			pipeline.BindLayoutAuto(indirectLayout, PipelineBindPoint::kGraphics);
+			pipeline.SetDescriptorData("gDraws", BufferBinding<G>{.buffer = recordBuffer}, kSet);
+			pipeline.BindDescriptorSetAuto(cmd, kSet);
+			pipeline.BindPipelineAuto(cmd, GraphicsPipelineVariant{.blend = {BlendMode::kOpaque}});
+			encoder.BindIndexBuffer(indexBuffer, 0, IndexType::kUint32);
+			encoder.DrawIndexedIndirect(commandBuffer, 0, static_cast<uint32_t>(commands.size()), sizeof(commands[0]));
 			target.End(cmd);
 			target.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor, 0);
 			encoder.CopyImageToBuffer(*target.GetImage(0), readback);

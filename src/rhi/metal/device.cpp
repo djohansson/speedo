@@ -72,6 +72,31 @@ Device<kMetal>::~Device()
 }
 
 template <>
+DeviceLimits Device<kMetal>::GetLimits() const
+{
+	// Apple's gpus' (the Metal feature set tables, Apple7 and up): argument buffers of tier 2 hold up to 500000 textures;
+	// no draw count indirect in Metal (the renderer draws its commands' slots then, zeroed past the count, see
+	// DeviceLimits::drawIndirectCountEmulated), an indirect draw's commands issued one by one (CommandEncoder::
+	// DrawIndexedIndirect); timestamps in nanoseconds (counter sample buffers, step 7); no ray queries yet (step 7)
+	constexpr uint32_t kArgumentBufferTextureCount = 500000;
+	constexpr uint32_t kMaxDrawIndirectCount = 1U << 24U;
+	constexpr uint32_t kMaxImageDimension2d = 16384;
+	constexpr uint32_t kMaxImageDimension3d = 2048;
+	constexpr uint32_t kScratchAlignment = 256;
+	return DeviceLimits{
+		.maxStorageBufferRange = myDevice->maxBufferLength(),
+		.maxPerStageSampledImages = kArgumentBufferTextureCount,
+		.maxDrawIndirectCount = kMaxDrawIndirectCount,
+		.maxImageDimension2d = kMaxImageDimension2d,
+		.maxImageDimension3d = kMaxImageDimension3d,
+		.timestampPeriod = 1.0F,
+		.drawIndirectCount = false,
+		.drawIndirectCountEmulated = false,
+		.rayQuery = false,
+		.accelerationStructureScratchAlignment = kScratchAlignment};
+}
+
+template <>
 std::string_view Device<kMetal>::GetName() const
 {
 	return myDevice->name()->utf8String();

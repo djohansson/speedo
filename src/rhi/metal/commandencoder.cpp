@@ -187,6 +187,39 @@ void CommandEncoder<kMetal>::DrawIndexed(
 }
 
 template <>
+void CommandEncoder<kMetal>::DrawIndexedIndirect(const Buffer<kMetal>& buffer, uint64_t offset, uint32_t drawCount, uint32_t stride) const
+{
+	ZoneScopedN("CommandEncoder::DrawIndexedIndirect");
+
+	// a Metal indirect draw per command (its indexed arguments are laid out as rhi's commands: index count, instance count,
+	// first index, vertex offset, first instance, which the vertex stage takes as its base instance), issued from the
+	// host: an indirect command buffer would issue them in one call (later)
+	const auto& indices = myCmd->indices;
+	ENSUREF(indices.buffer != nullptr, "an indexed draw without an index buffer bound (CommandEncoder::BindIndexBuffer)");
+	auto* encoder = commandencoder::PrepareDraw(*myCmd);
+	for (uint32_t drawIt = 0; drawIt < drawCount; drawIt++)
+		encoder->drawIndexedPrimitives(
+			myCmd->primitiveType,
+			indices.wide ? MTL::IndexTypeUInt32 : MTL::IndexTypeUInt16,
+			indices.buffer,
+			indices.offset,
+			buffer,
+			offset + (uint64_t{drawIt} * stride));
+}
+
+template <>
+void CommandEncoder<kMetal>::DrawIndexedIndirectCount(
+	const Buffer<kMetal>& /*buffer*/,
+	uint64_t /*offset*/,
+	const Buffer<kMetal>& /*countBuffer*/,
+	uint64_t /*countOffset*/,
+	uint32_t /*maxDrawCount*/,
+	uint32_t /*stride*/) const
+{
+	ENSUREF(false, "Metal has no draw count indirect (DeviceLimits::drawIndirectCount is false: draw the commands' slots instead)");
+}
+
+template <>
 void CommandEncoder<kMetal>::CopyImageToBuffer(ImageHandle<kMetal> image, Extent2d extent, const Buffer<kMetal>& buffer) const
 {
 	ZoneScopedN("CommandEncoder::CopyImageToBuffer");
