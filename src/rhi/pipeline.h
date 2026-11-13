@@ -89,6 +89,22 @@ template <GraphicsApi G>
 struct PipelineCacheHeader
 {};
 
+// the graphics state a pipeline is made from, in the backend's terms (its shader stages, the render target's formats,
+// the fixed function state): set by BindLayoutAuto and SetRenderTarget, copied into a snapshot for each pipeline made,
+// read by the backend alone. each backend's in its pipelinestate.inl, included below
+template <GraphicsApi G>
+struct PipelineGraphicsState;
+
+} // namespace rhi
+
+#include "vulkan/pipelinestate.inl"
+#if defined(__OSX__)
+#include "metal/pipelinestate.inl"
+#endif
+
+namespace rhi
+{
+
 template <GraphicsApi G>
 struct PipelineCreateDesc final : DeviceObjectCreateDesc<G>
 {
@@ -324,24 +340,8 @@ private:
 	typename PipelineLayoutSetType::iterator myCurrentLayoutIt{};
 	// end auto api shared state
 
-	struct GraphicsState
-	{
-		std::vector<PipelineShaderStageCreateInfo<G>> shaderStages;
-		uint32_t shaderStageFlags{};
-		PipelineVertexInputStateCreateInfo<G> vertexInput{};
-		PipelineInputAssemblyStateCreateInfo<G> inputAssembly{};
-		std::vector<NativeViewport<G>> viewports;
-		std::vector<NativeRect<G>> scissorRects;
-		PipelineViewportStateCreateInfo<G> viewport{};
-		PipelineRasterizationStateCreateInfo<G> rasterization{};
-		PipelineMultisampleStateCreateInfo<G> multisample{};
-		PipelineDepthStencilStateCreateInfo<G> depthStencil{};
-		std::vector<PipelineColorBlendAttachmentState<G>> colorBlendAttachments{};
-		PipelineColorBlendStateCreateInfo<G> colorBlend{};
-		std::vector<DynamicState<G>> dynamicStateDescs;
-		PipelineDynamicStateCreateInfo<G> dynamicState{};
-		std::optional<PipelineRenderingCreateInfo<G>> dynamicRendering{};
-	} myGraphicsState{};
+	using GraphicsState = PipelineGraphicsState<G>;
+	GraphicsState myGraphicsState{};
 
 	struct ComputeState
 	{
