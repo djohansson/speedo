@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -283,7 +284,15 @@ bool RunImages(const char* backend, const std::filesystem::path& shaderDir, rhi:
 	return stored && sampledRight;
 }
 
-// a half float's value (the environment's tables and panorama are RGBA16F, as the client's)
+// whether a half float is an infinity or a NaN (its exponent's bits all set): told by its bits, since the profile and
+// release builds' -ffast-math makes a test of the float undefined (std::isfinite folds to true)
+bool HalfIsFinite(uint16_t half)
+{
+	return ((half >> 10U) & 0x1fU) != 0x1fU;
+}
+
+// a half float's value (the environment's tables and panorama are RGBA16F, as the client's); an infinity or a NaN made
+// from its bits (-ffast-math leaves numeric_limits' undefined as well)
 float HalfToFloat(uint16_t half)
 {
 	const uint32_t sign = (half >> 15U) & 1U;
@@ -293,7 +302,7 @@ float HalfToFloat(uint16_t half)
 	if (exponent == 0)
 		value = std::ldexp(static_cast<float>(mantissa), -24);
 	else if (exponent == 0x1fU)
-		value = mantissa == 0 ? std::numeric_limits<float>::infinity() : std::numeric_limits<float>::quiet_NaN();
+		return std::bit_cast<float>((sign << 31U) | 0x7f800000U | (mantissa << 13U));
 	else
 		value = std::ldexp(static_cast<float>(mantissa | 0x400U), static_cast<int>(exponent) - 25);
 	return sign != 0 ? -value : value;
@@ -306,6 +315,7 @@ struct EnvironmentOutput
 	uint32_t width = 0;
 	uint32_t height = 0;
 	std::vector<float> channels;
+	bool finite = true; // no channel an infinity or a NaN (HalfIsFinite)
 };
 
 // the client's environment kernels (gfx/shaders/environment.slang, its layout's set pushed at each dispatch as
@@ -467,7 +477,10 @@ std::vector<EnvironmentOutput> RunEnvironment(const std::filesystem::path& shade
 		EnvironmentOutput result{.name = output.name, .width = output.width, .height = output.height, .channels = {}};
 		result.channels.reserve(halves.size());
 		for (auto half : halves)
+		{
+			result.finite = result.finite && HalfIsFinite(half);
 			result.channels.push_back(HalfToFloat(half));
+		}
 		outputs.push_back(std::move(result));
 	}
 	return outputs;
@@ -763,13 +776,10 @@ bool CheckEnvironment(const char* backend, const std::vector<EnvironmentOutput>&
 	for (size_t outputIt = 0; outputIt < outputs.size(); outputIt++)
 	{
 		const auto& output = outputs[outputIt];
+		const bool finite = output.finite;
 		bool lit = false;
-		bool finite = true;
 		for (float value : output.channels)
-		{
-			finite = finite && std::isfinite(value);
 			lit = lit || value > 0.0F;
-		}
 		if (reference == nullptr)
 		{
 			bool ok = finite && lit;
