@@ -404,6 +404,7 @@ if(APPLE)
 		${SPEEDO_SOURCE_DIR}/rhi/metal/commandencoder.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/descriptorset.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/device.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/image.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/instance.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/instantiate.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/metalcpp.cpp

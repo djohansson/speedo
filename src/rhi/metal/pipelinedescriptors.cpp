@@ -19,7 +19,7 @@ namespace pipeline
 {
 
 // a set's values written into its argument buffer, by the template's entries (see DescriptorSetLayoutObject), and what
-// they reference collected
+// they reference collected (buffers, textures, acceleration structures: samplers aren't resources)
 static void EncodeDescriptorSet(
 	const metal::DescriptorSetLayoutObject& layout,
 	const BindingsData<kMetal>& bindingsData,
@@ -57,9 +57,23 @@ static void EncodeDescriptorSet(
 			}
 			else if (const auto* image = std::get_if<DescriptorImageInfo<kMetal>>(&value))
 			{
-				ENSUREF(image->imageView == nullptr, "the Metal backend's images come with its image views (docs/backends-plan.md, step 4)");
-				ENSUREF(image->sampler != nullptr, "binding {} has no sampler", entry.dstBinding);
-				MTL::ResourceID id = image->sampler->gpuResourceID();
+				// a texture (sampled or storage) or a sampler, each an entry of its own: slang splits a combined image
+				// sampler into two fields, which a layout's binding of one count doesn't make room for
+				ENSUREF(
+					entry.descriptorType != DescriptorType::kCombinedImageSampler,
+					"the Metal backend's argument buffers hold no combined image samplers (binding {}): bind the texture and sampler apart",
+					entry.dstBinding);
+				MTL::ResourceID id{};
+				if (image->imageView != nullptr)
+				{
+					id = image->imageView->texture->gpuResourceID();
+					resources.push_back(image->imageView->texture);
+				}
+				else
+				{
+					ENSUREF(image->sampler != nullptr, "binding {} has neither an image nor a sampler", entry.dstBinding);
+					id = image->sampler->gpuResourceID();
+				}
 				std::memcpy(slot, &id, sizeof(id));
 			}
 			else if (const auto* accelerationStructure = std::get_if<AccelerationStructureHandle<kMetal>>(&value))

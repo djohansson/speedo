@@ -88,6 +88,16 @@ struct PipelineLayoutObject
 	uint32_t pushConstantSize = 0;
 };
 
+// an image view: a texture view of the image's texture (a format, its levels, a swizzle)
+struct ImageViewObject
+{
+	MTL::Texture* texture = nullptr; // retained
+};
+
+// rhi's format as Metal's (image.cpp): fails hard for one Metal hasn't (24 bit color, depth 24 stencil 8 on Apple's
+// gpus)
+[[nodiscard]] MTL::PixelFormat ToMetal(Format format);
+
 // a fence: a shared event and the value it waits for
 struct FenceObject
 {
