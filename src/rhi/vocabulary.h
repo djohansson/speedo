@@ -413,6 +413,35 @@ struct FormatBlock
 
 // the bytes an extent of format takes packed: its rows of blocks, and its slices, each right after the one before (as
 // a copy reads a buffer given no row length)
+// a format's aspects: depth and/or stencil for the depth formats, color for the others (kUndefined's too, as Vulkan's
+// backend had it)
+[[nodiscard]] constexpr bool HasDepthComponent(Format format) noexcept
+{
+	return format == Format::kD32Sfloat || format == Format::kD32SfloatS8Uint || format == Format::kD24UnormS8Uint;
+}
+
+[[nodiscard]] constexpr bool HasStencilComponent(Format format) noexcept
+{
+	return format == Format::kD32SfloatS8Uint || format == Format::kD24UnormS8Uint;
+}
+
+[[nodiscard]] constexpr bool HasColorComponent(Format format) noexcept
+{
+	return !HasDepthComponent(format) && !HasStencilComponent(format);
+}
+
+[[nodiscard]] constexpr ImageAspect AspectOf(Format format) noexcept
+{
+	if (HasColorComponent(format))
+		return ImageAspect::kColor;
+	auto aspect = ImageAspect::kNone;
+	if (HasDepthComponent(format))
+		aspect |= ImageAspect::kDepth;
+	if (HasStencilComponent(format))
+		aspect |= ImageAspect::kStencil;
+	return aspect;
+}
+
 [[nodiscard]] constexpr uint64_t PackedByteCount(Format format, Extent3d extent) noexcept
 {
 	auto block = BlockOf(format);

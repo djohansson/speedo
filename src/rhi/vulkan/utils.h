@@ -90,22 +90,8 @@ template <typename T>
 [[nodiscard]] bool HasStencilComponent(VkFormat format);
 [[nodiscard]] bool HasDepthComponent(VkFormat format);
 
-[[nodiscard]] inline bool HasColorComponent(rhi::Format format) { return HasColorComponent(rhi::vk::ToVk(format)); }
-[[nodiscard]] inline bool HasStencilComponent(rhi::Format format) { return HasStencilComponent(rhi::vk::ToVk(format)); }
-[[nodiscard]] inline bool HasDepthComponent(rhi::Format format) { return HasDepthComponent(rhi::vk::ToVk(format)); }
-
-// the aspects of an image of format: color, or depth and/or stencil
-[[nodiscard]] inline rhi::ImageAspect AspectOf(rhi::Format format)
-{
-	if (HasColorComponent(format))
-		return rhi::ImageAspect::kColor;
-	auto aspect = rhi::ImageAspect::kNone;
-	if (HasDepthComponent(format))
-		aspect |= rhi::ImageAspect::kDepth;
-	if (HasStencilComponent(format))
-		aspect |= rhi::ImageAspect::kStencil;
-	return aspect;
-}
+// (rhi's formats' aspects, HasColorComponent, HasDepthComponent, HasStencilComponent and AspectOf, are rhi's vocabulary:
+// argument-dependent lookup finds them for an rhi::Format)
 
 [[nodiscard]] uint32_t
 FindMemoryType(VkPhysicalDevice device, uint32_t typeFilter, VkMemoryPropertyFlags properties);
