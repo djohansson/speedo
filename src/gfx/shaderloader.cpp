@@ -10,6 +10,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstdio>
 #include <format>
 #include <print>
 #include <span>
@@ -163,9 +164,14 @@ rhi::ShaderSet ShaderLoader::Compile(
 	compiler.free(responseBytes);
 	ENSUREF(!zpp::bits::failure(deserialized), "failed to read the compile of {}", file.string());
 
+	// a failure's diagnostics in its message: printed before it, to a piped stdout, they were lost when the assert trapped
+	// before the buffer was flushed (a client's log in assettest)
+	ENSUREF(response.ok, "Failed to compile slang file {}:\n{}", file.string(), response.diagnostics);
 	if (!response.diagnostics.empty())
+	{
 		std::print("{}", response.diagnostics);
-	ENSUREF(response.ok, "Failed to compile slang file {}.", file.string());
+		std::fflush(stdout);
+	}
 
 	if (dependencies != nullptr)
 		for (const auto& dependency : response.dependencies)
