@@ -448,9 +448,9 @@ change is the user's to submit). On Windows the port bootstraps pip itself befor
 whose pip doesn't run on the Python 3.15 the newer scripts acquire there (upstream's took 26.2.2 on 2026-10-27,
 d90cb72e90); drop it with a baseline past that commit. The feature built on macOS first in a scratch tree (2026-11-10:
 the client headless on it, BumpDomes in 17 s); macOS's host package has it since 2026-11-13 (the user's ask: CI's macOS
-job runs the visual checks on it too), with the macos platform as KosmicKrisp. The portfile's first comment still calls
-the feature Windows' and Linux's: the port's files are in its hash on every platform, so it is corrected with the next
-change that rebuilds mesa everywhere anyway. Release packages don't ship lavapipe (the bundle takes KosmicKrisp's dylib
+job runs the visual checks on it too), with the macos platform as KosmicKrisp. The portfile's comments are in the port's
+hash on every platform: correcting its first, which called the feature Windows' and Linux's, rebuilt mesa on all three
+(the user's call). Release packages don't ship lavapipe (the bundle takes KosmicKrisp's dylib
 and manifest by name), and list mesa's license only on macOS, where KosmicKrisp ships.
 
 The port patches the fork's source, locally, with `0001-kk-workaround-63-encoder-end-resolve.patch`: a workaround for an
