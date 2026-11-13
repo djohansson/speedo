@@ -1140,7 +1140,7 @@ void WindowedApplication::PrepareDraw()
 
 	// View > Statistics (SPEEDO_SHOW_STATISTICS=1 at startup), in the builds that profile (debug and profile): the pass
 	// timings (the frame graph's, written in those builds only), submits and transient memory, and in debug the vulkan
-	// objects (tracked by validation builds only)
+	// objects (tracked by validation builds only, and by the Vulkan backend alone)
 #if (SPEEDO_PROFILING_LEVEL > 0)
 	static bool gShowStatistics = []
 	{
@@ -1154,9 +1154,10 @@ void WindowedApplication::PrepareDraw()
 			{
 				CloseOnEscape(gShowStatistics);
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-				if (CollapsingHeader("Vulkan Objects"))
-					for (const auto& [name, count] : GetObjectCounts<gfx::kGraphicsApi>())
-						Text("%.*s: %u", static_cast<int>(name.size()), name.data(), count);
+				if constexpr (gfx::kGraphicsApi == kVk)
+					if (CollapsingHeader("Vulkan Objects"))
+						for (const auto& [name, count] : GetObjectCounts<kVk>())
+							Text("%.*s: %u", static_cast<int>(name.size()), name.data(), count);
 #endif
 
 				// gpu submits per frame, averaged over half a second as the frame rate is (see Draw)
