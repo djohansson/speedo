@@ -419,137 +419,8 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(
 	return pipelineHandle;
 }
 
-template <>
-PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(GraphicsPipelineVariant variant, ComputePipelineVariant computeVariant)
-{
-	ZoneScopedN("Pipeline::InternalGetPipeline");
-
-	auto key = InternalCalculateHashKey(variant, computeVariant);
-	auto& sync = *myPipelineMapSync;
-	std::unique_lock lock(sync.mutex);
-	auto [it, inserted] = myPipelineMap.try_emplace(key, PipelineHandle<kVk>{});
-	if (!inserted)
-	{
-		// created, or being created (here, or by a job from RequestGraphicsPipeline): wait for it
-		if (it->second == nullptr)
-		{
-			ZoneScopedN("Pipeline::InternalGetPipeline::wait");
-			CrashBusy busy; // another thread compiles it (see CrashBusy)
-			sync.created.wait(lock, [this, key] { return myPipelineMap.at(key) != nullptr; });
-		}
-		return myPipelineMap.at(key);
-	}
-
-	// create it, without holding the lock (others asking for it wait above)
-	lock.unlock();
-	PipelineHandle<kVk> handle{};
-	{
-		ZoneScopedN("Pipeline::InternalGetPipeline::create");
-		CrashBusy busy; // inside the driver's compile (see CrashBusy)
-		switch (myBindPoint)
-		{
-		case PipelineBindPoint::kGraphics:
-			handle = InternalCreateGraphicsPipeline(key, variant, *InternalSnapshotGraphicsState());
-			break;
-		case PipelineBindPoint::kCompute:
-		{
-			const auto layoutIt = InternalGetLayout();
-			ENSURE(layoutIt != myPipelineLayouts.end());
-			ENSUREF(
-				computeVariant.entryPoint < myComputeState.shaderStages.size(),
-				"the layout has no compute entry point {} (it has {})",
-				computeVariant.entryPoint,
-				myComputeState.shaderStages.size());
-			handle = InternalCreateComputePipeline(key, computeVariant, myComputeState.shaderStages[computeVariant.entryPoint], *layoutIt);
-			break;
-		}
-		default:
-			ASSERTF(false, "Not implemented");
-		}
-	}
-	// the draw thread made progress (CrashWatch): after a shader change, its first frames create the GI's compute pipelines
-	// cold, which KosmicKrisp compiles in Metal, over 20 s in all, and the watch reported a hang at startup (here, where the
-	// draw thread binds, not in the background jobs of RequestGraphicsPipeline, whose progress isn't the draw thread's)
-	CrashHeartbeat();
-	lock.lock();
-	myPipelineMap.at(key) = handle;
-	sync.created.notify_all();
-	return handle;
-}
-
-template <>
-Pipeline<kVk>::GraphicsPipelineRequest Pipeline<kVk>::RequestGraphicsPipeline(GraphicsPipelineVariant variant)
-{
-	ZoneScopedN("Pipeline::RequestGraphicsPipeline");
-
-	ENSURE(myBindPoint == PipelineBindPoint::kGraphics);
-	auto key = InternalCalculateHashKey(variant);
-	auto& sync = *myPipelineMapSync;
-	{
-		std::unique_lock lock(sync.mutex);
-		auto [it, inserted] = myPipelineMap.try_emplace(key, PipelineHandle<kVk>{});
-		if (!inserted)
-			return {.handle = it->second};
-	}
-
-	// the first ask: a task creating it from the state as it is now
-	return {
-		.handle = {},
-		.create = core::CreateTask(
-			[this, key, variant, snapshot = InternalSnapshotGraphicsState()]
-			{
-				auto handle = InternalCreateGraphicsPipeline(key, variant, *snapshot);
-				auto& sync = *myPipelineMapSync;
-				std::unique_lock lock(sync.mutex);
-				myPipelineMap.at(key) = handle;
-				sync.created.notify_all();
-			}).handle};
-}
-
-template <>
-std::vector<core::TaskCreateInfo<void>> Pipeline<kVk>::RequestComputePipelines(std::span<const ComputePipelineVariant> variants)
-{
-	ZoneScopedN("Pipeline::RequestComputePipelines");
-
-	ENSURE(myBindPoint == PipelineBindPoint::kCompute);
-	const auto layoutIt = InternalGetLayout();
-	ENSURE(layoutIt != myPipelineLayouts.end());
-	PipelineLayoutHandle<kVk> layout = *layoutIt;
-
-	std::vector<core::TaskCreateInfo<void>> tasks;
-	auto& sync = *myPipelineMapSync;
-	for (const auto& variant : variants)
-	{
-		ENSUREF(
-			variant.entryPoint < myComputeState.shaderStages.size(),
-			"the layout has no compute entry point {} (it has {})",
-			variant.entryPoint,
-			myComputeState.shaderStages.size());
-		auto key = InternalCalculateHashKey({}, variant);
-		{
-			std::unique_lock lock(sync.mutex);
-			if (auto [it, inserted] = myPipelineMap.try_emplace(key, PipelineHandle<kVk>{}); !inserted)
-				continue; // created, or being created
-		}
-		// its entry point's stage as it is now (the module and name are the layout's, which outlives the task)
-		tasks.push_back(core::CreateTask(
-			[this, key, variant, stage = myComputeState.shaderStages[variant.entryPoint], layout]
-			{
-				auto handle = InternalCreateComputePipeline(key, variant, stage, layout);
-				auto& sync = *myPipelineMapSync;
-				std::unique_lock lock(sync.mutex);
-				myPipelineMap.at(key) = handle;
-				sync.created.notify_all();
-			}));
-	}
-	return tasks;
-}
-
-template <>
-uint32_t Pipeline<kVk>::GetComputeEntryPointCount() const noexcept
-{
-	return static_cast<uint32_t>(myComputeState.shaderStages.size());
-}
+// (the pipelines' map, requests and binds, the launch parameters and the layouts by name are every backend's, in
+// pipeline.inl)
 
 template <>
 void Pipeline<kVk>::BindPipeline(
@@ -558,45 +429,6 @@ void Pipeline<kVk>::BindPipeline(
 	ZoneScopedN("Pipeline::BindPipeline");
 
 	vkCmdBindPipeline(cmd, vk::ToVk(bindPoint), handle);
-}
-
-template <>
-PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd, GraphicsPipelineVariant variant)
-{
-	auto* handle = InternalGetPipeline(variant);
-
-	BindPipeline(cmd, myBindPoint, handle);
-	
-	return handle;
-}
-
-template <>
-PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd, ComputePipelineVariant variant)
-{
-	ENSURE(myBindPoint == PipelineBindPoint::kCompute);
-	auto* handle = InternalGetPipeline({}, variant);
-
-	BindPipeline(cmd, myBindPoint, handle);
-
-	return handle;
-}
-
-template <>
-const ComputeLaunchParameters& Pipeline<kVk>::GetComputeLaunchParameters(ComputePipelineVariant variant) const
-{
-	ENSURE(myBindPoint == PipelineBindPoint::kCompute && variant.entryPoint < myComputeState.launchParameters.size());
-	return myComputeState.launchParameters[variant.entryPoint];
-}
-
-template <>
-PipelineLayoutHandle<kVk> Pipeline<kVk>::GetLayout() const noexcept
-{
-	const auto layoutIt = InternalGetLayout();
-	
-	if (layoutIt == myPipelineLayouts.end())
-		return VK_NULL_HANDLE;
-
-	return static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
 }
 
 template <>
@@ -615,32 +447,6 @@ void Pipeline<kVk>::PushConstants(CommandBufferHandle<kVk> cmd, std::span<const 
 	ENSUREF(stageFlags != 0, "No push constant range in the current layout covers the pushed data.");
 
 	vkCmdPushConstants(cmd, *layoutIt, stageFlags, offset, size, data.data());
-}
-
-template <>
-PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(std::string_view name, const ShaderSet& shaderSet, std::span<const uint32_t> pushDescriptorSets)
-{
-	ENSUREF(!myLayoutNames.contains(std::string(name)), "pipeline layout {} exists", name);
-
-	const auto& [layoutIt, wasInserted] = myPipelineLayouts.emplace(
-		PipelineLayout<kVk>(
-			PipelineLayoutCreateDesc<kVk>{
-				SuperType::CreateDeviceObjectCreateDesc(name),
-			},
-			shaderSet,
-			pushDescriptorSets));
-
-	auto handle = static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
-	myLayoutNames.emplace(std::string(name), handle);
-	return handle;
-}
-
-template <>
-PipelineLayoutHandle<kVk> Pipeline<kVk>::GetLayoutHandle(std::string_view name) const
-{
-	auto nameIt = myLayoutNames.find(std::string(name));
-	ENSUREF(nameIt != myLayoutNames.end(), "no pipeline layout {}", name);
-	return nameIt->second;
 }
 
 template <>
@@ -766,38 +572,7 @@ Pipeline<kVk>::Pipeline(CreateDescType&& desc)
 	Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE_CACHE, myCache, std::format("{} PipelineCache", GetName()));
 }
 
-template <>
-void Pipeline<kVk>::Swap(Pipeline& rhs) noexcept
-{
-	DeviceObject<Pipeline<kVk>>::Swap(rhs);
-	std::swap(myDescriptorMap, rhs.myDescriptorMap);
-	std::swap(myDescriptorPool, rhs.myDescriptorPool);
-	std::swap(myDescriptorPoolMutex, rhs.myDescriptorPoolMutex);
-	std::swap(myPipelineMap, rhs.myPipelineMap);
-	std::swap(myPipelineMapSync, rhs.myPipelineMapSync);
-	std::swap(myCache, rhs.myCache);
-	std::swap(myBindPoint, rhs.myBindPoint);
-	std::swap(myRenderTarget, rhs.myRenderTarget);
-	std::swap(myPipelineLayouts, rhs.myPipelineLayouts);
-	std::swap(myLayoutNames, rhs.myLayoutNames);
-	std::swap(myCurrentLayoutIt, rhs.myCurrentLayoutIt);
-	std::swap(myGraphicsState, rhs.myGraphicsState);
-	std::swap(myComputeState, rhs.myComputeState);
-	std::swap(myRayTracingState, rhs.myRayTracingState);
-}
-
-template <>
-Pipeline<kVk>::Pipeline(Pipeline&& other) noexcept
-{
-	Swap(other);
-}
-
-template <>
-Pipeline<kVk>& Pipeline<kVk>::operator=(Pipeline<kVk>&& other) noexcept
-{
-	Swap(other);
-	return *this;
-}
+// (Swap and the moves are every backend's, in pipeline.inl)
 
 template <>
 Pipeline<kVk>::~Pipeline()
