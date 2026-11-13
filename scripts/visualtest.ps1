@@ -106,9 +106,16 @@ if ($validating)
 		}
 	}
 }
+# -Validate with the clients on Metal (SPEEDO_GRAPHICS_API=metal): Metal's api validation, any preset's, as
+# assettest.ps1's (not its shader validation, far too slow: see there), unless set
+if ($Validate -and $env:SPEEDO_GRAPHICS_API -eq 'metal' -and -not $env:MTL_DEBUG_LAYER)
+{
+	$env:MTL_DEBUG_LAYER = '1'
+}
 # what fails a client's run besides its exit code, as assettest.ps1's client runs: a load's failure, a failed assert's
-# errno line, the validation layer's messages, the sanitizers' reports
-$problemPattern = 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|Validation (Error|Warning): |WARNING-CoreValidation-|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer'
+# errno line, the validation layer's messages (Metal's failed assertions, its command buffers' failures), the sanitizers'
+# reports
+$problemPattern = 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|Validation (Error|Warning): |WARNING-CoreValidation-|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer|failed assertion `|Metal: command buffer .* failed'
 # the driver, unless one is chosen: on macOS the mesa port's KosmicKrisp, as assettest.ps1 takes it
 if ($IsMacOS -and -not $env:VK_DRIVER_FILES -and -not $env:VK_ICD_FILENAMES)
 {

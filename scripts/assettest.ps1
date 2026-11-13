@@ -24,7 +24,11 @@ with -Headless only the system is (idle sleep stops the clients).
 src/rhi/vulkan/instance.cpp), each client's messages written to a file of its own (<log>.validation, then appended to
 its log, which is checked as above): without a messenger of the client's the layer prints them itself, and only to a
 file once the crash reports make one (on NVIDIA). What a debug client checks besides (asserts, rhi's object tracking) it
-doesn't. The quick tier runs so, a profile preset with -Validate, rather than profile and then debug.
+doesn't. The quick tier runs so, a profile preset with -Validate, rather than profile and then debug. With
+SPEEDO_GRAPHICS_API=metal (the clients on the Metal backend) -Validate sets Metal's api validation instead
+(MTL_DEBUG_LAYER=1, any preset's), which stops a client at what it finds (a failed assertion: the run fails), and a
+command buffer's failure the client reports fails it too; not Metal's shader validation (MTL_SHADER_VALIDATION=1, by
+hand: ShadowScene's 30 frames took 328 s with it, 2 without).
 
 Client runs go -Jobs at once (default 4; one with KosmicKrisp's ray queries, which the client asks for only with
 SPEEDO_RAY_QUERY=1 on macOS, and which made the gpu restart and the machine panic when several clients traced at once), each worker with a user profile dir of its own under <work> (user-1 to
@@ -190,6 +194,11 @@ if ($validating)
 			[Environment]::SetEnvironmentVariable("VK_KHRONOS_VALIDATION_$name", $settings[$name])
 		}
 	}
+}
+# -Validate with the clients on Metal: its api validation, any preset's (see above), unless set
+if ($Validate -and $env:SPEEDO_GRAPHICS_API -eq 'metal' -and -not $env:MTL_DEBUG_LAYER)
+{
+	$env:MTL_DEBUG_LAYER = '1'
 }
 # the vulkan driver, unless one is chosen: on macOS the mesa port's KosmicKrisp, a host dependency, so in the host
 # triplet's install tree
@@ -464,7 +473,7 @@ if ($Client)
 		$Run.TimedOut = $TimedOut
 		$name = if ($Run.PresentationTest) { $Run.Label } elseif ($Run.Variables.Count -gt 0) { "$($Run.Model) ($($Run.Label))" } elseif ($Run.Model) { $Run.Model } elseif ($Run.Environment) { $Run.Environment } else { $Run.Label }
 
-		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|Validation (Error|Warning): |WARNING-CoreValidation-|timed out after|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer' |
+		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|Validation (Error|Warning): |WARNING-CoreValidation-|timed out after|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer|failed assertion `|Metal: command buffer .* failed' |
 			ForEach-Object Line | Group-Object | Sort-Object Name | Select-Object -First 5 |
 			ForEach-Object { '{0,7} {1}' -f $_.Count, $_.Name })
 		if ($status -ne 0 -or $problems.Count -gt 0)
