@@ -675,6 +675,23 @@ target_link_libraries(
 )
 add_dependencies(shaderprecompile shadercompiler)
 
+# a compute dispatch through rhi on each backend the build has, checked (see src/tools/rhitest.cpp,
+# docs/backends-plan.md): the Metal backend's test while it grows beside Vulkan's
+add_executable(rhitest ${SPEEDO_SOURCE_DIR}/tools/rhitest.cpp)
+target_compile_features(
+	rhitest
+	PUBLIC
+		cxx_std_26
+)
+target_link_libraries(
+	rhitest
+	PRIVATE
+		${SPEEDO_MIMALLOC}
+		gfx
+		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
+)
+add_dependencies(rhitest shadercompiler)
+
 ###############################################################################
 
 # compares ways of reading files (std streams, stdio, core's memory mapped files), warm and cold, and times the
