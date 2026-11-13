@@ -460,7 +460,11 @@ nothing held it between two, and once every client after the first failed at win
 connected?`, 57 of the quick tier's 58 with the user away. It keeps the display awake from before the warm-up, which
 in a sanitize build outlasts the display's 10 minute sleep timer. A locked screen turns the display off within seconds
 whatever caffeinate asks: on 2026-11-09, the screen locked, the display went off 12 s after the script woke it, and 56 of
-the 60 clients failed so: the clients need the screen unlocked.) For iterating, `fetch-test-assets.ps1 -Quick` prints a quick tier instead
+the 60 clients failed so: the clients need the screen unlocked. -Headless clients need neither, but the system awake:
+the headless change dropped caffeinate for them altogether, and on 2026-11-13, the user away, the machine went to idle
+sleep 35 s into the warm-up, and again 35 s into the four clients after it, each reported as a hang by the client's crash
+watch on waking (5 of 61 lost; `pmset -g log` has the sleeps and wakes to the second); for them it holds `caffeinate -i -w`
+on itself since, and visualtest.ps1 on each client.) For iterating, `fetch-test-assets.ps1 -Quick` prints a quick tier instead
 (`resources/test-asset-manifests/quick.txt`: a model or two per feature, plus the hand-made ones; about a minute, three and a half with ray query clients one at a time on the mac, validated); the full sets run
 before committing. `assettest.ps1` takes `.hdr` panoramas as inputs too, and runs a directory of one model's encodings
 given directly (a glTF sample model: its files all named after it) as one set, as when its parent is given. The client's

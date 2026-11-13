@@ -269,6 +269,12 @@ function Invoke-Capture($Check, [string] $Side, [hashtable] $Variables, [string]
 		foreach ($name in $set.Keys) { [Environment]::SetEnvironmentVariable($name, $null) }
 	}
 	$null = $process.Handle
+	# the system kept from idle sleep while the client runs (macOS): asleep, it stops the client, whose crash watch then
+	# reports a hang on waking (as the quick tier's clients did, 2026-11-13, see assettest.ps1's Invoke-ClientRuns)
+	if ($IsMacOS -and (Get-Command caffeinate -ErrorAction SilentlyContinue))
+	{
+		$null = Start-Process -FilePath caffeinate -ArgumentList '-i', '-w', $process.Id
+	}
 	if (-not $process.WaitForExit($TimeoutSeconds * 1000))
 	{
 		$process.Kill($true)

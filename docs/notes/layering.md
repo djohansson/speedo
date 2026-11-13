@@ -130,7 +130,8 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   crash report defers to it (see "Crash reports").
 
   Headless (`SPEEDO_HEADLESS=1`, `assettest.ps1 -Headless`; 2026-11-10, the user's ask: client runs with the screen
-  locked, which turns the display off whatever caffeinate asks, and on a runner without a display or a gpu): glfw's null
+  locked, which turns the display off whatever caffeinate asks, and on a runner without a display or a gpu; the system
+  must stay awake all the same, which the test scripts' `caffeinate -i` sees to, see assets.md): glfw's null
   platform (`glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL)`, in glfw 3.5.1 always), whose window and monitor (one,
   1920x1080 at scale 1) are imaginary, `PlatformIsHeadless`. Its event waits return at once and its empty event wakes
   nothing, so `PlatformWaitEvents` waits on a condition variable `PlatformWakeMain` notifies, then polls; fullscreen

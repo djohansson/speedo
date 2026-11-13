@@ -16,7 +16,8 @@ load failures, failed asserts, validation errors (a debug preset's clients load 
 -Validate, any preset's, see below) or sanitizer reports (a sanitize preset: asan and ubsan; a tsan preset: tsan).
 -ClientOnly skips the assettest run (which is slow with a debug preset). The client needs a vulkan driver: set
 VK_DRIVER_FILES etc. as for running it by hand (on macOS the mesa port's KosmicKrisp is the default, from the install
-tree). On macOS the display is woken and kept awake while the clients run (glfw finds no monitors while it sleeps).
+tree). On macOS the display is woken and kept awake while the clients run (glfw finds no monitors while it sleeps);
+with -Headless only the system is (idle sleep stops the clients).
 
 -Validate loads the validation layer into a profile or release preset's clients through the environment
 (VK_INSTANCE_LAYERS, and its settings as VK_KHRONOS_VALIDATION_* variables, those a debug client gives it in code: see
@@ -512,13 +513,20 @@ if ($Client)
 		# client after the first failed so (57 of the quick tier's 58, 2026-11-04, the user away). before the warm-up below,
 		# which in a sanitize build outlasts the display's sleep timer (it slept 3 minutes into the first warm-up, whose ui
 		# frame's fence then timed out: a hang's crash report). A locked screen turns the display off within seconds whatever
-		# caffeinate asks: no client runs until it is unlocked (-Headless clients need no display)
-		if ($caffeinate -and -not $Headless)
+		# caffeinate asks: no client runs until it is unlocked. -Headless clients need no display, but the system kept from
+		# idle sleep (-i) all the same: asleep, it stops them, and on waking each one's crash watch reports a hang (the
+		# warm-up and the four clients after it lost so, 2026-11-13, the user away: the machine slept 35 s into each, see
+		# pmset -g log)
+		if ($caffeinate)
 		{
-			& $caffeinate -u -t 1
+			if (-not $Headless)
+			{
+				& $caffeinate -u -t 1
+			}
 			if (-not $script:awake)
 			{
-				$script:awake = Start-Process -FilePath $caffeinate.Source -ArgumentList '-d', '-i', '-w', $PID -PassThru
+				$arguments = if ($Headless) { @('-i', '-w', $PID) } else { @('-d', '-i', '-w', $PID) }
+				$script:awake = Start-Process -FilePath $caffeinate.Source -ArgumentList $arguments -PassThru
 			}
 		}
 
