@@ -29,9 +29,11 @@ template <>
 Semaphore<kMetal>::Semaphore(CreateDescType&& desc)
 	: Semaphore(
 		std::forward<CreateDescType>(desc),
-		[&desc]
+		[&desc]() -> MTL::SharedEvent*
 		{
-			ENSUREF(desc.type == SemaphoreType::kTimeline, "the Metal backend's semaphores are timelines (binary ones come with the swapchain)");
+			// a binary one is the swapchain's acquire's and present's, which the one queue orders: none (the queue skips it)
+			if (desc.type == SemaphoreType::kBinary)
+				return nullptr;
 			MTL::SharedEvent* event = desc.device->newSharedEvent();
 			ENSUREF(event != nullptr, "Failed to create a Metal shared event");
 			event->setLabel(NS::String::string(desc.name.c_str(), NS::UTF8StringEncoding));
@@ -62,7 +64,7 @@ Semaphore<kMetal>& Semaphore<kMetal>::operator=(Semaphore<kMetal>&& other) noexc
 template <>
 Semaphore<kMetal>::~Semaphore()
 {
-	if (IsValid())
+	if (IsValid() && mySemaphore != nullptr)
 		mySemaphore->release();
 }
 
@@ -100,6 +102,45 @@ bool Semaphore<kMetal>::Wait(
 
 IMPLEMENT_OBJECT_GETINSTANCE(Fence<kMetal>);
 IMPLEMENT_DEVICEOBJECT_GETDEVICE(Fence<kMetal>);
+
+// a fence: a shared event and the value it waits for (1: unsignaled until a command buffer signals it so)
+template <>
+Fence<kMetal>::Fence(CreateDescType&& desc)
+	: DeviceObject<Fence<kMetal>>(std::forward<CreateDescType>(desc))
+	, myFence(
+		[this]
+		{
+			MTL::SharedEvent* event = GetDesc().device->newSharedEvent();
+			ENSUREF(event != nullptr, "Failed to create a Metal shared event");
+			return new metal::FenceObject{.event = event, .value = 1}; //NOLINT(cppcoreguidelines-owning-memory)
+		}())
+{}
+
+template <>
+bool Fence<kMetal>::Wait(uint64_t timeout) const
+{
+	ZoneScopedN("Fence::Wait");
+
+	uint64_t milliseconds = timeout == ~0ULL ? ~0ULL : std::max<uint64_t>(timeout / 1'000'000ULL, timeout == 0 ? 0 : 1);
+	return myFence->event->waitUntilSignaledValue(myFence->value, milliseconds);
+}
+
+template <>
+bool Fence<kMetal>::Wait(DeviceHandle<kMetal> /*device*/, std::span<const FenceHandle<kMetal>> fences, bool waitAll, uint64_t timeout)
+{
+	ZoneScopedN("Fence::Wait");
+
+	uint64_t milliseconds = timeout == ~0ULL ? ~0ULL : std::max<uint64_t>(timeout / 1'000'000ULL, timeout == 0 ? 0 : 1);
+	bool any = false;
+	for (const auto* fence : fences)
+	{
+		bool signaled = fence->event->waitUntilSignaledValue(fence->value, waitAll ? milliseconds : 0);
+		if (waitAll && !signaled)
+			return false;
+		any = any || signaled;
+	}
+	return waitAll || any;
+}
 
 template <>
 void Fence<kMetal>::Swap(Fence& rhs) noexcept

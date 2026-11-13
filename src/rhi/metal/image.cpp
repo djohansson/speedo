@@ -7,6 +7,7 @@
 #include <rhi/buffer.h>
 #include <rhi/device.h>
 #include <rhi/image.h>
+#include <rhi/memory.h>
 #include <rhi/rhi.h>
 
 #include <core/assert.h>
@@ -89,7 +90,10 @@ static MTL::TextureDescriptor* Descriptor(const ImageCreateDesc<kMetal>& desc)
 		usage |= MTL::TextureUsageShaderRead;
 	if (Any(desc.usageFlags & ImageUsage::kStorage))
 		usage |= MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite;
-	if (Any(desc.usageFlags & (ImageUsage::kColorAttachment | ImageUsage::kDepthStencilAttachment)))
+	// a render target as an attachment, and to be cleared (Image::Clear: Metal clears a texture as a render pass loads it,
+	// where Vulkan clears a transfer destination), where its format can be rendered to (not a block compressed one)
+	const bool clearable = Any(desc.usageFlags & ImageUsage::kTransferDestination) && BlockOf(desc.format).width == 1;
+	if (Any(desc.usageFlags & (ImageUsage::kColorAttachment | ImageUsage::kDepthStencilAttachment)) || clearable)
 		usage |= MTL::TextureUsageRenderTarget;
 	descriptor->setUsage(usage);
 	const bool hostVisible = (desc.memoryFlags & MemoryProperty::kHostVisible) == MemoryProperty::kHostVisible;
@@ -197,9 +201,57 @@ void Image<kMetal>::GenerateMips(CommandBufferHandle<kMetal> cmd, ImageLayout la
 }
 
 template <>
-void Image<kMetal>::Clear(CommandBufferHandle<kMetal> /*cmd*/, const ClearValue& /*value*/, const std::optional<ImageSubresourceRange<kMetal>>& /*range*/)
+void Image<kMetal>::Clear(CommandBufferHandle<kMetal> cmd, const ClearValue& value, const std::optional<ImageSubresourceRange<kMetal>>& /*range*/)
 {
-	image::NotYet("clears");
+	ZoneScopedN("Image::Clear");
+
+	// a render pass per level (and per depth plane of a volume) that clears the texture as it loads it and stores it: its
+	// render target usage is a transfer destination's (see Descriptor). the whole image (the range's fields are Vulkan's)
+	auto* texture = std::get<0>(myImage);
+	const auto format = GetDesc().format;
+	ENSUREF(
+		(texture->usage() & MTL::TextureUsageRenderTarget) != 0,
+		"{}: a clear of an image that can't be rendered to (a block compressed format, or no transfer destination usage)",
+		GetName());
+	for (uint32_t level = 0; level < GetDesc().levelCount; level++)
+	{
+		const auto depth = GetDesc().LevelExtent(level).depth;
+		for (uint32_t plane = 0; plane < depth; plane++)
+		{
+			auto* descriptor = MTL::RenderPassDescriptor::alloc()->init();
+			if (HasColorComponent(format))
+			{
+				auto* color = descriptor->colorAttachments()->object(0);
+				color->setTexture(texture);
+				color->setLevel(level);
+				color->setDepthPlane(GetDesc().extent.depth > 1 ? plane : 0);
+				color->setLoadAction(MTL::LoadActionClear);
+				color->setStoreAction(MTL::StoreActionStore);
+				color->setClearColor(MTL::ClearColor(value.color[0], value.color[1], value.color[2], value.color[3]));
+			}
+			if (HasDepthComponent(format))
+			{
+				auto* depthAttachment = descriptor->depthAttachment();
+				depthAttachment->setTexture(texture);
+				depthAttachment->setLevel(level);
+				depthAttachment->setLoadAction(MTL::LoadActionClear);
+				depthAttachment->setStoreAction(MTL::StoreActionStore);
+				depthAttachment->setClearDepth(value.depth);
+			}
+			if (HasStencilComponent(format))
+			{
+				auto* stencil = descriptor->stencilAttachment();
+				stencil->setTexture(texture);
+				stencil->setLevel(level);
+				stencil->setLoadAction(MTL::LoadActionClear);
+				stencil->setStoreAction(MTL::StoreActionStore);
+				stencil->setClearStencil(value.stencil);
+			}
+			cmd->BeginRenderPass(descriptor);
+			cmd->EndEncoders();
+			descriptor->release();
+		}
+	}
 }
 
 template <>
@@ -209,11 +261,20 @@ Image<kMetal>::Image(CreateDescType&& desc, ValueType&& data)
 {}
 
 template <>
-Image<kMetal>::Image(CreateDescType&& desc, const MemoryBlock<kMetal>& /*memory*/, uint64_t /*offset*/)
-	: DeviceObject<Image<kMetal>>(std::forward<CreateDescType>(desc))
-{
-	ENSUREF(false, "the Metal backend places no images in memory blocks yet (heaps)");
-}
+Image<kMetal>::Image(CreateDescType&& desc, const MemoryBlock<kMetal>& memory, uint64_t offset)
+	: Image(
+		std::forward<CreateDescType>(desc),
+		[&desc, &memory, offset]
+		{
+			auto* descriptor = image::Descriptor(desc);
+			descriptor->setHazardTrackingMode(MTL::HazardTrackingModeTracked);
+			MTL::Texture* texture = memory.GetAllocation()->heap->newTexture(descriptor, offset);
+			descriptor->release();
+			ENSUREF(texture != nullptr, "{}: Failed to place a Metal texture at {} in its heap", GetDebugName(desc), offset);
+			texture->setLabel(NS::String::string(desc.name.c_str(), NS::UTF8StringEncoding));
+			return ValueType{texture, nullptr};
+		}())
+{}
 
 template <>
 MemoryRequirements Image<kMetal>::GetMemoryRequirements(const Device<kMetal>& device, const CreateDescType& desc)

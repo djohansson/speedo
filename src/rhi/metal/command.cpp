@@ -46,13 +46,19 @@ MTL::RenderCommandEncoder* CommandBufferObject::BeginRenderPass(MTL::RenderPassD
 	NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
 	renderEncoder = commandBuffer->renderCommandEncoder(descriptor)->retain();
 	pool->release();
+	// a new encoder's state: its defaults
+	viewport.reset();
+	scissor.reset();
+	cullMode = MTL::CullModeNone;
+	stencilReference = 0;
 	return renderEncoder;
 }
 
 MTL::RenderCommandEncoder* CommandBufferObject::RenderEncoder() const
 {
-	ENSUREF(renderEncoder != nullptr, "a draw outside a render pass (the render target's Begin)");
-	return renderEncoder;
+	auto* encoder = primary != nullptr ? primary->renderEncoder : renderEncoder;
+	ENSUREF(encoder != nullptr, "a draw outside a render pass (the render target's Begin)");
+	return encoder;
 }
 
 MTL::ComputeCommandEncoder* CommandBufferObject::ComputeEncoder()
@@ -91,6 +97,8 @@ constexpr size_t kSecondary = 1;
 void Free(metal::CommandBufferObject* object)
 {
 	object->EndEncoders();
+	for (auto* transient : object->transients)
+		transient->release();
 	if (object->commandBuffer != nullptr)
 		object->commandBuffer->release();
 	delete object; //NOLINT(cppcoreguidelines-owning-memory): the handle is the pool's
@@ -224,6 +232,18 @@ template <>
 CommandBufferHandle<kMetal> CommandPool<kMetal>::Allocate()
 {
 	return InternalTake(false);
+}
+
+template <>
+CommandBuffer<kMetal> CommandPool<kMetal>::BeginSecondary(const RenderTargetBeginInfo<kMetal>& renderTarget)
+{
+	// recorded inline, into the primary's open render encoder (see CommandBufferObject::primary)
+	const auto* rendering = std::get_if<DynamicRenderingInfo<kMetal>>(&renderTarget);
+	ENSUREF(rendering != nullptr && rendering->renderInfo.primary != nullptr, "a secondary command buffer outside a render target's pass");
+	auto* object = new metal::CommandBufferObject(); //NOLINT(cppcoreguidelines-owning-memory): freed by Reset
+	object->primary = rendering->renderInfo.primary;
+	myOutstanding++;
+	return CommandBuffer<kMetal>(*this, object, true);
 }
 
 } // namespace rhi

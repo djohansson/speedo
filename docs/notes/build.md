@@ -94,6 +94,10 @@ on 2026-11-09, not the quick tier: its binned builder, the moving BVH's and `Bui
 passes `slicebinbox[i]` (`ports/tinybvh/0001-neon-slice-rows.patch`; the same addresses, so the BVHs and their caches
 are unchanged).
 
+## The metal preset: the client on the Metal backend
+
+`<triplet>-metal` (macOS, from `setup.ps1`) is the profile configuration with `SPEEDO_GRAPHICS_API=metal` (`CMakeLists.txt`, a cache variable, `vulkan` by default), which defines `SPEEDO_GRAPHICS_API_METAL`: rhi's `kGraphicsApi` is `kMetal` (`rhi/rhi.h`) and `kShaderFormat` MSL (`rhi/shaderset.h`), so gfx and the client, whose code names the build's backend alone (`gfx/gpu.h`), run on Metal; rhi builds both backends on macOS either way (rhitest compares them). Its build dir is `build/<triplet>-metal`, its shaders cached apart from the Vulkan builds' by their format. Run it as the others, from the repo root (no `VK_DRIVER_FILES` needed). The backend's design and progress: docs/backends-plan.md.
+
 ## Gotcha: `<windows.h>` macros
 
 `core/file.h` includes `<windows.h>` (mio's), so everything reading files sees it, and its macros rename our code:
@@ -729,6 +733,11 @@ first). What it found on the way:
   get-pip on Python 3.15, zlib and DirectX-Headers missing from the port's Windows dependencies, mesa's generators run
   with python's `-I`, clang-cl lacking MSVC's lower-case interlocked intrinsics (`0002`, offered upstream by the user),
   and the driver's manifest written as invalid json (the mesa port section above).
+- **To do (the user's ask, 2026-11-13)**: build the metal, tsan and sanitize presets in CI as well (the metal one on
+  macOS: the client on the Metal backend, docs/backends-plan.md, step 8), and give them launch configurations in VS Code
+  (`setup.ps1`'s `$VSCodeLaunchConfiguration`, beside the profile, debug and release ones); and in CI run the visual
+  checks (`visualtest.ps1`, on lavapipe as the profile build's) on the sanitizer builds too, so that what asan, ubsan
+  and tsan report about the client's frames is caught as soon as it is pushed.
 
 ## Releases
 

@@ -5,6 +5,7 @@
 #include <rhi/metal/backend.h>
 
 #include <rhi/buffer.h>
+#include <rhi/command.h>
 #include <rhi/commandencoder.h>
 #include <rhi/image.h>
 
@@ -114,30 +115,33 @@ void CommandEncoder<kMetal>::SetViewport(const Viewport& viewport) const
 {
 	// flipped: rhi's clip space is Vulkan's, y down, Metal's y up (the shaders are the same for both), so the viewport
 	// starts at its bottom and goes up (a negative height), as MoltenVK flips Vulkan's
-	myCmd->RenderEncoder()->setViewport(MTL::Viewport{
+	myCmd->viewport = MTL::Viewport{
 		.originX = viewport.x,
 		.originY = viewport.y + viewport.height,
 		.width = viewport.width,
 		.height = -viewport.height,
 		.znear = viewport.minDepth,
-		.zfar = viewport.maxDepth});
+		.zfar = viewport.maxDepth};
+	myCmd->RenderEncoder()->setViewport(*myCmd->viewport);
 }
 
 template <>
 void CommandEncoder<kMetal>::SetScissor(const Rect& rect) const
 {
-	myCmd->RenderEncoder()->setScissorRect(MTL::ScissorRect{
+	myCmd->scissor = MTL::ScissorRect{
 		.x = static_cast<NS::UInteger>(std::max(rect.x, 0)),
 		.y = static_cast<NS::UInteger>(std::max(rect.y, 0)),
 		.width = rect.width,
-		.height = rect.height});
+		.height = rect.height};
+	myCmd->RenderEncoder()->setScissorRect(*myCmd->scissor);
 }
 
 template <>
 void CommandEncoder<kMetal>::SetCullMode(CullMode mode) const
 {
-	myCmd->RenderEncoder()->setCullMode(
-		mode == CullMode::kNone ? MTL::CullModeNone : (mode == CullMode::kFront ? MTL::CullModeFront : MTL::CullModeBack));
+	myCmd->cullMode =
+		mode == CullMode::kNone ? MTL::CullModeNone : (mode == CullMode::kFront ? MTL::CullModeFront : MTL::CullModeBack);
+	myCmd->RenderEncoder()->setCullMode(myCmd->cullMode);
 }
 
 template <>
@@ -150,6 +154,7 @@ void CommandEncoder<kMetal>::SetFrontFace(FrontFace face) const
 template <>
 void CommandEncoder<kMetal>::SetStencilReference(uint32_t reference) const
 {
+	myCmd->stencilReference = reference;
 	myCmd->RenderEncoder()->setStencilReferenceValue(reference);
 }
 
@@ -252,6 +257,92 @@ void CommandEncoder<kMetal>::CopyBufferToImage(const Buffer<kMetal>& buffer, con
 }
 
 template <>
+void CommandEncoder<kMetal>::UpdateBuffer(const Buffer<kMetal>& buffer, uint64_t offset, std::span<const std::byte> data) const
+{
+	ZoneScopedN("CommandEncoder::UpdateBuffer");
+
+	// the data copied into a buffer of its own (the command buffer's to release, once its commands are done), then on the
+	// blit encoder, in order with the other commands
+	constexpr size_t kMaxUpdateByteCount = 65536;
+	ENSUREF(data.size() <= kMaxUpdateByteCount && data.size() % 4 == 0, "UpdateBuffer takes at most 64 kB, a multiple of 4 bytes ({})", data.size());
+	MTL::Buffer* source = myCmd->commandBuffer->device()->newBuffer(data.data(), data.size(), MTL::ResourceStorageModeShared);
+	ENSUREF(source != nullptr, "Failed to create a Metal buffer of {} bytes", data.size());
+	myCmd->transients.push_back(source);
+	myCmd->BlitEncoder()->copyFromBuffer(source, 0, buffer, offset, data.size());
+}
+
+template <>
+void CommandEncoder<kMetal>::ExecuteCommands(std::vector<CommandBuffer<kMetal>>&& secondaries) const
+{
+	// their commands were recorded inline, into this command buffer's render encoder (see CommandPool::BeginSecondary):
+	// each is ended and handed back to its pool
+	for (auto& secondary : secondaries)
+	{
+		ENSURE(secondary.IsSecondary());
+		if (secondary.IsRecording())
+			secondary.End();
+		(void)secondary.Release();
+	}
+}
+
+template <>
+void CommandEncoder<kMetal>::FillBuffer(const Buffer<kMetal>& buffer, uint64_t offset, uint64_t size, uint32_t value) const
+{
+	ZoneScopedN("CommandEncoder::FillBuffer");
+
+	MTL::Buffer* target = buffer;
+	const uint64_t byteCount = size != 0 ? size : target->length() - offset;
+	const auto byte = static_cast<uint8_t>(value & 0xFFU);
+	if (value == byte * 0x01010101U)
+	{
+		// a value of four equal bytes (0, or SHADER_TYPES_OIT_NONE's ~0): the blit encoder's fill
+		myCmd->BlitEncoder()->fillBuffer(target, NS::Range(offset, byteCount), byte);
+		return;
+	}
+	// another value: a buffer of it copied in (the command buffer's to release, see UpdateBuffer)
+	ENSUREF(byteCount % 4 == 0, "FillBuffer fills a multiple of 4 bytes ({})", byteCount);
+	MTL::Buffer* source = myCmd->commandBuffer->device()->newBuffer(byteCount, MTL::ResourceStorageModeShared);
+	ENSUREF(source != nullptr, "Failed to create a Metal buffer of {} bytes", byteCount);
+	std::fill_n(static_cast<uint32_t*>(source->contents()), byteCount / 4, value);
+	myCmd->transients.push_back(source);
+	myCmd->BlitEncoder()->copyFromBuffer(source, 0, target, offset, byteCount);
+}
+
+template <>
+void CommandEncoder<kMetal>::DispatchIndirect(const Buffer<kMetal>& buffer, uint64_t offset) const
+{
+	ZoneScopedN("CommandEncoder::DispatchIndirect");
+
+	// the thread group counts from the buffer; the group's size the bound pipeline's entry point's (its numthreads)
+	const auto& size = myCmd->computeThreadGroupSize;
+	commandencoder::PrepareDispatch(*myCmd)->dispatchThreadgroups(buffer, offset, MTL::Size(size[0], size[1], size[2]));
+}
+
+// queue family ownership: the Metal backend has one queue (compute and transfer alias it), so nothing changes hands
+template <>
+void CommandEncoder<kMetal>::ReleaseOwnership(const Buffer<kMetal>&, uint32_t, uint32_t, PipelineStage, Access) const
+{}
+
+template <>
+void CommandEncoder<kMetal>::AcquireOwnership(const Buffer<kMetal>&, uint32_t, uint32_t, PipelineStage, Access) const
+{}
+
+template <>
+void CommandEncoder<kMetal>::ReleaseOwnership(const Image<kMetal>&, uint32_t, uint32_t, PipelineStage, Access) const
+{}
+
+template <>
+void CommandEncoder<kMetal>::AcquireOwnership(const Image<kMetal>&, uint32_t, uint32_t, PipelineStage, Access) const
+{}
+
+template <>
+void CommandEncoder<kMetal>::WriteAccelerationStructureCompactedSize(
+	const AccelerationStructure<kMetal>& /*structure*/, const QueryPool<kMetal>& /*pool*/, uint32_t /*query*/) const
+{
+	ENSUREF(false, "the Metal backend's acceleration structures come with ray queries (docs/backends-plan.md, step 7)");
+}
+
+template <>
 void CommandEncoder<kMetal>::CopyBuffer(const Buffer<kMetal>& source, const Buffer<kMetal>& destination, uint64_t size, uint64_t offset) const
 {
 	ZoneScopedN("CommandEncoder::CopyBuffer");
@@ -275,10 +366,10 @@ void CommandEncoder<kMetal>::Dispatch(uint32_t groupCountX, uint32_t groupCountY
 {
 	ZoneScopedN("CommandEncoder::Dispatch");
 
-	ENSUREF(false, "the Metal backend dispatches by threads (DispatchThreads) so far: its thread group size is the pipeline's");
-	(void)groupCountX;
-	(void)groupCountY;
-	(void)groupCountZ;
+	// the group's size the bound pipeline's entry point's (its numthreads: Metal takes it at the dispatch)
+	const auto& size = myCmd->computeThreadGroupSize;
+	commandencoder::PrepareDispatch(*myCmd)->dispatchThreadgroups(
+		MTL::Size(groupCountX, groupCountY, groupCountZ), MTL::Size(size[0], size[1], size[2]));
 }
 
 template <>

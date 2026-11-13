@@ -96,19 +96,22 @@ QueueHostSyncInfo<kMetal> Queue<kMetal>::Submit()
 	for (auto& submit : myPendingSubmits)
 	{
 		// the waits, in a command buffer of their own committed before the work. on the queue's own timeline they are
-		// already ordered (one queue runs in order, and its resources are hazard tracked)
-		if (!submit.waitSemaphores.empty())
+		// already ordered (one queue runs in order, and its resources are hazard tracked). binary semaphores are null (the
+		// swapchain's acquires and presents: the queue orders them too) and skipped
+		if (std::ranges::any_of(submit.waitSemaphores, [](auto* semaphore) { return semaphore != nullptr; }))
 		{
 			MTL::CommandBuffer* waits = myQueue->commandBuffer();
 			for (size_t waitIt = 0; waitIt < submit.waitSemaphores.size(); waitIt++)
-				waits->encodeWait(submit.waitSemaphores[waitIt], submit.waitSemaphoreValues[waitIt]);
+				if (submit.waitSemaphores[waitIt] != nullptr)
+					waits->encodeWait(submit.waitSemaphores[waitIt], submit.waitSemaphoreValues[waitIt]);
 			waits->commit();
 		}
 
 		auto signal = [&submit](MTL::CommandBuffer* commandBuffer)
 		{
 			for (size_t signalIt = 0; signalIt < submit.signalSemaphores.size(); signalIt++)
-				commandBuffer->encodeSignalEvent(submit.signalSemaphores[signalIt], submit.signalSemaphoreValues[signalIt]);
+				if (submit.signalSemaphores[signalIt] != nullptr)
+					commandBuffer->encodeSignalEvent(submit.signalSemaphores[signalIt], submit.signalSemaphoreValues[signalIt]);
 		};
 		for (size_t commandIt = 0; commandIt < submit.commandBuffers.size(); commandIt++)
 		{
@@ -134,6 +137,47 @@ QueueHostSyncInfo<kMetal> Queue<kMetal>::Submit()
 	myPendingSubmits.clear();
 
 	return QueueHostSyncInfo<kMetal>{.fences = {}, .maxTimelineValue = maxTimelineValue};
+}
+
+template <>
+QueueHostSyncInfo<kMetal> Queue<kMetal>::Present(PresentResult* presentResult)
+{
+	ZoneScopedN("Queue::Present");
+
+	// each swapchain's frame's image copied into its layer's next drawable (waiting for one, as the drawables pace the
+	// frames) and presented, in a command buffer committed after the frame's work (the queue orders them: the present's
+	// wait semaphores are the swapchain's binary ones, null). no drawable within the layer's second: suboptimal, the frame
+	// dropped and the swapchain made again
+	const auto swapchainCount = myPendingPresent.swapchains.size();
+	ENSURE(swapchainCount > 0 && myPendingPresent.imageIndices.size() == swapchainCount);
+	auto result = PresentResult::kSuccess;
+	NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
+	for (size_t swapchainIt = 0; swapchainIt < swapchainCount; swapchainIt++)
+	{
+		auto* swapchain = myPendingPresent.swapchains[swapchainIt];
+		auto* image = swapchain->textures.at(myPendingPresent.imageIndices[swapchainIt]);
+		CA::MetalDrawable* drawable = nullptr;
+		{
+			ZoneScopedN("Queue::Present::nextDrawable");
+			drawable = swapchain->layer->nextDrawable();
+		}
+		if (drawable == nullptr)
+		{
+			result = PresentResult::kSuboptimal;
+			continue;
+		}
+		MTL::CommandBuffer* commandBuffer = myQueue->commandBuffer();
+		auto* blit = commandBuffer->blitCommandEncoder();
+		blit->copyFromTexture(image, drawable->texture());
+		blit->endEncoding();
+		commandBuffer->presentDrawable(drawable);
+		commandBuffer->commit();
+	}
+	pool->release();
+	myPendingPresent = {};
+	if (presentResult != nullptr)
+		*presentResult = result;
+	return {};
 }
 
 template <>

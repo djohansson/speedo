@@ -490,6 +490,27 @@ bool PlatformIsWin32Foreground(WindowHandle window)
 #endif
 }
 
+void* PlatformCreateMetalLayer(WindowHandle window)
+{
+#if defined(__APPLE__)
+	// as glfwCreateWindowSurface makes one for a Vulkan surface (MoltenVK's, KosmicKrisp's): a CAMetalLayer hosted by the
+	// window's content view, at the window's backing scale (the view resizes it with the window)
+	id nsWindow = glfwGetCocoaWindow(reinterpret_cast<GLFWwindow*>(window)); //NOLINT(performance-no-int-to-ptr)
+	auto send = [](id object, const char* selector) { return reinterpret_cast<id (*)(id, SEL)>(objc_msgSend)(object, sel_registerName(selector)); };
+	id view = send(nsWindow, "contentView");
+	id layer = send(reinterpret_cast<id>(objc_getClass("CAMetalLayer")), "layer");
+	ENSUREF(view != nullptr && layer != nullptr, "the window's content view or its CAMetalLayer couldn't be made");
+	auto scale = reinterpret_cast<double (*)(id, SEL)>(objc_msgSend)(nsWindow, sel_registerName("backingScaleFactor"));
+	reinterpret_cast<void (*)(id, SEL, double)>(objc_msgSend)(layer, sel_registerName("setContentsScale:"), scale);
+	reinterpret_cast<void (*)(id, SEL, id)>(objc_msgSend)(view, sel_registerName("setLayer:"), layer);
+	reinterpret_cast<void (*)(id, SEL, BOOL)>(objc_msgSend)(view, sel_registerName("setWantsLayer:"), YES);
+	return send(layer, "retain");
+#else
+	(void)window;
+	return nullptr;
+#endif
+}
+
 int32_t PlatformCreateVulkanSurface(WindowHandle window, void* instance, const void* allocator, void* surface)
 {
 	return static_cast<int32_t>(glfwCreateWindowSurface(

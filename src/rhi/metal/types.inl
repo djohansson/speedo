@@ -53,6 +53,7 @@ struct PipelineObject; // an MTL::RenderPipelineState or MTL::ComputePipelineSta
 struct CommandPoolObject; // the command buffers' allocator
 struct CommandBufferObject; // an MTL::CommandBuffer, its current encoder and what the pipeline bound on it
 struct FenceObject; // an MTL::SharedEvent and the value it waits for
+struct RenderTargetClearObject; // a render target's clears of rects: the pipelines drawing them (no handle, its member)
 
 // placeholders for the Vulkan backend's structs (see the file's comment)
 struct StructureType {};
@@ -61,8 +62,15 @@ struct ApplicationInfo {};
 struct NativeViewport {};
 struct NativeRect {};
 struct ObjectType {};
-struct SurfaceFormat {};
-struct PresentMode {};
+struct SurfaceFormat // the swapchain's images' format (the layer's pixel format)
+{
+	rhi::Format format = rhi::Format::kUndefined;
+};
+enum class PresentMode : uint8_t // the layer's display sync: fifo, or immediate without it (Metal has no mailbox)
+{
+	kFifo,
+	kImmediate,
+};
 struct SurfaceCapabilities {};
 struct QueueFamilyProperties {};
 struct AttachmentDescription {};
@@ -110,6 +118,7 @@ struct PipelineShaderStageCreateInfo // an entry point: its library (one per ent
 	MTL::Library* library = nullptr;
 	const char* name = nullptr; // the layout's shader module's
 	rhi::ShaderStage stage{};
+	std::array<uint64_t, 3> threadGroupSize{1, 1, 1}; // a compute entry point's (its numthreads: Metal takes it at the dispatch)
 };
 struct PipelineVertexInputStateCreateInfo {};
 struct PipelineInputAssemblyStateCreateInfo {};
@@ -124,7 +133,12 @@ struct DynamicState {};
 struct ImageSubresourceRange {};
 struct CommandBufferInheritanceRenderingInfo {};
 struct RenderPassBeginInfo {};
-struct RenderingInfo {};
+// a render target's pass as its begin info hands it on: the command buffer recording it, whose open render encoder
+// secondary command buffers record into (CommandPool::BeginSecondary)
+struct RenderingInfo
+{
+	CommandBufferObject* primary = nullptr;
+};
 struct ImageSubresourceLayers {};
 struct DescriptorBufferInfo // an argument buffer's entry: the buffer's gpu address plus the offset
 {

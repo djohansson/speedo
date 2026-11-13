@@ -124,6 +124,34 @@ void Queue<G>::EnqueueSubmit(QueueDeviceSyncInfo<G>&& syncInfo)
 	EnqueueSubmit(std::move(syncInfo), std::vector<CommandBuffer<G>>{});
 }
 
-} // namespace rhi
+// a present's info merged into the pending one, and a gpu profiler's scope: the same for every backend
 
-#include "vulkan/queue.inl"
+template <GraphicsApi G>
+template <typename T, typename... Ts>
+void Queue<G>::EnqueuePresent(T&& first, Ts&&... rest)
+{
+	ZoneScopedN("Queue::EnqueuePresent");
+
+	myPendingPresent |= std::forward<T>(first);
+
+	if constexpr (sizeof...(rest) > 0)
+		EnqueuePresent(std::forward<Ts>(rest)...);
+}
+
+template <GraphicsApi G>
+template <SourceLocationData Location>
+typename GpuProfiler<G>::Scope Queue<G>::CreateGpuScope(CommandBufferHandle<G> cmd)
+{
+	return InternalGpuScope(cmd, Location);
+}
+
+template <GraphicsApi G>
+typename GpuProfiler<G>::Scope Queue<G>::InternalGpuScope(CommandBufferHandle<G> cmd, const SourceLocationData& srcLoc)
+{
+	if (myProfiler)
+		return myProfiler->Begin(cmd, srcLoc);
+
+	return {};
+}
+
+} // namespace rhi

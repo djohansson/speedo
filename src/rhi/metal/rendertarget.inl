@@ -77,6 +77,7 @@ private:
 	std::vector<AttachmentOps> myOps;
 	std::optional<PipelineRenderingCreateInfo<kMetal>> myPipelineRenderingCreateInfo;
 	RenderTargetBeginInfo<kMetal> myBeginInfo{}; // rhi's interface's (empty in Metal: the encoder is the command buffer's)
+	std::unique_ptr<metal::RenderTargetClearObject> myClear; // ClearRect's pipelines (made at its first)
 };
 
 } // namespace rhi

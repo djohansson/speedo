@@ -254,17 +254,17 @@ RHI<kVk>* GetRHI<kVk>() noexcept
 }
 
 template <>
-RHI<kVk>::RHI(RHIInitializationData&& initData)
+RHI<kVk>::RHI(RHIInitializationData&& initData, SurfaceHandle<kVk> surface)
 	: myInstance(InstanceCreateDesc<kVk>{std::string(initData.name), "speedo", initData.window != 0})
-	, myDevices{[&initData](Instance<kVk>& instance)
+	, myDevices{[&initData, &surface](Instance<kVk>& instance)
 	{
 		using namespace detail;
 
 		// none without a window (headless)
 		if (initData.window != 0)
-			initData.surface = CreateSurface(instance, &instance.GetHostAllocationCallbacks(), initData.window);
+			surface = CreateSurface(instance, &instance.GetHostAllocationCallbacks(), initData.window);
 
-		return DetectAndCreateDevices(instance, initData.surface);
+		return DetectAndCreateDevices(instance, surface);
 	}(myInstance),}
 {
 	using namespace detail;
@@ -280,9 +280,14 @@ RHI<kVk>::RHI(RHIInitializationData&& initData)
 	if (initData.window != 0)
 		mySwapchains.push_back({
 			.window = initData.window,
-			.swapchain = Swapchain<kVk>(DetectSuitableSwapchain(myInstance, GetPrimaryDevice(), initData.surface, initData.maxSwapchainImageCount))});
+			.swapchain = Swapchain<kVk>(DetectSuitableSwapchain(myInstance, GetPrimaryDevice(), surface, initData.maxSwapchainImageCount))});
 
 	//(std::get<std::filesystem::path>(Application::Get()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string()
 }
+
+template <>
+RHI<kVk>::RHI(RHIInitializationData&& initData)
+	: RHI(std::forward<RHIInitializationData>(initData), VK_NULL_HANDLE)
+{}
 
 } // namespace rhi

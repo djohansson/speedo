@@ -108,6 +108,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # appended after CMAKE_<LANG>_FLAGS_DEBUG, so this -O0 wins over the toolchain's -Og.
 add_compile_options($<$<CONFIG:debug>:-O0>)
 
+# the graphics api the code above rhi uses (rhi::kGraphicsApi): vulkan, or metal on macOS (the <triplet>-metal preset,
+# docs/backends-plan.md, step 8). rhi has both backends on macOS either way
+set(SPEEDO_GRAPHICS_API "vulkan" CACHE STRING "The graphics api the client uses: vulkan, or metal (macOS)")
+set_property(CACHE SPEEDO_GRAPHICS_API PROPERTY STRINGS vulkan metal)
+if(SPEEDO_GRAPHICS_API STREQUAL "metal")
+	if(NOT APPLE)
+		message(FATAL_ERROR "SPEEDO_GRAPHICS_API=metal: the Metal backend is macOS's")
+	endif()
+	add_compile_definitions(SPEEDO_GRAPHICS_API_METAL)
+elseif(NOT SPEEDO_GRAPHICS_API STREQUAL "vulkan")
+	message(FATAL_ERROR "SPEEDO_GRAPHICS_API=${SPEEDO_GRAPHICS_API}: vulkan or metal")
+endif()
+
 # sanitizers (-fsanitize=, e.g. address,undefined or thread) for our own targets: the vcpkg packages aren't instrumented.
 # they replace malloc themselves, so the executables are built without mimalloc (whose dylib interposes malloc)
 set(SPEEDO_SANITIZE "" CACHE STRING "Sanitizers for our own targets (-fsanitize=), e.g. address,undefined or thread")
@@ -399,14 +412,18 @@ set(RHI_SOURCE_FILES
 # types, which keeps rhi's generic code free of Vulkan's
 if(APPLE)
 	list(APPEND RHI_SOURCE_FILES
+		${SPEEDO_SOURCE_DIR}/rhi/metal/accelerationstructure.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/buffer.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/command.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/commandencoder.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/descriptorset.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/device.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/frame.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/gpuprofiler.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/image.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/instance.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/instantiate.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/memory.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/metalcpp.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/pipeline.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/pipelinedescriptors.cpp

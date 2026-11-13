@@ -43,8 +43,8 @@ public:
 		SlangDebugInfoFormat debugInfoFormat = SLANG_DEBUG_INFO_FORMAT_DEFAULT;
 		SlangMatrixLayoutMode matrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
 		std::vector<std::pair<std::string, std::string>> preprocessorDefinitions = { {"SHADERTYPES_H_GPU_TARGET", "true"} };
-		// the backend's (rhi::kShaderFormat, the client's: spir-v; MSL for the Metal backend's tests, see tools/rhitest.cpp)
-		rhi::ShaderFormat format = rhi::ShaderFormat::kSpirv16;
+		// the build's backend's (rhi::kShaderFormat), unless asked otherwise (rhitest compiles for each backend)
+		rhi::ShaderFormat format = rhi::kShaderFormat;
 
 		[[nodiscard]] std::string ToString() const;
 	};

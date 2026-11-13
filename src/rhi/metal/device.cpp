@@ -25,6 +25,7 @@ Device<kMetal>::Device(CreateDescType&& desc, const Instance<kMetal>& /*instance
 	ZoneScopedN("Device()");
 
 	myDevice = reinterpret_cast<MTL::Device*>(GetPhysicalDevice())->retain();
+	myAllocator = new metal::AllocatorObject{.device = myDevice};
 	myQueueFamilyDescs.push_back(QueueFamilyDesc<kMetal>{
 		.queueCount = 1,
 		.flags = kQueueFamilyFlagBitsGraphics | kQueueFamilyFlagBitsCompute | kQueueFamilyFlagBitsTransfer,
@@ -68,6 +69,7 @@ Device<kMetal>::~Device()
 	myResources.clear();
 	myPipeline = Pipeline<kMetal>{};
 	myQueues.clear();
+	delete myAllocator;
 	myDevice->release();
 }
 
@@ -94,6 +96,29 @@ DeviceLimits Device<kMetal>::GetLimits() const
 		.drawIndirectCountEmulated = false,
 		.rayQuery = false,
 		.accelerationStructureScratchAlignment = kScratchAlignment};
+}
+
+template <>
+Format Device<kMetal>::FindSupportedFormat(std::span<const Format> candidates, ImageTiling /*tiling*/, FormatFeature features) const
+{
+	// the first Metal has (no 24 bit color, no depth 24 stencil 8 on Apple's gpus) that can be what features ask: a block
+	// compressed format no attachment, a color attachment a color format, a depth stencil attachment a depth format
+	for (auto candidate : candidates)
+	{
+		if (candidate == Format::kUndefined || candidate == Format::kR8G8B8Unorm || candidate == Format::kB8G8R8Unorm ||
+			candidate == Format::kD24UnormS8Uint)
+			continue;
+		const bool compressed = BlockOf(candidate).width > 1;
+		const bool attachment = Any(features & (FormatFeature::kColorAttachment | FormatFeature::kDepthStencilAttachment));
+		if (compressed && attachment)
+			continue;
+		if (Any(features & FormatFeature::kColorAttachment) && !HasColorComponent(candidate))
+			continue;
+		if (Any(features & FormatFeature::kDepthStencilAttachment) && !HasDepthComponent(candidate))
+			continue;
+		return candidate;
+	}
+	return Format::kUndefined;
 }
 
 template <>

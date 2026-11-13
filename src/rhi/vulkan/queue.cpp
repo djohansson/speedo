@@ -134,14 +134,7 @@ Queue<kVk>& Queue<kVk>::operator=(Queue<kVk>&& other) noexcept
 	return *this;
 }
 
-template <>
-GpuProfiler<kVk>::Scope Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationData& srcLoc)
-{
-	if (myProfiler)
-		return myProfiler->Begin(cmd, srcLoc);
-
-	return {};
-}
+// (EnqueuePresent and the gpu profiler's scopes are every backend's, in queue.inl)
 
 template <>
 QueueHostSyncInfo<kVk> Queue<kVk>::Submit()

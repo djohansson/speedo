@@ -6,8 +6,12 @@
 
 #include <Foundation/Foundation.hpp>
 #include <Metal/Metal.hpp>
+#include <QuartzCore/QuartzCore.hpp>
 
+#include <array>
 #include <cstdint>
+#include <mutex>
+#include <optional>
 #include <vector>
 
 namespace rhi::metal
@@ -18,11 +22,15 @@ namespace rhi::metal
 // once it is open
 struct CommandBufferObject
 {
-	MTL::CommandBuffer* commandBuffer = nullptr; // retained
+	MTL::CommandBuffer* commandBuffer = nullptr; // retained (none for a secondary)
+	// a secondary's: the primary whose render pass it records in, into its open render encoder (Metal has no secondary
+	// command buffers: what a secondary records is recorded inline, ExecuteCommands left nothing to do)
+	CommandBufferObject* primary = nullptr;
 	MTL::ComputeCommandEncoder* computeEncoder = nullptr; // retained while open
 	MTL::BlitCommandEncoder* blitEncoder = nullptr; // retained while open
 	MTL::RenderCommandEncoder* renderEncoder = nullptr; // retained while open (a render target's pass, Begin to End)
 	MTL::ComputePipelineState* computePipeline = nullptr; // bound (the pipeline's, not retained)
+	std::array<uint64_t, 3> computeThreadGroupSize{1, 1, 1}; // the bound compute pipeline's (Dispatch's group size)
 	MTL::RenderPipelineState* renderPipeline = nullptr; // bound (the pipeline's, not retained)
 	MTL::DepthStencilState* depthStencil = nullptr; // the bound render pipeline's (the pipeline's, not retained)
 	MTL::PrimitiveType primitiveType = MTL::PrimitiveTypeTriangle; // the bound render pipeline's
@@ -42,6 +50,15 @@ struct CommandBufferObject
 		std::vector<MTL::Resource*> resources; // what it references, made resident at the dispatch
 	};
 	std::vector<SetBinding> sets; // by slot (the buffer index the layout gives the set, see PipelineLayoutObject)
+	// the render encoder's state as CommandEncoder set it, which a clear inside the pass (RenderTarget::ClearRect, a draw)
+	// sets again after its own: none until set in the pass (the encoder's defaults: the whole attachment)
+	std::optional<MTL::Viewport> viewport;
+	std::optional<MTL::ScissorRect> scissor;
+	MTL::CullMode cullMode = MTL::CullModeNone;
+	uint32_t stencilReference = 0;
+	// what the commands read from but nothing else holds (CommandEncoder::UpdateBuffer's data): released with the
+	// command buffer, once its commands are done (see commandpool::Free)
+	std::vector<MTL::Buffer*> transients;
 
 	void EndEncoders();
 	MTL::ComputeCommandEncoder* ComputeEncoder();
@@ -62,6 +79,7 @@ struct CommandPoolObject
 struct PipelineObject
 {
 	MTL::ComputePipelineState* computePipeline = nullptr; // retained
+	std::array<uint64_t, 3> threadGroupSize{1, 1, 1}; // a compute pipeline's entry point's (its numthreads)
 	MTL::RenderPipelineState* renderPipeline = nullptr; // retained
 	MTL::DepthStencilState* depthStencil = nullptr; // retained
 	MTL::PrimitiveType primitiveType = MTL::PrimitiveTypeTriangle;
@@ -122,11 +140,50 @@ struct ImageViewObject
 // gpus)
 [[nodiscard]] MTL::PixelFormat ToMetal(Format format);
 
+// a swapchain: its window's CAMetalLayer, and its images, textures of its own (render target, storage and blit usage,
+// as Vulkan's swapchain images have: a drawable's texture is no storage image), each copied into the layer's next
+// drawable when it is presented (Queue::Present)
+struct SwapchainObject
+{
+	CA::MetalLayer* layer = nullptr; // the swapchain's surface (not retained here)
+	std::vector<MTL::Texture*> textures; // retained
+};
+
+// the device's allocator: the device heaps are made from (no allocator of Metal's own: a resource not placed in a memory
+// block is the device's)
+struct AllocatorObject
+{
+	MTL::Device* device = nullptr; // the device's (not retained)
+};
+
+// a memory block's allocation: a placement heap, resources placed at offsets in it (see MemoryBlock)
+struct AllocationObject
+{
+	MTL::Heap* heap = nullptr; // retained
+};
+
 // a fence: a shared event and the value it waits for
 struct FenceObject
 {
 	MTL::SharedEvent* event = nullptr; // retained
 	uint64_t value = 0;
+};
+
+// a render target's clears of a rect inside its pass (RenderTarget::ClearRect): Metal clears no part of an attachment, so
+// a triangle drawn over the rect, writing the clear value to the attachment alone (its depth and stencil for a depth
+// stencil one): the library at the first clear, a pipeline per attachment at its first (rendertarget.cpp)
+struct RenderTargetClearObject
+{
+	std::mutex mutex; // the first clears' (a target's passes may record on several threads)
+	MTL::Library* library = nullptr; // retained
+	std::vector<MTL::RenderPipelineState*> pipelines; // by attachment (retained, null until its first clear)
+	MTL::DepthStencilState* keep = nullptr; // a color clear's: depth and stencil kept (retained)
+	MTL::DepthStencilState* write = nullptr; // a depth clear's: depth written, the stencil replaced (retained)
+
+	RenderTargetClearObject() noexcept = default;
+	RenderTargetClearObject(const RenderTargetClearObject&) = delete;
+	RenderTargetClearObject& operator=(const RenderTargetClearObject&) = delete;
+	~RenderTargetClearObject();
 };
 
 [[nodiscard]] inline MTL::Device* ToMetal(MTL::Device* device) noexcept { return device; }

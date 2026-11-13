@@ -184,15 +184,16 @@ PipelineHandle<kMetal> Pipeline<kMetal>::InternalCreateGraphicsPipeline(
 		descriptor->setDepthAttachmentPixelFormat(metal::ToMetal(rendering.depthAttachmentFormat));
 	if (rendering.stencilAttachmentFormat != Format::kUndefined)
 		descriptor->setStencilAttachmentPixelFormat(metal::ToMetal(rendering.stencilAttachmentFormat));
+	// the draws' primitives; the topology class only for points: the vertex stage writes the point size for every
+	// topology (VertexMain: Vulkan needs it for point lists), which Metal refuses in a pipeline of the triangle or line
+	// class, not one of none (Metal's default, which only layered rendering needs named)
 	auto* object = new metal::PipelineObject{};
 	switch (variant.topology)
 	{
 	case PrimitiveTopology::kTriangleList:
-		descriptor->setInputPrimitiveTopology(MTL::PrimitiveTopologyClassTriangle);
 		object->primitiveType = MTL::PrimitiveTypeTriangle;
 		break;
 	case PrimitiveTopology::kLineList:
-		descriptor->setInputPrimitiveTopology(MTL::PrimitiveTopologyClassLine);
 		object->primitiveType = MTL::PrimitiveTypeLine;
 		break;
 	case PrimitiveTopology::kPointList:
@@ -270,7 +271,7 @@ PipelineHandle<kMetal> Pipeline<kMetal>::InternalCreateComputePipeline(
 		error != nullptr ? error->localizedDescription()->utf8String() : "(no error)");
 	pipeline::LogCreation("compute", stage.name, variant.specialization, creationStart);
 
-	return new metal::PipelineObject{.computePipeline = state};
+	return new metal::PipelineObject{.computePipeline = state, .threadGroupSize = stage.threadGroupSize};
 }
 
 // (the pipelines' map, requests and binds, the launch parameters and the layouts by name are every backend's, in
@@ -284,6 +285,7 @@ void Pipeline<kMetal>::BindPipeline(CommandBufferHandle<kMetal> cmd, PipelineBin
 	if (bindPoint == PipelineBindPoint::kCompute)
 	{
 		cmd->computePipeline = handle->computePipeline;
+		cmd->computeThreadGroupSize = handle->threadGroupSize;
 		return;
 	}
 	cmd->renderPipeline = handle->renderPipeline;
@@ -346,8 +348,10 @@ void Pipeline<kMetal>::BindLayoutAuto(PipelineLayoutHandle<kMetal> layoutHandle,
 			const auto& [entryPointName, shaderStage, launchParams] = shader.GetEntryPoint();
 			if (shaderStage != ShaderStage::kCompute)
 				continue;
-			myComputeState.shaderStages.push_back({.library = shader, .name = entryPointName.c_str(), .stage = shaderStage});
-			myComputeState.launchParameters.push_back(launchParams.value_or(ComputeLaunchParameters{}));
+			const auto launch = launchParams.value_or(ComputeLaunchParameters{});
+			myComputeState.shaderStages.push_back(
+				{.library = shader, .name = entryPointName.c_str(), .stage = shaderStage, .threadGroupSize = launch.threadGroupSize});
+			myComputeState.launchParameters.push_back(launch);
 		}
 		ENSUREF(!myComputeState.shaderStages.empty(), "the layout has no compute entry point");
 		break;

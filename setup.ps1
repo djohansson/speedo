@@ -425,6 +425,28 @@ if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $PlatformSettings.Length)
 			)
 		}
 	}
+
+	# the profile configuration with the client on the Metal backend (SPEEDO_GRAPHICS_API in CMakeLists.txt,
+	# docs/backends-plan.md, step 8)
+	if ($IsMacOS)
+	{
+		$CMakePresets.configurePresets += @(
+			[ordered] @{
+				name = "$(Get-TargetTriplet)-metal"
+				inherits = "$(Get-TargetTriplet)-profile"
+				cacheVariables = [ordered] @{
+					SPEEDO_GRAPHICS_API = 'metal'
+				}
+			}
+		)
+		$CMakePresets.buildPresets += @(
+			[ordered] @{
+				name = "$(Get-TargetTriplet)-metal"
+				configurePreset = "$(Get-TargetTriplet)-metal"
+				configuration = 'profile'
+			}
+		)
+	}
 }
 
 foreach ($Config in $Configurations)

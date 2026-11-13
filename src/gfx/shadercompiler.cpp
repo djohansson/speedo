@@ -491,13 +491,18 @@ std::string AssignSlots(
 		}
 		const bool parameterBlock = parameter->getType()->getKind() == slang::TypeReflection::Kind::ParameterBlock;
 		std::optional<uint32_t> slot;
+		bool resource = false; // a buffer, texture or sampler the code binds (not a specialization constant: a function constant)
 		for (unsigned categoryIt = 0; categoryIt < codeParameter->getCategoryCount(); categoryIt++)
-			if (auto category = static_cast<SlangParameterCategory>(codeParameter->getCategoryByIndex(categoryIt));
-				category == SLANG_PARAMETER_CATEGORY_METAL_BUFFER)
+		{
+			auto category = static_cast<SlangParameterCategory>(codeParameter->getCategoryByIndex(categoryIt));
+			if (category == SLANG_PARAMETER_CATEGORY_METAL_BUFFER)
 				slot = static_cast<uint32_t>(codeParameter->getOffset(category));
+			resource = resource || category == SLANG_PARAMETER_CATEGORY_METAL_BUFFER || category == SLANG_PARAMETER_CATEGORY_METAL_TEXTURE ||
+					   category == SLANG_PARAMETER_CATEGORY_METAL_SAMPLER || category == SLANG_PARAMETER_CATEGORY_METAL_ARGUMENT_BUFFER_ELEMENT;
+		}
 		if (!parameterBlock && !pushConstants)
 		{
-			if (slot || codeParameter->getCategoryCount() > 0)
+			if (resource)
 				error = std::format("{}: a resource outside a parameter block (its set has no slot in the code)", parameter->getName());
 			continue;
 		}

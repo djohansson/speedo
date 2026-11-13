@@ -16,10 +16,13 @@
 namespace rhi
 {
 
-// the graphics api the code above rhi uses (one per build)
+// the graphics api the code above rhi uses (one per build: SPEEDO_GRAPHICS_API, the <triplet>-metal preset's metal; the
+// shader binaries it takes are rhi::kShaderFormat, rhi/shaderset.h)
+#if defined(SPEEDO_GRAPHICS_API_METAL)
+inline constexpr GraphicsApi kGraphicsApi = kMetal;
+#else
 inline constexpr GraphicsApi kGraphicsApi = kVk;
-// the shader binaries it takes
-inline constexpr ShaderFormat kShaderFormat = ShaderFormat::kSpirv16;
+#endif
 
 struct RHIInitializationData
 {
@@ -28,7 +31,6 @@ struct RHIInitializationData
 	// and gets a swapchain. none (0) for no presentation at all (headless): no surface, no swapchain (GetSwapchain has
 	// none to give), and the surface and swapchain extensions aren't asked for
 	WindowHandle window{};
-	SurfaceHandle<kGraphicsApi> surface{}; // the window's, made by the constructor
 	// the descriptors the primary device's pipeline allocates its descriptor sets from, per type
 	std::vector<DescriptorPoolSize> descriptorPoolSizes;
 	// the most swapchain images the application keeps per image state for (0: no limit), see
@@ -107,6 +109,10 @@ public:
 	[[nodiscard]] const auto& GetPrimaryDevice() const noexcept { return myDevices.front(); }
 
 private:
+	// with the window's surface, the backend's (none when headless), which the public constructor makes: the devices are
+	// picked by it, and the swapchain made of it
+	RHI(RHIInitializationData&& initData, SurfaceHandle<G> surface);
+
 	detail::RHIRegistration<G> myRegistration{this}; // first after drawCalls: constructed before, and destroyed after, the rest
 	Instance<G> myInstance;
 	std::vector<Device<G>> myDevices;
