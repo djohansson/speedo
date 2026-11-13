@@ -8,6 +8,7 @@
 #include <core/application.h>
 #include <core/profiling.h>
 
+#include <array>
 #include <filesystem>
 #include <format>
 #include <memory>
@@ -45,11 +46,17 @@ Device<kMetal>::Device(CreateDescType&& desc, const Instance<kMetal>& /*instance
 	for (NS::UInteger setIt = 0; sets != nullptr && setIt < sets->count(); setIt++)
 		timestamps = timestamps || sets->object<MTL::CounterSet>(setIt)->name()->isEqualToString(MTL::CommonCounterSetTimestamp);
 	timestamps = timestamps && myDevice->supportsCounterSampling(MTL::CounterSamplingPointAtStageBoundary);
-	myQueueFamilyDescs.push_back(QueueFamilyDesc<kMetal>{
-		.queueCount = 1,
-		.flags = kQueueFamilyFlagBitsGraphics | kQueueFamilyFlagBitsCompute | kQueueFamilyFlagBitsTransfer,
-		.timestampValidBits = timestamps ? 64U : 0U,
-	});
+	// a family each queue type, dedicated as Vulkan's backend takes them where a device has them (graphics, compute,
+	// transfer: see InternalCreateQueues), a queue each
+	for (uint32_t flags : std::array<uint32_t, 3>{
+			 kQueueFamilyFlagBitsGraphics | kQueueFamilyFlagBitsCompute | kQueueFamilyFlagBitsTransfer,
+			 kQueueFamilyFlagBitsCompute | kQueueFamilyFlagBitsTransfer,
+			 kQueueFamilyFlagBitsTransfer})
+		myQueueFamilyDescs.push_back(QueueFamilyDesc<kMetal>{
+			.queueCount = 1,
+			.flags = flags,
+			.timestampValidBits = timestamps ? 64U : 0U,
+		});
 	std::println("\"{}\" is selected as primary graphics device (Metal)", myDevice->name()->utf8String());
 	std::println("ray queries: {}", device::RayQueries(myDevice) ? "yes" : "no (the shaders traverse gfx's BVHs)");
 }
@@ -169,25 +176,35 @@ void Device<kMetal>::InternalCreateQueues()
 {
 	ZoneScopedN("Device::InternalCreateQueues");
 
+	// a queue of its own each queue type, in its family (see the constructor), with its own timeline: an MTLCommandQueue
+	// each (Metal makes any number, and Apple's gpus run independent queues' work concurrently; no copy engine is
+	// exposed, so the transfer queue's gain is uploads that don't wait behind the frames' work). Metal's hazard tracking
+	// doesn't cross queues: their timelines' waits order them (Queue::Submit encodes a wait on another queue's)
+	constexpr std::array kQueueTypes{
+		std::pair{kQueueTypeGraphics, "Graphics"}, std::pair{kQueueTypeCompute, "Compute"}, std::pair{kQueueTypeTransfer, "Transfer"}};
 	auto& queues = GetQueues();
-	auto graphicsContext = std::make_shared<QueueTimelineContext<kMetal>>(std::make_shared<QueueTimelineContextData<kMetal>>(
-		Semaphore<kMetal>{SemaphoreCreateDesc<kMetal>{CreateDeviceObjectCreateDesc("Graphics Queue Timeline Semaphore"), SemaphoreType::kTimeline}},
-		uint64_t{},
-		uint32_t{},
-		core::CircularContainer<QueueContext<kMetal>>{}));
+	for (uint32_t familyIt = 0; familyIt < kQueueTypes.size(); familyIt++)
 	{
-		auto graphics = graphicsContext->Write();
-		graphics->queues = std::vector<QueueContext<kMetal>>(1);
-		graphics->queueFamilyIndex = 0;
-		auto& [queue, syncInfo] = graphics->queues.FetchAdd();
-		queue = Queue<kMetal>(QueueCreateDesc<kMetal>{
-			CreateDeviceObjectCreateDesc("Graphics Queue 0"), 0, 0, static_cast<uint32_t>(GetQueueFamilies()[0].timestampValidBits > 0)});
+		const auto [type, name] = kQueueTypes[familyIt];
+		auto context = std::make_shared<QueueTimelineContext<kMetal>>(std::make_shared<QueueTimelineContextData<kMetal>>(
+			Semaphore<kMetal>{SemaphoreCreateDesc<kMetal>{
+				CreateDeviceObjectCreateDesc(std::format("{} Queue Timeline Semaphore", name)), SemaphoreType::kTimeline}},
+			uint64_t{},
+			uint32_t{},
+			core::CircularContainer<QueueContext<kMetal>>{}));
+		{
+			auto data = context->Write();
+			data->queues = std::vector<QueueContext<kMetal>>(1);
+			data->queueFamilyIndex = familyIt;
+			auto& [queue, syncInfo] = data->queues.FetchAdd();
+			queue = Queue<kMetal>(QueueCreateDesc<kMetal>{
+				CreateDeviceObjectCreateDesc(std::format("{} Queue 0", name)),
+				0,
+				familyIt,
+				static_cast<uint32_t>(GetQueueFamilies()[familyIt].timestampValidBits > 0)});
+		}
+		queues.emplace(type, context);
 	}
-	// one queue to start: the compute and transfer types share its context (the whole ConcurrentAccess, so that locking an
-	// alias locks the same mutex)
-	queues.emplace(kQueueTypeGraphics, graphicsContext);
-	queues.emplace(kQueueTypeCompute, graphicsContext);
-	queues.emplace(kQueueTypeTransfer, graphicsContext);
 }
 
 template <>
