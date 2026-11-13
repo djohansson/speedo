@@ -1,6 +1,10 @@
 ###############################################################################
 
 cmake_minimum_required(VERSION 3.10)
+# $<LINK_ONLY:...> in a target's own link libraries links a library without its usage requirements, as CMake 3.27 has it
+# (the client executable's copies of gfx and the client, below): under the old behavior this minimum version picks, both
+# copies' definitions reached the executable's sources (macOS's SPEEDO_GRAPHICS_API_NAMESPACE, metal and then vk)
+cmake_policy(SET CMP0131 NEW)
 
 set(SPEEDO_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
