@@ -18,6 +18,12 @@ extern "C"
 
 // the scalars are FLOAT1, UINT1 and INT1, not FLOAT, UINT and INT: windows.h writes its typedefs of those names as
 // `UINT (CALLBACK *YIELDPROC)(...)`, which a function like macro of the same name rewrites
+//
+// a struct a buffer holds pads explicitly where std430 would (a field after a FLOAT3 or a smaller one before a 16 byte
+// aligned one, and the tail up to the struct's alignment), with padding fields: slang lays out every buffer of Metal's
+// packed (each value at its scalar's alignment, a struct's size not rounded up), Vulkan's std430, and the C++ side as
+// std430 by its alignas, so the backends read the same bytes only where the two agree. the shader compiler checks every
+// buffer of every layout it compiles (gfx/shadercompiler.cpp, CheckPackedLayout)
 #if !defined(SHADERTYPES_H_GPU_TARGET)
 #	define FLOAT4X4(name) float name[4][4]
 #	define FLOAT4_ARRAY(name, count) float name[count][4]
@@ -457,6 +463,7 @@ struct ViewData
 	// how much its scene is seen by the eye's night vision (0 by a lit street's light, 1 by moonlight: see Scotopic), by
 	// its luminance, whether or not its exposure follows it
 	alignas(4) FLOAT1(scotopic);
+	alignas(4) UINT1(padding0); // std430's tail, to the struct's 16 byte alignment, explicit (see the top of the file)
 };
 
 // how many lights gLights holds: a model's, then the environment's dominant lights (ThousandsOfLights.gltf has 4000)
@@ -551,6 +558,9 @@ struct AerialPerspectiveData
 	alignas(4) UINT1(enabled);
 	alignas(4) UINT1(shaftLight);
 	alignas(4) UINT1(viewCount);
+	alignas(4) UINT1(padding0); // std430's before the next FLOAT4, explicit (see the top of the file)
+	alignas(4) UINT1(padding1);
+	alignas(4) UINT1(padding2);
 	// per view: as far along it as the scene goes (as the shadows' cascades reach, see shadows::Plan), past which neither
 	// the light shafts' shadow views nor the indirect lighting's probes hold anything
 	alignas(16) FLOAT4(sceneDepths);
@@ -571,6 +581,8 @@ struct AerialPerspectiveData
 	// altitude, the sun or the air changed)
 	alignas(4) UINT1(skyEyeView);
 	alignas(4) UINT1(skyEyeViewRedraw);
+	alignas(4) UINT1(padding3); // std430's tail, to the struct's 16 byte alignment, explicit (see the top of the file)
+	alignas(4) UINT1(padding4);
 };
 
 // the camera's lens (View > Camera > Lens, see gfx/lens.h: a prescription, from which the cpu derives this each frame
@@ -1085,6 +1097,8 @@ struct MaterialData
 	// texcoords whose integer parts sum to an even number, 1 - checker on the others, box filtered over the pixel (see
 	// GroundChecker). 0: none
 	alignas(4) FLOAT1(checker);
+	alignas(4) UINT1(padding0); // std430's tail, to the struct's 16 byte alignment, explicit (see the top of the file)
+	alignas(4) UINT1(padding1);
 };
 
 struct ModelInstance
@@ -1096,7 +1110,9 @@ struct ModelInstance
 struct VertexP3fN3fTa4fT014fC4f
 {
 	alignas(16) FLOAT3(position);
+	alignas(4) FLOAT1(padding0); // std430's after a FLOAT3, explicit (see the top of the file)
 	alignas(16) FLOAT3(normal);
+	alignas(4) FLOAT1(padding1);
 	// xyz: along +u of the normal map's texcoords (before its transform). w: the handedness of the frame (gltf's), whose
 	// bitangent cross(normal, tangent.xyz) * w points up the image, i.e. along -v. w = 0: no tangent, the fragment shader
 	// derives the frame from screen space derivatives

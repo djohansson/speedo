@@ -337,6 +337,126 @@ uint32_t CreateLayoutBindings(
 	return uniformsTotalSize;
 }
 
+// a buffer's data laid out packed, as slang lays out every buffer of Metal's (its natural layout, which Metal's target
+// always takes, whatever the buffer's annotation: each value at its scalar's alignment, a struct's size not rounded up to
+// a vector's), against the reflection target's layout (spir-v's: std430, std140 for a constant buffer): the backends read
+// the same bytes where the two agree, so a buffer's struct pads explicitly where std430 would (rhitestdraw.slang's draw
+// record, 36 bytes packed and 48 std430, read its second record from the first's padding on Metal). mismatches named by
+// their path are appended to error
+struct PackedLayout
+{
+	size_t size = 0;
+	size_t alignment = 1;
+};
+
+size_t PackedScalarSize(slang::TypeReflection::ScalarType type)
+{
+	switch (type)
+	{
+	case slang::TypeReflection::ScalarType::Int64:
+	case slang::TypeReflection::ScalarType::UInt64:
+	case slang::TypeReflection::ScalarType::Float64:
+		return 8;
+	case slang::TypeReflection::ScalarType::Float16:
+	case slang::TypeReflection::ScalarType::Int16:
+	case slang::TypeReflection::ScalarType::UInt16:
+		return 2;
+	case slang::TypeReflection::ScalarType::Int8:
+	case slang::TypeReflection::ScalarType::UInt8:
+		return 1;
+	default:
+		return 4;
+	}
+}
+
+PackedLayout CheckPackedLayout(slang::TypeLayoutReflection* type, const std::string& path, std::vector<std::string>& mismatches)
+{
+	switch (type->getKind())
+	{
+	case slang::TypeReflection::Kind::Scalar:
+	{
+		const auto size = PackedScalarSize(type->getScalarType());
+		return {.size = size, .alignment = size};
+	}
+	case slang::TypeReflection::Kind::Vector:
+	case slang::TypeReflection::Kind::Matrix:
+	{
+		const auto scalar = PackedScalarSize(type->getScalarType());
+		const size_t count = type->getKind() == slang::TypeReflection::Kind::Vector
+								 ? type->getElementCount()
+								 : size_t{type->getRowCount()} * type->getColumnCount();
+		if (type->getKind() == slang::TypeReflection::Kind::Matrix && type->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM) != scalar * count)
+			mismatches.push_back(std::format(
+				"{}: a matrix of {} bytes packed, {} reflected", path, scalar * count, type->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM)));
+		return {.size = scalar * count, .alignment = scalar};
+	}
+	case slang::TypeReflection::Kind::Array:
+	{
+		auto element = CheckPackedLayout(type->getElementTypeLayout(), path + "[]", mismatches);
+		const auto stride = type->getElementStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
+		if (element.size != stride)
+			mismatches.push_back(std::format("{}: elements {} bytes apart packed, {} reflected", path, element.size, stride));
+		return {.size = element.size * type->getElementCount(), .alignment = element.alignment};
+	}
+	case slang::TypeReflection::Kind::Struct:
+	{
+		size_t offset = 0;
+		size_t alignment = 1;
+		for (unsigned fieldIt = 0; fieldIt < type->getFieldCount(); fieldIt++)
+		{
+			auto* field = type->getFieldByIndex(fieldIt);
+			const auto fieldPath = std::format("{}.{}", path, field->getName());
+			auto layout = CheckPackedLayout(field->getTypeLayout(), fieldPath, mismatches);
+			offset = (offset + layout.alignment - 1) / layout.alignment * layout.alignment;
+			if (const auto reflected = field->getOffset(SLANG_PARAMETER_CATEGORY_UNIFORM); offset != reflected)
+				mismatches.push_back(std::format("{}: at {} packed, {} reflected", fieldPath, offset, reflected));
+			offset += layout.size;
+			alignment = std::max(alignment, layout.alignment);
+		}
+		return {.size = (offset + alignment - 1) / alignment * alignment, .alignment = alignment};
+	}
+	default:
+		return {};
+	}
+}
+
+// each buffer's data (a structured buffer's element, a constant buffer's or the push constants' struct, in a parameter
+// block's fields or global), checked packed against the reflection target's layout (see CheckPackedLayout)
+void CheckPackedBuffers(slang::TypeLayoutReflection* type, const std::string& path, std::vector<std::string>& mismatches)
+{
+	switch (type->getKind())
+	{
+	case slang::TypeReflection::Kind::ParameterBlock:
+	{
+		auto* element = type->getElementTypeLayout();
+		for (unsigned fieldIt = 0; element != nullptr && fieldIt < element->getFieldCount(); fieldIt++)
+		{
+			auto* field = element->getFieldByIndex(fieldIt);
+			CheckPackedBuffers(field->getTypeLayout(), field->getName(), mismatches);
+		}
+		break;
+	}
+	case slang::TypeReflection::Kind::Array:
+		CheckPackedBuffers(type->getElementTypeLayout(), path, mismatches);
+		break;
+	case slang::TypeReflection::Kind::ConstantBuffer:
+		CheckPackedLayout(type->getElementTypeLayout(), path, mismatches);
+		break;
+	case slang::TypeReflection::Kind::Resource:
+		if (auto* element = type->getElementTypeLayout(); element != nullptr && element->getKind() == slang::TypeReflection::Kind::Struct)
+		{
+			auto layout = CheckPackedLayout(element, path + "[]", mismatches);
+			const auto stride = type->getElementStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
+			const auto reflected = stride != 0 ? stride : element->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM);
+			if (layout.size != reflected)
+				mismatches.push_back(std::format("{}[]: elements {} bytes apart packed, {} reflected", path, layout.size, reflected));
+		}
+		break;
+	default:
+		break;
+	}
+}
+
 // each set's and the push constants' slot in the code target's layout (MSL's buffer indices, see rhi::kNoShaderSlot): a
 // parameter block's set and the push constants' as CreateLayoutBindings finds them in the reflection target's. an error
 // for a resource outside a parameter block, which has no set of its own in such code
@@ -542,6 +662,27 @@ Response Compile(const Request& request)
 
 	for (auto parameterIndex = 0; std::cmp_less(parameterIndex, shaderReflection->getParameterCount()); parameterIndex++)
 		CreateLayoutBindings(shaderReflection->getParameterByIndex(parameterIndex), genericParameterIndices, shaderSet.layouts);
+
+	// the buffers' data laid out the same on every backend (see CheckPackedLayout): an error otherwise, whatever the
+	// format compiled for, so that a struct only Metal would misread fails Vulkan's build too
+	{
+		std::vector<std::string> mismatches;
+		for (unsigned parameterIt = 0; parameterIt < shaderReflection->getParameterCount(); parameterIt++)
+		{
+			auto* parameter = shaderReflection->getParameterByIndex(parameterIt);
+			CheckPackedBuffers(parameter->getTypeLayout(), parameter->getName(), mismatches);
+		}
+		if (!mismatches.empty())
+		{
+			spDestroyCompileRequest(slangRequest);
+			response.diagnostics += std::format(
+				"{}: buffers whose data std430 lays out otherwise than Metal's packed layout (pad them explicitly, see capi.h):",
+				request.file);
+			for (const auto& mismatch : mismatches)
+				response.diagnostics += std::format("\n  {}", mismatch);
+			return response;
+		}
+	}
 
 	// a format whose code binds each set and the push constants at a slot of its own (see rhi::kNoShaderSlot): each one's,
 	// from the code target's layout, whose parameters are the reflection target's in the same order

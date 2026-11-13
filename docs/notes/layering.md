@@ -336,7 +336,11 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   core's headers (assertions, containers) but none of its compiled code, which would be a second copy of core's globals.
   A compile's details (its search paths, each parameter's reflection, each binding it makes, each file it includes) are
   printed only with `SPEEDO_SHADER_LOG=1` (`shadercompiler::Logging`; the user's ask, 2026-11-12): a cold start's log was
-  778 lines with them, 24 without. gfx keeps slang's headers alone (a configuration names its enums), and a compile's cache key names slang's version from
+  778 lines with them, 24 without. Every compile checks that each buffer's data (a structured buffer's element, a
+  constant buffer's struct, the push constants) lays out the same packed, as slang lays out all of Metal's buffers, as
+  std430, Vulkan's, and fails otherwise, naming each field (`CheckPackedLayout`; the top of capi.h says how to pad):
+  rhitest's draw records read their second record from the first's padding on Metal (2026-11-13), and the client's
+  vertices, aerial perspective, view and material data needed explicit padding. gfx keeps slang's headers alone (a configuration names its enums), and a compile's cache key names slang's version from
   its port (`SPEEDO_SLANG_VERSION`) rather than asking the library. `ShaderLoader::Load` reads an install's shaders
   precompiled, where their source would be (`<stem>-<parameters hash>.shaderset`, the hash of the configuration, slang's
   version and the format: `ShaderLoader::PrecompiledPath`), else the profile's cache, else compiles through the library,
