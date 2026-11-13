@@ -1,7 +1,7 @@
 // the Metal backend's render targets (rhi/metal/rendertarget.inl): a render pass descriptor at each Begin (each
 // attachment's texture, load and store actions and clear value), its render encoder open until End; clears are passes
 // of their own (cleared, stored, ended at once), a clear of a rect inside a pass a draw over the rect (Metal clears no
-// part of an attachment); a copy is the blit encoder's. A scaled blit needs a draw too (later)
+// part of an attachment); a copy is the blit encoder's, a scaled blit a draw (a pass of its own sampling the source)
 #include <rhi/metal/backend.h>
 
 #include <rhi/frame.h>
@@ -121,6 +121,36 @@ CLEAR_FRAGMENTS(0)
 CLEAR_FRAGMENTS(1)
 CLEAR_FRAGMENTS(2)
 CLEAR_FRAGMENTS(3)
+
+// a scaled blit: a triangle over the destination, each fragment the source where Vulkan's blit takes it, from the
+// fragment's pixel (its center, position.xy, rows down as the source's are): nearest, the texel at floor((x + 0.5) * scale)
+// read (sampled at a texel's edge, an interpolated coordinate rounded either way: whole rows apart from Vulkan's); linear,
+// the source sampled at the pixel's center
+struct BlitConstants
+{
+	float2 scale; // the source's size over the destination's
+	float2 destinationTexel; // 1 over the destination's size
+	uint nearest;
+};
+
+struct BlitVertexOut
+{
+	float4 position [[position]];
+};
+
+vertex BlitVertexOut BlitVertex(uint vertexId [[vertex_id]])
+{
+	const float2 uv = float2((vertexId << 1) & 2, vertexId & 2);
+	return {float4(uv * 2.0 - 1.0, 0.0, 1.0)};
+}
+
+fragment float4 BlitFragment(
+	BlitVertexOut in [[stage_in]], texture2d<float> source [[texture(0)]], sampler filter [[sampler(0)]], constant BlitConstants& constants [[buffer(0)]])
+{
+	if (constants.nearest != 0)
+		return source.read(min(uint2(in.position.xy * constants.scale), uint2(source.get_width(), source.get_height()) - 1));
+	return source.sample(filter, in.position.xy * constants.destinationTexel);
+}
 )";
 
 static MTL::Function* NewFunction(MTL::Library* library, const std::string& name)
@@ -154,34 +184,82 @@ static MTL::DepthStencilState* NewDepthStencilState(MTL::Device* device, bool wr
 	return state;
 }
 
+// a blit's filter: a sampler state clamped to the source's edge
+static MTL::SamplerState* NewSamplerState(MTL::Device* device, MTL::SamplerMinMagFilter filter)
+{
+	auto* descriptor = MTL::SamplerDescriptor::alloc()->init();
+	descriptor->setMinFilter(filter);
+	descriptor->setMagFilter(filter);
+	descriptor->setSAddressMode(MTL::SamplerAddressModeClampToEdge);
+	descriptor->setTAddressMode(MTL::SamplerAddressModeClampToEdge);
+	auto* state = device->newSamplerState(descriptor);
+	descriptor->release();
+	ENSUREF(state != nullptr, "Failed to make a blit's sampler state");
+	return state;
+}
+
+// the target's draws' library, depth stencil states and samplers, made at its first clear or blit (clear's mutex held)
+static void EnsureLibrary(metal::RenderTargetClearObject& clear, MTL::Device* device)
+{
+	if (clear.library != nullptr)
+		return;
+
+	ZoneScopedN("RenderTarget::newLibraryWithSource");
+
+	auto* source = NS::String::alloc()->init(kClearSource, NS::UTF8StringEncoding);
+	auto* options = MTL::CompileOptions::alloc()->init();
+	options->setLanguageVersion(MTL::LanguageVersion3_2);
+	NS::Error* error = nullptr;
+	clear.library = device->newLibrary(source, options, &error);
+	options->release();
+	source->release();
+	ENSUREF(
+		clear.library != nullptr,
+		"Failed to compile a render target's clears' and blits' MSL: {}",
+		error != nullptr ? error->localizedDescription()->utf8String() : "(no error)");
+	clear.keep = NewDepthStencilState(device, false, false);
+	clear.write = NewDepthStencilState(device, true, false);
+	clear.writeStencil = NewDepthStencilState(device, true, true);
+	clear.nearest = NewSamplerState(device, MTL::SamplerMinMagFilterNearest);
+	clear.linear = NewSamplerState(device, MTL::SamplerMinMagFilterLinear);
+}
+
+// a blit's pipeline into the attachment at index (of format: the blit's pass has it alone), made at its first blit
+static MTL::RenderPipelineState* BlitPipeline(metal::RenderTargetClearObject& clear, MTL::Device* device, Format format, uint32_t index)
+{
+	std::scoped_lock lock{clear.mutex};
+	if (clear.blitPipelines[index] != nullptr)
+		return clear.blitPipelines[index];
+	EnsureLibrary(clear, device);
+
+	auto* descriptor = MTL::RenderPipelineDescriptor::alloc()->init();
+	MTL::Function* vertex = NewFunction(clear.library, "BlitVertex");
+	MTL::Function* fragment = NewFunction(clear.library, "BlitFragment");
+	descriptor->setVertexFunction(vertex);
+	descriptor->setFragmentFunction(fragment);
+	descriptor->colorAttachments()->object(0)->setPixelFormat(metal::ToMetal(format));
+	NS::Error* error = nullptr;
+	clear.blitPipelines[index] = device->newRenderPipelineState(descriptor, &error);
+	descriptor->release();
+	vertex->release();
+	fragment->release();
+	ENSUREF(
+		clear.blitPipelines[index] != nullptr,
+		"Failed to make a blit's pipeline into attachment {}: {}",
+		index,
+		error != nullptr ? error->localizedDescription()->utf8String() : "(no error)");
+	return clear.blitPipelines[index];
+}
+
 // clear's pipeline for the attachment at index of a target of formats (its pass's: Metal's pipelines name every
-// attachment's format), made at its first clear: the library and depth stencil states with the target's first
+// attachment's format), made at its first clear
 static MTL::RenderPipelineState* ClearPipeline(
 	metal::RenderTargetClearObject& clear, MTL::Device* device, std::span<const Format> formats, uint32_t index)
 {
 	std::scoped_lock lock{clear.mutex};
 	if (clear.pipelines[index] != nullptr)
 		return clear.pipelines[index];
-
-	if (clear.library == nullptr)
-	{
-		ZoneScopedN("RenderTarget::ClearRect::newLibraryWithSource");
-
-		auto* source = NS::String::alloc()->init(kClearSource, NS::UTF8StringEncoding);
-		auto* options = MTL::CompileOptions::alloc()->init();
-		options->setLanguageVersion(MTL::LanguageVersion3_2);
-		NS::Error* error = nullptr;
-		clear.library = device->newLibrary(source, options, &error);
-		options->release();
-		source->release();
-		ENSUREF(
-			clear.library != nullptr,
-			"Failed to compile ClearRect's MSL: {}",
-			error != nullptr ? error->localizedDescription()->utf8String() : "(no error)");
-		clear.keep = NewDepthStencilState(device, false, false);
-		clear.write = NewDepthStencilState(device, true, false);
-		clear.writeStencil = NewDepthStencilState(device, true, true);
-	}
+	EnsureLibrary(clear, device);
 
 	auto* descriptor = MTL::RenderPipelineDescriptor::alloc()->init();
 	MTL::Function* vertex = NewFunction(clear.library, "ClearVertex");
@@ -234,7 +312,10 @@ RenderTargetClearObject::~RenderTargetClearObject()
 	for (auto* pipeline : pipelines)
 		if (pipeline != nullptr)
 			pipeline->release();
-	for (NS::Object* object : std::initializer_list<NS::Object*>{library, keep, write, writeStencil})
+	for (auto* pipeline : blitPipelines)
+		if (pipeline != nullptr)
+			pipeline->release();
+	for (NS::Object* object : std::initializer_list<NS::Object*>{library, keep, write, writeStencil, nearest, linear})
 		if (object != nullptr)
 			object->release();
 }
@@ -264,6 +345,7 @@ RenderTarget<DerivedType, kMetal>::RenderTarget(typename ObjectTraits<DerivedTyp
 	}
 	myClear = std::make_unique<metal::RenderTargetClearObject>();
 	myClear->pipelines.resize(formats.size());
+	myClear->blitPipelines.resize(formats.size());
 	InternalUpdateAttachments();
 }
 
@@ -480,19 +562,63 @@ void RenderTarget<DerivedType, kMetal>::Blit(
 	uint32_t srcIndex,
 	const ImageSubresourceLayers<kMetal>& dstSubresource,
 	uint32_t dstIndex,
-	Filter /*filter*/)
+	Filter filter)
 {
-	// of the same size, a copy; scaled, a draw (later)
+	ZoneScopedN("RenderTarget::Blit");
+
+	// the source's whole into the destination's whole (their first level and layer: an attachment's), as Vulkan's blit:
+	// of the same size and format, a copy on the blit encoder; else a draw, Metal's blit encoder scaling and converting
+	// nothing: a pass of its own on the destination attachment (all of it written, nothing loaded), a triangle over it
+	// sampling the source with the filter
 	const auto srcExtent = srcRenderTarget.GetExtent();
 	const auto dstExtent = GetExtent();
+	auto* source = srcRenderTarget.GetImages()[srcIndex];
+	auto* destination = this->GetDesc().images[dstIndex];
+	if (srcExtent.width == dstExtent.width && srcExtent.height == dstExtent.height && source->pixelFormat() == destination->pixelFormat())
+	{
+		Copy(cmd, srcRenderTarget, srcSubresource, srcIndex, dstSubresource, dstIndex);
+		return;
+	}
+	const auto format = this->GetDesc().imageFormats[dstIndex];
 	ENSUREF(
-		srcExtent.width == dstExtent.width && srcExtent.height == dstExtent.height,
-		"the Metal backend blits between render targets of the same size alone yet ({}x{} to {}x{})",
-		srcExtent.width,
-		srcExtent.height,
-		dstExtent.width,
-		dstExtent.height);
-	Copy(cmd, srcRenderTarget, srcSubresource, srcIndex, dstSubresource, dstIndex);
+		HasColorComponent(format) && format != Format::kR32G32Uint,
+		"the Metal backend's scaled blits write color attachments of floats alone (a draw), not attachment {}'s format {}",
+		dstIndex,
+		std::to_underlying(format));
+	ENSUREF(
+		(source->usage() & MTL::TextureUsageShaderRead) != 0,
+		"a scaled blit's source (attachment {}) isn't sampled: an image without shader read usage",
+		srcIndex);
+
+	auto* pipeline = rendertarget::BlitPipeline(*myClear, static_cast<MTL::Device*>(this->GetDevice()), format, dstIndex);
+	auto* descriptor = MTL::RenderPassDescriptor::alloc()->init();
+	auto* color = descriptor->colorAttachments()->object(0);
+	color->setTexture(destination);
+	color->setLoadAction(MTL::LoadActionDontCare);
+	color->setStoreAction(MTL::StoreActionStore);
+	cmd->BeginRenderPass(descriptor);
+	descriptor->release();
+	// as the shader's BlitConstants
+	struct
+	{
+		std::array<float, 2> scale;
+		std::array<float, 2> destinationTexel;
+		uint32_t nearest;
+		uint32_t padding;
+	} constants{
+		.scale = {static_cast<float>(srcExtent.width) / static_cast<float>(dstExtent.width),
+				  static_cast<float>(srcExtent.height) / static_cast<float>(dstExtent.height)},
+		.destinationTexel = {1.0F / static_cast<float>(dstExtent.width), 1.0F / static_cast<float>(dstExtent.height)},
+		.nearest = filter == Filter::kNearest ? 1U : 0U,
+		.padding = 0,
+	};
+	auto* encoder = cmd->RenderEncoder();
+	encoder->setRenderPipelineState(pipeline);
+	encoder->setFragmentTexture(source, 0);
+	encoder->setFragmentSamplerState(filter == Filter::kLinear ? myClear->linear : myClear->nearest, 0);
+	encoder->setFragmentBytes(&constants, sizeof(constants), 0);
+	encoder->drawPrimitives(MTL::PrimitiveTypeTriangle, NS::UInteger{0}, NS::UInteger{3});
+	cmd->EndEncoders();
 }
 
 template <typename DerivedType>

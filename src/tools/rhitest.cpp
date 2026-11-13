@@ -476,11 +476,41 @@ std::vector<EnvironmentOutput> RunEnvironment(const std::filesystem::path& shade
 // a draw through a render pass (tools/rhitestdraw.slang): a 64x64 color target cleared, with a depth buffer cleared to
 // the far plane (0: depth reversed), three triangles drawn into it (one big, one behind it, one in front of it), two
 // with back faces culled (one wound the other way), and an indirect draw of two (each its record by its first
-// instance), the color read back for main to compare the backends'
+// instance), the color read back for main to compare the backends'; then the color blitted into targets of other sizes
+// (RenderTarget::Blit: a draw on Metal, vkCmdBlitImage on Vulkan), scaled up unevenly with the nearest texel and halved
+// with a linear filter, each read back too
 constexpr uint32_t kDrawSize = 64;
 
+struct DrawBlit
+{
+	uint32_t width = 0;
+	uint32_t height = 0;
+	rhi::Filter filter{};
+	const char* name = nullptr;
+};
+constexpr std::array<DrawBlit, 2> kDrawBlits{{
+	{.width = 128, .height = 96, .filter = rhi::Filter::kNearest, .name = "blit, 128x96 nearest"},
+	{.width = 32, .height = 32, .filter = rhi::Filter::kLinear, .name = "blit, 32x32 linear"},
+}};
+
+struct DrawPixels
+{
+	std::vector<uint8_t> draw;
+	std::array<std::vector<uint8_t>, kDrawBlits.size()> blits;
+};
+
+// a color attachment's first level and layer, as a blit names them (Metal's names nothing)
 template <GraphicsApi G>
-std::vector<uint8_t> RunDraw(const std::filesystem::path& shaderDir, rhi::Device<G>& device)
+ImageSubresourceLayers<G> ColorLayers()
+{
+	if constexpr (G == kVk)
+		return ImageSubresourceLayers<G>{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1};
+	else
+		return {};
+}
+
+template <GraphicsApi G>
+DrawPixels RunDraw(const std::filesystem::path& shaderDir, rhi::Device<G>& device)
 {
 	using namespace rhi;
 
@@ -528,11 +558,11 @@ std::vector<uint8_t> RunDraw(const std::filesystem::path& shaderDir, rhi::Device
 	auto indexBuffer = hostBuffer("RhiTest Draw Indices", sizeof(indices), BufferUsage::kIndex, indices.data());
 	auto commandBuffer = hostBuffer("RhiTest Draw Commands", sizeof(commands), BufferUsage::kIndirect, commands.data());
 
-	auto attachment = [&device](const char* name, Format format, ImageUsage usage, ImageAspect aspect)
+	auto attachment = [&device](const char* name, Format format, ImageUsage usage, ImageAspect aspect, uint32_t width = kDrawSize, uint32_t height = kDrawSize)
 	{
 		return std::make_shared<Image<G>>(ImageCreateDesc<G>{
 			device.CreateDeviceObjectCreateDesc(name),
-			Extent3d{.width = kDrawSize, .height = kDrawSize, .depth = 1},
+			Extent3d{.width = width, .height = height, .depth = 1},
 			format,
 			ImageTiling::kOptimal,
 			usage,
@@ -540,9 +570,28 @@ std::vector<uint8_t> RunDraw(const std::filesystem::path& shaderDir, rhi::Device
 			aspect,
 			ImageLayout::kUndefined});
 	};
+	// sampled too: a scaled blit's source (Metal's blit draws with it)
 	RenderImageSet<G> target(std::vector{
-		attachment("RhiTest Draw Color", Format::kR8G8B8A8Unorm, ImageUsage::kColorAttachment | ImageUsage::kTransferSource, ImageAspect::kColor),
+		attachment(
+			"RhiTest Draw Color", Format::kR8G8B8A8Unorm, ImageUsage::kColorAttachment | ImageUsage::kTransferSource | ImageUsage::kSampled,
+			ImageAspect::kColor),
 		attachment("RhiTest Draw Depth", Format::kD32Sfloat, ImageUsage::kDepthStencilAttachment, ImageAspect::kDepth)});
+	// the blits' destinations, read back each
+	std::vector<RenderImageSet<G>> blitTargets;
+	std::vector<Buffer<G>> blitReadbacks;
+	blitTargets.reserve(kDrawBlits.size());
+	blitReadbacks.reserve(kDrawBlits.size());
+	for (const auto& blit : kDrawBlits)
+	{
+		blitTargets.emplace_back(std::vector{attachment(
+			blit.name, Format::kR8G8B8A8Unorm, ImageUsage::kColorAttachment | ImageUsage::kTransferSource | ImageUsage::kTransferDestination,
+			ImageAspect::kColor, blit.width, blit.height)});
+		blitReadbacks.emplace_back(BufferCreateDesc<G>{
+			device.CreateDeviceObjectCreateDesc(std::format("{} readback", blit.name)),
+			uint64_t{blit.width} * blit.height * 4,
+			BufferUsage::kTransferDestination,
+			MemoryProperty::kHostVisible | MemoryProperty::kHostCoherent});
+	}
 	target.SetLoadOp(LoadOp::kClear, 0);
 	target.SetStoreOp(StoreOp::kStore, 0);
 	target.SetClearValue(ClearValue{.color = {0.1F, 0.2F, 0.3F, 1.0F}}, 0);
@@ -596,16 +645,32 @@ std::vector<uint8_t> RunDraw(const std::filesystem::path& shaderDir, rhi::Device
 			target.End(cmd);
 			target.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor, 0);
 			encoder.CopyImageToBuffer(*target.GetImage(0), readback);
+			for (size_t blitIt = 0; blitIt < kDrawBlits.size(); blitIt++)
+			{
+				auto& blitTarget = blitTargets[blitIt];
+				blitTarget.Blit(cmd, target, ColorLayers<G>(), 0, ColorLayers<G>(), 0, kDrawBlits[blitIt].filter);
+				blitTarget.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor, 0);
+				encoder.CopyImageToBuffer(*blitTarget.GetImage(0), blitReadbacks[blitIt]);
+			}
 			encoder.Barrier(PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kHost, Access::kHostRead);
 		});
 
-	auto bytes = readback.Map();
-	return {reinterpret_cast<const uint8_t*>(bytes.data()), reinterpret_cast<const uint8_t*>(bytes.data()) + bytes.size()};
+	auto copy = [](Buffer<G>& buffer)
+	{
+		auto bytes = buffer.Map();
+		return std::vector<uint8_t>(
+			reinterpret_cast<const uint8_t*>(bytes.data()), reinterpret_cast<const uint8_t*>(bytes.data()) + bytes.size());
+	};
+	DrawPixels pixels{.draw = copy(readback)};
+	for (size_t blitIt = 0; blitIt < kDrawBlits.size(); blitIt++)
+		pixels.blits[blitIt] = copy(blitReadbacks[blitIt]);
+	return pixels;
 }
 
-// the draw's pixels: some the clear color, some the triangles', and, given a second backend's, the same but for rounding
-// (at most 1 of 255 a channel)
-bool CheckDraw(const char* backend, const std::vector<uint8_t>& pixels, const std::vector<uint8_t>* reference, const char* referenceName)
+// the draw's pixels (or a blit's of them, what): some the clear color, some the triangles', and, given a second backend's,
+// the same but for rounding (at most 1 of 255 a channel)
+bool CheckDraw(
+	const char* backend, const char* what, const std::vector<uint8_t>& pixels, const std::vector<uint8_t>* reference, const char* referenceName)
 {
 	constexpr std::array<uint8_t, 4> kClear{26, 51, 77, 255}; // 0.1, 0.2, 0.3 in unorm8, rounded
 	uint32_t cleared = 0;
@@ -620,7 +685,7 @@ bool CheckDraw(const char* backend, const std::vector<uint8_t>& pixels, const st
 	bool drawn = cleared > 0 && cleared < pixelCount;
 	if (reference == nullptr)
 	{
-		std::println("{} {} (draw): {} of {} pixels drawn", drawn ? "PASS" : "FAIL", backend, pixelCount - cleared, pixelCount);
+		std::println("{} {} ({}): {} of {} pixels drawn", drawn ? "PASS" : "FAIL", backend, what, pixelCount - cleared, pixelCount);
 		return drawn;
 	}
 	uint32_t apart = 0;
@@ -633,9 +698,21 @@ bool CheckDraw(const char* backend, const std::vector<uint8_t>& pixels, const st
 	}
 	bool ok = drawn && apart == 0;
 	std::println(
-		"{} {} (draw): against {}, {} of {} pixels drawn, {} channels more than 1 apart (at most {})",
-		ok ? "PASS" : "FAIL", backend, referenceName, pixelCount - cleared, pixelCount, apart, most);
+		"{} {} ({}): against {}, {} of {} pixels drawn, {} channels more than 1 apart (at most {})",
+		ok ? "PASS" : "FAIL", backend, what, referenceName, pixelCount - cleared, pixelCount, apart, most);
 	return ok;
+}
+
+// the draw's and its blits' checks (see CheckDraw)
+bool CheckDrawPixels(const char* backend, const DrawPixels& pixels, const DrawPixels* reference, const char* referenceName)
+{
+	bool passed = CheckDraw(backend, "draw", pixels.draw, reference != nullptr ? &reference->draw : nullptr, referenceName);
+	for (size_t blitIt = 0; blitIt < kDrawBlits.size(); blitIt++)
+		passed = CheckDraw(
+					 backend, kDrawBlits[blitIt].name, pixels.blits[blitIt], reference != nullptr ? &reference->blits[blitIt] : nullptr,
+					 referenceName) &&
+				 passed;
+	return passed;
 }
 
 // the backend's run: the buffer and image kernels' checks, and the environment kernels' outputs and the draw's pixels
@@ -644,7 +721,7 @@ struct RunResult
 {
 	bool passed = false;
 	std::vector<EnvironmentOutput> environment;
-	std::vector<uint8_t> draw;
+	DrawPixels draw;
 };
 
 template <GraphicsApi G>
@@ -772,11 +849,11 @@ int main(int argc, char** argv)
 
 	auto vulkan = Run<kVk>("vulkan", shaderDir);
 	bool passed = vulkan.passed && CheckEnvironment("vulkan", vulkan.environment, nullptr, nullptr);
-	passed = CheckDraw("vulkan", vulkan.draw, nullptr, nullptr) && passed;
+	passed = CheckDrawPixels("vulkan", vulkan.draw, nullptr, nullptr) && passed;
 #if defined(__OSX__)
 	auto metal = Run<kMetal>("metal", shaderDir);
 	passed = metal.passed && CheckEnvironment("metal", metal.environment, &vulkan.environment, "vulkan") && passed;
-	passed = CheckDraw("metal", metal.draw, &vulkan.draw, "vulkan") && passed;
+	passed = CheckDrawPixels("metal", metal.draw, &vulkan.draw, "vulkan") && passed;
 #endif
 	return passed ? 0 : 1;
 }

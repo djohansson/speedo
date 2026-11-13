@@ -298,14 +298,18 @@ struct ShaderModuleObject
 	[[nodiscard]] MTL::Library* Library();
 };
 
-// a render target's clears of a rect inside its pass (RenderTarget::ClearRect): Metal clears no part of an attachment, so
-// a triangle drawn over the rect, writing the clear value to the attachment alone (its depth and stencil for a depth
-// stencil one): the library at the first clear, a pipeline per attachment at its first (rendertarget.cpp)
+// a render target's draws of its own: its clears of a rect inside its pass (RenderTarget::ClearRect: Metal clears no part
+// of an attachment, so a triangle drawn over the rect, writing the clear value to the attachment alone, its depth and
+// stencil for a depth stencil one) and its scaled blits (RenderTarget::Blit: a pass of its own on the destination, a
+// triangle over it sampling the source). the library at the first, a pipeline per attachment at its first (rendertarget.cpp)
 struct RenderTargetClearObject
 {
-	std::mutex mutex; // the first clears' (a target's passes may record on several threads)
+	std::mutex mutex; // the first clears' and blits' (a target's passes may record on several threads)
 	MTL::Library* library = nullptr; // retained
-	std::vector<MTL::RenderPipelineState*> pipelines; // by attachment (retained, null until its first clear)
+	std::vector<MTL::RenderPipelineState*> pipelines; // the clears', by attachment (retained, null until its first clear)
+	std::vector<MTL::RenderPipelineState*> blitPipelines; // by destination attachment (retained, null until its first blit)
+	MTL::SamplerState* nearest = nullptr; // a blit's filters (retained, clamped to the source's edge)
+	MTL::SamplerState* linear = nullptr;
 	MTL::DepthStencilState* keep = nullptr; // a color clear's: depth and stencil kept (retained)
 	MTL::DepthStencilState* write = nullptr; // a depth clear's: depth written (retained)
 	MTL::DepthStencilState* writeStencil = nullptr; // a depth stencil clear's: depth written, the stencil replaced (retained)
