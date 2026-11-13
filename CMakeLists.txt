@@ -399,7 +399,16 @@ set(RHI_SOURCE_FILES
 # types, which keeps rhi's generic code free of Vulkan's
 if(APPLE)
 	list(APPEND RHI_SOURCE_FILES
-		${SPEEDO_SOURCE_DIR}/rhi/metal/instantiate.cpp)
+		${SPEEDO_SOURCE_DIR}/rhi/metal/buffer.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/command.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/commandencoder.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/device.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/instance.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/instantiate.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/metalcpp.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/queue.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/rhi.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/metal/semaphore.cpp)
 endif()
 add_library(rhi STATIC ${RHI_SOURCE_FILES})
 
@@ -427,6 +436,9 @@ target_link_libraries(
 		platform
 		xxHash::xxhash
 		Vulkan::Vulkan
+		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,Metal>>
+		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,QuartzCore>>
+		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,Foundation>>
 )
 
 ###############################################################################
