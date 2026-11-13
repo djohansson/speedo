@@ -209,7 +209,7 @@ public:
 	[[nodiscard]] operator auto() const noexcept { return myView; }//NOLINT(google-explicit-constructor)
 
 	void SetFormat(Format format) noexcept { this->InternalGetDesc().format = format; }
-	void SetAspectFlags(Flags<G> aspectFlags) noexcept { this->InternalGetDesc().aspectFlags = aspectFlags; }
+	void SetAspectFlags(ImageAspect aspectFlags) noexcept { this->InternalGetDesc().aspectFlags = aspectFlags; }
 
 	void Swap(ImageView& rhs) noexcept;
 	friend void Swap(ImageView& lhs, ImageView& rhs) noexcept { lhs.Swap(rhs); }

@@ -70,8 +70,8 @@ public:
 
 	[[maybe_unused]] DescriptorSetLayout& operator=(DescriptorSetLayout&& other) noexcept;
 	[[nodiscard]] operator auto() const { return std::get<0>(myLayout); }//NOLINT(google-explicit-constructor)
-	[[nodiscard]] bool operator==(const DescriptorSetLayout& other) const { return myLayout == other; }
-	[[nodiscard]] bool operator<(const DescriptorSetLayout& other) const { return myLayout < other; }
+	[[nodiscard]] bool operator==(const DescriptorSetLayout& other) const { return std::get<0>(myLayout) == std::get<0>(other.myLayout); }
+	[[nodiscard]] bool operator<(const DescriptorSetLayout& other) const { return std::get<0>(myLayout) < std::get<0>(other.myLayout); }
 
 	void Swap(DescriptorSetLayout& rhs) noexcept;
 	friend void Swap(DescriptorSetLayout& lhs, DescriptorSetLayout& rhs) noexcept { lhs.Swap(rhs); }

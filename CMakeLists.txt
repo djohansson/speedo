@@ -395,6 +395,12 @@ set(RHI_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/shader.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/swapchain.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/utils.cpp)
+# the Metal backend, beside Vulkan on macOS while it grows (docs/backends-plan.md): rhi's classes instantiated with its
+# types, which keeps rhi's generic code free of Vulkan's
+if(APPLE)
+	list(APPEND RHI_SOURCE_FILES
+		${SPEEDO_SOURCE_DIR}/rhi/metal/instantiate.cpp)
+endif()
 add_library(rhi STATIC ${RHI_SOURCE_FILES})
 
 target_compile_features(
