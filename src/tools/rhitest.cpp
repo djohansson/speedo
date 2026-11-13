@@ -1,8 +1,10 @@
 // rhitest [shader dir]: a compute dispatch through rhi on each backend the build has (docs/backends-plan.md, step 3): a
 // headless RHI, a kernel (tools/rhitest.slang) writing each thread's index times 3 plus a push constant into a storage
-// buffer, read back and checked. Vulkan's is the reference; the Metal backend's joins as its functions arrive, so that
-// it grows behind a test of its own while the client stays on Vulkan. Run from the checkout's root (the shader dir is
-// src/tools by default); the driver as for the client (VK_DRIVER_FILES). Exits 0 when every backend passes.
+// buffer, read back and checked, dispatched twice: its set from the pool, then pushed. Vulkan's is the reference; the
+// Metal backend's (on macOS, its kernel compiled to MSL)
+// runs the same, so that it grows behind a test of its own while the client stays on Vulkan. Run from the checkout's
+// root (the shader dir is src/tools by default); Vulkan's driver as for the client (VK_DRIVER_FILES). Exits 0 when every
+// backend passes.
 #include <core/application.h>
 #include <gfx/shaderloader.h>
 #include <rhi/buffer.h>
@@ -10,6 +12,7 @@
 #include <rhi/queue.h>
 #include <rhi/rhi.h>
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <format>
@@ -58,16 +61,33 @@ bool Run(const char* backend, const std::filesystem::path& shaderDir)
 		.entryPoints = {{"ComputeRhiTest", SLANG_STAGE_COMPUTE}},
 		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 	};
-	auto layout = pipeline.CreateLayout(
-		"RhiTest", gfx::ShaderLoader::Compile(shaderDir / "rhitest.slang", config, {shaderDir}, std::nullopt));
+	config.format = G == kMetal ? rhi::ShaderFormat::kMsl : rhi::ShaderFormat::kSpirv16;
+	auto shaders = gfx::ShaderLoader::Compile(shaderDir / "rhitest.slang", config, {shaderDir}, std::nullopt);
 	constexpr ComputePipelineVariant kKernel{.entryPoint = 0};
 
-	Buffer<G> output(BufferCreateDesc<G>{
-		device.CreateDeviceObjectCreateDesc("RhiTest Output"),
-		kCount * sizeof(uint32_t),
-		BufferUsage::kStorage | BufferUsage::kTransferDestination,
-		MemoryProperty::kHostVisible | MemoryProperty::kHostCoherent});
-	std::ranges::fill(output.Map(), std::byte{0});
+	// the kernel twice: its set from the pool, then pushed (Pipeline::CreateLayout's pushDescriptorSets), each writing an
+	// output of its own with an offset of its own
+	struct Dispatch
+	{
+		const char* set;
+		PipelineLayoutHandle<G> layout;
+		uint32_t offset;
+		Buffer<G> output;
+	};
+	constexpr std::array<uint32_t, 1> kPushedSets{kSet};
+	std::array<Dispatch, 2> dispatches{{
+		{"pooled", pipeline.CreateLayout("RhiTest", shaders), kOffset, {}},
+		{"pushed", pipeline.CreateLayout("RhiTestPushed", shaders, kPushedSets), kOffset * 2, {}},
+	}};
+	for (auto& dispatch : dispatches)
+	{
+		dispatch.output = Buffer<G>(BufferCreateDesc<G>{
+			device.CreateDeviceObjectCreateDesc(std::format("RhiTest Output ({})", dispatch.set)),
+			kCount * sizeof(uint32_t),
+			BufferUsage::kStorage | BufferUsage::kTransferDestination,
+			MemoryProperty::kHostVisible | MemoryProperty::kHostCoherent});
+		std::ranges::fill(dispatch.output.Map(), std::byte{0});
+	}
 
 	{
 		auto compute = device.GetQueue(kQueueTypeCompute).Write();
@@ -75,13 +95,16 @@ bool Run(const char* backend, const std::filesystem::path& shaderDir)
 		auto cmd = queue.GetPool().Begin();
 		{
 			CommandEncoder<G> encoder(cmd);
-			pipeline.BindLayoutAuto(layout, PipelineBindPoint::kCompute);
-			pipeline.SetDescriptorData("gOutput", BufferBinding<G>{.buffer = output, .offset = 0}, kSet);
-			pipeline.BindDescriptorSetAuto(cmd, kSet);
-			pipeline.BindPipelineAuto(cmd, kKernel);
-			RhiTestConstants constants{.offset = kOffset, .count = kCount};
-			pipeline.PushConstants(cmd, std::as_bytes(std::span(&constants, 1)));
-			encoder.DispatchThreads(pipeline.GetComputeLaunchParameters(kKernel), kCount);
+			for (auto& dispatch : dispatches)
+			{
+				pipeline.BindLayoutAuto(dispatch.layout, PipelineBindPoint::kCompute);
+				pipeline.SetDescriptorData("gOutput", BufferBinding<G>{.buffer = dispatch.output, .offset = 0}, kSet);
+				pipeline.BindDescriptorSetAuto(cmd, kSet);
+				pipeline.BindPipelineAuto(cmd, kKernel);
+				RhiTestConstants constants{.offset = dispatch.offset, .count = kCount};
+				pipeline.PushConstants(cmd, std::as_bytes(std::span(&constants, 1)));
+				encoder.DispatchThreads(pipeline.GetComputeLaunchParameters(kKernel), kCount);
+			}
 			encoder.Barrier(PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kHost, Access::kHostRead);
 		}
 		cmd.End();
@@ -95,17 +118,22 @@ bool Run(const char* backend, const std::filesystem::path& shaderDir)
 		queue.WaitIdle();
 	}
 
-	auto values = std::span(reinterpret_cast<const uint32_t*>(output.Map().data()), kCount);
-	uint32_t wrong = 0;
-	for (uint32_t index = 0; index < kCount; index++)
-		if (values[index] != (index * 3) + kOffset)
-		{
-			if (wrong < 4)
-				std::println("{}: output[{}] = {}, not {}", backend, index, values[index], (index * 3) + kOffset);
-			wrong++;
-		}
-	std::println("{} {}: {} of {} values right", wrong == 0 ? "PASS" : "FAIL", backend, kCount - wrong, kCount);
-	return wrong == 0;
+	bool passed = true;
+	for (auto& dispatch : dispatches)
+	{
+		auto values = std::span(reinterpret_cast<const uint32_t*>(dispatch.output.Map().data()), kCount);
+		uint32_t wrong = 0;
+		for (uint32_t index = 0; index < kCount; index++)
+			if (values[index] != (index * 3) + dispatch.offset)
+			{
+				if (wrong < 4)
+					std::println("{} ({} set): output[{}] = {}, not {}", backend, dispatch.set, index, values[index], (index * 3) + dispatch.offset);
+				wrong++;
+			}
+		std::println("{} {} ({} set): {} of {} values right", wrong == 0 ? "PASS" : "FAIL", backend, dispatch.set, kCount - wrong, kCount);
+		passed = passed && wrong == 0;
+	}
+	return passed;
 }
 
 } // namespace
@@ -147,5 +175,8 @@ int main(int argc, char** argv)
 	}
 
 	bool passed = Run<kVk>("vulkan", shaderDir);
+#if defined(__OSX__)
+	passed = Run<kMetal>("metal", shaderDir) && passed;
+#endif
 	return passed ? 0 : 1;
 }

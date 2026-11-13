@@ -1,5 +1,9 @@
 #include <rhi/crashreport.h>
 
+#include <chrono>
+#include <cstdlib>
+#include <print>
+#include <string_view>
 #include <type_traits>
 
 // the backends' parts of SetDescriptorData (a neutral binding in the backend's stored form, and how two stored values
@@ -12,6 +16,25 @@
 
 namespace rhi
 {
+
+namespace pipeline
+{
+
+// a pipeline's creation, timed (by the backend creating it): one that took a second or more is logged (KosmicKrisp
+// compiles each in Metal, which took minutes for a cold uber-kernel), and every one with SPEEDO_LOG_PIPELINES=1
+inline void LogCreation(std::string_view kind, std::string_view entryPoint, uint32_t specialization, std::chrono::steady_clock::time_point start)
+{
+	static const bool kAll = []
+	{
+		const char* setting = std::getenv("SPEEDO_LOG_PIPELINES");
+		return setting != nullptr && std::string_view(setting) == "1";
+	}();
+	double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+	if (kAll || seconds >= 1.0)
+		std::println(stderr, "pipeline: {} {} (specialization {}) took {:.2f} s to create", kind, entryPoint, specialization, seconds);
+}
+
+} // namespace pipeline
 
 template <GraphicsApi G>
 const DescriptorSetLayout<G>& PipelineLayout<G>::GetDescriptorSetLayout(uint32_t set) const noexcept

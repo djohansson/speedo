@@ -1,6 +1,6 @@
 // the Metal backend's commands: a dispatch on the command buffer's compute encoder, with what the pipeline bound for it
-// (the pipeline state, the push constants at buffer 0, each set's argument buffer at its index, and what the sets
-// reference made resident), and barriers between dispatches (the resources are hazard tracked: see
+// (the pipeline state, the push constants at buffer 0, each set's argument buffer at its index, a pushed set's by
+// setBytes, and what the sets reference made resident), and barriers between dispatches (the resources are hazard tracked: see
 // docs/backends-plan.md)
 #include <rhi/metal/backend.h>
 
@@ -26,9 +26,12 @@ static MTL::ComputeCommandEncoder* PrepareDispatch(metal::CommandBufferObject& c
 	for (NS::UInteger set = 0; set < cmd.sets.size(); set++)
 	{
 		const auto& binding = cmd.sets[set];
-		if (binding.argumentBuffer == nullptr)
+		if (binding.argumentBuffer != nullptr)
+			encoder->setBuffer(binding.argumentBuffer, binding.offset, set);
+		else if (!binding.pushed.empty())
+			encoder->setBytes(binding.pushed.data(), binding.pushed.size(), set);
+		else
 			continue;
-		encoder->setBuffer(binding.argumentBuffer, binding.offset, set);
 		for (auto* resource : binding.resources)
 			encoder->useResource(resource, MTL::ResourceUsageRead | MTL::ResourceUsageWrite);
 	}

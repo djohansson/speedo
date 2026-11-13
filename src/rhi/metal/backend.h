@@ -26,6 +26,7 @@ struct CommandBufferObject
 	{
 		MTL::Buffer* argumentBuffer = nullptr; // the set's (the pipeline's, not retained)
 		uint64_t offset = 0;
+		std::vector<uint8_t> pushed; // a pushed set's argument buffer (Pipeline::InternalPushDescriptorSet), set by setBytes
 		std::vector<MTL::Resource*> resources; // what it references, made resident at the dispatch
 	};
 	std::vector<SetBinding> sets; // by set index, bound at buffer N
@@ -47,12 +48,44 @@ struct PipelineObject
 	MTL::ComputePipelineState* computePipeline = nullptr; // retained
 };
 
-// a descriptor set: an argument buffer (tier 2) of 8 byte entries, binding b at 8 times the counts before it (see
-// docs/backends-plan.md), and what it references
+// a descriptor set layout's flag (DescriptorSetLayoutCreateDesc::flags): its descriptors pushed at each bind
+inline constexpr uint32_t kDescriptorSetLayoutPush = 1U;
+
+// a descriptor set layout: an argument buffer's (tier 2), of 8 byte entries (a buffer's gpu address, a texture's,
+// sampler's or acceleration structure's resource id), binding b at 8 times the counts of the bindings before it, as
+// slang lays out a parameter block's fields in their declaration order (see docs/backends-plan.md)
+struct DescriptorSetLayoutObject
+{
+	static constexpr uint32_t kEntrySize = 8;
+
+	struct Binding
+	{
+		uint32_t binding = 0;
+		rhi::DescriptorType type{};
+		uint32_t count = 0;
+		uint32_t offset = 0; // in bytes, in the argument buffer
+	};
+	std::vector<Binding> bindings; // by binding
+	uint32_t size = 0; // the argument buffer's, in bytes
+	bool push = false;
+
+	[[nodiscard]] const Binding& Find(uint32_t binding) const;
+};
+
+// a descriptor set: its part of an argument buffer (each array of sets is a buffer of its own, see DescriptorSetArray),
+// and what it references, which a dispatch makes resident
 struct DescriptorSetObject
 {
 	MTL::Buffer* argumentBuffer = nullptr; // retained, shared storage
+	uint64_t offset = 0;
 	std::vector<MTL::Resource*> resources;
+};
+
+// a pipeline layout: no object in Metal (a pipeline state has its sets at their buffer indices, the push constants at
+// buffer 0): what the layout's handle tells apart
+struct PipelineLayoutObject
+{
+	uint32_t pushConstantSize = 0;
 };
 
 // a fence: a shared event and the value it waits for
