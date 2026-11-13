@@ -1,6 +1,7 @@
 #pragma once
 
 // the Metal backend's own objects behind its opaque handles (rhi/metal/types.inl), for its sources alone
+#include <rhi/shaderset.h>
 #include <rhi/types.h>
 
 #include <Foundation/Foundation.hpp>
@@ -21,7 +22,8 @@ struct CommandBufferObject
 	MTL::ComputeCommandEncoder* computeEncoder = nullptr; // retained while open
 	MTL::BlitCommandEncoder* blitEncoder = nullptr; // retained while open
 	MTL::ComputePipelineState* computePipeline = nullptr; // bound (the pipeline's, not retained)
-	std::vector<uint8_t> pushConstants; // bound at buffer 0
+	std::vector<uint8_t> pushConstants; // bound at pushConstantSlot (the layout's, see PipelineLayoutObject)
+	uint32_t pushConstantSlot = 0;
 	struct SetBinding
 	{
 		MTL::Buffer* argumentBuffer = nullptr; // the set's (the pipeline's, not retained)
@@ -29,7 +31,7 @@ struct CommandBufferObject
 		std::vector<uint8_t> pushed; // a pushed set's argument buffer (Pipeline::InternalPushDescriptorSet), set by setBytes
 		std::vector<MTL::Resource*> resources; // what it references, made resident at the dispatch
 	};
-	std::vector<SetBinding> sets; // by set index, bound at buffer N
+	std::vector<SetBinding> sets; // by slot (the buffer index the layout gives the set, see PipelineLayoutObject)
 
 	void EndEncoders();
 	MTL::ComputeCommandEncoder* ComputeEncoder();
@@ -81,11 +83,16 @@ struct DescriptorSetObject
 	std::vector<MTL::Resource*> resources;
 };
 
-// a pipeline layout: no object in Metal (a pipeline state has its sets at their buffer indices, the push constants at
-// buffer 0): what the layout's handle tells apart
+// a pipeline layout: no object in Metal, but where its code takes each set and the push constants: their slots, the
+// buffer indices slang gave them (by declaration order, see rhi::kNoShaderSlot), the same for every entry point of the
+// layout's shader set
 struct PipelineLayoutObject
 {
 	uint32_t pushConstantSize = 0;
+	uint32_t pushConstantSlot = 0;
+	std::vector<uint32_t> setSlots; // by set index (kNoShaderSlot for a set the layout hasn't)
+
+	[[nodiscard]] uint32_t SetSlot(uint32_t set) const;
 };
 
 // an image view: a texture view of the image's texture (a format, its levels, a swizzle)

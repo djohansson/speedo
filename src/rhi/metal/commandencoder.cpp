@@ -1,6 +1,6 @@
 // the Metal backend's commands: a dispatch on the command buffer's compute encoder, with what the pipeline bound for it
-// (the pipeline state, the push constants at buffer 0, each set's argument buffer at its index, a pushed set's by
-// setBytes, and what the sets reference made resident), barriers between dispatches (the resources are hazard tracked: see
+// (the pipeline state, the push constants and each set's argument buffer at the slots its layout gives them, a pushed
+// set's by setBytes, and what the sets reference made resident), barriers between dispatches (the resources are hazard tracked: see
 // docs/backends-plan.md), and copies between buffers and images on its blit encoder
 #include <rhi/metal/backend.h>
 
@@ -28,14 +28,14 @@ static MTL::ComputeCommandEncoder* PrepareDispatch(metal::CommandBufferObject& c
 	auto* encoder = cmd.ComputeEncoder();
 	encoder->setComputePipelineState(cmd.computePipeline);
 	if (!cmd.pushConstants.empty())
-		encoder->setBytes(cmd.pushConstants.data(), cmd.pushConstants.size(), 0);
-	for (NS::UInteger set = 0; set < cmd.sets.size(); set++)
+		encoder->setBytes(cmd.pushConstants.data(), cmd.pushConstants.size(), cmd.pushConstantSlot);
+	for (NS::UInteger slot = 0; slot < cmd.sets.size(); slot++)
 	{
-		const auto& binding = cmd.sets[set];
+		const auto& binding = cmd.sets[slot];
 		if (binding.argumentBuffer != nullptr)
-			encoder->setBuffer(binding.argumentBuffer, binding.offset, set);
+			encoder->setBuffer(binding.argumentBuffer, binding.offset, slot);
 		else if (!binding.pushed.empty())
-			encoder->setBytes(binding.pushed.data(), binding.pushed.size(), set);
+			encoder->setBytes(binding.pushed.data(), binding.pushed.size(), slot);
 		else
 			continue;
 		for (auto* resource : binding.resources)

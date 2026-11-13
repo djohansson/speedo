@@ -46,11 +46,18 @@ struct ShaderBinding
 	uint64_t nameHash = 0; // XXH3_64bits of name
 };
 
+// a set's or the push constants' slot in the code, for a format whose code binds each at one of its own: MSL's buffer
+// index (an argument buffer's, or the push constants' bytes), which slang numbers by the parameters' declaration order
+// across the shader set's program, not by their sets (environment.slang's parameter block is buffer 0, its push
+// constants buffer 1). none for spir-v, whose sets are its descriptor sets
+inline constexpr uint32_t kNoShaderSlot = ~0U;
+
 struct ShaderPushConstants
 {
 	ShaderStage stages{};
 	uint32_t offset = 0;
 	uint32_t size = 0;
+	uint32_t slot = kNoShaderSlot;
 };
 
 // a descriptor set's bindings, and the push constants declared with it
@@ -58,6 +65,7 @@ struct ShaderSetLayout
 {
 	std::vector<ShaderBinding> bindings;
 	std::optional<ShaderPushConstants> pushConstants;
+	uint32_t slot = kNoShaderSlot;
 };
 
 struct ShaderSet

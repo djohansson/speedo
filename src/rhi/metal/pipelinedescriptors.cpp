@@ -180,7 +180,7 @@ void Pipeline<kMetal>::InternalUpdateDescriptorSet(
 template <>
 void Pipeline<kMetal>::InternalPushDescriptorSet(
 	CommandBufferHandle<kMetal> cmd,
-	PipelineLayoutHandle<kMetal> /*layout*/,
+	PipelineLayoutHandle<kMetal> layoutHandle,
 	const BindingsData<kMetal>& bindingsData,
 	const DescriptorUpdateTemplate<kMetal>& setTemplate)
 {
@@ -191,10 +191,10 @@ void Pipeline<kMetal>::InternalPushDescriptorSet(
 	const auto& layout = *setTemplate.GetDesc().descriptorSetLayout;
 	ENSUREF(layout.size <= kSetBytesCapacity, "a pushed set's argument buffer of {} bytes is past setBytes' {}", layout.size, kSetBytesCapacity);
 
-	const uint32_t set = setTemplate.GetDesc().set;
-	if (cmd->sets.size() <= set)
-		cmd->sets.resize(set + 1);
-	auto& binding = cmd->sets[set];
+	const uint32_t slot = layoutHandle->SetSlot(setTemplate.GetDesc().set);
+	if (cmd->sets.size() <= slot)
+		cmd->sets.resize(slot + 1);
+	auto& binding = cmd->sets[slot];
 	binding.argumentBuffer = nullptr;
 	binding.offset = 0;
 	binding.pushed.resize(layout.size);
@@ -236,16 +236,17 @@ void Pipeline<kMetal>::BindDescriptorSet(
 	CommandBufferHandle<kMetal> cmd,
 	DescriptorSetHandle<kMetal> handle,
 	PipelineBindPoint /*bindPoint*/,
-	PipelineLayoutHandle<kMetal> /*layoutHandle*/,
+	PipelineLayoutHandle<kMetal> layoutHandle,
 	uint32_t set,
 	std::optional<uint32_t> bufferOffset) const
 {
 	ZoneScopedN("Pipeline::BindDescriptorSet");
 
 	ENSUREF(!bufferOffset, "the Metal backend's sets take no dynamic offsets yet");
-	if (cmd->sets.size() <= set)
-		cmd->sets.resize(set + 1);
-	auto& binding = cmd->sets[set];
+	const uint32_t slot = layoutHandle->SetSlot(set);
+	if (cmd->sets.size() <= slot)
+		cmd->sets.resize(slot + 1);
+	auto& binding = cmd->sets[slot];
 	binding.argumentBuffer = handle->argumentBuffer;
 	binding.offset = handle->offset;
 	binding.pushed.clear();

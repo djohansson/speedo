@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <format>
 #include <mutex>
+#include <optional>
 #include <print>
 #include <span>
 #include <string>
@@ -336,6 +337,68 @@ uint32_t CreateLayoutBindings(
 	return uniformsTotalSize;
 }
 
+// each set's and the push constants' slot in the code target's layout (MSL's buffer indices, see rhi::kNoShaderSlot): a
+// parameter block's set and the push constants' as CreateLayoutBindings finds them in the reflection target's. an error
+// for a resource outside a parameter block, which has no set of its own in such code
+std::string AssignSlots(
+	SlangCompileRequest* slangRequest,
+	int codeTargetIndex,
+	slang::ShaderReflection* reflection,
+	core::UnorderedMap<uint32_t, rhi::ShaderSetLayout>& layouts)
+{
+	slang::IComponentType* program = nullptr;
+	if (SLANG_FAILED(spCompileRequest_getProgram(slangRequest, &program)) || program == nullptr)
+		return "failed to get the program's layout for its code target";
+	slang::ShaderReflection* codeLayout = program->getLayout(codeTargetIndex);
+	std::string error;
+	if (codeLayout == nullptr || codeLayout->getParameterCount() != reflection->getParameterCount())
+		error = "the code target's layout has other parameters than the reflection target's";
+	for (unsigned parameterIt = 0; error.empty() && parameterIt < reflection->getParameterCount(); parameterIt++)
+	{
+		auto* parameter = reflection->getParameterByIndex(parameterIt);
+		auto* codeParameter = codeLayout->getParameterByIndex(parameterIt);
+		unsigned space = parameter->getBindingSpace();
+		bool pushConstants = false;
+		for (unsigned categoryIt = 0; categoryIt < parameter->getCategoryCount(); categoryIt++)
+		{
+			auto category = static_cast<SlangParameterCategory>(parameter->getCategoryByIndex(categoryIt));
+			if (category == SLANG_PARAMETER_CATEGORY_REGISTER_SPACE)
+				space = parameter->getBindingSpace(category);
+			else if (category == SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE)
+				space = static_cast<unsigned>(parameter->getOffset(category));
+			else if (category == SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER)
+				pushConstants = true;
+		}
+		const bool parameterBlock = parameter->getType()->getKind() == slang::TypeReflection::Kind::ParameterBlock;
+		std::optional<uint32_t> slot;
+		for (unsigned categoryIt = 0; categoryIt < codeParameter->getCategoryCount(); categoryIt++)
+			if (auto category = static_cast<SlangParameterCategory>(codeParameter->getCategoryByIndex(categoryIt));
+				category == SLANG_PARAMETER_CATEGORY_METAL_BUFFER)
+				slot = static_cast<uint32_t>(codeParameter->getOffset(category));
+		if (!parameterBlock && !pushConstants)
+		{
+			if (slot || codeParameter->getCategoryCount() > 0)
+				error = std::format("{}: a resource outside a parameter block (its set has no slot in the code)", parameter->getName());
+			continue;
+		}
+		if (!slot)
+		{
+			error = std::format("{}: no buffer index in the code target's layout", parameter->getName());
+			continue;
+		}
+		auto layoutIt = layouts.find(space);
+		if (layoutIt == layouts.end())
+			continue; // a set without bindings
+		auto& layout = layoutIt->second;
+		if (pushConstants && layout.pushConstants)
+			layout.pushConstants->slot = *slot;
+		else if (!pushConstants)
+			layout.slot = *slot;
+	}
+	program->release();
+	return error;
+}
+
 // one compile at a time (slang isn't thread safe, even across sessions: see gfx::ShaderLoader), and the session made at
 // the first, kept until the process ends
 std::mutex gMutex;
@@ -479,6 +542,16 @@ Response Compile(const Request& request)
 
 	for (auto parameterIndex = 0; std::cmp_less(parameterIndex, shaderReflection->getParameterCount()); parameterIndex++)
 		CreateLayoutBindings(shaderReflection->getParameterByIndex(parameterIndex), genericParameterIndices, shaderSet.layouts);
+
+	// a format whose code binds each set and the push constants at a slot of its own (see rhi::kNoShaderSlot): each one's,
+	// from the code target's layout, whose parameters are the reflection target's in the same order
+	if (request.format != rhi::ShaderFormat::kSpirv16)
+		if (auto error = AssignSlots(slangRequest, codeTargetIndex, shaderReflection, shaderSet.layouts); !error.empty())
+		{
+			spDestroyCompileRequest(slangRequest);
+			response.diagnostics += error;
+			return response;
+		}
 
 	for (uint32_t entryPointIt = 0; entryPointIt < shaderReflection->getEntryPointCount(); entryPointIt++)
 	{

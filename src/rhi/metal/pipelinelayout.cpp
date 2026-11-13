@@ -30,26 +30,39 @@ PipelineLayout<kMetal>::PipelineLayout(
 	, myLayout(std::forward<PipelineLayoutHandle<kMetal>>(layout))
 {}
 
-template <>
-PipelineLayout<kMetal>::PipelineLayout(
-	CreateDescType&& desc,
-	std::vector<ShaderModule<kMetal>>&& shaderModules,
-	DescriptorSetLayoutFlatMap<kMetal>&& descriptorSetLayouts)
-	: PipelineLayout(
-		std::forward<CreateDescType>(desc),
-		std::forward<std::vector<ShaderModule<kMetal>>>(shaderModules),
-		std::forward<DescriptorSetLayoutFlatMap<kMetal>>(descriptorSetLayouts),
-		[&descriptorSetLayouts]
-		{
-			auto* layout = new metal::PipelineLayoutObject{};
-			for (const auto& range : descriptorset::GetPushConstantRanges<kMetal>(descriptorSetLayouts))
-				layout->pushConstantSize = std::max(layout->pushConstantSize, range.offset + range.size);
-			return layout;
-		}())
-{}
+// (no constructor from modules and set layouts alone: the layout's handle needs the shader set's slots)
+
+uint32_t metal::PipelineLayoutObject::SetSlot(uint32_t set) const
+{
+	ENSUREF(
+		set < setSlots.size() && setSlots[set] != kNoShaderSlot,
+		"set {} has no slot in the layout's code (its bindings aren't a parameter block of their own)",
+		set);
+	return setSlots[set];
+}
 
 namespace pipeline
 {
+
+// the layout's handle: its push constants' size, and where its code takes each set and the push constants (the shader
+// compiler's slots, for MSL)
+static metal::PipelineLayoutObject* CreateLayoutObject(const ShaderSet& shaderSet)
+{
+	auto* layout = new metal::PipelineLayoutObject{};
+	for (const auto& [set, setLayout] : shaderSet.layouts)
+	{
+		if (layout->setSlots.size() <= set)
+			layout->setSlots.resize(set + 1, kNoShaderSlot);
+		layout->setSlots[set] = setLayout.slot;
+		if (const auto& pushConstants = setLayout.pushConstants)
+		{
+			ENSUREF(pushConstants->slot != kNoShaderSlot, "the shader set's push constants have no slot (its code isn't MSL?)");
+			layout->pushConstantSize = std::max(layout->pushConstantSize, pushConstants->offset + pushConstants->size);
+			layout->pushConstantSlot = pushConstants->slot;
+		}
+	}
+	return layout;
+}
 
 // a shader set layout as the backend takes it: a pushed set's (see Pipeline::CreateLayout) flagged
 static DescriptorSetLayoutCreateDesc<kMetal> ToDescriptorSetLayoutCreateDesc(const ShaderSetLayout& layout, bool push)
@@ -103,7 +116,8 @@ PipelineLayout<kMetal>::PipelineLayout(CreateDescType&& desc, const ShaderSet& s
 				map.emplace(set, DescriptorSetLayout<kMetal>(std::move(layout)));
 			}
 			return map;
-		}())
+		}(),
+		pipeline::CreateLayoutObject(shaderSet))
 {}
 
 template <>

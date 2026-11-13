@@ -137,7 +137,8 @@ void Pipeline<kMetal>::PushConstants(CommandBufferHandle<kMetal> cmd, std::span<
 			[offset, size](const auto& range) { return range.offset < offset + size && offset < range.offset + range.size; }),
 		"No push constant range in the current layout covers the pushed data.");
 
-	// set at buffer 0 at the next dispatch (see commandencoder.cpp)
+	// set at the layout's slot for them at the next dispatch (see commandencoder.cpp)
+	cmd->pushConstantSlot = static_cast<PipelineLayoutHandle<kMetal>>(*layoutIt)->pushConstantSlot;
 	if (cmd->pushConstants.size() < offset + size)
 		cmd->pushConstants.resize(offset + size);
 	std::memcpy(cmd->pushConstants.data() + offset, data.data(), size);

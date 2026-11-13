@@ -7,6 +7,7 @@
 // default); Vulkan's driver as for the client (VK_DRIVER_FILES). Exits 0 when every backend passes.
 #include <core/application.h>
 #include <gfx/shaderloader.h>
+#include <gfx/shaders/capi.h>
 #include <rhi/buffer.h>
 #include <rhi/commandencoder.h>
 #include <rhi/image.h>
@@ -14,8 +15,11 @@
 #include <rhi/rhi.h>
 #include <rhi/sampler.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <limits>
@@ -278,8 +282,205 @@ bool RunImages(const char* backend, const std::filesystem::path& shaderDir, rhi:
 	return stored && sampledRight;
 }
 
+// a half float's value (the environment's tables and panorama are RGBA16F, as the client's)
+float HalfToFloat(uint16_t half)
+{
+	const uint32_t sign = (half >> 15U) & 1U;
+	const uint32_t exponent = (half >> 10U) & 0x1fU;
+	const uint32_t mantissa = half & 0x3ffU;
+	float value = 0.0F;
+	if (exponent == 0)
+		value = std::ldexp(static_cast<float>(mantissa), -24);
+	else if (exponent == 0x1fU)
+		value = mantissa == 0 ? std::numeric_limits<float>::infinity() : std::numeric_limits<float>::quiet_NaN();
+	else
+		value = std::ldexp(static_cast<float>(mantissa | 0x400U), static_cast<int>(exponent) - 25);
+	return sign != 0 ? -value : value;
+}
+
+// an image the environment kernels wrote, read back: its name, its extent, its texels' channels in floats
+struct EnvironmentOutput
+{
+	std::string name;
+	uint32_t width = 0;
+	uint32_t height = 0;
+	std::vector<float> channels;
+};
+
+// the client's environment kernels (gfx/shaders/environment.slang, its layout's set pushed at each dispatch as
+// gfx::EnvironmentFilter has it) drawing the sky: its transmittance and multiple scattering tables, its views of itself
+// for the sun and the moon, and a panorama from them, of the same inputs on every backend (a sun high in the south east,
+// a quarter moon), each image read back for main to compare the backends'
 template <GraphicsApi G>
-bool Run(const char* backend, const std::filesystem::path& shaderDir)
+std::vector<EnvironmentOutput> RunEnvironment(const std::filesystem::path& shaderDir, rhi::Device<G>& device)
+{
+	using namespace rhi;
+
+	constexpr ComputePipelineVariant kSky{.entryPoint = 0};
+	constexpr ComputePipelineVariant kSkyTransmittance{.entryPoint = 1};
+	constexpr ComputePipelineVariant kSkyMultipleScattering{.entryPoint = 2};
+	constexpr ComputePipelineVariant kSkyView{.entryPoint = 3};
+	constexpr uint32_t kPanoramaWidth = 256;
+	constexpr uint32_t kPanoramaHeight = 128;
+	constexpr uint32_t kTexelByteCount = 8; // RGBA16F
+
+	auto& pipeline = device.GetPipeline();
+	const auto gfxShaderDir = shaderDir.parent_path() / "gfx" / "shaders";
+	gfx::ShaderLoader::SlangConfiguration config{
+		.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+		.entryPoints =
+			{
+				{"EnvironmentSky", SLANG_STAGE_COMPUTE},
+				{"EnvironmentSkyTransmittance", SLANG_STAGE_COMPUTE},
+				{"EnvironmentSkyMultipleScattering", SLANG_STAGE_COMPUTE},
+				{"EnvironmentSkyView", SLANG_STAGE_COMPUTE},
+			},
+		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+	};
+	config.format = G == kMetal ? ShaderFormat::kMsl : ShaderFormat::kSpirv16;
+	auto layout = pipeline.CreateLayout(
+		"RhiTestEnvironment",
+		gfx::ShaderLoader::Compile(gfxShaderDir / "environment.slang", config, {gfxShaderDir}, std::nullopt),
+		std::array{kSet});
+
+	SamplerVector<G> sampler(SamplerVectorCreateDesc<G>{
+		device.CreateDeviceObjectCreateDesc("RhiTest Environment Sampler"),
+		{SamplerDesc{.addressModeU = AddressMode::kRepeat, .addressModeV = AddressMode::kClampToEdge, .addressModeW = AddressMode::kClampToEdge}}});
+
+	struct Table
+	{
+		std::string name;
+		uint32_t width;
+		uint32_t height;
+		Image<G> image;
+		ImageView<G> view;
+		Buffer<G> readback;
+	};
+	auto table = [&device](std::string name, uint32_t width, uint32_t height)
+	{
+		Image<G> image(ImageCreateDesc<G>{
+			device.CreateDeviceObjectCreateDesc(name),
+			Extent3d{.width = width, .height = height, .depth = 1},
+			Format::kR16G16B16A16Sfloat,
+			ImageTiling::kOptimal,
+			ImageUsage::kStorage | ImageUsage::kSampled | ImageUsage::kTransferSource,
+			MemoryProperty::kDeviceLocal,
+			ImageAspect::kColor,
+			ImageLayout::kUndefined});
+		ImageView<G> view(ImageViewCreateDesc<G>{
+			device.CreateDeviceObjectCreateDesc(std::format("{} View", name)), image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor});
+		Buffer<G> readback(BufferCreateDesc<G>{
+			device.CreateDeviceObjectCreateDesc(std::format("{} Readback", name)),
+			uint64_t{width} * height * kTexelByteCount,
+			BufferUsage::kTransferDestination,
+			MemoryProperty::kHostVisible | MemoryProperty::kHostCoherent});
+		return Table{std::move(name), width, height, std::move(image), std::move(view), std::move(readback)};
+	};
+	std::vector<Table> tables;
+	tables.push_back(table("transmittance", SHADER_TYPES_SKY_TRANSMITTANCE_WIDTH, SHADER_TYPES_SKY_TRANSMITTANCE_HEIGHT));
+	tables.push_back(table("multiple scattering", SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE, SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE));
+	tables.push_back(table("sun's sky view", SHADER_TYPES_SKY_VIEW_WIDTH, SHADER_TYPES_SKY_VIEW_HEIGHT));
+	tables.push_back(table("moon's sky view", SHADER_TYPES_SKY_VIEW_WIDTH, SHADER_TYPES_SKY_VIEW_HEIGHT));
+	tables.push_back(table("panorama", kPanoramaWidth, kPanoramaHeight));
+	auto& transmittance = tables[0];
+	auto& multipleScattering = tables[1];
+	auto& sunView = tables[2];
+	auto& moonView = tables[3];
+	auto& panorama = tables[4];
+
+	Buffer<G> environment(BufferCreateDesc<G>{
+		device.CreateDeviceObjectCreateDesc("RhiTest Environment Data"),
+		sizeof(EnvironmentData),
+		BufferUsage::kStorage,
+		MemoryProperty::kHostVisible | MemoryProperty::kHostCoherent});
+	{
+		EnvironmentData data{};
+		auto direction = [](float x, float y, float z, float* out)
+		{
+			const float length = std::sqrt((x * x) + (y * y) + (z * z));
+			out[0] = x / length;
+			out[1] = y / length;
+			out[2] = z / length;
+		};
+		constexpr float kCosRadius = 0.99998919F; // the sun's and the moon's angular radius, 0.27 degrees
+		direction(0.3F, 0.45F, -0.84F, data.skySun);
+		data.skySun[3] = kCosRadius;
+		data.skySunRadiance[0] = data.skySunRadiance[1] = data.skySunRadiance[2] = 1000.0F;
+		data.skySunRadiance[3] = 1.0F; // the environment is the sky
+		data.skyAtmosphere[0] = 1.0F; // Hillaire's aerosols
+		direction(-0.4F, 0.3F, 0.86F, data.skyMoon);
+		data.skyMoon[3] = kCosRadius;
+		data.skyMoonRadiance[0] = data.skyMoonRadiance[1] = data.skyMoonRadiance[2] = 0.01F;
+		data.skyMoonRadiance[3] = 0.25F;
+		data.skyNight[0] = 1.0F; // the local sidereal time
+		data.skyNight[1] = 0.9F; // the latitude
+		data.skyNight[2] = static_cast<float>(SHADER_TYPES_ATMOSPHERE_NIGHT_RADIANCE);
+		std::memcpy(environment.Map().data(), &data, sizeof(data));
+	}
+
+	Submit(
+		device,
+		[&](CommandBuffer<G>& cmd, std::vector<core::TaskHandle>& /*callbacks*/)
+		{
+			CommandEncoder<G> encoder(cmd);
+			for (auto& output : tables)
+				output.image.Transition(cmd, ImageLayout::kGeneral, ImageAspect::kColor);
+			auto general = [](const ImageView<G>& view) { return ImageBinding<G>{.imageView = view, .layout = ImageLayout::kGeneral}; };
+			pipeline.BindLayoutAuto(layout, PipelineBindPoint::kCompute);
+			pipeline.SetDescriptorData("gSampler", ImageBinding<G>{.sampler = sampler[0]}, kSet);
+			pipeline.SetDescriptorData("gEnvironment", BufferBinding<G>{.buffer = environment}, kSet);
+			pipeline.SetDescriptorData("gSkyTransmittance", general(transmittance.view), kSet);
+			pipeline.SetDescriptorData("gSkyMultipleScattering", general(multipleScattering.view), kSet);
+			pipeline.SetDescriptorData("gSkyView", general(sunView.view), kSet);
+			pipeline.SetDescriptorData("gSkyMoonView", general(moonView.view), kSet);
+			pipeline.SetDescriptorData("gInput", general(panorama.view), kSet);
+			pipeline.SetDescriptorData("gSource", general(panorama.view), kSet);
+			auto dispatch = [&](ComputePipelineVariant kernel, Table& output, uint32_t light)
+			{
+				pipeline.SetDescriptorData("gOutput", general(output.view), kSet);
+				pipeline.BindDescriptorSetAuto(cmd, kSet);
+				pipeline.BindPipelineAuto(cmd, kernel);
+				EnvironmentFilterConstants constants{.roughness = 0.0F, .sourceLevelCount = 1, .light = light};
+				pipeline.PushConstants(cmd, std::as_bytes(std::span(&constants, 1)));
+				encoder.DispatchThreads(pipeline.GetComputeLaunchParameters(kernel), output.width, output.height);
+				encoder.Barrier(PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite);
+			};
+			dispatch(kSkyTransmittance, transmittance, 0);
+			dispatch(kSkyMultipleScattering, multipleScattering, 0);
+			dispatch(kSkyView, sunView, 0);
+			dispatch(kSkyView, moonView, 1);
+			dispatch(kSky, panorama, 0);
+			for (auto& output : tables)
+			{
+				output.image.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor);
+				encoder.CopyImageToBuffer(output.image, output.readback);
+			}
+			encoder.Barrier(PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kHost, Access::kHostRead);
+		});
+
+	std::vector<EnvironmentOutput> outputs;
+	for (auto& output : tables)
+	{
+		auto bytes = output.readback.Map();
+		auto halves = std::span(reinterpret_cast<const uint16_t*>(bytes.data()), bytes.size() / sizeof(uint16_t));
+		EnvironmentOutput result{.name = output.name, .width = output.width, .height = output.height, .channels = {}};
+		result.channels.reserve(halves.size());
+		for (auto half : halves)
+			result.channels.push_back(HalfToFloat(half));
+		outputs.push_back(std::move(result));
+	}
+	return outputs;
+}
+
+// the backend's run: the buffer and image kernels' checks, and the environment kernels' outputs (for main's comparison)
+struct RunResult
+{
+	bool passed = false;
+	std::vector<EnvironmentOutput> environment;
+};
+
+template <GraphicsApi G>
+RunResult Run(const char* backend, const std::filesystem::path& shaderDir)
 {
 	using namespace rhi;
 
@@ -297,7 +498,75 @@ bool Run(const char* backend, const std::filesystem::path& shaderDir)
 	auto& device = rhi.GetPrimaryDevice();
 	bool buffers = RunBuffers<G>(backend, shaderDir, device);
 	bool images = RunImages<G>(backend, shaderDir, device);
-	return buffers && images;
+	return {.passed = buffers && images, .environment = RunEnvironment<G>(shaderDir, device)};
+}
+
+// the environment kernels' outputs: each finite and not all black, and, given a second backend's, the same within what
+// their compilers' math may differ by: each channel's difference in stops (log2 of their ratio, over the channels either
+// has above the smallest normal half float), on average, and in all but a few channels. those few: the transmittance's
+// top row (the top of the atmosphere) decides whether a ray grazing it crosses the atmosphere at all, which rounding
+// flips (KosmicKrisp against the Metal backend: 13 of 48244 channels, in 5 texels, 1 against 0.15 to 0.9; with Metal's
+// safe math instead of fast, many more), while the tables made from it agree within 0.003 stops
+bool CheckEnvironment(const char* backend, const std::vector<EnvironmentOutput>& outputs, const std::vector<EnvironmentOutput>* reference, const char* referenceName)
+{
+	constexpr float kMeanStops = 0.01F;
+	constexpr float kApartStops = 0.25F;
+	constexpr double kApartShare = 0.001;
+	constexpr float kSmallest = 6.1e-5F;
+	bool passed = true;
+	for (size_t outputIt = 0; outputIt < outputs.size(); outputIt++)
+	{
+		const auto& output = outputs[outputIt];
+		bool lit = false;
+		bool finite = true;
+		for (float value : output.channels)
+		{
+			finite = finite && std::isfinite(value);
+			lit = lit || value > 0.0F;
+		}
+		if (reference == nullptr)
+		{
+			bool ok = finite && lit;
+			std::println("{} {} (environment, {}): {}", ok ? "PASS" : "FAIL", backend, output.name, finite ? (lit ? "finite, lit" : "all black") : "not finite");
+			passed = passed && ok;
+			continue;
+		}
+		const auto& other = (*reference)[outputIt];
+		double sum = 0.0;
+		float most = 0.0F;
+		size_t count = 0;
+		size_t apart = 0;
+		for (size_t channelIt = 0; channelIt < output.channels.size(); channelIt++)
+		{
+			if (channelIt % 4 == 3) // alpha: unused by the sky's
+				continue;
+			const float value = output.channels[channelIt];
+			const float otherValue = other.channels[channelIt];
+			if (value < kSmallest && otherValue < kSmallest)
+				continue;
+			const float stops = std::abs(std::log2((std::max(value, kSmallest)) / std::max(otherValue, kSmallest)));
+			sum += stops;
+			most = std::max(most, stops);
+			apart += stops > kApartStops ? 1 : 0;
+			count++;
+		}
+		const float mean = count > 0 ? static_cast<float>(sum / static_cast<double>(count)) : 0.0F;
+		bool ok = finite && lit && mean <= kMeanStops && static_cast<double>(apart) <= kApartShare * static_cast<double>(count);
+		std::println(
+			"{} {} (environment, {}): against {}, {:.5f} stops mean, {:.5f} most, {} of {} channels over {} stops{}",
+			ok ? "PASS" : "FAIL",
+			backend,
+			output.name,
+			referenceName,
+			mean,
+			most,
+			apart,
+			count,
+			kApartStops,
+			finite ? (lit ? "" : ", all black") : ", not finite");
+		passed = passed && ok;
+	}
+	return passed;
 }
 
 } // namespace
@@ -332,9 +601,11 @@ int main(int argc, char** argv)
 			return 1;
 	}
 
-	bool passed = Run<kVk>("vulkan", shaderDir);
+	auto vulkan = Run<kVk>("vulkan", shaderDir);
+	bool passed = vulkan.passed && CheckEnvironment("vulkan", vulkan.environment, nullptr, nullptr);
 #if defined(__OSX__)
-	passed = Run<kMetal>("metal", shaderDir) && passed;
+	auto metal = Run<kMetal>("metal", shaderDir);
+	passed = metal.passed && CheckEnvironment("metal", metal.environment, &vulkan.environment, "vulkan") && passed;
 #endif
 	return passed ? 0 : 1;
 }
