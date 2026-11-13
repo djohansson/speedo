@@ -169,19 +169,24 @@ private:
 	uint32_t myCount;
 };
 
-// the kernels' global parameters: as environment.slang declares them, in its order
-struct Globals
+// the kernels' global parameters, as environment.slang declares them: its parameter block of set 1's resources (its
+// fields in their order), then the push constants. slang's cpu target passes each as a pointer
+struct Resources
 {
 	Texture2D<Texel> source;
 	SamplerState sampler;
 	Texture2D<Texel> input;
 	RWTexture2D<Texel> output;
 	RWStructuredBuffer<EnvironmentData> environment;
-	EnvironmentFilterConstants* filter;
 	Texture2D<Texel> skyTransmittance;
 	Texture2D<Texel> skyMultipleScattering;
 	Texture2D<Texel> skyView;
 	Texture2D<Texel> skyMoonView;
+};
+struct Globals
+{
+	Resources* resources;
+	EnvironmentFilterConstants* filter;
 };
 
 using Kernel = void (*)(ComputeVaryingInput*, void*, void*);
@@ -231,15 +236,16 @@ Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& envir
 
 	EnvironmentFilterConstants constants{.roughness = 0.0F, .sourceLevelCount = sourceLevelCount};
 	CpuView sourceView(sourceImage, 0, sourceLevelCount);
-	Globals globals{};
-	globals.sampler.state = &samplerState;
-	globals.environment = {&environment, 1};
-	globals.filter = &constants;
+	// a dispatch's resources: each dispatch's rows read them, and the next dispatch's are set after it returns
+	Resources resources{};
+	resources.sampler.state = &samplerState;
+	resources.environment = {&environment, 1};
+	Globals globals{.resources = &resources, .filter = &constants};
 	auto dispatch = [&](Kernel kernel, CpuView* in, CpuImage& image, uint32_t level, float roughness)
 	{
 		CpuView output(image, level, 1);
-		globals.input.texture = in;
-		globals.output.texture = &output;
+		resources.input.texture = in;
+		resources.output.texture = &output;
 		constants.roughness = roughness;
 		const auto& extent = image.levels[level];
 		Run(kernel, globals, extent.width, extent.height, forEach);
@@ -254,10 +260,10 @@ Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& envir
 	CpuView skyViewView(skyView, 0, 1);
 	CpuImage skyMoonView(SHADER_TYPES_SKY_VIEW_WIDTH, SHADER_TYPES_SKY_VIEW_HEIGHT); // the moon's, left dark: the sun alone is checked
 	CpuView skyMoonViewView(skyMoonView, 0, 1);
-	globals.skyTransmittance.texture = &skyTransmittanceView;
-	globals.skyMultipleScattering.texture = &skyMultipleScatteringView;
-	globals.skyView.texture = &skyViewView;
-	globals.skyMoonView.texture = &skyMoonViewView;
+	resources.skyTransmittance.texture = &skyTransmittanceView;
+	resources.skyMultipleScattering.texture = &skyMultipleScatteringView;
+	resources.skyView.texture = &skyViewView;
+	resources.skyMoonView.texture = &skyMoonViewView;
 
 	// the source's level 0 and its pyramid
 	std::optional<CpuView> lightingView;
@@ -280,7 +286,7 @@ Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& envir
 	}
 
 	// the levels
-	globals.source.texture = &sourceView;
+	resources.source.texture = &sourceView;
 	auto roughnessOf = [levelCount](uint32_t level) { return static_cast<float>(level) / static_cast<float>(levelCount - 1); };
 	std::optional<CpuView> originalView;
 	CpuView sourceLevel0(sourceImage, 0, 1);
@@ -301,7 +307,7 @@ Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& envir
 	CpuImage partials(9, sourceImage.levels[irradianceLevel].height);
 	dispatch(EnvironmentIrradianceRows, &irradianceInput, partials, 0, 0.0F);
 	CpuView partialsView(partials, 0, 1);
-	globals.input.texture = &partialsView;
+	resources.input.texture = &partialsView;
 	ComputeVaryingInput one{};
 	one.endGroupID = {1, 1, 1};
 	EnvironmentIrradiance(&one, nullptr, &globals);
