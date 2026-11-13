@@ -1,0 +1,8 @@
+{
+  "name": "metal-cpp",
+  "version": "27.0.1",
+  "description": "Apple's header only C++ interface to Metal, Foundation, QuartzCore and MetalFX (plain C++ over the Objective-C runtime): the Metal backend's api, see docs/backends-plan.md",
+  "homepage": "https://github.com/apple/metal-cpp",
+  "license": "Apache-2.0",
+  "supports": "osx"
+}

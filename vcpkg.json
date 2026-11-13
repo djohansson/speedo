@@ -107,6 +107,10 @@
         },
         "glm",
         {
+          "name": "metal-cpp",
+          "platform": "osx"
+        },
+        {
           "name": "imgui",
           "features": [
             "freetype",
