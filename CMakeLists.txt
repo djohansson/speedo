@@ -69,13 +69,28 @@ endif()
 
 project(speedo LANGUAGES C CXX VERSION ${SPEEDO_VERSION_STRING})
 
-# the cpu (SPEEDO_TARGET_CPU, see clang.toolchain.cmake): the flags are cached from the toolchain's at a build directory's
-# first configure, so one configured while the presets set native (until 2026-11-11) keeps -march=native whatever the
-# variable says now, and would build for this machine's cpu: refused, rather than built so
-if(NOT SPEEDO_TARGET_CPU STREQUAL "native" AND "${CMAKE_C_FLAGS} ${CMAKE_CXX_FLAGS}" MATCHES "-march=native")
+# the flags are cached from the toolchain's (CMAKE_<LANG>_FLAGS_<CONFIG>_INIT) at a build directory's first configure,
+# never again: one configured before a change to them kept building with the old ones, whatever the toolchain or
+# SPEEDO_TARGET_CPU says now. -march=native, from a directory configured while the presets set native (until
+# 2026-11-11); -ffast-math's finite math (2026-11-14), which the toolchain's change left in every configured directory,
+# so the local tests ran the old code. refused, rather than built so (nothing else sets these, the presets neither)
+set(SPEEDO_STALE_FLAGS "")
+foreach(SPEEDO_FLAGS IN ITEMS C_FLAGS CXX_FLAGS EXE_LINKER_FLAGS SHARED_LINKER_FLAGS MODULE_LINKER_FLAGS)
+	foreach(SPEEDO_CONFIG IN ITEMS "" _DEBUG _PROFILE _RELEASE)
+		set(SPEEDO_FLAGS_NAME CMAKE_${SPEEDO_FLAGS}${SPEEDO_CONFIG})
+		if(DEFINED CACHE{${SPEEDO_FLAGS_NAME}} AND DEFINED ${SPEEDO_FLAGS_NAME}_INIT)
+			string(STRIP "${${SPEEDO_FLAGS_NAME}_INIT}" SPEEDO_FLAGS_INIT) # as CMake caches it
+			if(NOT "$CACHE{${SPEEDO_FLAGS_NAME}}" STREQUAL SPEEDO_FLAGS_INIT)
+				string(APPEND SPEEDO_STALE_FLAGS "\n  ${SPEEDO_FLAGS_NAME}: \"$CACHE{${SPEEDO_FLAGS_NAME}}\", the toolchain's \"${SPEEDO_FLAGS_INIT}\"")
+			endif()
+		endif()
+	endforeach()
+endforeach()
+if(SPEEDO_STALE_FLAGS)
+	cmake_path(GET CMAKE_BINARY_DIR FILENAME SPEEDO_PRESET)
 	message(FATAL_ERROR
-		"${CMAKE_BINARY_DIR} was configured for this machine's cpu (-march=native in CMAKE_CXX_FLAGS), the presets now build "
-		"for a fixed one (SPEEDO_TARGET_CPU=${SPEEDO_TARGET_CPU}): configure it afresh, cmake --preset <name> --fresh")
+		"${CMAKE_BINARY_DIR}'s cached flags aren't the toolchain's now:${SPEEDO_STALE_FLAGS}\n"
+		"configure it afresh: cmake --preset ${SPEEDO_PRESET} --fresh")
 endif()
 
 # FASTBuild's cache keys hold each compile's command line, its paths too: relative ones (the presets'

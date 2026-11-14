@@ -524,8 +524,11 @@ same install):
   (`SPEEDO_TARGET_CPU=baseline`, which the presets set since 2026-11-11, the user's call: what a machine builds is shared,
   FASTBuild's cache too; it was `native` before, and cost 0.4% of the M4 Pro's frame at Sponza's benchmark pose, 22.92
   ms against 22.81). A build directory keeps the flags of its first configure (`CMAKE_CXX_FLAGS` is cached from the
-  toolchain's `_INIT`), so one configured for native still builds for it whatever the variable says: `CMakeLists.txt`
-  refuses it, configure it with `--fresh`. With `-march=native` in the toolchain's text every machine had the same
+  toolchain's `_INIT`), so one configured for native still builds for it whatever the variable says, and one configured
+  before a change to the toolchain's flags keeps the old ones: the finite math's change (2026-11-14) reached CI's fresh
+  directories but no local one, so the local tests ran the old code. `CMakeLists.txt` refuses a directory whose cached
+  flags (`CMAKE_<LANG>_FLAGS_<CONFIG>`, the linkers' too) aren't the toolchain's `_INIT` now (it refused `-march=native`
+  alone until then): configure it with `--fresh`. With `-march=native` in the toolchain's text every machine had the same
   hash for different code, and an M4's packages would have handed an M1 instructions it lacks. The toolchain still takes
   `SPEEDO_TARGET_CPU=native` (`-march=native+crc+crypto` on arm64), nothing sets it: taking it out changes the
   toolchain's text, in every package's ABI, so it waits for a change that rebuilds them anyway.
