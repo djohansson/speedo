@@ -667,6 +667,10 @@ macOS packages were rebuilt and seeded again after it):
   `-fno-finite-math-only` in its release flags until the toolchain's release flags did, for everything (2026-11-14, the
   user's call: `-ffinite-math-only` folded every `std::isfinite` to true and `std::isnan`/`std::isinf` to false, so the
   guards against them, the importers', the tangents', the environment's, did nothing in the profile and release builds).
+  Between `--start-no-unused-arguments` and `--end-no-unused-arguments`: CMake passes the compile flags to the links,
+  where clang takes `-ffast-math` (it links Linux's `crtfastmath.o`) but not `-fno-finite-math-only`, and warned
+  "argument unused during compilation" at every link, CI's three platforms' (run 43617985938), which a configure check
+  linking with `-Werror` (meson's, autoconf's) would take for a failure. The markers keep it off that flag alone.
 
 Per port, in the Linux target triplets: libpng without its linker version script (FASTBuild links it before the custom
 command writing `libpng.vers` has run; macOS's linker has none), zeromq with `<new>` force-included (`std::nothrow`

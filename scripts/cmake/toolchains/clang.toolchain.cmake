@@ -84,8 +84,10 @@ set(COMPILE_FLAGS_DEBUG "-Og -fno-omit-frame-pointer -fno-inline-functions")
 # fast math but for its finite math: -ffinite-math-only made every test for an infinity or a NaN a constant (std::isfinite
 # compiled to true, std::isnan and std::isinf to false), so the guards against them did nothing in the builds that ship
 # (until 2026-11-14), and a constant infinity was undefined (-Wnan-infinity-disabled). clang then doesn't define
-# __FAST_MATH__ (nothing here tests it)
-set(COMPILE_FLAGS_RELEASE "-O3 -ffast-math -fno-finite-math-only")
+# __FAST_MATH__ (nothing here tests it). CMake passes these to the links too, where clang takes -ffast-math (Linux's
+# crtfastmath.o) but not -fno-finite-math-only: "argument unused during compilation" at every link, which a configure
+# check linking with -Werror would take for a failure. the markers keep that warning off it alone
+set(COMPILE_FLAGS_RELEASE "-O3 -ffast-math --start-no-unused-arguments -fno-finite-math-only --end-no-unused-arguments")
 set(C_FLAGS "") #set(C_FLAGS "-nostdlibinc") # todo: use llvm libc headers
 set(C_FLAGS_DEBUG "")
 set(C_FLAGS_RELEASE "")
