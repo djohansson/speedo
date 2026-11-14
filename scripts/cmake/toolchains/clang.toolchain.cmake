@@ -79,15 +79,16 @@ set(CMAKE_CXX_USING_LINKER_MODE FLAG CACHE INTERNAL "")
 set(CXX_CONSTEXPR_DEPTH 256)
 set(CXX_CONSTEXPR_STEPS 1000000)
 
-set(COMPILE_FLAGS "-g")
+# floating point the same on every platform, in every configuration (the user's call, 2026-11-14: consistent over fast):
+# IEEE 754's, as the source writes it. no contraction of a * b + c into one rounding (std::fma where it's meant), which
+# made a result depend on whether and where the compiler fused; math functions never set errno, as Apple's never do (it
+# changes no value: sqrt stays one exactly rounded instruction). no -ffast-math, as the release builds had until then: it
+# let the compiler reassociate (a sum's order followed the vector width, NEON's 4 floats or AVX2's 8), take reciprocals,
+# swap math functions for approximations and drop signed zeros, assumed no infinity or NaN (std::isfinite compiled to
+# true), and linked Linux's crtfastmath.o, which flushed denormals to zero in the whole process, there alone
+set(COMPILE_FLAGS "-g -ffp-contract=off -fno-math-errno")
 set(COMPILE_FLAGS_DEBUG "-Og -fno-omit-frame-pointer -fno-inline-functions")
-# fast math but for its finite math: -ffinite-math-only made every test for an infinity or a NaN a constant (std::isfinite
-# compiled to true, std::isnan and std::isinf to false), so the guards against them did nothing in the builds that ship
-# (until 2026-11-14), and a constant infinity was undefined (-Wnan-infinity-disabled). clang then doesn't define
-# __FAST_MATH__ (nothing here tests it). CMake passes these to the links too, where clang takes -ffast-math (Linux's
-# crtfastmath.o) but not -fno-finite-math-only: "argument unused during compilation" at every link, which a configure
-# check linking with -Werror would take for a failure. the markers keep that warning off it alone
-set(COMPILE_FLAGS_RELEASE "-O3 -ffast-math --start-no-unused-arguments -fno-finite-math-only --end-no-unused-arguments")
+set(COMPILE_FLAGS_RELEASE "-O3")
 set(C_FLAGS "") #set(C_FLAGS "-nostdlibinc") # todo: use llvm libc headers
 set(C_FLAGS_DEBUG "")
 set(C_FLAGS_RELEASE "")

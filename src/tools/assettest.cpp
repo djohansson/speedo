@@ -230,7 +230,7 @@ void CheckBvh(const gfx::mesh::Mesh& mesh, core::TaskExecutor& executor, Report&
 	}
 
 	// brute force: the nearest triangle each ray meets (Moller and Trumbore, in doubles), and whether from its front
-	constexpr double kNothing = 1e300; // the build's fast math has no infinity
+	constexpr double kNothing = std::numeric_limits<double>::infinity();
 	struct Reference
 	{
 		double t = kNothing;

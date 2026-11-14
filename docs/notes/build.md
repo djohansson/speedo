@@ -663,14 +663,28 @@ macOS packages were rebuilt and seeded again after it):
 - no `CMAKE_BUILD_WITH_INSTALL_RPATH` (macOS has none): with it, what a port runs from its build tree (shader-slang's
   `slang-embed`) couldn't load its dependencies' shared libraries (miniz, lz4).
 - the triplets' per configuration flags (`VCPKG_C_FLAGS_RELEASE`, ...) last, after the configuration's own, so a port's can
-  override them. libsystemd's meson build refuses `-ffinite-math-only`, which `-ffast-math` implies: it took
-  `-fno-finite-math-only` in its release flags until the toolchain's release flags did, for everything (2026-11-14, the
-  user's call: `-ffinite-math-only` folded every `std::isfinite` to true and `std::isnan`/`std::isinf` to false, so the
-  guards against them, the importers', the tangents', the environment's, did nothing in the profile and release builds).
-  Between `--start-no-unused-arguments` and `--end-no-unused-arguments`: CMake passes the compile flags to the links,
-  where clang takes `-ffast-math` (it links Linux's `crtfastmath.o`) but not `-fno-finite-math-only`, and warned
-  "argument unused during compilation" at every link, CI's three platforms' (run 43617985938), which a configure check
-  linking with `-Werror` (meson's, autoconf's) would take for a failure. The markers keep it off that flag alone.
+  override them. libsystemd's meson build refuses `-ffinite-math-only`: it took `-fno-finite-math-only` in its release
+  flags while the toolchain's were `-ffast-math`.
+- floating point IEEE 754's on every platform and in every configuration, the project's and the packages' (the user's
+  call, 2026-11-14: consistent over fast): `-ffp-contract=off -fno-math-errno` for all, no `-ffast-math`. The release
+  flags were `-ffast-math` until then. It let the compiler reassociate (a sum's order followed the vector width, NEON's 4
+  floats or AVX2's 8), take reciprocals, swap math functions for approximations and drop signed zeros; it assumed no
+  infinity or NaN (`-ffinite-math-only` folded every `std::isfinite` to true and `std::isnan`/`std::isinf` to false, so
+  the guards against them, the importers', the tangents', the environment's, did nothing in the profile and release
+  builds); and it linked Linux's `crtfastmath.o` into the executables, which flushes denormals to zero in the whole
+  process, there alone (x86-64 Linux's compiles assumed so too). The debug builds had none of it, so they differed from
+  the release builds as well. For a day it was `-ffast-math -fno-finite-math-only` (5dda14bd), whose links warned
+  "argument unused during compilation" on CI's three platforms (run 43617985938: CMake passes the compile flags to the
+  links, where clang takes `-ffast-math` but not the other), quieted by `--start-no-unused-arguments` markers (34216306),
+  which a configure check linking with `-Werror` (meson's, autoconf's) would have taken for a failure. No contraction:
+  clang's default fuses `a * b + c` within an expression where the cpu has FMA (all of ours, since Windows' x86-64-v3),
+  so a result depended on how an expression was written; `std::fma` where a fused one is meant. No errno from the math
+  functions: Apple's never set it, glibc's and Windows' do (it changes no value). ktx's astc-encoder adds
+  `-ffp-model=precise -Werror`, which failed with `-Woverriding-complex-range` against `-ffast-math`'s complex range (the
+  triplets turned that warning off): with these flags clang overrides nothing there. What it cost on the M4 Pro
+  (KosmicKrisp, profile, headless, the two clients interleaved, three runs each): nothing measurable. Sponza's
+  benchmark pose 22.97, 22.96 and 23.07 ms a frame with fast math, 23.02, 22.90 and 22.99 without; Bistro's import from
+  cold caches (the models, the images and the BVHs, start to exit) 29.7, 30.1 and 30.6 s, 29.5, 30.5 and 30.7 s.
 
 Per port, in the Linux target triplets: libpng without its linker version script (FASTBuild links it before the custom
 command writing `libpng.vers` has run; macOS's linker has none), zeromq with `<new>` force-included (`std::nothrow`

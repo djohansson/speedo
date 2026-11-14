@@ -284,15 +284,15 @@ bool RunImages(const char* backend, const std::filesystem::path& shaderDir, rhi:
 	return stored && sampledRight;
 }
 
-// whether a half float is an infinity or a NaN (its exponent's bits all set): told by its bits, since the profile and
-// release builds' -ffast-math makes a test of the float undefined (std::isfinite folds to true)
+// whether a half float is an infinity or a NaN (its exponent's bits all set): told by its bits, which no compiler flag
+// changes (the profile and release builds' -ffast-math, until 2026-11-14, folded std::isfinite to true)
 bool HalfIsFinite(uint16_t half)
 {
 	return ((half >> 10U) & 0x1fU) != 0x1fU;
 }
 
 // a half float's value (the environment's tables and panorama are RGBA16F, as the client's); an infinity or a NaN made
-// from its bits (-ffast-math leaves numeric_limits' undefined as well)
+// from its bits
 float HalfToFloat(uint16_t half)
 {
 	const uint32_t sign = (half >> 15U) & 1U;

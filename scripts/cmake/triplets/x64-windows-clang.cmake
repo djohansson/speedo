@@ -58,12 +58,6 @@ if(PORT STREQUAL "draco")
 	# collides with the static one on windows ("multiple rules generate draco.lib"). link statically.
 	set(VCPKG_LIBRARY_LINKAGE static)
 endif()
-if(PORT STREQUAL "ktx")
-	# its astc-encoder adds -ffp-model=precise -Werror, which overrides -ffast-math's complex range and so fails with
-	# -Woverriding-complex-range
-	string(APPEND VCPKG_C_FLAGS " -Wno-overriding-complex-range")
-	string(APPEND VCPKG_CXX_FLAGS " -Wno-overriding-complex-range")
-endif()
 
 # vcpkg_copy_pdbs reads each dll's pdb path with dumpbin, which isn't on the path here (vcpkg loads no visual studio
 # environment for a chainloaded toolchain), so no package got its pdbs. this replaces it (the triplet is included after
