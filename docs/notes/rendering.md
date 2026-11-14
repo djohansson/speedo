@@ -681,8 +681,8 @@ A view of a model on the ground plane has no far plane (the ground reaches the h
 near plane the framing's as before; a scene camera's too, whatever its `zfar` (`Views::InternalApplySceneCamera`:
 ThousandsOfLights' camera has one of 500 m, which the views took and `SPEEDO_CAMERA` kept, so the plane's rings were cut
 4 degrees below the horizon from 32 m up and the sky model's own sun-lit ground showed between the cut and the horizon, a
-gray band, the user's pose `70.0000,32.0000,70.0000,17.913,-45.000`, 2026-11-05). Not infinity: the release and profile builds are `-ffast-math`, which assumes there is
-none, so `std::isinf` was compiled to false and the ground past the old far plane was clipped (the sky's own ground showed
+gray band, the user's pose `70.0000,32.0000,70.0000,17.913,-45.000`, 2026-11-05). Not infinity: the release and profile builds were `-ffast-math`, which assumes there is
+none (finite math is honored since 2026-11-14, `-fno-finite-math-only`, docs/notes/build.md), so `std::isinf` was compiled to false and the ground past the old far plane was clipped (the sky's own ground showed
 there, below its horizon). What took a far plane takes none: the cascades slice along the frustum's edges from the eye
 (`shadows.cpp`'s `unbounded`), the clusters and the frustum culling already did (Gribb and Hartmann's far plane comes out
 as (0, 0, 0, near)). Unprojections stay sound at the ground's tiny depths (its depth row is (0, 0, 0, near) exactly, so

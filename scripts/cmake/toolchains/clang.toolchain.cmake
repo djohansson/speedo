@@ -81,7 +81,11 @@ set(CXX_CONSTEXPR_STEPS 1000000)
 
 set(COMPILE_FLAGS "-g")
 set(COMPILE_FLAGS_DEBUG "-Og -fno-omit-frame-pointer -fno-inline-functions")
-set(COMPILE_FLAGS_RELEASE "-O3 -ffast-math")
+# fast math but for its finite math: -ffinite-math-only made every test for an infinity or a NaN a constant (std::isfinite
+# compiled to true, std::isnan and std::isinf to false), so the guards against them did nothing in the builds that ship
+# (until 2026-11-14), and a constant infinity was undefined (-Wnan-infinity-disabled). clang then doesn't define
+# __FAST_MATH__ (nothing here tests it)
+set(COMPILE_FLAGS_RELEASE "-O3 -ffast-math -fno-finite-math-only")
 set(C_FLAGS "") #set(C_FLAGS "-nostdlibinc") # todo: use llvm libc headers
 set(C_FLAGS_DEBUG "")
 set(C_FLAGS_RELEASE "")
@@ -182,7 +186,7 @@ set(CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_C_STANDARD_LIBRARIES_INIT} ${CMAKE_CXX
 set(CMAKE_USER_MAKE_RULES_OVERRIDE "${CMAKE_CURRENT_LIST_DIR}/clang.rules-override.cmake")
 
 # VCPKG_C(XX)_FLAGS(_DEBUG|_RELEASE) come from the triplet during vcpkg port builds and are empty otherwise, last, so that a
-# port's can override the configuration's (libsystemd's -fno-finite-math-only over -ffast-math)
+# port's can override the configuration's
 set(CMAKE_C_FLAGS_INIT "${COMPILE_FLAGS} ${C_DEFINES} ${C_FLAGS} ${VCPKG_C_FLAGS}")
 set(CMAKE_C_FLAGS_DEBUG_INIT "${COMPILE_FLAGS_DEBUG} ${C_DEFINES_DEBUG} ${C_FLAGS_DEBUG} ${VCPKG_C_FLAGS_DEBUG}")
 set(CMAKE_C_FLAGS_PROFILE_INIT "${COMPILE_FLAGS_RELEASE} ${C_DEFINES_RELEASE} ${C_FLAGS_RELEASE}")

@@ -58,9 +58,3 @@ if(PORT STREQUAL "zeromq")
 	string(APPEND VCPKG_CXX_FLAGS " -include new")
 	string(APPEND VCPKG_C_FLAGS "") # vcpkg_cmake_configure takes both or neither
 endif()
-if(PORT STREQUAL "libsystemd")
-	# its meson.build refuses -ffinite-math-only, which the toolchain's -ffast-math (release) implies; both or neither, as
-	# vcpkg_cmake_configure takes them
-	string(APPEND VCPKG_C_FLAGS_RELEASE " -fno-finite-math-only")
-	string(APPEND VCPKG_CXX_FLAGS_RELEASE " -fno-finite-math-only")
-endif()

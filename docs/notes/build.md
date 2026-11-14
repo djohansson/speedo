@@ -660,8 +660,10 @@ macOS packages were rebuilt and seeded again after it):
 - no `CMAKE_BUILD_WITH_INSTALL_RPATH` (macOS has none): with it, what a port runs from its build tree (shader-slang's
   `slang-embed`) couldn't load its dependencies' shared libraries (miniz, lz4).
 - the triplets' per configuration flags (`VCPKG_C_FLAGS_RELEASE`, ...) last, after the configuration's own, so a port's can
-  override them: libsystemd's meson build refuses `-ffinite-math-only`, which `-ffast-math` implies (`-fno-finite-math-only`
-  in its release flags).
+  override them. libsystemd's meson build refuses `-ffinite-math-only`, which `-ffast-math` implies: it took
+  `-fno-finite-math-only` in its release flags until the toolchain's release flags did, for everything (2026-11-14, the
+  user's call: `-ffinite-math-only` folded every `std::isfinite` to true and `std::isnan`/`std::isinf` to false, so the
+  guards against them, the importers', the tangents', the environment's, did nothing in the profile and release builds).
 
 Per port, in the Linux target triplets: libpng without its linker version script (FASTBuild links it before the custom
 command writing `libpng.vers` has run; macOS's linker has none), zeromq with `<new>` force-included (`std::nothrow`
