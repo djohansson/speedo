@@ -121,7 +121,7 @@ if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64")
 	else()
 		set(COMPILE_FLAGS "${COMPILE_FLAGS} -march=armv8.2-a+crc+crypto")
 	endif()
-elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64") # Windows calls it AMD64: its builds were baseline x86-64 until 2026-11-14
 	set(COMPILE_FLAGS "${COMPILE_FLAGS} -march=x86-64-v3 -mtune=generic")
 endif()
 

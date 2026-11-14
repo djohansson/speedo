@@ -518,7 +518,9 @@ its dependencies' hashes; the compiler isn't tracked, `VCPKG_DISABLE_COMPILER_TR
 same install):
 
 - the cpu: the ports are built for a fixed baseline (`clang.toolchain.cmake`: `-mcpu=apple-m1` on Apple's arm64,
-  `-march=armv8.2-a+crc+crypto` on other arm64, `-march=x86-64-v3` on x86-64), and so is the project's own code
+  `-march=armv8.2-a+crc+crypto` on other arm64, `-march=x86-64-v3` on x86-64: Windows' processor is `AMD64`, which the
+  check missed until 2026-11-14, so its ports and code were baseline x86-64, found when tinybvh's SSE 4.1 path, taken for
+  any `_MSC_VER`, failed to compile in CI; fixing it rebuilt every target package, the user's call), and so is the project's own code
   (`SPEEDO_TARGET_CPU=baseline`, which the presets set since 2026-11-11, the user's call: what a machine builds is shared,
   FASTBuild's cache too; it was `native` before, and cost 0.4% of the M4 Pro's frame at Sponza's benchmark pose, 22.92
   ms against 22.81). A build directory keeps the flags of its first configure (`CMAKE_CXX_FLAGS` is cached from the

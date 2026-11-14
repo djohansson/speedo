@@ -8,11 +8,7 @@
 // of slivers around one corner, which the builders peel off a few at a time (geodesic.zip's duals, faces of up to 384
 // vertices, went past tinybvh's 128: "CombineLeafs, tree too deep")
 #define TINYBVH_STACK_SIZE 1024
-// its scalar code on x86-64 without SSE 4.2: tinybvh takes its SSE path for any _MSC_VER, whose SSE 4.1 intrinsics clang
-// compiles only for a cpu that has them (Windows' own code is built for the baseline x86-64 cpu: the toolchain names
-// x86-64-v3 for an x86_64 processor, which Windows calls AMD64; "_mm_blendv_ps requires target feature 'sse4.1'", CI's
-// first build with the implementation compiled rather than taken from the cache). Linux's x86-64 is v3, Apple's NEON
-#if (defined(__x86_64__) || defined(_M_X64)) && !defined(__SSE4_2__)
-#define TINYBVH_NO_SIMD
-#endif
+// SIMD on every cpu the toolchain builds for (x86-64-v3's AVX2 and FMA, Apple's and ARMv8.2's NEON). tinybvh takes its SSE
+// path for any _MSC_VER, which clang compiles only with SSE 4.1: Windows' builds were baseline x86-64 until 2026-11-14
+// (the toolchain's check missed its AMD64), and failed ("_mm_blendv_ps requires target feature 'sse4.1'")
 #include <tinybvh/tiny_bvh.h>
