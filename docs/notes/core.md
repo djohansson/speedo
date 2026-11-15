@@ -135,6 +135,30 @@ shadow atlas gives the lights it can't fit no shadow (see "Shadows"), and the tr
 fragments past it on the gpu, where no hard failure is possible. The first real case found: NodePerformanceTest's 10000
 materials (see "Asset import and testing"), so gMaterialData grows.
 
+## Ownership: smart pointers, no `new` or `delete` expressions
+
+The user's call (2026-11-15): code doesn't write `new T` or `delete p`. A heap object belongs to a `std::unique_ptr`
+(`std::make_unique`; a `std::shared_ptr` from `std::make_shared` where it's shared), so that every path out of its
+scope, a failure's included, frees it, and its freeing is in one place, the pointer's destructor.
+
+- Placement new is fine: constructing in storage the code manages (core's containers and memory pool,
+  `move_only_function`'s inline buffer, `core::CreateApplication`'s aligned block), and the allocation functions that
+  storage comes from (`::operator new(size, alignment)` and its `::operator delete`).
+- Where a `unique_ptr` owns the object, `std::make_unique` rather than `reset(new T)` (the BVH's executor).
+- `= delete` declares a deleted function (a type that can't be copied): another thing, fine.
+- `core::std_extra::move_only_function` (`move_only_function_base`) is exempt (the user's call): it stands in for the
+  standard library's, whose implementation it is, and keeps its `new` and `delete` of a callable too big for its buffer.
+- An aggregate made with designated initializers: `std::make_unique<T>(T{.field = value})`, which moves it in (a type
+  that can't move, one with a mutex, is made in place: `std::make_unique<T>(args...)`, an aggregate's parenthesized
+  initialization).
+- The objects behind a backend's opaque handles are exempt (the user's call): rhi's handles are raw pointers (a
+  backend's object behind `ImageHandle<G>` and the rest, as Vulkan's own handles are), its API, which stays so rather
+  than holding `unique_ptr`s as state. A backend makes the object with `new` and the handle's one owner (the rhi object,
+  or the pool that holds the handles) deletes it; a handle that isn't the owner's is never deleted through. Making it in
+  a `unique_ptr` to `.release()` it into the handle was tried (2026-11-15) and dropped: it adds no safety where the
+  owner is a raw pointer anyway.
+- An object held in an atomic (the memory pool's chunks) is exempt for the same reason.
+
 ## Associative containers: core's, not the standard library's
 
 Don't use `std::map`, `std::set`, `std::unordered_map` or `std::unordered_set` (tools included): use `core::UnorderedMap`

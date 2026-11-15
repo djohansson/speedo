@@ -276,7 +276,7 @@ Moving::Moving(
 	: myImpl(std::make_unique<Impl>())
 {
 	auto& impl = *myImpl;
-	impl.context.reset(new detail::Executor{.executor = executor}); // NOLINT(cppcoreguidelines-owning-memory): an aggregate with a mutex
+	impl.context = std::make_unique<detail::Executor>(executor); // an aggregate (with a mutex, so made in place)
 	size_t cornerCount = 0;
 	impl.buildsTree = tree && !glass;
 	for (const auto& submesh : desc.submeshes)
