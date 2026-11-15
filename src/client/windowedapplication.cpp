@@ -73,26 +73,9 @@ bool WindowedApplication::Draw()
 
 	rhi::CrashFrame(gDrawnFrameCount.load(std::memory_order_relaxed));
 
-	// the window's changes, its presentation and its size, applied before the frame (see InternalPrepareWindow): none
-	// drawn while it can't be
-	if (!InternalPrepareWindow(swapchain))
+	// the window, and what the scenes make, before the frame (see InternalPrepare): none drawn while the window can't be
+	if (!InternalPrepare(swapchain))
 		return false;
-
-	// what the scene makes once its shaders have compiled in the background (see Scene::Prepare: the first launch's take
-	// tens of seconds, during which the frames are the ui alone), outside of the graphics queue's lock (it takes it)
-	myScene->Prepare();
-
-	// the file browser's preview, once the ui asks for it: made here, outside of the graphics queue's lock (its scene
-	// takes it), and published to the ui thread. once the window's scene is ready: its shaders, the same, are then
-	// cached, rather than compiled twice at once
-	if (!myPreview && myPreviewRequested.load(std::memory_order_relaxed) && myScene->IsReady())
-	{
-		constexpr rhi::Extent2d kPreviewExtent{.width = 768, .height = 768};
-		myPreview = std::make_unique<Preview>(rhi, kPreviewExtent);
-		myPreviewReady.store(true, std::memory_order_release);
-	}
-	if (myPreview)
-		myPreview->GetScene().Prepare();
 
 	// the swapchain's next image (headless, the image output's one, always ready)
 	auto flip = swapchain != nullptr ? std::optional(swapchain->Flip()) : std::nullopt;
@@ -285,6 +268,34 @@ void WindowedApplication::InternalSubmit(gfx::CommandBuffer&& cmd, FrameContext&
 		}
 		swapchain->OnPresentResult(presentResult);
 	}
+}
+
+bool WindowedApplication::InternalPrepare(gfx::Swapchain* swapchain)
+{
+	ZoneScopedN("WindowedApplication::InternalPrepare");
+
+	// the window's changes, its presentation and its size, applied before the frame (see InternalPrepareWindow): none
+	// drawn while it can't be
+	if (!InternalPrepareWindow(swapchain))
+		return false;
+
+	// what the scene makes once its shaders have compiled in the background (see Scene::Prepare: the first launch's take
+	// tens of seconds, during which the frames are the ui alone), outside of the graphics queue's lock (it takes it)
+	myScene->Prepare();
+
+	// the file browser's preview, once the ui asks for it: made here, outside of the graphics queue's lock (its scene
+	// takes it), and published to the ui thread. once the window's scene is ready: its shaders, the same, are then
+	// cached, rather than compiled twice at once
+	if (!myPreview && myPreviewRequested.load(std::memory_order_relaxed) && myScene->IsReady())
+	{
+		constexpr rhi::Extent2d kPreviewExtent{.width = 768, .height = 768};
+		myPreview = std::make_unique<Preview>(GetRHI(), kPreviewExtent);
+		myPreviewReady.store(true, std::memory_order_release);
+	}
+	if (myPreview)
+		myPreview->GetScene().Prepare();
+
+	return true;
 }
 
 void WindowedApplication::InternalUpdate(FrameContext& frame)

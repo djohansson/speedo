@@ -92,6 +92,10 @@ private:
 	// and the swapchain (or headless, the image) and the render targets resized after the window. false where no frame is
 	// drawn now (a change under way, minimized, no area). draw thread, under gDrawMutex (windowedapplicationwindow.cpp)
 	[[nodiscard]] bool InternalPrepareWindow(gfx::Swapchain* swapchain);
+	// before a frame, outside of the graphics queue's lock: the window (InternalPrepareWindow, whose false it returns),
+	// then what the scene makes once its shaders are compiled (Scene::Prepare), and the browser's preview, made once
+	// asked for and the scene ready, and prepared the same. draw thread, under gDrawMutex
+	[[nodiscard]] bool InternalPrepare(gfx::Swapchain* swapchain);
 
 	// the frame being drawn, as its phases take it (see Draw): begun once its slot's last frame is done, then updated
 	// (InternalUpdate), recorded (InternalRecord), submitted and presented. draw thread, under gDrawMutex

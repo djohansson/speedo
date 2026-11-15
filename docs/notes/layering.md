@@ -175,8 +175,10 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
 - `client` is the application: `client::WindowedApplication` (a `platform::WindowedApplication`) owns the rhi, the
   views, the scene, the imgui layer and its renderer, and keeps the frame loop (`client/windowedapplication.cpp`: `Draw`;
   construction and `Shutdown`). `Draw` takes the frame through its phases, each a method of its own (the user's ask,
-  2026-11-15: `Draw` had grown every pass, capture and statistic inline): the window's changes, presentation and size
-  (`InternalPrepareWindow`, `client/windowedapplicationwindow.cpp`, with the resizes); the flip, the queue ring's
+  2026-11-15: `Draw` had grown every pass, capture and statistic inline): `InternalPrepare`, outside of the graphics
+  queue's lock, the window's changes, presentation and size (`InternalPrepareWindow`,
+  `client/windowedapplicationwindow.cpp`, with the resizes), then what the scenes make once their shaders are compiled
+  (`Scene::Prepare`) and the browser's preview, made once asked for; the flip, the queue ring's
   fences, the frame's slot and the draw calls (in `Draw`); then a `FrameContext` (the locked graphics context, the
   frame's queue, swapchain, slot, output image, the preview drawn or not, and the callbacks its submit's timeline runs)
   through `InternalUpdate` (the scenes' per frame buffers, before the command buffer is begun: their updates submit
