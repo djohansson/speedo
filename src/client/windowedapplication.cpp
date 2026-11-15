@@ -151,79 +151,21 @@ bool WindowedApplication::Draw()
 			drawCall(*graphics.Get());
 		}
 
-		// TODO: make more use of the draw calls queue for other rendering tasks
-		// perhaps we should split into Update and Record phases for different rendering tasks
-
-		// the frame's exposure histogram, and instance and joint buffers, now that the frame's previous use of them is done
-		// (see the fences above)
-		myScene->Update(*graphics, frameSlot);
-		// the same for the preview, if it is drawn this frame (updates submit command buffers of their own, see
-		// UpdateBufferOnGraphics, ordered before the frame's)
-		bool drawPreview = myPreview && myPreviewVisible.load(std::memory_order_relaxed);
-		if (drawPreview)
-			myPreview->GetScene().Update(*graphics, frameSlot);
+		FrameContext frame{
+			.graphics = *graphics.Get(),
+			.graphicsQueue = graphicsQueue,
+			.swapchain = swapchain,
+			.frameSlot = frameSlot,
+			.outputIndex = static_cast<uint16_t>(outputIndex),
+			.drawPreview = myPreview && myPreviewVisible.load(std::memory_order_relaxed)};
+		InternalUpdate(frame);
 
 		// the frame's command buffer: recorded into by the scenes and the ui (which borrow it), and submitted below
 		auto cmd = graphicsQueue.GetPool().Begin();
 
 		ZoneScopedN("WindowedApplication::Draw::submit");
 
-		std::vector<core::TaskHandle> graphicsCallbacks;
-
-		// the preview first: its image is sampled by the ui, drawn over the window's frame below
-		if (drawPreview)
-		{
-			myPreview->GetScene().Record(
-				cmd,
-				Scene::FrameTarget{
-					.frameIndex = frameSlot,
-					.graphicsQueue = &graphicsQueue,
-					.graphicsTimeline = graphics->timeline,
-					.executor = &GetExecutor()});
-			// a read back of it, if asked for (a model's thumbnail)
-			myPreview->RecordCapture(cmd, graphicsCallbacks);
-		}
-
-		// the ui's frame to draw over the window's: taken now, for its frosted panels' blur, recorded before the ui
-		auto uiFrame = myImGui->TakeFrame();
-		myUiBlurRects.clear();
-		if (gDrawUi)
-			for (const auto& panel : uiFrame.panels)
-			{
-				UiBlurRect rect{};
-				std::ranges::copy(panel.rect, std::begin(rect.rect));
-				rect.radius = panel.radius;
-				rect.opacity = panel.opacity;
-				myUiBlurRects.push_back(rect);
-			}
-		myScene->Record(
-			cmd,
-			Scene::FrameTarget{
-				.frameIndex = frameSlot,
-				.outputIndex = static_cast<uint16_t>(outputIndex),
-				.graphicsQueue = &graphicsQueue,
-				.graphicsTimeline = graphics->timeline,
-				.prepareUi = [this, &uiFrame, &graphicsCallbacks, frameSlot](CommandBufferHandle cmd)
-				{ myImGuiRenderer->PrepareFrame(cmd, uiFrame.drawData, uiFrame.sequence, frameSlot, graphicsCallbacks); },
-				.drawUi = [this, &uiFrame, frameSlot](CommandBufferHandle cmd, gfx::IRenderTarget& target)
-				{
-					if (gDrawUi)
-						myImGuiRenderer->Draw(cmd, uiFrame.drawData, frameSlot, target);
-				},
-				.uiBlurRects = myUiBlurRects,
-				.executor = &GetExecutor()});
-
-		// the captures this frame asks for (SPEEDO_CAPTURE, SPEEDO_CAPTURE_PATH), after the scene and the ui (see FrameCapture)
-		RecordFrameCaptures(
-			cmd,
-			FrameCaptureTarget{
-				.device = device,
-				.swapchain = swapchain,
-				.imageOutput = myImageOutput,
-				.extent = myOutput->GetExtent(),
-				.outputIndex = outputIndex,
-				.placedPose = myViews->GetPlacedPose()},
-			graphicsCallbacks);
+		InternalRecord(cmd, frame);
 
 		QueueDeviceSyncInfo frameSync{
 			.waitSemaphores = {graphics->semaphore},
@@ -246,7 +188,7 @@ bool WindowedApplication::Draw()
 			graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
 			// keeps the acquire semaphore alive until the gpu has waited on it. the acquire fence is owned (and waited on) by
 			// the swapchain instead, see Swapchain::myAcquireFences
-			graphicsCallbacks.emplace_back(
+			frame.callbacks.emplace_back(
 				core::CreateTask(
 					[acquireNextImageSemaphore = std::move(flip->acquireNextImageSemaphore)] {}).handle);
 			// and the present's until the present is done with it: kept by the frame's slot (see InternalRetirePresents).
@@ -263,7 +205,7 @@ bool WindowedApplication::Draw()
 			frameSync.signalSemaphores.push_back(graphicsDoneSemaphoreHandle);
 			frameSync.signalSemaphoreValues.push_back(1);
 		}
-		frameSync.callbacks = std::move(graphicsCallbacks);
+		frameSync.callbacks = std::move(frame.callbacks);
 		// SPEEDO_CRASH_TEST=hang: from the 100th frame drawn, the frame waits for a semaphore nothing signals, so that the
 		// next wait for it reports a hang (rhi::CrashEvent's report, see rhi/vulkan/crashreport.h), to check the reports end
 		// to end (with SPEEDO_GPU_HANG_TIMEOUT=<seconds> to see it sooner)
@@ -324,6 +266,83 @@ bool WindowedApplication::Draw()
 	GetExecutor().Submit(frameTasks);
 
 	return frameReady;
+}
+
+void WindowedApplication::InternalUpdate(FrameContext& frame)
+{
+	ZoneScopedN("WindowedApplication::InternalUpdate");
+
+	// the frame's exposure histogram, and instance and joint buffers, now that the frame's previous use of them is done
+	// (see Draw's fences)
+	myScene->Update(frame.graphics, frame.frameSlot);
+	// the same for the preview, if it is drawn this frame (updates submit command buffers of their own, see
+	// UpdateBufferOnGraphics, ordered before the frame's)
+	if (frame.drawPreview)
+		myPreview->GetScene().Update(frame.graphics, frame.frameSlot);
+}
+
+void WindowedApplication::InternalRecord(CommandBufferHandle cmd, FrameContext& frame)
+{
+	using namespace windowedapplication;
+
+	ZoneScopedN("WindowedApplication::InternalRecord");
+
+	// the preview first: its image is sampled by the ui, drawn over the window's frame below
+	if (frame.drawPreview)
+	{
+		myPreview->GetScene().Record(
+			cmd,
+			Scene::FrameTarget{
+				.frameIndex = frame.frameSlot,
+				.graphicsQueue = &frame.graphicsQueue,
+				.graphicsTimeline = frame.graphics.timeline,
+				.executor = &GetExecutor()});
+		// a read back of it, if asked for (a model's thumbnail)
+		myPreview->RecordCapture(cmd, frame.callbacks);
+	}
+
+	// the ui's frame to draw over the window's: taken now, for its frosted panels' blur, recorded before the ui (the scene
+	// calls the ui's callables during its Record, see Scene::FrameTarget)
+	auto uiFrame = myImGui->TakeFrame();
+	myUiBlurRects.clear();
+	if (gDrawUi)
+		for (const auto& panel : uiFrame.panels)
+		{
+			UiBlurRect rect{};
+			std::ranges::copy(panel.rect, std::begin(rect.rect));
+			rect.radius = panel.radius;
+			rect.opacity = panel.opacity;
+			myUiBlurRects.push_back(rect);
+		}
+	const auto frameSlot = frame.frameSlot;
+	myScene->Record(
+		cmd,
+		Scene::FrameTarget{
+			.frameIndex = frameSlot,
+			.outputIndex = frame.outputIndex,
+			.graphicsQueue = &frame.graphicsQueue,
+			.graphicsTimeline = frame.graphics.timeline,
+			.prepareUi = [this, &uiFrame, &frame, frameSlot](CommandBufferHandle cmd)
+			{ myImGuiRenderer->PrepareFrame(cmd, uiFrame.drawData, uiFrame.sequence, frameSlot, frame.callbacks); },
+			.drawUi = [this, &uiFrame, frameSlot](CommandBufferHandle cmd, gfx::IRenderTarget& target)
+			{
+				if (gDrawUi)
+					myImGuiRenderer->Draw(cmd, uiFrame.drawData, frameSlot, target);
+			},
+			.uiBlurRects = myUiBlurRects,
+			.executor = &GetExecutor()});
+
+	// the captures this frame asks for (SPEEDO_CAPTURE, SPEEDO_CAPTURE_PATH), after the scene and the ui (see FrameCapture)
+	RecordFrameCaptures(
+		cmd,
+		FrameCaptureTarget{
+			.device = GetRHI().GetPrimaryDevice(),
+			.swapchain = frame.swapchain,
+			.imageOutput = myImageOutput,
+			.extent = myOutput->GetExtent(),
+			.outputIndex = frame.outputIndex,
+			.placedPose = myViews->GetPlacedPose()},
+		frame.callbacks);
 }
 
 WindowedApplication::WindowedApplication(

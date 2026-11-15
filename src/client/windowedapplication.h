@@ -14,6 +14,7 @@
 
 #include <core/loadqueue.h>
 #include <core/inputstate.h>
+#include <core/task.h>
 
 #include <array>
 #include <atomic>
@@ -91,6 +92,25 @@ private:
 	// and the swapchain (or headless, the image) and the render targets resized after the window. false where no frame is
 	// drawn now (a change under way, minimized, no area). draw thread, under gDrawMutex (windowedapplicationwindow.cpp)
 	[[nodiscard]] bool InternalPrepareWindow(gfx::Swapchain* swapchain);
+
+	// the frame being drawn, as its phases take it (see Draw): begun once its slot's last frame is done, then updated
+	// (InternalUpdate), recorded (InternalRecord), submitted and presented. draw thread, under gDrawMutex
+	struct FrameContext
+	{
+		gfx::QueueTimelineContextData& graphics; // the graphics queues' context, locked for the frame
+		gfx::Queue& graphicsQueue; // the frame's queue of the ring
+		gfx::Swapchain* swapchain = nullptr; // none headless
+		uint16_t frameSlot = 0; // the frame's slot of the per frame buffers (see SHADER_TYPES_FRAME_COUNT)
+		uint16_t outputIndex = 0; // the output's image it is drawn into (the swapchain's, or headless the image output's)
+		bool drawPreview = false; // the browser's preview drawn this frame (see SetPreviewVisible)
+		std::vector<core::TaskHandle> callbacks; // run by the frame's submit's timeline once the gpu is done with it
+	};
+	// the frame's updates of its per frame buffers, before its command buffer is begun: the scene's, and the preview's
+	// where drawn (their updates submit command buffers of their own, ordered before the frame's)
+	void InternalUpdate(FrameContext& frame);
+	// the frame recorded into cmd, in order: the preview (its image sampled by the ui), the scene with the ui drawn over
+	// it, then the captures asked for
+	void InternalRecord(gfx::CommandBufferHandle cmd, FrameContext& frame);
 
 	
 	std::unique_ptr<gfx::RHI> myRHI;
