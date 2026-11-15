@@ -331,6 +331,9 @@ void Device<kD3D12>::InternalCreateQueues()
 				0,
 				familyIt,
 				static_cast<uint32_t>(GetQueueFamilies()[familyIt].timestampValidBits > 0)});
+			// the direct queue, which swapchains present from
+			if (type == kQueueTypeGraphics)
+				myAllocator->directQueue = queue;
 		}
 		queues.emplace(type, context);
 	}

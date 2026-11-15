@@ -28,6 +28,12 @@
 #include <utility>
 #include <vector>
 
+namespace rhi
+{
+template <GraphicsApi G>
+struct ImageCreateDesc;
+} // namespace rhi
+
 namespace rhi::d3d12
 {
 
@@ -167,6 +173,7 @@ struct AllocatorObject
 	CpuDescriptorHeap depthStencils;
 	DescriptorPoolObject pool;
 	ID3D12CommandSignature* dispatchSignature = nullptr; // DispatchIndirect's
+	ID3D12CommandQueue* directQueue = nullptr; // the graphics queue's, which swapchains present from (not referenced)
 	// nanoseconds a timestamp tick (the direct queue's frequency: the compute queue's is the same on the gpus measured)
 	float timestampPeriod = 1.0F;
 	// DrawIndexedIndirect's, by the commands' stride (rhi's commands are D3D12's arguments; a signature has its stride)
@@ -354,6 +361,27 @@ struct QueryPoolObject
 	D3D12MA::Allocation* unwritten = nullptr;
 };
 
+// a swapchain (swapchain.cpp): DXGI's, its buffers, and the frames' images of its own, each present copying one into
+// the current buffer on a list of that buffer's (its allocator reset once the buffer's last copy is done)
+struct SwapchainObject
+{
+	IDXGISwapChain4* swapchain = nullptr;
+	std::vector<ID3D12Resource*> buffers;
+	std::vector<ImageObject*> images;
+	struct Copy
+	{
+		ID3D12CommandAllocator* allocator = nullptr;
+		ID3D12GraphicsCommandList7* list = nullptr;
+		uint64_t done = 0; // its last copy's present id
+	};
+	std::vector<Copy> copies; // a buffer's each
+	// the presents' ids, from 1: signaled after each present's copy (Swapchain::WaitPresent)
+	ID3D12Fence* presents = nullptr;
+	uint64_t submitted = 0;
+	UINT syncInterval = 1;
+	UINT presentFlags = 0;
+};
+
 // a fence: a D3D12 fence and the value it waits for
 struct FenceObject
 {
@@ -385,6 +413,11 @@ struct ImageViewObject
 	D3D12_CPU_DESCRIPTOR_HANDLE depthStencil{};
 };
 
+// an image of desc in the default heap, in the common layout (an Image's, or a swapchain's own: swapchain.cpp), and
+// released
+[[nodiscard]] ImageObject* NewImageObject(const ImageCreateDesc<kD3D12>& desc);
+void DeleteImageObject(ImageObject* image) noexcept;
+
 // what an image view views (ImageViewCreateDesc's)
 struct ImageViewDesc
 {
@@ -406,8 +439,14 @@ void DeleteImageView(AllocatorObject& allocator, ImageViewObject* view) noexcept
 void TransitionImage(CommandBufferObject& cmd, ImageObject& image, D3D12_BARRIER_LAYOUT after, bool discard = false);
 
 // a texture barrier on cmd's list from one layout to another, every subresource (image.cpp: the work and accesses each
-// layout's, the list's type's alone); from an undefined layout the contents are discarded
-void Transition(CommandBufferObject& cmd, ID3D12Resource* resource, D3D12_BARRIER_LAYOUT before, D3D12_BARRIER_LAYOUT after);
+// layout's, the list's type's alone); from an undefined layout the contents are discarded, once the work of last (the
+// layout it was last used in, where known) is done
+void Transition(
+	CommandBufferObject& cmd,
+	ID3D12Resource* resource,
+	D3D12_BARRIER_LAYOUT before,
+	D3D12_BARRIER_LAYOUT after,
+	D3D12_BARRIER_LAYOUT last = D3D12_BARRIER_LAYOUT_UNDEFINED);
 
 // rhi's vocabulary as D3D12's
 [[nodiscard]] DXGI_FORMAT ToD3D12(Format format);

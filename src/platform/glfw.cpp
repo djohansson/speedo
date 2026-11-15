@@ -511,6 +511,16 @@ void* PlatformCreateMetalLayer(WindowHandle window)
 #endif
 }
 
+void* PlatformGetWin32Window(WindowHandle window)
+{
+#if defined(_WIN32)
+	return glfwGetWin32Window(reinterpret_cast<GLFWwindow*>(window)); //NOLINT(performance-no-int-to-ptr)
+#else
+	(void)window;
+	return nullptr;
+#endif
+}
+
 int32_t PlatformCreateVulkanSurface(WindowHandle window, void* instance, const void* allocator, void* surface)
 {
 	return static_cast<int32_t>(glfwCreateWindowSurface(

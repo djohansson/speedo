@@ -60,9 +60,10 @@ struct SurfaceFormat // the swapchain's images' format
 {
 	rhi::Format format = rhi::Format::kUndefined;
 };
-enum class PresentMode : uint8_t // a flip model swapchain's: fifo (a sync interval of 1), or immediate (0, tearing allowed)
+enum class PresentMode : uint8_t // a flip model swapchain's: fifo (a sync interval of 1), mailbox (0), immediate (0, tearing)
 {
 	kFifo,
+	kMailbox,
 	kImmediate,
 };
 struct SurfaceCapabilities {};

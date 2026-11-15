@@ -1,6 +1,5 @@
-// the D3D12 backend's swapchain frames (see swapchain.cpp): a render target over one of the swapchain's buffers, its
-// layout, and its index for the present. the layout's barriers come with the swapchain (step 5, docs/backends-plan.md):
-// until then a frame is made by none, and keeps its layout for rhi's bookkeeping alone
+// the D3D12 backend's swapchain frames (see swapchain.cpp): a render target over one of the swapchain's images, its
+// layout (rhi's: the image tracks D3D12's, d3d12::TransitionImage), and its index for the present
 #include <rhi/d3d12/backend.h>
 
 #include <rhi/frame.h>
@@ -57,9 +56,11 @@ void Frame<kD3D12>::End(CommandBufferHandle<kD3D12> cmd)
 }
 
 template <>
-void Frame<kD3D12>::Transition(CommandBufferHandle<kD3D12> /*cmd*/, ImageLayout /*layout*/, ImageAspect /*aspectFlags*/, uint32_t /*index*/)
+void Frame<kD3D12>::Transition(CommandBufferHandle<kD3D12> cmd, ImageLayout layout, ImageAspect /*aspectFlags*/, uint32_t index)
 {
-	ENSUREF(false, "the D3D12 backend has no swapchain yet (docs/backends-plan.md, step 5)");
+	ENSURE(index == 0);
+	d3d12::TransitionImage(*cmd, *GetDesc().images[0], d3d12::ToD3D12Layout(layout), myImageLayout == ImageLayout::kUndefined);
+	myImageLayout = layout;
 }
 
 template <>

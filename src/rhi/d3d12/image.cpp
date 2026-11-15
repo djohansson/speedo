@@ -232,8 +232,10 @@ namespace d3d12
 {
 
 // a texture barrier on cmd's list from one layout to another, every subresource (the work and accesses each layout's,
-// see SideOf); from an undefined layout the contents are discarded
-void Transition(CommandBufferObject& cmd, ID3D12Resource* resource, D3D12_BARRIER_LAYOUT before, D3D12_BARRIER_LAYOUT after)
+// see SideOf); from an undefined layout the contents are discarded, once last's work is done (a discard without it waits
+// for nothing, which the debug layer refuses where the resource was used before: error 1417, a swapchain's image, last a
+// present's copy source, which its frame transitions from undefined each frame as Vulkan's swapchain images are)
+void Transition(CommandBufferObject& cmd, ID3D12Resource* resource, D3D12_BARRIER_LAYOUT before, D3D12_BARRIER_LAYOUT after, D3D12_BARRIER_LAYOUT last)
 {
 	if (before == after && before != D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS)
 		return;
@@ -248,12 +250,34 @@ void Transition(CommandBufferObject& cmd, ID3D12Resource* resource, D3D12_BARRIE
 																						: D3D12_BARRIER_LAYOUT_UNDEFINED;
 		if (attachment != D3D12_BARRIER_LAYOUT_UNDEFINED && after != attachment)
 		{
-			Transition(cmd, resource, before, attachment);
+			Transition(cmd, resource, before, attachment, last);
 			before = attachment;
+			last = D3D12_BARRIER_LAYOUT_UNDEFINED;
 		}
 	}
-	const auto from = image::SideOf(before, cmd.type);
-	const auto to = image::SideOf(after, cmd.type);
+	// the work before it waits for: its layout's (a discard's, the layout it was last used in); from the common layout (the
+	// present's, a copy queue's textures'), all the list's work before, which may have used it without a barrier of its
+	// own after (a frame's draws, then its transition to present, then a capture's copy from it: error 1417). a stage the
+	// list hasn't is another list's work, which the queues' fences order
+	const auto waited = before == D3D12_BARRIER_LAYOUT_UNDEFINED ? last : before;
+	auto sync = image::SideOf(waited, cmd.type).sync;
+	if (waited == D3D12_BARRIER_LAYOUT_COMMON)
+		sync = cmd.type == D3D12_COMMAND_LIST_TYPE_COPY ? D3D12_BARRIER_SYNC_COPY : D3D12_BARRIER_SYNC_ALL;
+	if ((cmd.type == D3D12_COMMAND_LIST_TYPE_COMPUTE && (sync == D3D12_BARRIER_SYNC_RENDER_TARGET || sync == D3D12_BARRIER_SYNC_DEPTH_STENCIL)) ||
+		(cmd.type == D3D12_COMMAND_LIST_TYPE_COPY && sync != D3D12_BARRIER_SYNC_COPY))
+		sync = D3D12_BARRIER_SYNC_NONE;
+	// (its accesses its layout's: from the common layout, waiting, the common access, as D3D12 wants a wait with an
+	// access unless it discards)
+	auto access = before == D3D12_BARRIER_LAYOUT_UNDEFINED ? D3D12_BARRIER_ACCESS_NO_ACCESS : image::SideOf(before, cmd.type).access;
+	if (before == D3D12_BARRIER_LAYOUT_COMMON && sync != D3D12_BARRIER_SYNC_NONE)
+		access = D3D12_BARRIER_ACCESS_COMMON;
+	const image::Side from{.sync = sync, .access = access};
+	// the work after that waits for it: its layout's; to the common layout (the present's), all the list's work after,
+	// which may use it (a capture's copy after the transition to present: error 1417, an access after a barrier whose
+	// SyncAfter is none)
+	auto to = image::SideOf(after, cmd.type);
+	if (after == D3D12_BARRIER_LAYOUT_COMMON && cmd.type != D3D12_COMMAND_LIST_TYPE_COPY)
+		to = {.sync = D3D12_BARRIER_SYNC_ALL, .access = D3D12_BARRIER_ACCESS_COMMON};
 	const D3D12_TEXTURE_BARRIER barrier{
 		.SyncBefore = from.sync,
 		.SyncAfter = to.sync,
@@ -268,11 +292,28 @@ void Transition(CommandBufferObject& cmd, ID3D12Resource* resource, D3D12_BARRIE
 	cmd.list->Barrier(1, &group);
 }
 
+ImageObject* NewImageObject(const ImageCreateDesc<kD3D12>& desc)
+{
+	return image::Create(desc, D3D12_BARRIER_LAYOUT_COMMON);
+}
+
+void DeleteImageObject(ImageObject* image) noexcept
+{
+	if (image == nullptr)
+		return;
+	// the allocation owns its resource; a placed one (no allocation of its own) is the image's
+	if (image->allocation != nullptr)
+		image->allocation->Release();
+	else if (image->resource != nullptr)
+		image->resource->Release();
+	delete image; //NOLINT(cppcoreguidelines-owning-memory)
+}
+
 void TransitionImage(CommandBufferObject& cmd, ImageObject& image, D3D12_BARRIER_LAYOUT after, bool discard)
 {
 	if (cmd.type == D3D12_COMMAND_LIST_TYPE_COPY)
 		after = D3D12_BARRIER_LAYOUT_COMMON;
-	Transition(cmd, image.resource, discard ? D3D12_BARRIER_LAYOUT_UNDEFINED : image.layout, after);
+	Transition(cmd, image.resource, discard ? D3D12_BARRIER_LAYOUT_UNDEFINED : image.layout, after, image.layout);
 	image.layout = after;
 }
 
@@ -480,15 +521,9 @@ Image<kD3D12>::Image(
 template <>
 Image<kD3D12>::~Image()
 {
-	auto* object = std::get<0>(myImage);
-	if (!IsValid() || object == nullptr)
+	if (!IsValid())
 		return;
-	// the allocation owns its resource; a placed one (no allocation of its own) is the image's
-	if (object->allocation != nullptr)
-		object->allocation->Release();
-	else if (object->resource != nullptr)
-		object->resource->Release();
-	delete object; //NOLINT(cppcoreguidelines-owning-memory)
+	d3d12::DeleteImageObject(std::get<0>(myImage));
 }
 
 template <>

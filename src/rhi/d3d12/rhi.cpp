@@ -1,5 +1,5 @@
-// the D3D12 backend's RHI (docs/backends-plan.md): the instance, the device and its queues and pipeline. headless until
-// the swapchain (step 5): a window fails hard
+// the D3D12 backend's RHI (docs/backends-plan.md): the instance, the device and its queues and pipeline, and for a
+// window its swapchain, on the window's HWND (PlatformGetWin32Window)
 #include <rhi/d3d12/backend.h>
 
 #include <rhi/rhi.h>
@@ -8,7 +8,13 @@
 #include <core/assert.h>
 #include <core/uuids_extra.h>
 
+#include <platform/capi.h>
+
+#include <algorithm>
 #include <atomic>
+#include <cstdlib>
+#include <print>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -53,6 +59,35 @@ static std::vector<Device<kD3D12>> DetectAndCreateDevices(Instance<kD3D12>& inst
 	return devices;
 }
 
+// the swapchain of the window: Vulkan's backend's choices (its images B8G8R8A8 unorm, which the frame's final pass writes
+// encoded; fifo; 3 images), with its overrides, SPEEDO_PRESENT_MODE=fifo, mailbox or immediate (where the system allows
+// tearing) and SPEEDO_SWAPCHAIN_IMAGE_COUNT=<count> (2 to 16)
+static SwapchainCreateDesc<kD3D12> DetectSuitableSwapchain(Device<kD3D12>& device, HWND window, uint32_t maxImageCount)
+{
+	SwapchainCreateDesc<kD3D12> config{
+		RenderTargetCreateDesc<kD3D12>{device.CreateDeviceObjectCreateDesc("Swapchain"), {}, {Format::kUndefined}, {ImageLayout::kUndefined}, {ImageAspect::kColor}},
+		window,
+		{.format = Format::kB8G8R8A8Unorm},
+		d3d12::PresentMode::kFifo,
+		maxImageCount};
+	constexpr uint32_t kMaxImageCount = 16;
+	auto imageCountLimit = maxImageCount != 0 ? std::clamp(maxImageCount, 2U, kMaxImageCount) : kMaxImageCount;
+	config.images.resize(std::min(3U, imageCountLimit));
+	if (const char* presentMode = std::getenv("SPEEDO_PRESENT_MODE"); presentMode != nullptr)
+	{
+		std::string_view name(presentMode);
+		if (name == "mailbox")
+			config.presentMode = d3d12::PresentMode::kMailbox;
+		else if (name == "immediate")
+			config.presentMode = d3d12::PresentMode::kImmediate;
+		else if (name != "fifo")
+			std::println(stderr, "SPEEDO_PRESENT_MODE={}: D3D12 presents fifo, mailbox or immediate", presentMode);
+	}
+	if (const char* imageCount = std::getenv("SPEEDO_SWAPCHAIN_IMAGE_COUNT"); imageCount != nullptr)
+		config.images.resize(std::clamp(static_cast<uint32_t>(std::strtoul(imageCount, nullptr, 10)), 2U, imageCountLimit));
+	return config;
+}
+
 } // namespace detail
 
 template <>
@@ -62,7 +97,7 @@ RHI<kD3D12>* GetRHI<kD3D12>() noexcept
 }
 
 template <>
-RHI<kD3D12>::RHI(RHIInitializationData&& initData, SurfaceHandle<kD3D12> /*surface*/)
+RHI<kD3D12>::RHI(RHIInitializationData&& initData, SurfaceHandle<kD3D12> surface)
 	: myInstance(InstanceCreateDesc<kD3D12>{std::string(initData.name), "speedo", initData.window != 0})
 	, myDevices{detail::DetectAndCreateDevices(myInstance)}
 {
@@ -73,12 +108,18 @@ RHI<kD3D12>::RHI(RHIInitializationData&& initData, SurfaceHandle<kD3D12> /*surfa
 		device.InternalCreatePipeline(std::vector(initData.descriptorPoolSizes));
 	}
 
-	ENSUREF(initData.window == 0, "the D3D12 backend has no swapchain yet (docs/backends-plan.md, step 5): run it headless");
+	if (initData.window != 0)
+		mySwapchains.push_back({
+			.window = initData.window,
+			.swapchain = Swapchain<kD3D12>(detail::DetectSuitableSwapchain(GetPrimaryDevice(), surface, initData.maxSwapchainImageCount))});
 }
 
 template <>
 RHI<kD3D12>::RHI(RHIInitializationData&& initData)
-	: RHI(std::forward<RHIInitializationData>(initData), nullptr)
+	: RHI(
+		std::forward<RHIInitializationData>(initData),
+		// the window's HWND (none when headless)
+		initData.window != 0 ? static_cast<HWND>(PlatformGetWin32Window(initData.window)) : nullptr)
 {}
 
 } // namespace rhi

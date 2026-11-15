@@ -61,6 +61,8 @@ PLATFORM_API int32_t PlatformCreateVulkanSurface(WindowHandle window, void* inst
 // a Metal layer the window's content shows, for rhi's Metal backend (macOS: a CAMetalLayer, retained, its type opaque
 // here); null elsewhere
 PLATFORM_API void* PlatformCreateMetalLayer(WindowHandle window);
+// the window's HWND, for rhi's D3D12 backend (its swapchain's window); null elsewhere
+PLATFORM_API void* PlatformGetWin32Window(WindowHandle window);
 // the monitor the window is (mostly) on, as Windows' HMONITOR, for rhi's exclusive fullscreen
 // (VK_EXT_full_screen_exclusive); null elsewhere
 PLATFORM_API void* PlatformGetWin32Monitor(WindowHandle window);

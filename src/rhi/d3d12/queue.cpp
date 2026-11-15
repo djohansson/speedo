@@ -156,9 +156,52 @@ QueueHostSyncInfo<kD3D12> Queue<kD3D12>::Submit()
 }
 
 template <>
-QueueHostSyncInfo<kD3D12> Queue<kD3D12>::Present(PresentResult* /*presentResult*/)
+QueueHostSyncInfo<kD3D12> Queue<kD3D12>::Present(PresentResult* presentResult)
 {
-	ENSUREF(false, "the D3D12 backend has no swapchain yet (docs/backends-plan.md, step 5)");
+	ZoneScopedN("Queue::Present");
+
+	// each swapchain's frame's image copied into DXGI's current buffer (on a list of that buffer's, after the frame's work:
+	// the queue orders them, the present's wait semaphores being the swapchain's binary ones, null) and presented, the
+	// present's id signaled once the copy is done (Swapchain::WaitPresent). an occluded window's present is no error
+	const auto swapchainCount = myPendingPresent.swapchains.size();
+	ENSURE(swapchainCount > 0 && myPendingPresent.imageIndices.size() == swapchainCount);
+	auto result = PresentResult::kSuccess;
+	for (size_t swapchainIt = 0; swapchainIt < swapchainCount; swapchainIt++)
+	{
+		auto* swapchain = myPendingPresent.swapchains[swapchainIt];
+		auto* image = swapchain->images.at(myPendingPresent.imageIndices[swapchainIt]);
+		const UINT bufferIndex = swapchain->swapchain->GetCurrentBackBufferIndex();
+		auto* buffer = swapchain->buffers.at(bufferIndex);
+		auto& copy = swapchain->copies[bufferIndex];
+		if (swapchain->presents->GetCompletedValue() < copy.done)
+		{
+			ZoneScopedN("Queue::Present::wait");
+			d3d12::Check(swapchain->presents->SetEventOnCompletion(copy.done, nullptr), "ID3D12Fence::SetEventOnCompletion (a present's copy)");
+		}
+		d3d12::Check(copy.allocator->Reset(), "ID3D12CommandAllocator::Reset (a present's copy)");
+		d3d12::Check(copy.list->Reset(copy.allocator, nullptr), "ID3D12GraphicsCommandList::Reset (a present's copy)");
+		d3d12::CommandBufferObject cmd{.allocator = copy.allocator, .list = copy.list, .type = D3D12_COMMAND_LIST_TYPE_DIRECT};
+		d3d12::TransitionImage(cmd, *image, D3D12_BARRIER_LAYOUT_COPY_SOURCE);
+		d3d12::Transition(cmd, buffer, D3D12_BARRIER_LAYOUT_PRESENT, D3D12_BARRIER_LAYOUT_COPY_DEST);
+		copy.list->CopyResource(buffer, image->resource);
+		d3d12::Transition(cmd, buffer, D3D12_BARRIER_LAYOUT_COPY_DEST, D3D12_BARRIER_LAYOUT_PRESENT);
+		d3d12::Check(copy.list->Close(), "ID3D12GraphicsCommandList::Close (a present's copy)");
+		ID3D12CommandList* list = copy.list;
+		myQueue->ExecuteCommandLists(1, &list);
+
+		HRESULT presented = S_OK;
+		{
+			ZoneScopedN("Queue::Present::Present");
+			presented = swapchain->swapchain->Present(swapchain->syncInterval, swapchain->presentFlags);
+		}
+		if (presented != DXGI_STATUS_OCCLUDED)
+			d3d12::Check(presented, "IDXGISwapChain::Present");
+		copy.done = ++swapchain->submitted;
+		d3d12::Check(myQueue->Signal(swapchain->presents, copy.done), "ID3D12CommandQueue::Signal (a present)");
+	}
+	myPendingPresent = {};
+	if (presentResult != nullptr)
+		*presentResult = result;
 	return {};
 }
 
