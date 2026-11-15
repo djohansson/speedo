@@ -56,7 +56,7 @@ $targetArgs = switch ($Target)
 {
 	'metal' { @('-target', 'metal') }
 	'hlsl' { @('-target', 'hlsl', '-profile', 'sm_6_6', '-parameter-blocks-use-register-spaces') }
-	'dxil' { @('-target', 'dxil', '-profile', 'sm_6_8', '-parameter-blocks-use-register-spaces', '-D', 'SHADER_TARGET_NO_POINT_SIZE=1') }
+	'dxil' { @('-target', 'dxil', '-profile', 'sm_6_8', '-parameter-blocks-use-register-spaces', '-D', 'SHADER_TARGET_NO_POINT_SIZE=1', '-D', 'SHADER_TARGET_CLIP_Y_UP=1') }
 }
 $layouts = @(
 	@{ Name = 'main'; File = 'shaders.slang'; Defines = @() }

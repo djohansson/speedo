@@ -103,7 +103,7 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 
 	float3 worldPosition = WorldPosition(draw, input.vertexId, input.instanceId, frameIndex);
 
-	output.hPos = mul(view.viewProjection, float4(worldPosition, 1.0));
+	output.hPos = ClipSpace(mul(view.viewProjection, float4(worldPosition, 1.0)));
 	
 	return output;
 }
@@ -167,7 +167,7 @@ VertexMainOutput VertexMain(InputStream input)
 	float4x4 viewProjection = gPushConstants.shadowView != SHADER_TYPES_NO_SHADOW
 		? gShadowViews[frameIndex][gPushConstants.shadowView].viewProjection
 		: view.viewProjection;
-	output.hPos = mul(viewProjection, float4(worldPosition, 1.0));
+	output.hPos = ClipSpace(mul(viewProjection, float4(worldPosition, 1.0)));
 	// the last frame's buffers are its slot's, the one before (what moves writes its instances, joints and weights per
 	// frame slot; what doesn't binds one buffer in every slot)
 	output.previousPosition = worldPosition;

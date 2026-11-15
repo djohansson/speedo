@@ -6,6 +6,7 @@ __include types;
 // once): a part may use what any other declares
 
 #include "capi.h"
+#include "clip.h"
 #include "sky.h"
 
 #include "bindings.slang"

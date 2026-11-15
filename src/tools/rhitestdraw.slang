@@ -42,6 +42,9 @@ RhiTestVertex Place(RhiTestDrawConstants draw, uint vertexId)
 	RhiTestVertex output;
 	const float2 corner = corners[vertexId];
 	output.position = float4((corner * draw.scale) + draw.offset, draw.depth, 1.0);
+#if defined(SHADER_TARGET_CLIP_Y_UP)
+	output.position.y = -output.position.y; // D3D's clip space is y up, rhi's (Vulkan's) y down: see gfx/shaders/clip.h
+#endif
 	output.uv = (corner * 0.5) + 0.5;
 	output.color = draw.color;
 	return output;

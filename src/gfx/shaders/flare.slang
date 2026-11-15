@@ -8,6 +8,7 @@
 // sensor irradiance reads as the radiance that gives it through the pupil, 4 N^2 over pi of it
 
 #include "capi.h"
+#include "clip.h"
 
 [[vk::binding(0, 0)]]
 [[vk::push_constant]]
@@ -182,8 +183,7 @@ static const float2 kFlareCorners[6] = {float2(-1.0, -1.0), float2(1.0, -1.0), f
 // an instance's quad: its source's ghost or starburst over its reach on the sensor (a ghost's disk, the first surface's
 // clear radius magnified; the starburst as far as its streaks show), in the output's clip space (y down, as the pixels
 // are), cut to the view's viewport; none for a source past the frame's count or a ghost too dim to show
-[shader("vertex")]
-FlareVertexOutput VertexFlare(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
+FlareVertexOutput FlareVertex(uint vertexId, uint instanceId)
 {
 	FlareVertexOutput output;
 	uint itemCount = gFlare.ghostCount + 1u;
@@ -265,6 +265,15 @@ FlareVertexOutput VertexFlare(uint vertexId : SV_VertexID, uint instanceId : SV_
 	pixel = clamp(pixel, source.viewport.xy, source.viewport.xy + source.viewport.zw);
 	float2 clip = pixel / float2(gFlare.width, gFlare.height) * 2.0 - 1.0;
 	output.position = float4(clip, 0.0, 1.0);
+	return output;
+}
+
+// (the flare's vertex, its position in the target's clip space: clip.h)
+[shader("vertex")]
+FlareVertexOutput VertexFlare(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
+{
+	FlareVertexOutput output = FlareVertex(vertexId, instanceId);
+	output.position = ClipSpace(output.position);
 	return output;
 }
 

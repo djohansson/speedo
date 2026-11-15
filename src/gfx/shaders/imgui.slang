@@ -2,6 +2,7 @@
 // slot's buffer by index (rhi's pipelines have no vertex input), each draw's texture from gImGuiTextures by its slot
 
 #include "capi.h"
+#include "clip.h"
 
 [[vk::binding(0, 0)]]
 [[vk::push_constant]]
@@ -42,7 +43,7 @@ ImGuiVertexOutput VertexImGui(uint vertexId : SV_VertexID)
 	uint color = vertices[first + SHADER_TYPES_IMGUI_VERTEX_COLOR_WORD];
 
 	ImGuiVertexOutput output;
-	output.position = float4((asfloat(uint2(vertices[position], vertices[position + 1u])) * gImGui.scale) + gImGui.translate, 0.0, 1.0);
+	output.position = ClipSpace(float4((asfloat(uint2(vertices[position], vertices[position + 1u])) * gImGui.scale) + gImGui.translate, 0.0, 1.0));
 	output.color = float4(
 		(color >> SHADER_TYPES_IMGUI_COLOR_R_SHIFT) & 0xffu,
 		(color >> SHADER_TYPES_IMGUI_COLOR_G_SHIFT) & 0xffu,

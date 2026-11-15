@@ -774,10 +774,14 @@ std::pair<int, std::string> ConfigureRequest(
 
 	for (const auto& [key, value] : request.definitions)
 		spAddPreprocessorDefine(slangRequest, key.c_str(), value.c_str());
-	// what a format's target lacks, for the shaders to leave out (slang defines nothing per target: __HLSL__ is every
-	// target's, the language's): D3D has no point size, its points always a pixel
+	// what a format's target lacks or has otherwise, for the shaders to take into account (slang defines nothing per target:
+	// __HLSL__ is every target's, the language's): D3D has no point size, its points always a pixel; and its clip space is
+	// y up, where rhi's is Vulkan's, y down (gfx/shaders/clip.h)
 	if (request.format == rhi::ShaderFormat::kDxil)
+	{
 		spAddPreprocessorDefine(slangRequest, "SHADER_TARGET_NO_POINT_SIZE", "1");
+		spAddPreprocessorDefine(slangRequest, "SHADER_TARGET_CLIP_Y_UP", "1");
+	}
 	if (specialization)
 		spAddPreprocessorDefine(slangRequest, kSpecializationDefinition, std::format("{}u", *specialization).c_str());
 
