@@ -425,6 +425,7 @@ set(RHI_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/frame.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/image.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/instance.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/instantiate.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/memory.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipeline.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipelinecache.cpp
