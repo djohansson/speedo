@@ -63,6 +63,33 @@ static D3D12_TEXTURE_COPY_LOCATION BufferFootprint(ID3D12Resource* buffer, uint6
 			.Footprint = {.Format = format, .Width = extent.width, .Height = extent.height, .Depth = std::max(extent.depth, 1U), .RowPitch = rowPitch}}};
 }
 
+// a barrier's side as the list's queue type takes it: a compute list's shading is compute's, and it neither draws nor
+// resolves; a copy list copies alone. what's left of no work takes no access (D3D12's 0 is COMMON, any: none is
+// NO_ACCESS)
+static std::pair<D3D12_BARRIER_SYNC, D3D12_BARRIER_ACCESS> ForList(D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access, D3D12_COMMAND_LIST_TYPE type)
+{
+	if (type == D3D12_COMMAND_LIST_TYPE_COMPUTE)
+	{
+		constexpr auto kGraphics = D3D12_BARRIER_SYNC_DRAW | D3D12_BARRIER_SYNC_INDEX_INPUT | D3D12_BARRIER_SYNC_VERTEX_SHADING |
+								   D3D12_BARRIER_SYNC_PIXEL_SHADING | D3D12_BARRIER_SYNC_DEPTH_STENCIL | D3D12_BARRIER_SYNC_RENDER_TARGET |
+								   D3D12_BARRIER_SYNC_ALL_SHADING | D3D12_BARRIER_SYNC_NON_PIXEL_SHADING;
+		if ((sync & kGraphics) != D3D12_BARRIER_SYNC_NONE)
+			sync = (sync & ~kGraphics) | D3D12_BARRIER_SYNC_COMPUTE_SHADING;
+		sync &= ~D3D12_BARRIER_SYNC_RESOLVE;
+		access &= ~(D3D12_BARRIER_ACCESS_RENDER_TARGET | D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ | D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE |
+					D3D12_BARRIER_ACCESS_INDEX_BUFFER | D3D12_BARRIER_ACCESS_VERTEX_BUFFER | D3D12_BARRIER_ACCESS_RESOLVE_SOURCE |
+					D3D12_BARRIER_ACCESS_RESOLVE_DEST);
+	}
+	else if (type == D3D12_COMMAND_LIST_TYPE_COPY)
+	{
+		sync = sync != D3D12_BARRIER_SYNC_NONE ? D3D12_BARRIER_SYNC_COPY : sync;
+		access &= D3D12_BARRIER_ACCESS_COPY_SOURCE | D3D12_BARRIER_ACCESS_COPY_DEST | D3D12_BARRIER_ACCESS_NO_ACCESS;
+	}
+	if (sync == D3D12_BARRIER_SYNC_NONE || access == D3D12_BARRIER_ACCESS_COMMON)
+		access = D3D12_BARRIER_ACCESS_NO_ACCESS;
+	return {sync, access};
+}
+
 static void EnsureUnrestrictedCopies(ID3D12Device* device)
 {
 	static const bool unrestricted = [device]
@@ -157,10 +184,12 @@ void CommandEncoder<kD3D12>::CopyImageToBuffer(ImageHandle<kD3D12> image, Extent
 {
 	ZoneScopedN("CommandEncoder::CopyImageToBuffer");
 
-	ENSUREF(false, "the D3D12 backend copies images by their Image (CopyImageToBuffer(image, buffer)) until the render targets (step 3)");
-	(void)image;
-	(void)extent;
-	(void)buffer;
+	commandencoder::EnsureUnrestrictedCopies(myCmd->device->device);
+	const auto destination = commandencoder::BufferFootprint(
+		buffer, 0, image->resource->GetDesc().Format, image->format, Extent3d{.width = extent.width, .height = extent.height, .depth = 1});
+	const D3D12_TEXTURE_COPY_LOCATION source{.pResource = image->resource, .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = 0};
+	const D3D12_BOX box{.left = 0, .top = 0, .front = 0, .right = extent.width, .bottom = extent.height, .back = 1};
+	myCmd->list->CopyTextureRegion(&destination, 0, 0, 0, &source, &box);
 }
 
 template <>
@@ -170,7 +199,8 @@ void CommandEncoder<kD3D12>::CopyImageToBuffer(const Image<kD3D12>& image, const
 
 	ImageHandle<kD3D12> object = image;
 	commandencoder::EnsureUnrestrictedCopies(myCmd->device->device);
-	const auto destination = commandencoder::BufferFootprint(buffer, 0, object->format, image.GetDesc().format, image.GetDesc().extent);
+	const auto destination =
+		commandencoder::BufferFootprint(buffer, 0, object->resource->GetDesc().Format, image.GetDesc().format, image.GetDesc().extent);
 	const D3D12_TEXTURE_COPY_LOCATION source{.pResource = object->resource, .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = 0};
 	myCmd->list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
 }
@@ -183,7 +213,7 @@ void CommandEncoder<kD3D12>::CopyBufferToImage(const Buffer<kD3D12>& buffer, con
 	ImageHandle<kD3D12> object = image;
 	commandencoder::EnsureUnrestrictedCopies(myCmd->device->device);
 	const auto source = commandencoder::BufferFootprint(
-		buffer, 0, object->format, image.GetDesc().format, Extent3d{.width = region.width, .height = region.height, .depth = 1});
+		buffer, 0, object->resource->GetDesc().Format, image.GetDesc().format, Extent3d{.width = region.width, .height = region.height, .depth = 1});
 	const D3D12_TEXTURE_COPY_LOCATION destination{.pResource = object->resource, .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = 0};
 	myCmd->list->CopyTextureRegion(&destination, static_cast<UINT>(region.x), static_cast<UINT>(region.y), 0, &source, nullptr);
 }
@@ -288,23 +318,8 @@ void CommandEncoder<kD3D12>::Barrier(PipelineStage srcStages, Access srcAccess, 
 {
 	// a global barrier (every buffer's and image's memory; an image's layout changes are its own, see Image::Transition).
 	// a side without work to wait for or before (none: the host's, the top of the pipe) takes no access
-	auto syncBefore = d3d12::ToD3D12Sync(srcStages);
-	auto syncAfter = d3d12::ToD3D12Sync(dstStages);
-	auto accessBefore = syncBefore == D3D12_BARRIER_SYNC_NONE ? D3D12_BARRIER_ACCESS_NO_ACCESS : d3d12::ToD3D12Access(srcAccess);
-	auto accessAfter = syncAfter == D3D12_BARRIER_SYNC_NONE ? D3D12_BARRIER_ACCESS_NO_ACCESS : d3d12::ToD3D12Access(dstAccess);
-	// a copy list takes copies' sync and access alone
-	if (myCmd->type == D3D12_COMMAND_LIST_TYPE_COPY)
-	{
-		syncBefore = syncBefore != D3D12_BARRIER_SYNC_NONE ? D3D12_BARRIER_SYNC_COPY : syncBefore;
-		syncAfter = syncAfter != D3D12_BARRIER_SYNC_NONE ? D3D12_BARRIER_SYNC_COPY : syncAfter;
-		auto copies = [](D3D12_BARRIER_ACCESS access)
-		{
-			access &= D3D12_BARRIER_ACCESS_COPY_SOURCE | D3D12_BARRIER_ACCESS_COPY_DEST;
-			return access == D3D12_BARRIER_ACCESS_COMMON ? D3D12_BARRIER_ACCESS_NO_ACCESS : access; // 0 is COMMON (any), not none
-		};
-		accessBefore = copies(accessBefore);
-		accessAfter = copies(accessAfter);
-	}
+	auto [syncBefore, accessBefore] = commandencoder::ForList(d3d12::ToD3D12Sync(srcStages), d3d12::ToD3D12Access(srcAccess), myCmd->type);
+	auto [syncAfter, accessAfter] = commandencoder::ForList(d3d12::ToD3D12Sync(dstStages), d3d12::ToD3D12Access(dstAccess), myCmd->type);
 	if (syncBefore == D3D12_BARRIER_SYNC_NONE && syncAfter == D3D12_BARRIER_SYNC_NONE)
 		return;
 	D3D12_GLOBAL_BARRIER barrier{.SyncBefore = syncBefore, .SyncAfter = syncAfter, .AccessBefore = accessBefore, .AccessAfter = accessAfter};

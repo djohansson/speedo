@@ -294,8 +294,9 @@ struct ImageObject
 {
 	ID3D12Resource* resource = nullptr;
 	D3D12MA::Allocation* allocation = nullptr; // none where it isn't the image's (a swapchain's buffer, a placed one)
-	DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+	Format format = Format::kUndefined; // rhi's (the resource's may be its typeless kin: a depth format's)
 	D3D12_RESOURCE_DIMENSION dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE; // which views it takes
 	uint32_t levelCount = 1;
 };
 
@@ -308,6 +309,10 @@ struct ImageViewObject
 	D3D12_CPU_DESCRIPTOR_HANDLE renderTarget{};
 	D3D12_CPU_DESCRIPTOR_HANDLE depthStencil{};
 };
+
+// a texture barrier on cmd's list from one layout to another, every subresource (image.cpp: the work and accesses each
+// layout's, the list's type's alone); from an undefined layout the contents are discarded
+void Transition(CommandBufferObject& cmd, ID3D12Resource* resource, D3D12_BARRIER_LAYOUT before, D3D12_BARRIER_LAYOUT after);
 
 // rhi's vocabulary as D3D12's
 [[nodiscard]] DXGI_FORMAT ToD3D12(Format format);

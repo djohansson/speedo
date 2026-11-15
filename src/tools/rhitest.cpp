@@ -74,7 +74,9 @@ constexpr rhi::ShaderFormat kFormat =
 
 // what a backend runs of the checks, while it grows (the D3D12 backend's steps, docs/backends-plan.md)
 template <GraphicsApi G>
-constexpr bool kRunsImages = G != kD3D12;
+constexpr bool kRunsImages = true;
+template <GraphicsApi G>
+constexpr bool kRunsDraws = G != kD3D12;
 
 template <GraphicsApi G>
 rhi::ShaderSet Compile(const std::filesystem::path& shaderDir, std::string_view file, const char* entryPoint)
@@ -769,6 +771,8 @@ RunResult Run(const char* backend, const std::filesystem::path& shaderDir)
 	if constexpr (!kRunsImages<G>)
 		return {.passed = buffers, .environment = {}, .draw = {}};
 	bool images = RunImages<G>(backend, shaderDir, device);
+	if constexpr (!kRunsDraws<G>)
+		return {.passed = buffers && images, .environment = RunEnvironment<G>(shaderDir, device), .draw = {}};
 	auto environment = RunEnvironment<G>(shaderDir, device);
 	return {.passed = buffers && images, .environment = std::move(environment), .draw = RunDraw<G>(shaderDir, device)};
 }
@@ -932,10 +936,9 @@ int main(int argc, char** argv)
 		auto d3d12 = Run<kD3D12>("d3d12", shaderDir);
 		passed = d3d12.passed && passed;
 		if constexpr (kRunsImages<kD3D12>)
-		{
 			passed = CheckEnvironment("d3d12", d3d12.environment, reference ? &vulkan.environment : nullptr, "vulkan") && passed;
+		if constexpr (kRunsDraws<kD3D12>)
 			passed = CheckDrawPixels("d3d12", d3d12.draw, reference ? &vulkan.draw : nullptr, "vulkan") && passed;
-		}
 	}
 #endif
 	(void)reference;

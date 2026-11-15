@@ -477,6 +477,7 @@ if(WIN32)
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/descriptorset.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/device.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/frame.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/image.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/instance.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/instantiate.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/memory.cpp
