@@ -42,7 +42,9 @@ void CommandBufferObject::PrepareDispatch()
 		const auto& tables = layout->sets[set];
 		if (tables.resources == PipelineLayoutObject::kNone && tables.samplers == PipelineLayoutObject::kNone)
 			continue;
-		ENSUREF(set < sets.size() && (sets[set].resources.ptr != 0 || sets[set].samplers.ptr != 0), "a dispatch without set {} bound", set);
+		// a set not bound is one the pipeline's shaders don't read (as Vulkan allows; the debug layer reports one they do)
+		if (set >= sets.size() || (sets[set].resources.ptr == 0 && sets[set].samplers.ptr == 0))
+			continue;
 		if (tables.resources != PipelineLayoutObject::kNone)
 			list->SetComputeRootDescriptorTable(tables.resources, sets[set].resources);
 		if (tables.samplers != PipelineLayoutObject::kNone)
@@ -58,7 +60,7 @@ void CommandBufferObject::PrepareDraw()
 		list->SetGraphicsRootSignature(pipeline->rootSignature);
 		graphicsRootSignature = pipeline->rootSignature;
 	}
-	list->SetPipelineState(pipeline->state);
+	list->SetPipelineState(pipeline->State(device->device, cullMode, frontFace));
 	list->IASetPrimitiveTopology(pipeline->topology);
 	ENSURE(layout != nullptr);
 	if (layout->pushConstants != PipelineLayoutObject::kNone)
@@ -71,7 +73,8 @@ void CommandBufferObject::PrepareDraw()
 		const auto& tables = layout->sets[set];
 		if (tables.resources == PipelineLayoutObject::kNone && tables.samplers == PipelineLayoutObject::kNone)
 			continue;
-		ENSUREF(set < sets.size() && (sets[set].resources.ptr != 0 || sets[set].samplers.ptr != 0), "a draw without set {} bound", set);
+		if (set >= sets.size() || (sets[set].resources.ptr == 0 && sets[set].samplers.ptr == 0))
+			continue; // (see PrepareDispatch)
 		if (tables.resources != PipelineLayoutObject::kNone)
 			list->SetGraphicsRootDescriptorTable(tables.resources, sets[set].resources);
 		if (tables.samplers != PipelineLayoutObject::kNone)
@@ -249,6 +252,8 @@ CommandBufferHandle<kD3D12> CommandPool<kD3D12>::InternalTake(bool secondary)
 	// a fresh list's state: nothing set, the shader visible heaps (a copy list takes none)
 	object->recording = true;
 	object->pipeline = nullptr;
+	object->cullMode = CullMode::kNone;
+	object->frontFace = FrontFace::kCounterClockwise;
 	object->computeRootSignature = nullptr;
 	object->graphicsRootSignature = nullptr;
 	object->layout = nullptr;

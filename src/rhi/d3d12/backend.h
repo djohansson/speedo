@@ -17,6 +17,7 @@
 
 #include <core/assert.h>
 
+#include <array>
 #include <cstdint>
 #include <format>
 #include <mutex>
@@ -146,10 +147,24 @@ struct AllocatorObject
 	CpuDescriptorHeap depthStencils;
 	DescriptorPoolObject pool;
 	ID3D12CommandSignature* dispatchSignature = nullptr; // DispatchIndirect's
-	ID3D12CommandSignature* drawIndexedSignature = nullptr; // DrawIndexedIndirect's (rhi's commands are D3D12's arguments)
+	// DrawIndexedIndirect's, by the commands' stride (rhi's commands are D3D12's arguments; a signature has its stride)
+	std::mutex signaturesMutex;
+	std::vector<std::pair<uint32_t, ID3D12CommandSignature*>> drawIndexedSignatures;
+	// the scaled blits' draw (rendertarget.cpp): its root signature and shaders (compiled at the first, d3dcompiler's), a
+	// pipeline state per destination format
+	struct Blits
+	{
+		std::mutex mutex;
+		ID3D12RootSignature* rootSignature = nullptr;
+		std::vector<char> vertexShader;
+		std::vector<char> pixelShader;
+		std::vector<std::pair<DXGI_FORMAT, ID3D12PipelineState*>> pipelines;
+	} blits;
 
 	// the allocator of a device made by the backend
 	[[nodiscard]] static AllocatorObject& ForDevice(ID3D12Device* device);
+	// the draw signature of indexed draws stride bytes apart (made at its first)
+	[[nodiscard]] ID3D12CommandSignature* DrawIndexedSignature(uint32_t stride);
 };
 
 // a device's allocator registered as its private data, for ForDevice (the device's constructor)
@@ -211,14 +226,23 @@ struct PipelineLayoutObject
 };
 
 // a pipeline: its pipeline state, and what its binding sets besides: a graphics one's primitive topology (a draw's,
-// where the state has its class alone)
+// where the state has its class alone). D3D12's cull mode and winding are a graphics pipeline state's, where rhi sets
+// them per draw (CommandEncoder::SetCullMode, SetFrontFace): a graphics pipeline keeps its description, and a state per
+// cull mode and front face, each made at its first draw
 struct PipelineObject
 {
-	ID3D12PipelineState* state = nullptr;
+	ID3D12PipelineState* state = nullptr; // a compute pipeline's
 	ID3D12RootSignature* rootSignature = nullptr; // its layout's (not referenced here)
 	const PipelineLayoutObject* layout = nullptr; // where the root signature has the sets' tables and the push constants
 	D3D_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	bool compute = false;
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC graphics{}; // its shaders' bytecode the layout's shader modules' (they outlive it)
+	std::array<ID3D12PipelineState*, 6> states{}; // by cull mode and front face
+	std::mutex mutex; // the states' making (a pipeline's draws may record on several threads)
+	std::string name;
+
+	// a graphics pipeline's state for the cull mode and front face (made at their first)
+	[[nodiscard]] ID3D12PipelineState* State(ID3D12Device* device, CullMode cullMode, FrontFace frontFace);
 };
 
 // a shader module: its entry point's DXIL (a container DXC signed), and where it reads the specialization constant, its
@@ -257,7 +281,9 @@ struct CommandBufferObject
 	AllocatorObject* device = nullptr; // the device's state (descriptor heaps, command signatures)
 	bool recording = false;
 	// bound for the next dispatch or draw (none on the list until then)
-	const PipelineObject* pipeline = nullptr;
+	PipelineObject* pipeline = nullptr;
+	CullMode cullMode = CullMode::kNone; // the draws' (a graphics pipeline state's in D3D12, see PipelineObject)
+	FrontFace frontFace = FrontFace::kCounterClockwise;
 	ID3D12RootSignature* computeRootSignature = nullptr; // the list's, as set
 	ID3D12RootSignature* graphicsRootSignature = nullptr;
 	const PipelineLayoutObject* layout = nullptr; // the bound sets' and push constants' layout (the pipeline's binds)

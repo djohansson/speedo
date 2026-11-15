@@ -82,12 +82,181 @@ std::shared_ptr<const Pipeline<kD3D12>::GraphicsSnapshot> Pipeline<kD3D12>::Inte
 	return std::make_shared<const GraphicsSnapshot>(GraphicsSnapshot{.state = myGraphicsState, .name = GetName()});
 }
 
+namespace pipeline
+{
+
+// a color attachment's blending for a blend mode (Vulkan's backend's factors); true where it writes depth (opaque)
+static bool SetBlend(D3D12_RENDER_TARGET_BLEND_DESC& target, BlendMode mode)
+{
+	target = D3D12_RENDER_TARGET_BLEND_DESC{
+		.BlendEnable = FALSE,
+		.LogicOpEnable = FALSE,
+		.SrcBlend = D3D12_BLEND_ONE,
+		.DestBlend = D3D12_BLEND_ZERO,
+		.BlendOp = D3D12_BLEND_OP_ADD,
+		.SrcBlendAlpha = D3D12_BLEND_ONE,
+		.DestBlendAlpha = D3D12_BLEND_ZERO,
+		.BlendOpAlpha = D3D12_BLEND_OP_ADD,
+		.LogicOp = D3D12_LOGIC_OP_NOOP,
+		.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL};
+	auto factors = [&target](D3D12_BLEND srcColor, D3D12_BLEND dstColor, D3D12_BLEND srcAlpha, D3D12_BLEND dstAlpha)
+	{
+		target.BlendEnable = TRUE;
+		target.SrcBlend = srcColor;
+		target.DestBlend = dstColor;
+		target.SrcBlendAlpha = srcAlpha;
+		target.DestBlendAlpha = dstAlpha;
+	};
+	switch (mode)
+	{
+	case BlendMode::kOpaque: return true;
+	case BlendMode::kAlpha: factors(D3D12_BLEND_SRC_ALPHA, D3D12_BLEND_INV_SRC_ALPHA, D3D12_BLEND_ONE, D3D12_BLEND_INV_SRC_ALPHA); break;
+	case BlendMode::kNone: target.RenderTargetWriteMask = 0; break;
+	case BlendMode::kAdd: factors(D3D12_BLEND_ONE, D3D12_BLEND_ONE, D3D12_BLEND_ONE, D3D12_BLEND_ONE); break;
+	case BlendMode::kMultiplyInverse: factors(D3D12_BLEND_ZERO, D3D12_BLEND_INV_SRC_COLOR, D3D12_BLEND_ZERO, D3D12_BLEND_INV_SRC_ALPHA); break;
+	case BlendMode::kMultiplyMax:
+		factors(D3D12_BLEND_DEST_COLOR, D3D12_BLEND_ZERO, D3D12_BLEND_ONE, D3D12_BLEND_ONE);
+		target.BlendOpAlpha = D3D12_BLEND_OP_MAX;
+		break;
+	}
+	return false;
+}
+
+} // namespace pipeline
+
+namespace d3d12
+{
+
+ID3D12PipelineState* PipelineObject::State(ID3D12Device* device, CullMode cullMode, FrontFace frontFace)
+{
+	const auto index = (static_cast<size_t>(cullMode) * 2) + static_cast<size_t>(frontFace);
+	std::scoped_lock lock{mutex};
+	auto& state = states.at(index);
+	if (state == nullptr)
+	{
+		auto desc = graphics;
+		desc.RasterizerState.CullMode =
+			cullMode == CullMode::kNone ? D3D12_CULL_MODE_NONE : (cullMode == CullMode::kFront ? D3D12_CULL_MODE_FRONT : D3D12_CULL_MODE_BACK);
+		desc.RasterizerState.FrontCounterClockwise = frontFace == FrontFace::kCounterClockwise ? TRUE : FALSE;
+		Check(device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&state)), std::format("{}: CreateGraphicsPipelineState", name));
+		SetName(state, name);
+	}
+	return state;
+}
+
+} // namespace d3d12
+
 template <>
 PipelineHandle<kD3D12> Pipeline<kD3D12>::InternalCreateGraphicsPipeline(
-	uint64_t /*hashKey*/, GraphicsPipelineVariant /*variant*/, const GraphicsSnapshot& snapshot) const
+	uint64_t /*hashKey*/, GraphicsPipelineVariant variant, const GraphicsSnapshot& snapshot) const
 {
-	ENSUREF(false, "{}: the D3D12 backend has no graphics pipelines yet (docs/backends-plan.md, step 3)", snapshot.name);
-	return nullptr;
+	ZoneScopedN("Pipeline::InternalCreateGraphicsPipeline");
+
+	const auto& state = snapshot.state;
+	ENSUREF(state.rendering, "{}: a graphics pipeline without a render target (Pipeline::SetRenderTarget)", snapshot.name);
+	const auto& rendering = *state.rendering;
+
+	// the layout's vertex stage, and the variant's fragment stage of its fragment stages
+	const PipelineShaderStageCreateInfo<kD3D12>* vertex = nullptr;
+	const PipelineShaderStageCreateInfo<kD3D12>* fragment = nullptr;
+	uint32_t fragmentIt = 0;
+	for (const auto& stage : state.shaderStages)
+	{
+		if (stage.stage == ShaderStage::kVertex)
+			vertex = &stage;
+		else if (stage.stage == ShaderStage::kFragment && fragmentIt++ == variant.fragmentShader)
+			fragment = &stage;
+	}
+	ENSUREF(vertex != nullptr, "{}: the layout has no vertex entry point", snapshot.name);
+	ENSUREF(fragment != nullptr || fragmentIt == 0, "{}: the layout has no fragment entry point {}", snapshot.name, variant.fragmentShader);
+
+	auto creationStart = std::chrono::steady_clock::now();
+	// the layout's: the stages' first module's (a layout's modules share its root signature)
+	const auto& layouts = myPipelineLayouts;
+	const auto layoutIt = InternalGetLayout();
+	ENSURE(layoutIt != layouts.end());
+	const auto* layout = static_cast<PipelineLayoutHandle<kD3D12>>(*layoutIt);
+
+	auto* object = new d3d12::PipelineObject{};
+	object->rootSignature = layout->rootSignature;
+	object->layout = layout;
+	object->name = fragment != nullptr ? fragment->name : vertex->name;
+	auto& desc = object->graphics;
+	desc.pRootSignature = layout->rootSignature;
+	const auto& vertexCode = vertex->module->Code(variant.specialization);
+	desc.VS = {.pShaderBytecode = vertexCode.data(), .BytecodeLength = vertexCode.size()};
+	if (fragment != nullptr)
+	{
+		const auto& fragmentCode = fragment->module->Code(variant.specialization);
+		desc.PS = {.pShaderBytecode = fragmentCode.data(), .BytecodeLength = fragmentCode.size()};
+	}
+	// a blend state per color attachment by the variant's blend modes; depth written where one is opaque (a depth only
+	// target: where the first is)
+	desc.BlendState.IndependentBlendEnable = TRUE;
+	bool depthWrite = rendering.colorAttachmentCount == 0 && variant.blend[0] == BlendMode::kOpaque;
+	desc.NumRenderTargets = rendering.colorAttachmentCount;
+	for (uint32_t attachmentIt = 0; attachmentIt < rendering.colorAttachmentCount; attachmentIt++)
+	{
+		desc.RTVFormats[attachmentIt] = d3d12::ToD3D12(rendering.colorAttachmentFormats[attachmentIt]);
+		depthWrite = pipeline::SetBlend(desc.BlendState.RenderTarget[attachmentIt], variant.blend[attachmentIt]) || depthWrite;
+	}
+	desc.SampleMask = UINT_MAX;
+	desc.RasterizerState = D3D12_RASTERIZER_DESC{
+		.FillMode = D3D12_FILL_MODE_SOLID,
+		.CullMode = D3D12_CULL_MODE_NONE,
+		.FrontCounterClockwise = TRUE,
+		.DepthBias = 0,
+		.DepthBiasClamp = 0.0F,
+		.SlopeScaledDepthBias = 0.0F,
+		.DepthClipEnable = TRUE,
+		.MultisampleEnable = FALSE,
+		.AntialiasedLineEnable = FALSE,
+		.ForcedSampleCount = 0,
+		.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF};
+	// the depth test, reversed (1 at the near plane; over a pre-pass's depth, equal and read only), and what writes depth
+	// writes the stencil's first bit too (the reference is the list's, CommandEncoder::SetStencilReference)
+	if (rendering.depthAttachmentFormat != Format::kUndefined)
+	{
+		const bool equal = variant.depthTest == DepthTest::kEqual;
+		desc.DSVFormat = d3d12::ToD3D12(rendering.depthAttachmentFormat);
+		desc.DepthStencilState.DepthEnable = TRUE;
+		desc.DepthStencilState.DepthFunc = equal ? D3D12_COMPARISON_FUNC_GREATER_EQUAL : D3D12_COMPARISON_FUNC_GREATER;
+		desc.DepthStencilState.DepthWriteMask = depthWrite && !equal ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
+		if (rendering.stencilAttachmentFormat != Format::kUndefined && depthWrite && !equal)
+		{
+			const D3D12_DEPTH_STENCILOP_DESC replace{
+				.StencilFailOp = D3D12_STENCIL_OP_KEEP,
+				.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP,
+				.StencilPassOp = D3D12_STENCIL_OP_REPLACE,
+				.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS};
+			desc.DepthStencilState.StencilEnable = TRUE;
+			desc.DepthStencilState.StencilReadMask = 0xFF;
+			desc.DepthStencilState.StencilWriteMask = 1;
+			desc.DepthStencilState.FrontFace = replace;
+			desc.DepthStencilState.BackFace = replace;
+		}
+	}
+	switch (variant.topology)
+	{
+	case PrimitiveTopology::kTriangleList:
+		desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+		object->topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		break;
+	case PrimitiveTopology::kLineList:
+		desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+		object->topology = D3D_PRIMITIVE_TOPOLOGY_LINELIST;
+		break;
+	case PrimitiveTopology::kPointList:
+		desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+		object->topology = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+		break;
+	}
+	desc.SampleDesc = {.Count = 1, .Quality = 0};
+	// the state draws take by default (no culling, counter-clockwise front faces) made now, the others at their first
+	(void)object->State(GetDesc().device, CullMode::kNone, FrontFace::kCounterClockwise);
+	pipeline::LogCreation("graphics", object->name.c_str(), variant.specialization, creationStart);
+
+	return object;
 }
 
 template <>
@@ -111,7 +280,13 @@ PipelineHandle<kD3D12> Pipeline<kD3D12>::InternalCreateComputePipeline(
 	d3d12::SetName(state, stage.name);
 	pipeline::LogCreation("compute", stage.name, variant.specialization, creationStart);
 
-	return new d3d12::PipelineObject{.state = state, .rootSignature = layout->rootSignature, .layout = layout, .compute = true};
+	auto* object = new d3d12::PipelineObject{};
+	object->state = state;
+	object->rootSignature = layout->rootSignature;
+	object->layout = layout;
+	object->compute = true;
+	object->name = stage.name;
+	return object;
 }
 
 // (the pipelines' map, requests and binds, the launch parameters and the layouts by name are every backend's, in
@@ -217,6 +392,8 @@ Pipeline<kD3D12>::~Pipeline()
 		if (handle == nullptr)
 			continue;
 		d3d12::Release(handle->state);
+		for (auto*& state : handle->states)
+			d3d12::Release(state);
 		delete handle;
 	}
 

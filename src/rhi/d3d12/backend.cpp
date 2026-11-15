@@ -146,6 +146,21 @@ AllocatorObject& AllocatorObject::ForDevice(ID3D12Device* device)
 	return *object;
 }
 
+ID3D12CommandSignature* AllocatorObject::DrawIndexedSignature(uint32_t stride)
+{
+	std::scoped_lock lock{signaturesMutex};
+	if (auto it = std::ranges::find(drawIndexedSignatures, stride, &std::pair<uint32_t, ID3D12CommandSignature*>::first);
+		it != drawIndexedSignatures.end())
+		return it->second;
+	const D3D12_INDIRECT_ARGUMENT_DESC argument{.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED};
+	ENSUREF(stride >= sizeof(D3D12_DRAW_INDEXED_ARGUMENTS), "indexed draws' commands {} bytes apart, fewer than a command's 20", stride);
+	const D3D12_COMMAND_SIGNATURE_DESC desc{.ByteStride = stride, .NumArgumentDescs = 1, .pArgumentDescs = &argument, .NodeMask = 0};
+	ID3D12CommandSignature* signature = nullptr;
+	Check(device->CreateCommandSignature(&desc, nullptr, IID_PPV_ARGS(&signature)), "CreateCommandSignature (indexed draws)");
+	drawIndexedSignatures.emplace_back(stride, signature);
+	return signature;
+}
+
 void RegisterAllocator(ID3D12Device* device, AllocatorObject* allocator)
 {
 	Check(device->SetPrivateData(kAllocatorObjectGuid, sizeof(allocator), static_cast<const void*>(&allocator)), "SetPrivateData");

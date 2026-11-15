@@ -133,6 +133,9 @@ static d3d12::ImageObject* Create(const ImageCreateDesc<kD3D12>& desc, D3D12_BAR
 	const auto castable = CastableFormats(desc.format);
 	D3D12MA::ALLOCATION_DESC allocationDesc{};
 	allocationDesc.HeapType = D3D12_HEAP_TYPE_DEFAULT;
+	// an attachment committed, a heap of its own (D3D12MA's advice for render targets and depth stencils)
+	if ((resourceDesc.Flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) != 0)
+		allocationDesc.Flags = D3D12MA::ALLOCATION_FLAG_COMMITTED;
 	auto* object = NewObject(desc, resourceDesc);
 	d3d12::Check(
 		allocator.allocator->CreateResource3(
@@ -215,8 +218,7 @@ static Side SideOf(D3D12_BARRIER_LAYOUT layout, D3D12_COMMAND_LIST_TYPE type)
 	case D3D12_BARRIER_LAYOUT_SHADER_RESOURCE: return {shading, D3D12_BARRIER_ACCESS_SHADER_RESOURCE};
 	case D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS: return {shading, D3D12_BARRIER_ACCESS_UNORDERED_ACCESS};
 	case D3D12_BARRIER_LAYOUT_RENDER_TARGET: return {D3D12_BARRIER_SYNC_RENDER_TARGET, D3D12_BARRIER_ACCESS_RENDER_TARGET};
-	case D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE:
-		return {D3D12_BARRIER_SYNC_DEPTH_STENCIL, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE | D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ};
+	case D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE: return {D3D12_BARRIER_SYNC_DEPTH_STENCIL, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE};
 	default: return {}; // undefined, common, present: no work before or after on this list
 	}
 }

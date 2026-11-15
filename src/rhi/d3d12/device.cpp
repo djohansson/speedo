@@ -53,6 +53,10 @@ static void CALLBACK OnMessage(
 {
 	if (severity == D3D12_MESSAGE_SEVERITY_INFO || severity == D3D12_MESSAGE_SEVERITY_MESSAGE)
 		return;
+	// advice, not errors: a clear of an image made without an optimized clear value (rhi's images don't know theirs when
+	// they're made)
+	if (id == D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE || id == D3D12_MESSAGE_ID_CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE)
+		return;
 	const bool error = severity == D3D12_MESSAGE_SEVERITY_ERROR || severity == D3D12_MESSAGE_SEVERITY_CORRUPTION;
 	std::println(stderr, "D3D12 Validation {}: [{}] {}", error ? "Error" : "Warning", static_cast<int>(id), description);
 	std::fflush(stderr);
@@ -116,8 +120,9 @@ Device<kD3D12>::Device(CreateDescType&& desc, const Instance<kD3D12>& instance)
 	auto* allocator = new d3d12::AllocatorObject{};
 	allocator->device = myDevice;
 	const D3D12MA::ALLOCATOR_DESC allocatorDesc{
-		.Flags = static_cast<D3D12MA::ALLOCATOR_FLAGS>(
-			D3D12MA::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED | D3D12MA::ALLOCATOR_FLAG_MSAA_TEXTURES_ALWAYS_COMMITTED),
+		// (memory zeroed, D3D12's default: not zeroed, an attachment's first use must be a discard or clear in an
+		// attachment's layout, which a blit's destination, written in its draw, isn't: the debug layer's error 1422)
+		.Flags = D3D12MA::ALLOCATOR_FLAG_MSAA_TEXTURES_ALWAYS_COMMITTED,
 		.pDevice = myDevice,
 		.PreferredBlockSize = 0,
 		.pAllocationCallbacks = nullptr,
@@ -205,7 +210,11 @@ Device<kD3D12>::~Device()
 	allocator->renderTargets.Destroy();
 	allocator->depthStencils.Destroy();
 	d3d12::Release(allocator->dispatchSignature);
-	d3d12::Release(allocator->drawIndexedSignature);
+	for (auto& [stride, signature] : allocator->drawIndexedSignatures)
+		d3d12::Release(signature);
+	for (auto& [format, pipeline] : allocator->blits.pipelines)
+		d3d12::Release(pipeline);
+	d3d12::Release(allocator->blits.rootSignature);
 	d3d12::Release(allocator->hostPool);
 	d3d12::Release(allocator->allocator);
 	delete allocator;
@@ -218,8 +227,8 @@ template <>
 DeviceLimits Device<kD3D12>::GetLimits() const
 {
 	// D3D12's: a buffer's views reach 2^31 bytes; resource binding tier 3's tables any number of textures (the shader
-	// visible heap's million); 16384 texels a 2D image's side, 2048 a 3D one's. no timestamps nor ray queries yet (step 6),
-	// and no indirect draws with a count until the render passes (step 3: ExecuteIndirect's count buffer)
+	// visible heap's million); 16384 texels a 2D image's side, 2048 a 3D one's; indirect draws with a count
+	// (ExecuteIndirect's count buffer). no timestamps nor ray queries yet (step 6)
 	constexpr uint64_t kMaxBufferViewByteCount = 1ULL << 31U;
 	constexpr uint32_t kMaxDrawIndirectCount = 1U << 24U;
 	return DeviceLimits{
@@ -229,7 +238,7 @@ DeviceLimits Device<kD3D12>::GetLimits() const
 		.maxImageDimension2d = D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION,
 		.maxImageDimension3d = D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION,
 		.timestampPeriod = 1.0F,
-		.drawIndirectCount = false,
+		.drawIndirectCount = true,
 		.drawIndirectCountEmulated = false,
 		.rayQuery = false,
 		.accelerationStructureScratchAlignment = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT};

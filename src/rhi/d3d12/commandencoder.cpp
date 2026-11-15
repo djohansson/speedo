@@ -119,16 +119,18 @@ void CommandEncoder<kD3D12>::SetScissor(const Rect& rect) const
 	myCmd->list->RSSetScissorRects(1, &d3dRect);
 }
 
+// the cull mode and front face are a graphics pipeline state's in D3D12: the next draw's state is the bound pipeline's
+// for them (PipelineObject::State)
 template <>
-void CommandEncoder<kD3D12>::SetCullMode(CullMode /*mode*/) const
+void CommandEncoder<kD3D12>::SetCullMode(CullMode mode) const
 {
-	ENSUREF(false, "the D3D12 backend has no draws yet (docs/backends-plan.md, step 3)");
+	myCmd->cullMode = mode;
 }
 
 template <>
-void CommandEncoder<kD3D12>::SetFrontFace(FrontFace /*face*/) const
+void CommandEncoder<kD3D12>::SetFrontFace(FrontFace face) const
 {
-	ENSUREF(false, "the D3D12 backend has no draws yet (docs/backends-plan.md, step 3)");
+	myCmd->frontFace = face;
 }
 
 template <>
@@ -149,34 +151,43 @@ void CommandEncoder<kD3D12>::BindIndexBuffer(const Buffer<kD3D12>& buffer, uint6
 }
 
 template <>
-void CommandEncoder<kD3D12>::Draw(uint32_t /*vertexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstVertex*/, uint32_t /*firstInstance*/) const
+void CommandEncoder<kD3D12>::Draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) const
 {
-	ENSUREF(false, "the D3D12 backend has no draws yet (docs/backends-plan.md, step 3)");
+	ZoneScopedN("CommandEncoder::Draw");
+
+	myCmd->PrepareDraw();
+	myCmd->list->DrawInstanced(vertexCount, instanceCount, firstVertex, firstInstance);
 }
 
 template <>
 void CommandEncoder<kD3D12>::DrawIndexed(
-	uint32_t /*indexCount*/, uint32_t /*instanceCount*/, uint32_t /*firstIndex*/, int32_t /*vertexOffset*/, uint32_t /*firstInstance*/) const
+	uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) const
 {
-	ENSUREF(false, "the D3D12 backend has no draws yet (docs/backends-plan.md, step 3)");
+	ZoneScopedN("CommandEncoder::DrawIndexed");
+
+	myCmd->PrepareDraw();
+	myCmd->list->DrawIndexedInstanced(indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
 }
 
+// rhi's indexed commands are D3D12's draw arguments (index count, instance count, first index, vertex offset, first
+// instance, which the vertex stage takes as SV_StartInstanceLocation), executed by a signature of their stride
 template <>
-void CommandEncoder<kD3D12>::DrawIndexedIndirect(const Buffer<kD3D12>& /*buffer*/, uint64_t /*offset*/, uint32_t /*drawCount*/, uint32_t /*stride*/) const
+void CommandEncoder<kD3D12>::DrawIndexedIndirect(const Buffer<kD3D12>& buffer, uint64_t offset, uint32_t drawCount, uint32_t stride) const
 {
-	ENSUREF(false, "the D3D12 backend has no draws yet (docs/backends-plan.md, step 3)");
+	ZoneScopedN("CommandEncoder::DrawIndexedIndirect");
+
+	myCmd->PrepareDraw();
+	myCmd->list->ExecuteIndirect(myCmd->device->DrawIndexedSignature(stride), drawCount, buffer, offset, nullptr, 0);
 }
 
 template <>
 void CommandEncoder<kD3D12>::DrawIndexedIndirectCount(
-	const Buffer<kD3D12>& /*buffer*/,
-	uint64_t /*offset*/,
-	const Buffer<kD3D12>& /*countBuffer*/,
-	uint64_t /*countOffset*/,
-	uint32_t /*maxDrawCount*/,
-	uint32_t /*stride*/) const
+	const Buffer<kD3D12>& buffer, uint64_t offset, const Buffer<kD3D12>& countBuffer, uint64_t countOffset, uint32_t maxDrawCount, uint32_t stride) const
 {
-	ENSUREF(false, "the D3D12 backend has no draws yet (docs/backends-plan.md, step 3)");
+	ZoneScopedN("CommandEncoder::DrawIndexedIndirectCount");
+
+	myCmd->PrepareDraw();
+	myCmd->list->ExecuteIndirect(myCmd->device->DrawIndexedSignature(stride), maxDrawCount, buffer, offset, countBuffer, countOffset);
 }
 
 template <>

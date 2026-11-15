@@ -534,6 +534,7 @@ if(WIN32)
 			GPUOpen::D3D12MemoryAllocator
 			Microsoft::DirectX-Headers
 			Microsoft::DirectX-Guids
+			d3dcompiler # the scaled blits' small shaders (Windows' d3dcompiler_47, see rhi/d3d12/rendertarget.cpp)
 	)
 endif()
 

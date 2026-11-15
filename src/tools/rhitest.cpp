@@ -76,7 +76,7 @@ constexpr rhi::ShaderFormat kFormat =
 template <GraphicsApi G>
 constexpr bool kRunsImages = true;
 template <GraphicsApi G>
-constexpr bool kRunsDraws = G != kD3D12;
+constexpr bool kRunsDraws = true;
 
 template <GraphicsApi G>
 rhi::ShaderSet Compile(const std::filesystem::path& shaderDir, std::string_view file, const char* entryPoint)
@@ -90,14 +90,16 @@ rhi::ShaderSet Compile(const std::filesystem::path& shaderDir, std::string_view 
 	return gfx::ShaderLoader::Compile(shaderDir / file, config, {shaderDir}, std::nullopt);
 }
 
-// one command buffer on the compute queue, recorded by record (which adds what to run once it is done to callbacks),
+// one command buffer on a queue (the compute queue's, unless asked: draws take the graphics queue, which a device with a
+// dedicated compute family has apart; NVIDIA's Vulkan driver lost the device drawing on its compute family, D3D12's debug
+// layer refuses draws on a compute list), recorded by record (which adds what to run once it is done to callbacks),
 // submitted, waited for, and its callbacks run
 template <GraphicsApi G, typename Record>
-void Submit(rhi::Device<G>& device, Record&& record)
+void Submit(rhi::Device<G>& device, Record&& record, rhi::QueueType type = rhi::kQueueTypeCompute)
 {
 	using namespace rhi;
 
-	auto compute = device.GetQueue(kQueueTypeCompute).Write();
+	auto compute = device.GetQueue(type).Write();
 	auto& [queue, submits] = compute->queues.Get();
 	auto cmd = queue.GetPool().Begin();
 	std::vector<core::TaskHandle> callbacks;
@@ -679,7 +681,8 @@ DrawPixels RunDraw(const std::filesystem::path& shaderDir, rhi::Device<G>& devic
 				encoder.CopyImageToBuffer(*blitTarget.GetImage(0), blitReadbacks[blitIt]);
 			}
 			encoder.Barrier(PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kHost, Access::kHostRead);
-		});
+		},
+		kQueueTypeGraphics);
 
 	auto copy = [](Buffer<G>& buffer)
 	{
@@ -696,7 +699,13 @@ DrawPixels RunDraw(const std::filesystem::path& shaderDir, rhi::Device<G>& devic
 // the draw's pixels (or a blit's of them, what): some the clear color, some the triangles', and, given a second backend's,
 // the same but for rounding (at most 1 of 255 a channel)
 bool CheckDraw(
-	const char* backend, const char* what, const std::vector<uint8_t>& pixels, const std::vector<uint8_t>* reference, const char* referenceName)
+	const char* backend,
+	const char* what,
+	uint32_t width,
+	const std::vector<uint8_t>& pixels,
+	const std::vector<uint8_t>* reference,
+	const char* referenceName,
+	bool (*tie)(size_t x, size_t y) = nullptr)
 {
 	constexpr std::array<uint8_t, 4> kClear{26, 51, 77, 255}; // 0.1, 0.2, 0.3 in unorm8, rounded
 	uint32_t cleared = 0;
@@ -716,27 +725,48 @@ bool CheckDraw(
 	}
 	uint32_t apart = 0;
 	int most = 0;
+	std::string where; // the first pixels apart, by their position (x, y)
 	for (size_t channelIt = 0; channelIt < pixels.size(); channelIt++)
 	{
+		if (tie != nullptr && tie((channelIt / 4) % width, (channelIt / 4) / width))
+			continue;
 		const int difference = std::abs(int{pixels[channelIt]} - int{(*reference)[channelIt]});
 		most = std::max(most, difference);
-		apart += difference > 1 ? 1 : 0;
+		if (difference > 1 && apart++ < 8 && channelIt % 4 == 0)
+			where += std::format(" ({}, {})", (channelIt / 4) % width, (channelIt / 4) / width);
 	}
 	bool ok = drawn && apart == 0;
 	std::println(
-		"{} {} ({}): against {}, {} of {} pixels drawn, {} channels more than 1 apart (at most {})",
-		ok ? "PASS" : "FAIL", backend, what, referenceName, pixelCount - cleared, pixelCount, apart, most);
+		"{} {} ({}): against {}, {} of {} pixels drawn, {} channels more than 1 apart (at most {}){}",
+		ok ? "PASS" : "FAIL", backend, what, referenceName, pixelCount - cleared, pixelCount, apart, most, where.empty() ? "" : ", first at" + where);
 	return ok;
 }
 
-// the draw's and its blits' checks (see CheckDraw)
+// a nearest blit's pixel whose source coordinate lies on a texel's edge along either axis ((p + 0.5) × source / destination
+// an integer: (2p + 1) × source a multiple of 2 × destination), where implementations take either texel: the 128x96
+// blit's rows 34, 37, ... (3k + 1), which NVIDIA's Vulkan driver takes the texel above of, the D3D12 and Metal backends
+// and KosmicKrisp the one below (floor of the exact coordinate), lavapipe either
+template <size_t kBlit>
+bool NearestTie(size_t x, size_t y)
+{
+	const auto& blit = kDrawBlits[kBlit];
+	return ((2 * x) + 1) * kDrawSize % (2 * size_t{blit.width}) == 0 || ((2 * y) + 1) * kDrawSize % (2 * size_t{blit.height}) == 0;
+}
+
+// the draw's and its blits' checks (see CheckDraw): a nearest blit's ties left out
 bool CheckDrawPixels(const char* backend, const DrawPixels& pixels, const DrawPixels* reference, const char* referenceName)
 {
-	bool passed = CheckDraw(backend, "draw", pixels.draw, reference != nullptr ? &reference->draw : nullptr, referenceName);
+	static_assert(kDrawBlits[0].filter == rhi::Filter::kNearest);
+	bool passed = CheckDraw(backend, "draw", kDrawSize, pixels.draw, reference != nullptr ? &reference->draw : nullptr, referenceName);
 	for (size_t blitIt = 0; blitIt < kDrawBlits.size(); blitIt++)
 		passed = CheckDraw(
-					 backend, kDrawBlits[blitIt].name, pixels.blits[blitIt], reference != nullptr ? &reference->blits[blitIt] : nullptr,
-					 referenceName) &&
+					 backend,
+					 kDrawBlits[blitIt].name,
+					 kDrawBlits[blitIt].width,
+					 pixels.blits[blitIt],
+					 reference != nullptr ? &reference->blits[blitIt] : nullptr,
+					 referenceName,
+					 blitIt == 0 ? &NearestTie<0> : nullptr) &&
 				 passed;
 	return passed;
 }
