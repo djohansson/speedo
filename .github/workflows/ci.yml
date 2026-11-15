@@ -249,7 +249,7 @@ jobs:
           SPEEDO_GPU_HANG_TIMEOUT: '1800'
         run: |
           $env:SPEEDO_D3D12_WARP = & scripts/fetch-warp.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($LASTEXITCODE -ne 0 -or -not $env:SPEEDO_D3D12_WARP) { Write-Error 'no WARP'; exit 1 }
           ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest-warp" -TimeoutSeconds 1800 -Only traced-shadows, shadow-atlas, emitters, ray-queries
 
       - name: Keep list

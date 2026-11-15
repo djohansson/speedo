@@ -98,3 +98,5 @@ if (-not (Test-Path -LiteralPath $dll -PathType Leaf))
 }
 [Console]::Error.WriteLine("WARP $version ($architecture) into $out")
 $dll
+# (an exit code of its own: & on a script sets $LASTEXITCODE only where it exits, which CI's step reads)
+exit 0
