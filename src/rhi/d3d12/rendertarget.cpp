@@ -177,6 +177,71 @@ static std::pair<ID3D12RootSignature*, ID3D12PipelineState*> BlitPipeline(d3d12:
 
 } // namespace rendertarget
 
+namespace d3d12
+{
+
+void DrawBlit(
+	CommandBufferObject& cmd,
+	const ImageObject& source,
+	uint32_t sourceLevel,
+	Extent2d sourceExtent,
+	const ImageObject& destination,
+	uint32_t destinationLevel,
+	Extent2d destinationExtent,
+	Format format,
+	Filter filter)
+{
+	auto& allocator = *cmd.device;
+	const auto [rootSignature, pipeline] = rendertarget::BlitPipeline(allocator, ToD3D12(format));
+	// the source level's view, in a range the command buffer takes (freed when its commands are done)
+	const uint32_t sourceView = allocator.pool.resources.Allocate(1);
+	cmd.pushedResources.emplace_back(sourceView, 1);
+	const D3D12_SHADER_RESOURCE_VIEW_DESC srv{
+		.Format = ToD3D12(source.format),
+		.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+		.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+		.Texture2D = {.MostDetailedMip = sourceLevel, .MipLevels = 1, .PlaneSlice = 0, .ResourceMinLODClamp = 0.0F}};
+	allocator.device->CreateShaderResourceView(source.resource, &srv, allocator.pool.resources.Cpu(sourceView));
+	// the destination level's render target view (the list reads it as it's recorded)
+	const auto target = allocator.renderTargets.Allocate();
+	const D3D12_RENDER_TARGET_VIEW_DESC rtv{
+		.Format = ToD3D12(format), .ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D, .Texture2D = {.MipSlice = destinationLevel, .PlaneSlice = 0}};
+	allocator.device->CreateRenderTargetView(destination.resource, &rtv, target);
+
+	const struct
+	{
+		std::array<float, 2> scale;
+		std::array<float, 2> destinationTexel;
+		uint32_t nearest;
+	} constants{
+		.scale = {static_cast<float>(sourceExtent.width) / static_cast<float>(destinationExtent.width),
+				  static_cast<float>(sourceExtent.height) / static_cast<float>(destinationExtent.height)},
+		.destinationTexel = {1.0F / static_cast<float>(destinationExtent.width), 1.0F / static_cast<float>(destinationExtent.height)},
+		.nearest = filter == Filter::kNearest ? 1U : 0U};
+	const D3D12_VIEWPORT viewport{
+		.TopLeftX = 0.0F,
+		.TopLeftY = 0.0F,
+		.Width = static_cast<float>(destinationExtent.width),
+		.Height = static_cast<float>(destinationExtent.height),
+		.MinDepth = 0.0F,
+		.MaxDepth = 1.0F};
+	const D3D12_RECT scissor{
+		.left = 0, .top = 0, .right = static_cast<LONG>(destinationExtent.width), .bottom = static_cast<LONG>(destinationExtent.height)};
+	cmd.list->OMSetRenderTargets(1, &target, FALSE, nullptr);
+	cmd.list->SetGraphicsRootSignature(rootSignature);
+	cmd.graphicsRootSignature = rootSignature; // (the next draw's PrepareDraw sets its own again)
+	cmd.list->SetPipelineState(pipeline);
+	cmd.list->SetGraphicsRoot32BitConstants(0, 5, &constants, 0);
+	cmd.list->SetGraphicsRootDescriptorTable(1, allocator.pool.resources.Gpu(sourceView));
+	cmd.list->RSSetViewports(1, &viewport);
+	cmd.list->RSSetScissorRects(1, &scissor);
+	cmd.list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	cmd.list->DrawInstanced(3, 1, 0, 0);
+	allocator.renderTargets.Free(target);
+}
+
+} // namespace d3d12
+
 template <typename DerivedType>
 RenderTarget<DerivedType, kD3D12>::RenderTarget(typename ObjectTraits<DerivedType>::CreateDescType&& desc)
 	: DeviceObject<DerivedType>(std::forward<typename ObjectTraits<DerivedType>::CreateDescType>(desc))
@@ -385,18 +450,6 @@ void RenderTarget<DerivedType, kD3D12>::Blit(
 		"a scaled blit's source (attachment {}) can't be sampled (a depth image without sampled usage)",
 		srcIndex);
 
-	auto& allocator = *cmd->device;
-	const auto [rootSignature, pipeline] = rendertarget::BlitPipeline(allocator, d3d12::ToD3D12(format));
-	// the source's view, in a range the command buffer takes (freed when its commands are done)
-	const uint32_t sourceView = allocator.pool.resources.Allocate(1);
-	cmd->pushedResources.emplace_back(sourceView, 1);
-	const D3D12_SHADER_RESOURCE_VIEW_DESC srv{
-		.Format = d3d12::ToD3D12(source->format),
-		.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
-		.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-		.Texture2D = {.MostDetailedMip = 0, .MipLevels = 1, .PlaneSlice = 0, .ResourceMinLODClamp = 0.0F}};
-	allocator.device->CreateShaderResourceView(source->resource, &srv, allocator.pool.resources.Cpu(sourceView));
-
 	const auto sourceLayout = source->layout;
 	const auto destinationLayout = destination->layout;
 	d3d12::TransitionImage(*cmd, *source, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
@@ -404,29 +457,7 @@ void RenderTarget<DerivedType, kD3D12>::Blit(
 	// all of it written: its contents discarded, which also initializes it where it's new (a resource not zeroed must be,
 	// in an attachment's layout: the debug layer's error 1422)
 	cmd->list->DiscardResource(destination->resource, nullptr);
-	const struct
-	{
-		std::array<float, 2> scale;
-		std::array<float, 2> destinationTexel;
-		uint32_t nearest;
-	} constants{
-		.scale = {static_cast<float>(srcExtent.width) / static_cast<float>(dstExtent.width),
-				  static_cast<float>(srcExtent.height) / static_cast<float>(dstExtent.height)},
-		.destinationTexel = {1.0F / static_cast<float>(dstExtent.width), 1.0F / static_cast<float>(dstExtent.height)},
-		.nearest = filter == Filter::kNearest ? 1U : 0U};
-	const D3D12_VIEWPORT viewport{
-		.TopLeftX = 0.0F, .TopLeftY = 0.0F, .Width = static_cast<float>(dstExtent.width), .Height = static_cast<float>(dstExtent.height), .MinDepth = 0.0F, .MaxDepth = 1.0F};
-	const D3D12_RECT scissor{.left = 0, .top = 0, .right = static_cast<LONG>(dstExtent.width), .bottom = static_cast<LONG>(dstExtent.height)};
-	cmd->list->OMSetRenderTargets(1, &myAttachments[dstIndex]->renderTarget, FALSE, nullptr);
-	cmd->list->SetGraphicsRootSignature(rootSignature);
-	cmd->graphicsRootSignature = rootSignature; // (the next draw's PrepareDraw sets its own again)
-	cmd->list->SetPipelineState(pipeline);
-	cmd->list->SetGraphicsRoot32BitConstants(0, 5, &constants, 0);
-	cmd->list->SetGraphicsRootDescriptorTable(1, allocator.pool.resources.Gpu(sourceView));
-	cmd->list->RSSetViewports(1, &viewport);
-	cmd->list->RSSetScissorRects(1, &scissor);
-	cmd->list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	cmd->list->DrawInstanced(3, 1, 0, 0);
+	d3d12::DrawBlit(*cmd, *source, 0, srcExtent, *destination, 0, dstExtent, format, filter);
 	d3d12::TransitionImage(*cmd, *destination, destinationLayout);
 	d3d12::TransitionImage(*cmd, *source, sourceLayout);
 }

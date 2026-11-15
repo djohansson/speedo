@@ -313,6 +313,10 @@ void TransitionImage(CommandBufferObject& cmd, ImageObject& image, D3D12_BARRIER
 {
 	if (cmd.type == D3D12_COMMAND_LIST_TYPE_COPY)
 		after = D3D12_BARRIER_LAYOUT_COMMON;
+	// Vulkan's general layout (unordered access) for an image that can't be one (no storage usage: the environment's
+	// source panorama, among its storage images, error 1332) is only read there: a shader resource's
+	else if (after == D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS && (image.flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0)
+		after = D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
 	Transition(cmd, image.resource, discard ? D3D12_BARRIER_LAYOUT_UNDEFINED : image.layout, after, image.layout);
 	image.layout = after;
 }
@@ -335,10 +339,70 @@ void Image<kD3D12>::BlitFrom(CommandBufferHandle<kD3D12> /*cmd*/, const Image& /
 	ENSUREF(false, "the D3D12 backend's scaled blits come with its render passes (docs/backends-plan.md, step 3)");
 }
 
-template <>
-void Image<kD3D12>::GenerateMips(CommandBufferHandle<kD3D12> /*cmd*/, ImageLayout /*layout*/)
+namespace image
 {
-	ENSUREF(false, "{}: the D3D12 backend generates no mips yet (D3D12 has no blits: a kernel, docs/backends-plan.md, step 4)", GetName());
+
+// a level's texture barrier (GenerateMips': its levels' layouts apart while they're made)
+static void TransitionLevel(d3d12::CommandBufferObject& cmd, ID3D12Resource* resource, uint32_t level, D3D12_BARRIER_LAYOUT before, D3D12_BARRIER_LAYOUT after)
+{
+	const auto from = SideOf(before, cmd.type);
+	const auto to = SideOf(after, cmd.type);
+	const D3D12_TEXTURE_BARRIER barrier{
+		.SyncBefore = from.sync,
+		.SyncAfter = to.sync,
+		.AccessBefore = from.access,
+		.AccessAfter = to.access,
+		.LayoutBefore = before,
+		.LayoutAfter = after,
+		.pResource = resource,
+		.Subresources = {.IndexOrFirstMipLevel = level, .NumMipLevels = 1, .FirstArraySlice = 0, .NumArraySlices = 1, .FirstPlane = 0, .NumPlanes = 1},
+		.Flags = D3D12_TEXTURE_BARRIER_FLAG_NONE};
+	const D3D12_BARRIER_GROUP group{.Type = D3D12_BARRIER_TYPE_TEXTURE, .NumBarriers = 1, .pTextureBarriers = &barrier};
+	cmd.list->Barrier(1, &group);
+}
+
+} // namespace image
+
+template <>
+void Image<kD3D12>::GenerateMips(CommandBufferHandle<kD3D12> cmd, ImageLayout layout)
+{
+	ZoneScopedN("Image::GenerateMips");
+
+	// each level a draw of the one above (the scaled blit's, linear: D3D12 has no blits), as Vulkan's backend blits them
+	// from level 0 (a transfer's destination): the levels render targets, each a shader resource once it's written and
+	// read from, then all in layout
+	auto* object = std::get<0>(myImage);
+	const auto& desc = GetDesc();
+	ENSUREF(
+		object->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && (object->flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) != 0 &&
+			HasColorComponent(desc.format) && desc.format != Format::kR32G32Uint,
+		"{}: the D3D12 backend generates mips of 2D images it can render to, of floats (a draw each)",
+		GetName());
+	ENSUREF(cmd->type == D3D12_COMMAND_LIST_TYPE_DIRECT, "{}: mips generated on a list that doesn't draw (a direct list's)", GetName());
+	if (desc.levelCount > 1)
+	{
+		d3d12::TransitionImage(*cmd, *object, D3D12_BARRIER_LAYOUT_RENDER_TARGET);
+		for (uint32_t level = 1; level < desc.levelCount; level++)
+		{
+			image::TransitionLevel(*cmd, object->resource, level - 1, D3D12_BARRIER_LAYOUT_RENDER_TARGET, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
+			const auto source = desc.LevelExtent(level - 1);
+			const auto destination = desc.LevelExtent(level);
+			d3d12::DrawBlit(
+				*cmd,
+				*object,
+				level - 1,
+				{.width = source.width, .height = source.height},
+				*object,
+				level,
+				{.width = destination.width, .height = destination.height},
+				desc.format,
+				Filter::kLinear);
+		}
+		image::TransitionLevel(*cmd, object->resource, desc.levelCount - 1, D3D12_BARRIER_LAYOUT_RENDER_TARGET, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
+		object->layout = D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+	}
+	d3d12::TransitionImage(*cmd, *object, d3d12::ToD3D12Layout(layout));
+	InternalSetImageLayout(layout);
 }
 
 template <>

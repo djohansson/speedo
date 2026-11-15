@@ -57,6 +57,11 @@ static void CALLBACK OnMessage(
 	// they're made)
 	if (id == D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE || id == D3D12_MESSAGE_ID_CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE)
 		return;
+	// and these: a pipeline state whose pixel shader writes a color target it has none of (a depth only pass's, the
+	// writes discarded, as Vulkan's), and a list of barriers alone whose accesses could be none (a hint for drivers)
+	if (id == D3D12_MESSAGE_ID_CREATEGRAPHICSPIPELINESTATE_RENDERTARGETVIEW_NOT_SET ||
+		id == D3D12_MESSAGE_ID_NON_OPTIMAL_BARRIER_ONLY_EXECUTE_COMMAND_LISTS)
+		return;
 	const bool error = severity == D3D12_MESSAGE_SEVERITY_ERROR || severity == D3D12_MESSAGE_SEVERITY_CORRUPTION;
 	std::println(stderr, "D3D12 Validation {}: [{}] {}", error ? "Error" : "Warning", static_cast<int>(id), description);
 	std::fflush(stderr);

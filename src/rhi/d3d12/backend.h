@@ -438,6 +438,20 @@ void DeleteImageView(AllocatorObject& allocator, ImageViewObject* view) noexcept
 // no other: the debug layer's error 1425)
 void TransitionImage(CommandBufferObject& cmd, ImageObject& image, D3D12_BARRIER_LAYOUT after, bool discard = false);
 
+// a scaled blit's draw (rendertarget.cpp): a triangle over destination's level (a render target of format) sampling
+// source's (nearest or linear), the source in a shader resource's layout and the destination in a render target's (no
+// barriers here). the scaled blits' and the mips' (D3D12 has no blits)
+void DrawBlit(
+	CommandBufferObject& cmd,
+	const ImageObject& source,
+	uint32_t sourceLevel,
+	Extent2d sourceExtent,
+	const ImageObject& destination,
+	uint32_t destinationLevel,
+	Extent2d destinationExtent,
+	Format format,
+	Filter filter);
+
 // a texture barrier on cmd's list from one layout to another, every subresource (image.cpp: the work and accesses each
 // layout's, the list's type's alone); from an undefined layout the contents are discarded, once the work of last (the
 // layout it was last used in, where known) is done

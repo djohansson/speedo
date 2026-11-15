@@ -28,7 +28,9 @@ doesn't. The quick tier runs so, a profile preset with -Validate, rather than pr
 SPEEDO_GRAPHICS_API=metal (the clients on the Metal backend) -Validate sets Metal's api validation instead
 (MTL_DEBUG_LAYER=1, any preset's), which stops a client at what it finds (a failed assertion: the run fails), and a
 command buffer's failure the client reports fails it too; not Metal's shader validation (MTL_SHADER_VALIDATION=1, by
-hand: ShadowScene's 30 frames took 328 s with it, 2 without).
+hand: ShadowScene's 30 frames took 328 s with it, 2 without). With SPEEDO_GRAPHICS_API=d3d12 it sets D3D12's debug layer
+(SPEEDO_D3D12_VALIDATION=1, any preset's: Windows' Graphics Tools, setup.ps1 with SPEEDO_D3D12_DEBUG_LAYER=1), whose
+errors and warnings the clients print as 'D3D12 Validation Error' or 'Warning', which fail the run.
 
 Client runs go -Jobs at once (default 4; one with KosmicKrisp's ray queries, which the client asks for only with
 SPEEDO_RAY_QUERY=1 on macOS, and which made the gpu restart and the machine panic when several clients traced at once), each worker with a user profile dir of its own under <work> (user-1 to
@@ -195,10 +197,14 @@ if ($validating)
 		}
 	}
 }
-# -Validate with the clients on Metal: its api validation, any preset's (see above), unless set
+# -Validate with the clients on Metal: its api validation, any preset's (see above), unless set; on D3D12 its debug layer
 if ($Validate -and $env:SPEEDO_GRAPHICS_API -eq 'metal' -and -not $env:MTL_DEBUG_LAYER)
 {
 	$env:MTL_DEBUG_LAYER = '1'
+}
+if ($Validate -and $env:SPEEDO_GRAPHICS_API -eq 'd3d12' -and -not $env:SPEEDO_D3D12_VALIDATION)
+{
+	$env:SPEEDO_D3D12_VALIDATION = '1'
 }
 # the vulkan driver, unless one is chosen: on macOS the mesa port's KosmicKrisp, a host dependency, so in the host
 # triplet's install tree
