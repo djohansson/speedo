@@ -421,7 +421,7 @@ and the settings the code gives it as `VK_KHRONOS_VALIDATION_*` variables), each
 appended to its log (without a messenger of the client's the layer prints them itself, and only to a file once the crash
 reports make one, on NVIDIA), which fails a run on `VUID-`, `UNASSIGNED-`, `Validation Error: ` or `Validation Warning: ` as
 a debug client's log does, and on `WARNING-CoreValidation-`, the debug messenger's form of a warning (the ImGui pipeline's
-pool lacking a type its layout allocates was only a warning, which neither check caught). The quick tier runs once, on every platform: a profile preset with `-Validate` (the user's call, 2026-11-04:
+pool lacking a type its layout allocates was only a warning, which neither check caught). The quick tier runs once, on every platform and on each of its graphics apis (vulkan and d3d12 on Windows, vulkan and metal on macOS: `assettest.ps1`'s `-GraphicsApi`, by default the platform's every one, each client run once per api; the user's call, 2026-11-15): a profile preset with `-Validate` (the user's call, 2026-11-04:
 with ray query clients one at a time on the mac, its clients took 198 s, where profile's took 140 and then debug's
 1237). What only a debug client checks (`ASSERT`s, which `NDEBUG` compiles out, and rhi's object tracking and uuid
 checks, `SPEEDO_GRAPHICS_VALIDATION_LEVEL`) the full sets still check: the profile preset first, then debug with

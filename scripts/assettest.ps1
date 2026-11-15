@@ -14,7 +14,10 @@ of a directory with several (e.g. a gltf sample model's encodings), as one, side
 support are skipped there), with a user profile dir under <work>, and fails a model if the client crashes or prints
 load failures, failed asserts, validation errors (a debug preset's clients load the validation layer themselves; with
 -Validate, any preset's, see below) or sanitizer reports (a sanitize preset: asan and ubsan; a tsan preset: tsan).
--ClientOnly skips the assettest run (which is slow with a debug preset). The client needs a vulkan driver: set
+-ClientOnly skips the assettest run (which is slow with a debug preset). The client runs are made on every graphics api
+the platform's client has (-GraphicsApi, default: vulkan and d3d12 on Windows, vulkan and metal on macOS, vulkan on
+Linux; SPEEDO_GRAPHICS_API's alone where it is set), each run once per api (its label suffixed by the api but Vulkan's),
+so that the quick tier tests each backend (the user's ask, 2026-11-15). The client needs a vulkan driver: set
 VK_DRIVER_FILES etc. as for running it by hand (on macOS the mesa port's KosmicKrisp is the default, from the install
 tree). On macOS the display is woken and kept awake while the clients run (glfw finds no monitors while it sleeps);
 with -Headless only the system is (idle sleep stops the clients).
@@ -28,9 +31,10 @@ doesn't. The quick tier runs so, a profile preset with -Validate, rather than pr
 SPEEDO_GRAPHICS_API=metal (the clients on the Metal backend) -Validate sets Metal's api validation instead
 (MTL_DEBUG_LAYER=1, any preset's), which stops a client at what it finds (a failed assertion: the run fails), and a
 command buffer's failure the client reports fails it too; not Metal's shader validation (MTL_SHADER_VALIDATION=1, by
-hand: ShadowScene's 30 frames took 328 s with it, 2 without). With SPEEDO_GRAPHICS_API=d3d12 it sets D3D12's debug layer
+hand: ShadowScene's 30 frames took 328 s with it, 2 without). On D3D12 it sets D3D12's debug layer
 (SPEEDO_D3D12_VALIDATION=1, any preset's: Windows' Graphics Tools, setup.ps1 with SPEEDO_D3D12_DEBUG_LAYER=1), whose
-errors and warnings the clients print as 'D3D12 Validation Error' or 'Warning', which fail the run.
+errors and warnings the clients print as 'D3D12 Validation Error' or 'Warning', which fail the run. Each api's run its
+own (see -GraphicsApi), unless the variable is set.
 
 Client runs go -Jobs at once (default 4; one with KosmicKrisp's ray queries, which the client asks for only with
 SPEEDO_RAY_QUERY=1 on macOS, and which made the gpu restart and the machine panic when several clients traced at once), each worker with a user profile dir of its own under <work> (user-1 to
@@ -74,6 +78,7 @@ param(
 	[switch] $Presentation,
 	[switch] $Headless,
 	[switch] $Validate,
+	[string[]] $GraphicsApi,
 	[string] $Preset,
 	[string] $Work,
 	[int] $Jobs = 4,
@@ -197,15 +202,20 @@ if ($validating)
 		}
 	}
 }
-# -Validate with the clients on Metal: its api validation, any preset's (see above), unless set; on D3D12 its debug layer
-if ($Validate -and $env:SPEEDO_GRAPHICS_API -eq 'metal' -and -not $env:MTL_DEBUG_LAYER)
+# the graphics apis the client runs are made on: every one the platform's client has (vulkan, and metal on macOS, d3d12 on
+# Windows), or SPEEDO_GRAPHICS_API's alone where it is set; -Validate with the clients on Metal sets its api validation,
+# on D3D12 its debug layer, each api's runs alone (see Start-ClientRun), any preset's, unless set
+if (-not $GraphicsApi -or $GraphicsApi.Count -eq 0)
 {
-	$env:MTL_DEBUG_LAYER = '1'
+	$GraphicsApi = if ($env:SPEEDO_GRAPHICS_API) { @($env:SPEEDO_GRAPHICS_API) }
+		elseif ($IsWindows) { @('vulkan', 'd3d12') }
+		elseif ($IsMacOS) { @('vulkan', 'metal') }
+		else { @('vulkan') }
 }
-if ($Validate -and $env:SPEEDO_GRAPHICS_API -eq 'd3d12' -and -not $env:SPEEDO_D3D12_VALIDATION)
-{
-	$env:SPEEDO_D3D12_VALIDATION = '1'
-}
+$GraphicsApi = @($GraphicsApi | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$apiValidation = @{}
+if ($Validate -and -not $env:MTL_DEBUG_LAYER) { $apiValidation['metal'] = @{ MTL_DEBUG_LAYER = '1' } }
+if ($Validate -and -not $env:SPEEDO_D3D12_VALIDATION) { $apiValidation['d3d12'] = @{ SPEEDO_D3D12_VALIDATION = '1' } }
 # the vulkan driver, unless one is chosen: on macOS the mesa port's KosmicKrisp, a host dependency, so in the host
 # triplet's install tree
 if ($IsMacOS -and -not $env:VK_DRIVER_FILES -and -not $env:VK_ICD_FILENAMES)
@@ -219,9 +229,11 @@ if ($IsMacOS -and -not $env:VK_DRIVER_FILES -and -not $env:VK_ICD_FILENAMES)
 $kosmicKrisp = "$env:VK_DRIVER_FILES$env:VK_ICD_FILENAMES" -match 'kosmickrisp'
 $rayQueries = $kosmicKrisp -and $env:SPEEDO_RAY_QUERY -eq '1' -and
 	($null -eq $env:MESA_KK_EXPERIMENTAL -or $env:MESA_KK_EXPERIMENTAL -match 'ray_query|all')
+# and the Metal backend's, whose ray tracing restarts the gpu as well (see docs/notes/indirect-lighting.md)
+$rayQueries = $rayQueries -or ($IsMacOS -and $env:SPEEDO_RAY_QUERY -eq '1' -and $GraphicsApi -contains 'metal')
 if ($rayQueries -and $Jobs -gt 1)
 {
-	[Console]::Error.WriteLine("KosmicKrisp's ray queries (SPEEDO_RAY_QUERY=1): running the clients one at a time (-Jobs $Jobs asked for)")
+	[Console]::Error.WriteLine("Ray queries on macOS (SPEEDO_RAY_QUERY=1): running the clients one at a time (-Jobs $Jobs asked for)")
 	$Jobs = 1
 }
 # a sanitize or tsan preset's reports: with stacks, symbolized by the host llvm's llvm-symbolizer. tsan reports and goes
@@ -390,7 +402,7 @@ if ($Client)
 
 	# queues a client run on a model (a file, or a zip archive), drawn with image on the default material if given, and lit
 	# by an environment panorama if given (else the procedural sky), with variables of its own (split screen's, see below)
-	function Add-ClientRun([string] $Model, [string] $Image, [string] $Label, [string] $Environment = '', [string] $PresentationTest = '', [hashtable] $Variables = @{})
+	function Add-ClientRun([string] $Model, [string] $Image, [string] $Label, [string] $Environment = '', [string] $PresentationTest = '', [hashtable] $Variables = @{}, [string] $Api = '')
 	{
 		# FNV-1a, stable across runs (string hash codes are randomized per process)
 		[uint32] $hash = 2166136261
@@ -400,7 +412,7 @@ if ($Client)
 		}
 		$script:runs.Add([pscustomobject]@{
 			Model = $Model; Image = $Image; Label = $Label; Environment = $Environment; PresentationTest = $PresentationTest; Variables = $Variables
-			Worker = [int]($hash % [uint32]$Jobs) + 1
+			Api = $Api; Worker = [int]($hash % [uint32]$Jobs) + 1
 			Process = $null; Start = $null; Log = (Join-Path $logs "client-$Label.log"); Done = $false; Lines = @()
 			Estimate = 0.0; Seconds = 0; TimedOut = $false
 		})
@@ -419,9 +431,19 @@ if ($Client)
 			$env:SPEEDO_PRESENTATION_TEST = $Run.PresentationTest
 			$env:SPEEDO_BACKGROUND = '0'
 		}
-		foreach ($name in $Run.Variables.Keys)
+		# its graphics api, and that api's validation (-Validate), as its own variables
+		$variables = @{} + $Run.Variables
+		if ($Run.Api)
 		{
-			[Environment]::SetEnvironmentVariable($name, $Run.Variables[$name])
+			$variables['SPEEDO_GRAPHICS_API'] = $Run.Api
+			if ($apiValidation.ContainsKey($Run.Api))
+			{
+				foreach ($name in $apiValidation[$Run.Api].Keys) { $variables[$name] = $apiValidation[$Run.Api][$name] }
+			}
+		}
+		foreach ($name in $variables.Keys)
+		{
+			[Environment]::SetEnvironmentVariable($name, $variables[$name])
 		}
 		# -Validate: the layer's messages, appended to the log once the client is done (see Complete-ClientRun)
 		if ($validating)
@@ -439,10 +461,12 @@ if ($Client)
 		finally
 		{
 			Remove-Item Env:SPEEDO_AUTOLOAD_MODEL, Env:SPEEDO_AUTOLOAD_IMAGE, Env:SPEEDO_AUTOLOAD_ENVIRONMENT, Env:SPEEDO_PRESENTATION_TEST, Env:VK_KHRONOS_VALIDATION_LOG_FILENAME -ErrorAction SilentlyContinue
-			foreach ($name in $Run.Variables.Keys)
+			# (the variable an api run set back as it was: SPEEDO_GRAPHICS_API's own, where it was set)
+			foreach ($name in $variables.Keys)
 			{
 				[Environment]::SetEnvironmentVariable($name, $null)
 			}
+			if ($variables.ContainsKey('SPEEDO_GRAPHICS_API') -and $script:graphicsApiVariable) { $env:SPEEDO_GRAPHICS_API = $script:graphicsApiVariable }
 			$env:SPEEDO_BACKGROUND = $background
 		}
 		$null = $Run.Process.Handle # keeps the exit code available after the process exits (windows)
@@ -478,6 +502,7 @@ if ($Client)
 		$Run.Seconds = $seconds
 		$Run.TimedOut = $TimedOut
 		$name = if ($Run.PresentationTest) { $Run.Label } elseif ($Run.Variables.Count -gt 0) { "$($Run.Model) ($($Run.Label))" } elseif ($Run.Model) { $Run.Model } elseif ($Run.Environment) { $Run.Environment } else { $Run.Label }
+		if ($Run.Api -and $GraphicsApi.Count -gt 1) { $name = "$name [$($Run.Api)]" }
 
 		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|Validation (Error|Warning): |WARNING-CoreValidation-|timed out after|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer|failed assertion `|Metal: command buffer .* failed' |
 			ForEach-Object Line | Group-Object | Sort-Object Name | Select-Object -First 5 |
@@ -713,6 +738,20 @@ if ($Client)
 		Add-ClientRun $run.Model $run.Image "$($run.Label)-splitscreen" $run.Environment '' @{ SPEEDO_LAYOUT = '2x2'; SPEEDO_CAMERA_VIEWS = 'around' }
 	}
 
+	# each run once per graphics api (see -GraphicsApi): Vulkan's labels as they were (the durations kept by label), the
+	# others' suffixed by their api
+	$script:graphicsApiVariable = $env:SPEEDO_GRAPHICS_API
+	$baseRuns = @($script:runs)
+	$script:runs.Clear()
+	foreach ($api in $GraphicsApi)
+	{
+		foreach ($run in $baseRuns)
+		{
+			$label = if ($api -eq 'vulkan') { $run.Label } else { "$($run.Label)-$api" }
+			Add-ClientRun $run.Model $run.Image $label $run.Environment $run.PresentationTest $run.Variables $api
+		}
+	}
+
 	Invoke-ClientRuns
 
 	# the presentation tests, alone (each takes over the display): View > Presentation's options and the fullscreen
@@ -725,9 +764,13 @@ if ($Client)
 			'size=1600x900;images=3;fullscreen;fullscreen;present=fifo_relaxed;fullscreen;images=2;fullscreen;present=fifo;' +
 			'size=900x700;fullscreen;fullscreen'
 		$script:runs.Clear()
-		foreach ($monitor in 0, 1)
+		foreach ($api in $GraphicsApi)
 		{
-			Add-ClientRun '' '' "presentation-monitor$monitor" '' "monitor=$monitor;$sequence"
+			foreach ($monitor in 0, 1)
+			{
+				$label = if ($api -eq 'vulkan') { "presentation-monitor$monitor" } else { "presentation-monitor$monitor-$api" }
+				Add-ClientRun '' '' $label '' "monitor=$monitor;$sequence" @{} $api
+			}
 		}
 		foreach ($run in $script:runs)
 		{

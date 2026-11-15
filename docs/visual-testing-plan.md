@@ -46,8 +46,12 @@ draws without them for seconds), see `client/ui.cpp`.
 A capture is only comparable if two runs of it give the same image. What can still differ between runs, to be checked
 and pinned one by one:
 
-- **Exposure**: auto exposure settles by time; `SPEEDO_AUTO_EXPOSURE=0` with `SPEEDO_EXPOSURE` (or the camera's manual
-  mode) fixes it.
+- **Exposure**: auto exposure settles by time; `SPEEDO_AUTO_EXPOSURE=0` (the manual camera: f/16, 1/160 s, ISO 100;
+  `SPEEDO_EXPOSURE` is compensation on top of it, in stops, not an exposure) fixes it. **To do: auto exposure isn't
+  repeatable**, `SPEEDO_REPEATABLE=1` or not: two Vulkan runs of Avocado (NVIDIA, 60 frames, headless) metered -0.62 and
+  -0.07 EV, ShadowScene 0.2 EV apart (2026-11-15, found comparing the D3D12 backend's captures with Vulkan's). Likely
+  the histogram read back from whichever frame the gpu has finished (as the lavapipe item below suspects of the indirect
+  lighting's statistics), and the adaptation's time: to pin, so that a capture with auto exposure is comparable.
 - **The sky**: the date defaults to this year's (`environment::CurrentYear`), so the sun and moon move from one run to the
   next; `SPEEDO_YEAR`, `SPEEDO_DAY_OF_YEAR`, `SPEEDO_TIME_OF_DAY` and `SPEEDO_LATITUDE` fix it.
 - **Time**: `SPEEDO_TIME_FRAME_SECONDS` advances time by a fixed step per drawn frame instead of the real time between
