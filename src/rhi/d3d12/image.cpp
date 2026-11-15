@@ -118,7 +118,8 @@ static d3d12::ImageObject* NewObject(const ImageCreateDesc<kD3D12>& desc, const 
 		.format = desc.format,
 		.dimension = resourceDesc.Dimension,
 		.flags = resourceDesc.Flags,
-		.levelCount = desc.levelCount};
+		.levelCount = desc.levelCount,
+		.layout = D3D12_BARRIER_LAYOUT_COMMON};
 }
 
 // an image of desc in the default heap, in layout
@@ -150,6 +151,7 @@ static d3d12::ImageObject* Create(const ImageCreateDesc<kD3D12>& desc, D3D12_BAR
 			nullptr),
 		std::format("{}: CreateResource3 (an image)", GetDebugName(desc)));
 	object->resource = object->allocation->GetResource();
+	object->layout = layout;
 	d3d12::SetName(object->resource, desc.name);
 	return object;
 }
@@ -169,7 +171,8 @@ static d3d12::ImageObject* CreateUploaded(
 	const auto block = BlockOf(desc.format);
 	ENSUREF(block.byteCount > 0, "{}: format {} can't be uploaded (its texels aren't one run of bytes)", GetDebugName(desc), std::to_underlying(desc.format));
 
-	auto* object = Create(desc, D3D12_BARRIER_LAYOUT_COPY_DEST);
+	// (a copy list's in the common layout, see TransitionImage)
+	auto* object = Create(desc, cmd.type == D3D12_COMMAND_LIST_TYPE_COPY ? D3D12_BARRIER_LAYOUT_COMMON : D3D12_BARRIER_LAYOUT_COPY_DEST);
 	uint64_t packedOffset = 0;
 	for (uint32_t level = 0; level < desc.levelCount; level++)
 	{
@@ -234,6 +237,21 @@ void Transition(CommandBufferObject& cmd, ID3D12Resource* resource, D3D12_BARRIE
 {
 	if (before == after && before != D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS)
 		return;
+	// an attachment's contents discarded (from an undefined layout) are initialized where the discard leaves it in its
+	// attachment's layout, which a resource not zeroed (placed, or committed not zeroed) needs before its first use (the
+	// debug layer's error 1422: the shadow atlas, cleared by rects): on a direct list, through that layout
+	if (before == D3D12_BARRIER_LAYOUT_UNDEFINED && cmd.type == D3D12_COMMAND_LIST_TYPE_DIRECT)
+	{
+		const auto flags = resource->GetDesc().Flags;
+		const auto attachment = (flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0 ? D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE
+								: (flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) != 0 ? D3D12_BARRIER_LAYOUT_RENDER_TARGET
+																						: D3D12_BARRIER_LAYOUT_UNDEFINED;
+		if (attachment != D3D12_BARRIER_LAYOUT_UNDEFINED && after != attachment)
+		{
+			Transition(cmd, resource, before, attachment);
+			before = attachment;
+		}
+	}
 	const auto from = image::SideOf(before, cmd.type);
 	const auto to = image::SideOf(after, cmd.type);
 	const D3D12_TEXTURE_BARRIER barrier{
@@ -250,6 +268,14 @@ void Transition(CommandBufferObject& cmd, ID3D12Resource* resource, D3D12_BARRIE
 	cmd.list->Barrier(1, &group);
 }
 
+void TransitionImage(CommandBufferObject& cmd, ImageObject& image, D3D12_BARRIER_LAYOUT after, bool discard)
+{
+	if (cmd.type == D3D12_COMMAND_LIST_TYPE_COPY)
+		after = D3D12_BARRIER_LAYOUT_COMMON;
+	Transition(cmd, image.resource, discard ? D3D12_BARRIER_LAYOUT_UNDEFINED : image.layout, after);
+	image.layout = after;
+}
+
 } // namespace d3d12
 
 template <>
@@ -257,7 +283,7 @@ void Image<kD3D12>::Transition(CommandBufferHandle<kD3D12> cmd, ImageLayout layo
 {
 	if (aspectFlags == ImageAspect::kNone)
 		aspectFlags = AspectOf(GetDesc().format);
-	d3d12::Transition(*cmd, std::get<0>(myImage)->resource, d3d12::ToD3D12Layout(GetDesc().layout), d3d12::ToD3D12Layout(layout));
+	d3d12::TransitionImage(*cmd, *std::get<0>(myImage), d3d12::ToD3D12Layout(layout), GetDesc().layout == ImageLayout::kUndefined);
 	InternalSetImageLayout(layout);
 	InternalSetAspectFlags(aspectFlags);
 }
@@ -285,14 +311,15 @@ void Image<kD3D12>::Clear(CommandBufferHandle<kD3D12> cmd, const ClearValue& val
 	auto* object = std::get<0>(myImage);
 	auto& allocator = *cmd->device;
 	const auto format = GetDesc().format;
-	const auto layout = d3d12::ToD3D12Layout(GetDesc().layout);
+	const auto layout = object->layout;
+	const bool discard = GetDesc().layout == ImageLayout::kUndefined;
 	const bool depth = HasDepthComponent(format);
 	ENSUREF(
 		(object->flags & (depth ? D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL : D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)) != 0,
 		"{}: a clear of an image that can't be rendered to (a block compressed format, or no transfer destination usage)",
 		GetName());
 	const auto target = depth ? D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE : D3D12_BARRIER_LAYOUT_RENDER_TARGET;
-	d3d12::Transition(*cmd, object->resource, layout, target);
+	d3d12::TransitionImage(*cmd, *object, target, discard);
 	for (uint32_t level = 0; level < GetDesc().levelCount; level++)
 	{
 		if (depth)
@@ -324,7 +351,7 @@ void Image<kD3D12>::Clear(CommandBufferHandle<kD3D12> cmd, const ClearValue& val
 		cmd->list->ClearRenderTargetView(view, value.color.data(), 0, nullptr);
 		allocator.renderTargets.Free(view);
 	}
-	d3d12::Transition(*cmd, object->resource, target, layout);
+	d3d12::TransitionImage(*cmd, *object, layout);
 }
 
 template <>
@@ -490,6 +517,103 @@ static D3D12_SHADER_COMPONENT_MAPPING ToD3D12(ComponentSwizzle swizzle, D3D12_SH
 
 } // namespace image
 
+namespace d3d12
+{
+
+ImageViewObject* NewImageView(AllocatorObject& allocator, ImageObject* image, const ImageViewDesc& desc)
+{
+	const auto levelCount = desc.levelCount == 0 ? image->levelCount - desc.baseLevel : desc.levelCount;
+	const bool volume = image->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+	const bool depthStencil = !HasColorComponent(desc.format);
+	auto* view = new d3d12::ImageViewObject{.image = image}; //NOLINT(cppcoreguidelines-owning-memory)
+
+	// a shader's view: sampled, of the levels asked (a depth stencil image's depth or stencil plane as a color format)
+	if ((image->flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) == 0)
+	{
+		D3D12_SHADER_RESOURCE_VIEW_DESC srv{
+			.Format = image::ShaderFormat(desc.format, desc.aspectFlags),
+			.Shader4ComponentMapping = static_cast<UINT>(D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+				image::ToD3D12(desc.components[0], D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0),
+				image::ToD3D12(desc.components[1], D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_1),
+				image::ToD3D12(desc.components[2], D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_2),
+				image::ToD3D12(desc.components[3], D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_3)))};
+		if (volume)
+		{
+			srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
+			srv.Texture3D = {.MostDetailedMip = desc.baseLevel, .MipLevels = levelCount, .ResourceMinLODClamp = 0.0F};
+		}
+		else
+		{
+			srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+			srv.Texture2D = {
+				.MostDetailedMip = desc.baseLevel,
+				.MipLevels = levelCount,
+				.PlaneSlice = desc.aspectFlags == ImageAspect::kStencil ? 1U : 0U,
+				.ResourceMinLODClamp = 0.0F};
+		}
+		view->shaderResource = allocator.views.Allocate();
+		allocator.device->CreateShaderResourceView(image->resource, &srv, view->shaderResource);
+	}
+	// a storage image's: its first level (an sRGB format takes none: its unorm kin's, where the code writes it)
+	if ((image->flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0)
+	{
+		D3D12_UNORDERED_ACCESS_VIEW_DESC uav{.Format = d3d12::ToD3D12(desc.format)};
+		if (volume)
+		{
+			uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
+			uav.Texture3D = {.MipSlice = desc.baseLevel, .FirstWSlice = 0, .WSize = static_cast<UINT>(-1)};
+		}
+		else
+		{
+			uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+			uav.Texture2D = {.MipSlice = desc.baseLevel, .PlaneSlice = 0};
+		}
+		view->unorderedAccess = allocator.views.Allocate();
+		allocator.device->CreateUnorderedAccessView(image->resource, nullptr, &uav, view->unorderedAccess);
+	}
+	// an attachment's: its first level
+	if ((image->flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) != 0 && !depthStencil)
+	{
+		D3D12_RENDER_TARGET_VIEW_DESC rtv{.Format = d3d12::ToD3D12(desc.format)};
+		if (volume)
+		{
+			rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE3D;
+			rtv.Texture3D = {.MipSlice = desc.baseLevel, .FirstWSlice = 0, .WSize = static_cast<UINT>(-1)};
+		}
+		else
+		{
+			rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+			rtv.Texture2D = {.MipSlice = desc.baseLevel, .PlaneSlice = 0};
+		}
+		view->renderTarget = allocator.renderTargets.Allocate();
+		allocator.device->CreateRenderTargetView(image->resource, &rtv, view->renderTarget);
+	}
+	if ((image->flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0)
+	{
+		const D3D12_DEPTH_STENCIL_VIEW_DESC dsv{
+			.Format = d3d12::ToD3D12(image->format),
+			.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D,
+			.Flags = D3D12_DSV_FLAG_NONE,
+			.Texture2D = {.MipSlice = desc.baseLevel}};
+		view->depthStencil = allocator.depthStencils.Allocate();
+		allocator.device->CreateDepthStencilView(image->resource, &dsv, view->depthStencil);
+	}
+	return view;
+}
+
+void DeleteImageView(AllocatorObject& allocator, ImageViewObject* view) noexcept
+{
+	if (view == nullptr)
+		return;
+	allocator.views.Free(view->shaderResource);
+	allocator.views.Free(view->unorderedAccess);
+	allocator.renderTargets.Free(view->renderTarget);
+	allocator.depthStencils.Free(view->depthStencil);
+	delete view; //NOLINT(cppcoreguidelines-owning-memory)
+}
+
+} // namespace d3d12
+
 template <>
 ImageView<kD3D12>::ImageView(CreateDescType&& desc)
 	: ImageView(
@@ -498,84 +622,14 @@ ImageView<kD3D12>::ImageView(CreateDescType&& desc)
 		{
 			auto* image = desc.image.handle;
 			ENSUREF(image != nullptr, "{}: a view of no image", GetDebugName(desc));
-			auto& allocator = d3d12::AllocatorObject::ForDevice(desc.device);
-			const auto levelCount = desc.levelCount == 0 ? image->levelCount - desc.baseLevel : desc.levelCount;
-			const bool volume = image->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
-			const bool depthStencil = !HasColorComponent(desc.format);
-			auto* view = new d3d12::ImageViewObject{.image = image}; //NOLINT(cppcoreguidelines-owning-memory)
-
-			// a shader's view: sampled, of the levels asked (a depth stencil image's depth or stencil plane as a color format)
-			if ((image->flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) == 0)
-			{
-				D3D12_SHADER_RESOURCE_VIEW_DESC srv{
-					.Format = image::ShaderFormat(desc.format, desc.aspectFlags),
-					.Shader4ComponentMapping = static_cast<UINT>(D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
-						image::ToD3D12(desc.components[0], D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0),
-						image::ToD3D12(desc.components[1], D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_1),
-						image::ToD3D12(desc.components[2], D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_2),
-						image::ToD3D12(desc.components[3], D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_3)))};
-				if (volume)
-				{
-					srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
-					srv.Texture3D = {.MostDetailedMip = desc.baseLevel, .MipLevels = levelCount, .ResourceMinLODClamp = 0.0F};
-				}
-				else
-				{
-					srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-					srv.Texture2D = {
-						.MostDetailedMip = desc.baseLevel,
-						.MipLevels = levelCount,
-						.PlaneSlice = desc.aspectFlags == ImageAspect::kStencil ? 1U : 0U,
-						.ResourceMinLODClamp = 0.0F};
-				}
-				view->shaderResource = allocator.views.Allocate();
-				allocator.device->CreateShaderResourceView(image->resource, &srv, view->shaderResource);
-			}
-			// a storage image's: its first level (an sRGB format takes none: its unorm kin's, where the code writes it)
-			if ((image->flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0)
-			{
-				D3D12_UNORDERED_ACCESS_VIEW_DESC uav{.Format = d3d12::ToD3D12(desc.format)};
-				if (volume)
-				{
-					uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
-					uav.Texture3D = {.MipSlice = desc.baseLevel, .FirstWSlice = 0, .WSize = static_cast<UINT>(-1)};
-				}
-				else
-				{
-					uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-					uav.Texture2D = {.MipSlice = desc.baseLevel, .PlaneSlice = 0};
-				}
-				view->unorderedAccess = allocator.views.Allocate();
-				allocator.device->CreateUnorderedAccessView(image->resource, nullptr, &uav, view->unorderedAccess);
-			}
-			// an attachment's: its first level
-			if ((image->flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) != 0 && !depthStencil)
-			{
-				D3D12_RENDER_TARGET_VIEW_DESC rtv{.Format = d3d12::ToD3D12(desc.format)};
-				if (volume)
-				{
-					rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE3D;
-					rtv.Texture3D = {.MipSlice = desc.baseLevel, .FirstWSlice = 0, .WSize = static_cast<UINT>(-1)};
-				}
-				else
-				{
-					rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-					rtv.Texture2D = {.MipSlice = desc.baseLevel, .PlaneSlice = 0};
-				}
-				view->renderTarget = allocator.renderTargets.Allocate();
-				allocator.device->CreateRenderTargetView(image->resource, &rtv, view->renderTarget);
-			}
-			if ((image->flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0)
-			{
-				const D3D12_DEPTH_STENCIL_VIEW_DESC dsv{
-					.Format = d3d12::ToD3D12(image->format),
-					.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D,
-					.Flags = D3D12_DSV_FLAG_NONE,
-					.Texture2D = {.MipSlice = desc.baseLevel}};
-				view->depthStencil = allocator.depthStencils.Allocate();
-				allocator.device->CreateDepthStencilView(image->resource, &dsv, view->depthStencil);
-			}
-			return view;
+			return d3d12::NewImageView(
+				d3d12::AllocatorObject::ForDevice(desc.device),
+				image,
+				{.format = desc.format,
+				 .aspectFlags = desc.aspectFlags,
+				 .levelCount = desc.levelCount,
+				 .components = desc.components,
+				 .baseLevel = desc.baseLevel});
 		}())
 {}
 
@@ -584,12 +638,7 @@ ImageView<kD3D12>::~ImageView()
 {
 	if (!IsValid() || myView == nullptr)
 		return;
-	auto& allocator = d3d12::AllocatorObject::ForDevice(GetDesc().device);
-	allocator.views.Free(myView->shaderResource);
-	allocator.views.Free(myView->unorderedAccess);
-	allocator.renderTargets.Free(myView->renderTarget);
-	allocator.depthStencils.Free(myView->depthStencil);
-	delete myView; //NOLINT(cppcoreguidelines-owning-memory)
+	d3d12::DeleteImageView(d3d12::AllocatorObject::ForDevice(GetDesc().device), myView);
 }
 
 } // namespace rhi

@@ -26,27 +26,18 @@ namespace rhi
 namespace rendertarget
 {
 
-// an attachment's view: its render target's or depth stencil's descriptor (of the attachment's format, its first level)
+// an attachment's view: its render target's or depth stencil's descriptor (of the attachment's format, its first level),
+// and the shader's views its image's usage allows (gfx samples and writes attachments' views, as Vulkan's)
 static d3d12::ImageViewObject* NewView(d3d12::AllocatorObject& allocator, d3d12::ImageObject* image, Format format)
 {
-	auto* view = new d3d12::ImageViewObject{.image = image}; //NOLINT(cppcoreguidelines-owning-memory)
-	if (HasColorComponent(format))
-	{
-		ENSUREF((image->flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) != 0, "an attachment of an image without color attachment usage");
-		const D3D12_RENDER_TARGET_VIEW_DESC desc{
-			.Format = d3d12::ToD3D12(format), .ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D, .Texture2D = {.MipSlice = 0, .PlaneSlice = 0}};
-		view->renderTarget = allocator.renderTargets.Allocate();
-		allocator.device->CreateRenderTargetView(image->resource, &desc, view->renderTarget);
-	}
-	else
-	{
-		ENSUREF((image->flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0, "an attachment of an image without depth stencil usage");
-		const D3D12_DEPTH_STENCIL_VIEW_DESC desc{
-			.Format = d3d12::ToD3D12(format), .ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D, .Flags = D3D12_DSV_FLAG_NONE, .Texture2D = {.MipSlice = 0}};
-		view->depthStencil = allocator.depthStencils.Allocate();
-		allocator.device->CreateDepthStencilView(image->resource, &desc, view->depthStencil);
-	}
-	return view;
+	const bool color = HasColorComponent(format);
+	ENSUREF(
+		(image->flags & (color ? D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET : D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) != 0,
+		"{}: an attachment of an image without {} attachment usage",
+		d3d12::GetName(image->resource),
+		color ? "color" : "depth stencil");
+	return d3d12::NewImageView(
+		allocator, image, {.format = format, .aspectFlags = color ? ImageAspect::kColor : ImageAspect::kDepth, .levelCount = 1});
 }
 
 // an attachment cleared (all of it, or rects), as its format has it: color, or depth and stencil
@@ -247,11 +238,7 @@ void RenderTarget<DerivedType, kD3D12>::InternalReleaseAttachments() noexcept
 		return;
 	auto& allocator = d3d12::AllocatorObject::ForDevice(this->GetDesc().device);
 	for (auto* view : myAttachments)
-	{
-		allocator.renderTargets.Free(view->renderTarget);
-		allocator.depthStencils.Free(view->depthStencil);
-		delete view; //NOLINT(cppcoreguidelines-owning-memory)
-	}
+		d3d12::DeleteImageView(allocator, view);
 	myAttachments.clear();
 }
 
@@ -259,7 +246,7 @@ template <typename DerivedType>
 void RenderTarget<DerivedType, kD3D12>::InternalUpdateAttachments()
 {
 	// an attachment's views are its image's, whatever its layout or aspect: made again only where the images are others
-	// (a view a set holds isn't one of these: they're the target's own, render target and depth stencil views)
+	// (a set that holds one, as gfx's sets hold an output's, holds copies of its descriptors)
 	const auto& images = this->GetDesc().images;
 	if (std::ranges::equal(myAttachments, images, {}, [](const auto* view) { return view->image; }))
 		return;
@@ -410,9 +397,10 @@ void RenderTarget<DerivedType, kD3D12>::Blit(
 		.Texture2D = {.MostDetailedMip = 0, .MipLevels = 1, .PlaneSlice = 0, .ResourceMinLODClamp = 0.0F}};
 	allocator.device->CreateShaderResourceView(source->resource, &srv, allocator.pool.resources.Cpu(sourceView));
 
-	const auto sourceLayout = d3d12::ToD3D12Layout(srcRenderTarget.GetLayout(srcIndex));
-	d3d12::Transition(*cmd, source->resource, sourceLayout, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
-	d3d12::Transition(*cmd, destination->resource, D3D12_BARRIER_LAYOUT_COPY_DEST, D3D12_BARRIER_LAYOUT_RENDER_TARGET);
+	const auto sourceLayout = source->layout;
+	const auto destinationLayout = destination->layout;
+	d3d12::TransitionImage(*cmd, *source, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
+	d3d12::TransitionImage(*cmd, *destination, D3D12_BARRIER_LAYOUT_RENDER_TARGET);
 	// all of it written: its contents discarded, which also initializes it where it's new (a resource not zeroed must be,
 	// in an attachment's layout: the debug layer's error 1422)
 	cmd->list->DiscardResource(destination->resource, nullptr);
@@ -439,8 +427,8 @@ void RenderTarget<DerivedType, kD3D12>::Blit(
 	cmd->list->RSSetScissorRects(1, &scissor);
 	cmd->list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	cmd->list->DrawInstanced(3, 1, 0, 0);
-	d3d12::Transition(*cmd, destination->resource, D3D12_BARRIER_LAYOUT_RENDER_TARGET, D3D12_BARRIER_LAYOUT_COPY_DEST);
-	d3d12::Transition(*cmd, source->resource, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE, sourceLayout);
+	d3d12::TransitionImage(*cmd, *destination, destinationLayout);
+	d3d12::TransitionImage(*cmd, *source, sourceLayout);
 }
 
 template <typename DerivedType>

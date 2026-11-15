@@ -34,8 +34,17 @@ Queue<kD3D12>::Queue(CreateDescType&& desc, QueueHandle<kD3D12>&& handle)
 			  SuperType::CreateDeviceObjectCreateDesc("CommandPool 1"), 0, GetDesc().queueFamilyIndex, myQueue}),
 	  })
 {
-	// no gpu profiler until the query pools (step 6: the device's queue families have no timestamp bits until then)
-	ENSUREF(!GetDesc().supportsProfiling, "the D3D12 backend's queues take no timestamps yet");
+#if (SPEEDO_PROFILING_LEVEL > 0)
+	// a ring of 4096 timestamps, as Vulkan's backend has (a frame writes about 40). no setup command buffer: the first
+	// timestamp is the queue's clock (GetClockCalibration)
+	if (GetDesc().supportsProfiling)
+		myProfiler = std::make_unique<GpuProfiler<kD3D12>>(
+			QueryPool<kD3D12>(QueryPoolCreateDesc<kD3D12>{
+				SuperType::CreateDeviceObjectCreateDesc(std::format("{} Profiler", GetDesc().name)), 4096}),
+			myQueue,
+			nullptr,
+			GetDesc().name);
+#endif
 }
 
 template <>
@@ -104,21 +113,29 @@ QueueHostSyncInfo<kD3D12> Queue<kD3D12>::Submit()
 
 	uint64_t maxTimelineValue = 0;
 	std::vector<ID3D12CommandList*> lists;
+	std::vector<d3d12::CommandPoolObject*> pools;
 	for (auto& submit : myPendingSubmits)
 	{
-		// binary semaphores are null (the swapchain's acquires and presents, which the queue orders) and skipped
+		// binary semaphores are null (the swapchain's acquires and presents, which the queue orders) and skipped, as are
+		// waits for 0 (always met)
 		for (size_t waitIt = 0; waitIt < submit.waitSemaphores.size(); waitIt++)
-			if (submit.waitSemaphores[waitIt] != nullptr)
+			if (submit.waitSemaphores[waitIt] != nullptr && submit.waitSemaphoreValues[waitIt] > 0)
 				d3d12::Check(myQueue->Wait(submit.waitSemaphores[waitIt], submit.waitSemaphoreValues[waitIt]), "ID3D12CommandQueue::Wait");
 
 		lists.clear();
+		pools.clear();
 		for (auto* object : submit.commandBuffers)
 		{
 			ENSUREF(!object->recording, "a command buffer submitted while it's recording (CommandBuffer::End)");
 			lists.push_back(object->list);
+			if (std::ranges::find(pools, object->pool) == pools.end())
+				pools.push_back(object->pool);
 		}
 		if (!lists.empty())
 			myQueue->ExecuteCommandLists(static_cast<UINT>(lists.size()), lists.data());
+		// the pools' fences, which their resets wait for
+		for (auto* pool : pools)
+			d3d12::Check(myQueue->Signal(pool->done, ++pool->submitted), "ID3D12CommandQueue::Signal (a command pool's)");
 
 		for (size_t signalIt = 0; signalIt < submit.signalSemaphores.size(); signalIt++)
 			if (submit.signalSemaphores[signalIt] != nullptr)

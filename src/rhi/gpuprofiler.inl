@@ -24,9 +24,9 @@ namespace gpuprofiler
 constexpr double kMaxMilliseconds = 250.0;
 // at most this many timings kept per group no one takes
 constexpr size_t kMaxGroupTimings = 4096;
-// Tracy's gpu context types (tracy::GpuContextType): its Vulkan's and its Metal's
+// Tracy's gpu context types (tracy::GpuContextType): its Vulkan's, its Metal's and its Direct3D 12's
 template <GraphicsApi G>
-constexpr uint8_t kTracyContextType = G == kMetal ? 6 : 2;
+constexpr uint8_t kTracyContextType = G == kMetal ? 6 : G == kD3D12 ? 4 : 2;
 
 } // namespace gpuprofiler
 

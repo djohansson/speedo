@@ -21,7 +21,8 @@ namespace d3d12
 
 const std::vector<char>& ShaderModuleObject::Code(uint32_t specialization) const
 {
-	if (specialization == 0)
+	// an entry point that doesn't read the constant has its one binary (the compiler made it no others), for every value
+	if (specialization == 0 || specializations.empty())
 		return code;
 	auto found = std::ranges::find(specializations, specialization, &std::pair<uint32_t, std::vector<char>>::first);
 	ENSUREF(

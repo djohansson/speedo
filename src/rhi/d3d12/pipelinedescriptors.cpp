@@ -76,16 +76,18 @@ static void WriteBufferDescriptor(
 	}
 }
 
-// a set's values written into its tables (resources and samplers: offsets in the shader visible heaps), by the
-// template's entries (see DescriptorSetLayoutObject)
+// a set's values written into its resources' table (an offset in the shader visible heap), and its samplers into
+// samplers (their descriptions, the table's content: DescriptorPoolObject::AcquireSamplerTable), by the template's
+// entries (see DescriptorSetLayoutObject)
 static void WriteDescriptorSet(
 	d3d12::AllocatorObject& device,
 	const d3d12::DescriptorSetLayoutObject& layout,
 	const BindingsData<kD3D12>& bindingsData,
 	const std::vector<DescriptorUpdateTemplateEntry<kD3D12>>& entries,
 	uint32_t resources,
-	uint32_t samplers)
+	std::vector<D3D12_SAMPLER_DESC>& samplers)
 {
+	samplers.assign(layout.samplerCount, D3D12_SAMPLER_DESC{});
 	ZoneScopedN("Pipeline::WriteDescriptorSet");
 
 	for (const auto& entry : entries)
@@ -111,8 +113,7 @@ static void WriteDescriptorSet(
 				if (binding.sampler)
 				{
 					ENSUREF(image->sampler != nullptr, "binding {} has no sampler", entry.dstBinding);
-					device.device->CopyDescriptorsSimple(
-						1, device.pool.samplers.Cpu(samplers + index), image->sampler->descriptor, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+					samplers.at(index) = image->sampler->desc;
 					continue;
 				}
 				ENSUREF(image->imageView != nullptr, "binding {} has no image view", entry.dstBinding);
@@ -120,8 +121,10 @@ static void WriteDescriptorSet(
 					binding.type == DescriptorType::kStorageImage ? image->imageView->unorderedAccess : image->imageView->shaderResource;
 				ENSUREF(
 					source.ptr != 0,
-					"binding {}: the image view has no {} view (its image's usage)",
+					"binding {} element {}: {}'s view has no {} view (its image's usage)",
 					entry.dstBinding,
+					entry.dstArrayElement + elementIt,
+					d3d12::GetName(image->imageView->image->resource),
 					binding.type == DescriptorType::kStorageImage ? "unordered access" : "shader resource");
 				device.device->CopyDescriptorsSimple(1, device.pool.resources.Cpu(resources + index), source, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 			}
@@ -211,13 +214,14 @@ void Pipeline<kD3D12>::InternalUpdateDescriptorSet(
 	ENSURE(setIndex < setArray.Capacity());
 	auto* set = setArray[setIndex];
 
+	// its samplers' table the one of theirs (shared), its last one's given back
+	auto& device = d3d12::AllocatorObject::ForDevice(GetDesc().device);
+	std::vector<D3D12_SAMPLER_DESC> samplers;
 	pipeline::WriteDescriptorSet(
-		d3d12::AllocatorObject::ForDevice(GetDesc().device),
-		*static_cast<DescriptorSetLayoutHandle<kD3D12>>(setLayout),
-		bindingsData,
-		setTemplate.GetEntries(),
-		set->resources,
-		set->samplers);
+		device, *static_cast<DescriptorSetLayoutHandle<kD3D12>>(setLayout), bindingsData, setTemplate.GetEntries(), set->resources, samplers);
+	const uint32_t table = device.pool.AcquireSamplerTable(device.device, samplers);
+	device.pool.ReleaseSamplerTable(set->samplers);
+	set->samplers = table;
 }
 
 template <>
@@ -229,16 +233,18 @@ void Pipeline<kD3D12>::InternalPushDescriptorSet(
 {
 	ZoneScopedN("Pipeline::InternalPushDescriptorSet");
 
-	// the set's tables in ranges the command buffer takes (freed when its commands are done, see FreeTransients)
+	// the set's resources in a range the command buffer takes, and its samplers' table (shared): given back when its
+	// commands are done (see FreeTransients)
 	const auto& layout = *setTemplate.GetDesc().descriptorSetLayout;
 	auto& pool = cmd->device->pool;
 	const uint32_t resources = pool.resources.Allocate(layout.resourceCount);
-	const uint32_t samplers = pool.samplers.Allocate(layout.samplerCount);
 	if (resources != d3d12::GpuDescriptorHeap::kNone)
 		cmd->pushedResources.emplace_back(resources, layout.resourceCount);
+	std::vector<D3D12_SAMPLER_DESC> samplerContent;
+	pipeline::WriteDescriptorSet(*cmd->device, layout, bindingsData, setTemplate.GetEntries(), resources, samplerContent);
+	const uint32_t samplers = pool.AcquireSamplerTable(cmd->device->device, samplerContent);
 	if (samplers != d3d12::GpuDescriptorHeap::kNone)
-		cmd->pushedSamplers.emplace_back(samplers, layout.samplerCount);
-	pipeline::WriteDescriptorSet(*cmd->device, layout, bindingsData, setTemplate.GetEntries(), resources, samplers);
+		cmd->pushedSamplers.push_back(samplers);
 
 	const uint32_t set = setTemplate.GetDesc().set;
 	if (cmd->sets.size() <= set)

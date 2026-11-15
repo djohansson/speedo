@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 #include <print>
 #include <utility>
 
@@ -86,8 +87,8 @@ void CommandBufferObject::FreeTransients() noexcept
 {
 	for (const auto& [offset, count] : pushedResources)
 		device->pool.resources.Free(offset, count);
-	for (const auto& [offset, count] : pushedSamplers)
-		device->pool.samplers.Free(offset, count);
+	for (uint32_t table : pushedSamplers)
+		device->pool.ReleaseSamplerTable(table);
 	pushedResources.clear();
 	pushedSamplers.clear();
 	for (auto*& resource : transientResources)
@@ -110,8 +111,12 @@ constexpr size_t kSecondary = 1;
 void Free(d3d12::CommandBufferObject* object)
 {
 	object->FreeTransients();
-	d3d12::Release(object->list);
-	d3d12::Release(object->allocator);
+	// a secondary's list is its primary's
+	if (object->primary == nullptr)
+	{
+		d3d12::Release(object->list);
+		d3d12::Release(object->allocator);
+	}
 	delete object; //NOLINT(cppcoreguidelines-owning-memory): the handle is the pool's
 }
 
@@ -139,7 +144,9 @@ void CommandBuffer<kD3D12>::End()
 	ENSURE(myRecording);
 	myRecording = false;
 	myHandle->recording = false;
-	d3d12::Check(myHandle->list->Close(), "ID3D12GraphicsCommandList::Close");
+	// a secondary's list is its primary's, which goes on recording
+	if (myHandle->primary == nullptr)
+		d3d12::Check(myHandle->list->Close(), "ID3D12GraphicsCommandList::Close");
 }
 
 template <>
@@ -164,7 +171,13 @@ template <>
 CommandPool<kD3D12>::CommandPool(CreateDescType&& desc)
 	: CommandPool(
 		std::forward<CreateDescType>(desc),
-		new d3d12::CommandPoolObject{.device = desc.device, .type = d3d12::ToD3D12(desc.queueFamilyIndex)}) //NOLINT(cppcoreguidelines-owning-memory)
+		[&desc]
+		{
+			auto* pool = new d3d12::CommandPoolObject{.device = desc.device, .type = d3d12::ToD3D12(desc.queueFamilyIndex)}; //NOLINT(cppcoreguidelines-owning-memory)
+			d3d12::Check(desc.device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&pool->done)), "CreateFence (a command pool's)");
+			d3d12::SetName(pool->done, std::format("{} Done", desc.name));
+			return pool;
+		}())
 {}
 
 template <>
@@ -202,6 +215,7 @@ CommandPool<kD3D12>::~CommandPool()
 	for (auto& handles : myFree)
 		for (auto* handle : handles)
 			commandpool::Free(handle);
+	d3d12::Release(myPool->done);
 	delete myPool; //NOLINT(cppcoreguidelines-owning-memory)
 }
 
@@ -212,11 +226,24 @@ void CommandPool<kD3D12>::Reset()
 
 	ENSUREF(myOutstanding == 0, "resetting a command pool while {} of its command buffers are held", myOutstanding);
 
-	// their commands are done: each allocator reset, what they held freed, and each free for its next use
+	// once its lists' executions are done (see CommandPoolObject::done)
+	if (myPool->done->GetCompletedValue() < myPool->submitted)
+	{
+		ZoneScopedN("CommandPool::Reset::wait");
+		d3d12::Check(myPool->done->SetEventOnCompletion(myPool->submitted, nullptr), "ID3D12Fence::SetEventOnCompletion");
+	}
+
+	// their commands are done: each allocator reset, what they held freed, and each free for its next use (a
+	// secondary, which has neither allocator nor list, freed: see BeginSecondary)
 	for (size_t kind = 0; kind < myUsed.size(); kind++)
 	{
 		for (auto* handle : myUsed[kind])
 		{
+			if (handle->primary != nullptr)
+			{
+				commandpool::Free(handle);
+				continue;
+			}
 			handle->FreeTransients();
 			d3d12::Check(handle->allocator->Reset(), "ID3D12CommandAllocator::Reset");
 			myFree[kind].push_back(handle);
@@ -243,6 +270,7 @@ CommandBufferHandle<kD3D12> CommandPool<kD3D12>::InternalTake(bool secondary)
 		object = new d3d12::CommandBufferObject{}; //NOLINT(cppcoreguidelines-owning-memory): freed by the pool
 		object->type = myPool->type;
 		object->device = &d3d12::AllocatorObject::ForDevice(myPool->device);
+		object->pool = myPool;
 		d3d12::Check(myPool->device->CreateCommandAllocator(myPool->type, IID_PPV_ARGS(&object->allocator)), "CreateCommandAllocator");
 		d3d12::Check(
 			myPool->device->CreateCommandList(0, myPool->type, object->allocator, nullptr, IID_PPV_ARGS(&object->list)),
@@ -281,10 +309,25 @@ CommandBufferHandle<kD3D12> CommandPool<kD3D12>::Allocate()
 }
 
 template <>
-CommandBuffer<kD3D12> CommandPool<kD3D12>::BeginSecondary(const RenderTargetBeginInfo<kD3D12>& /*renderTarget*/)
+CommandBuffer<kD3D12> CommandPool<kD3D12>::BeginSecondary(const RenderTargetBeginInfo<kD3D12>& renderTarget)
 {
-	ENSUREF(false, "the D3D12 backend has no secondary command buffers yet (docs/backends-plan.md, step 3)");
-	return {};
+	// recorded inline, into the primary's list in its render target's pass (Vulkan's secondaries run where the primary
+	// executes them: gfx records one and executes it before the primary records more, as Metal's backend takes it too),
+	// its state its own (nothing bound, as a secondary begins). its transients are the pool's, as the primary's are: one
+	// pool's, whose fence its submission signals
+	const auto* rendering = std::get_if<DynamicRenderingInfo<kD3D12>>(&renderTarget);
+	ENSUREF(rendering != nullptr && rendering->renderInfo.primary != nullptr, "a secondary command buffer outside a render target's pass");
+	auto* primary = rendering->renderInfo.primary;
+	ENSUREF(primary->pool == myPool, "a secondary command buffer of another pool than its primary's");
+	auto* object = new d3d12::CommandBufferObject{}; //NOLINT(cppcoreguidelines-owning-memory): freed by Reset
+	object->list = primary->list;
+	object->type = primary->type;
+	object->device = primary->device;
+	object->pool = myPool;
+	object->primary = primary;
+	object->recording = true;
+	myOutstanding++;
+	return CommandBuffer<kD3D12>(*this, object, true);
 }
 
 } // namespace rhi

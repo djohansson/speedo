@@ -148,4 +148,82 @@ Swapchain<kD3D12>::~Swapchain()
 	ENSUREF(!IsValid(), "the D3D12 backend has no swapchain yet (docs/backends-plan.md, step 5)");
 }
 
+template <>
+void Swapchain<kD3D12>::OnPresentResult(PresentResult /*result*/) noexcept
+{
+	swapchain::NotYet();
+}
+
+template <>
+Extent2d Swapchain<kD3D12>::QuerySurfaceExtent()
+{
+	swapchain::NotYet();
+}
+
+template <>
+FlipResult<kD3D12> Swapchain<kD3D12>::Flip()
+{
+	swapchain::NotYet();
+}
+
+template <>
+QueuePresentInfo<kD3D12> Swapchain<kD3D12>::PreparePresent()
+{
+	swapchain::NotYet();
+}
+
+template <>
+bool Swapchain<kD3D12>::WaitPresent(uint64_t /*presentId*/, uint64_t /*timeout*/) const
+{
+	swapchain::NotYet();
+}
+
+template <>
+bool Swapchain<kD3D12>::WaitPresented(uint64_t /*timeout*/) const
+{
+	swapchain::NotYet();
+}
+
+template <>
+std::pair<uint32_t, uint32_t> Swapchain<kD3D12>::GetImageCountLimits() const
+{
+	swapchain::NotYet();
+}
+
+template <>
+void Swapchain<kD3D12>::Configure(PresentationMode /*mode*/, uint32_t /*imageCount*/)
+{
+	swapchain::NotYet();
+}
+
+template <>
+PresentationMode Swapchain<kD3D12>::GetPresentationMode() const
+{
+	swapchain::NotYet();
+}
+
+template <>
+uint32_t Swapchain<kD3D12>::GetPresentationModes() const
+{
+	swapchain::NotYet();
+}
+
+template <>
+void Swapchain<kD3D12>::SetExclusiveFullscreen(WindowHandle /*window*/) noexcept
+{
+	swapchain::NotYet();
+}
+
+template <>
+bool Swapchain<kD3D12>::CreateSwapchain()
+{
+	swapchain::NotYet();
+}
+
+template <>
+void Swapchain<kD3D12>::Release()
+{
+	swapchain::NotYet();
+}
+
 } // namespace rhi

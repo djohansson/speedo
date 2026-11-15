@@ -345,9 +345,9 @@ configure_file(${SPEEDO_SOURCE_DIR}/gfx/importversions.h.in ${CMAKE_CURRENT_BINA
 get_target_property(SPEEDO_SLANG_INCLUDE_DIRS slang::slang INTERFACE_INCLUDE_DIRECTORIES)
 
 # gfx for a graphics api: gfx is compiled once per graphics api the platform has (Vulkan's copy gfx, and on macOS Metal's
-# gfx_metal), each copy in an inline namespace of its own, SPEEDO_GRAPHICS_API_NAMESPACE (gfx/graphicsapi.h: gfx::vk,
-# gfx::metal), so that both link into the one client, which runs the copy SPEEDO_GRAPHICS_API names (client/capi.cpp,
-# docs/backends-plan.md, step 9). the tools take Vulkan's copy
+# gfx_metal, on Windows D3D12's gfx_d3d12), each copy in an inline namespace of its own, SPEEDO_GRAPHICS_API_NAMESPACE
+# (gfx/graphicsapi.h: gfx::vk, gfx::metal, gfx::d3d12), so that they link into the one client, which runs the copy
+# SPEEDO_GRAPHICS_API names (client/capi.cpp, docs/backends-plan.md, step 9). the tools take Vulkan's copy
 function(speedo_gfx_library target apiNamespace)
 	add_library(${target} STATIC ${GFX_SOURCE_FILES})
 	target_compile_features(${target} PUBLIC cxx_std_26)
@@ -365,6 +365,7 @@ function(speedo_gfx_library target apiNamespace)
 		PUBLIC
 			SPEEDO_GRAPHICS_API_NAMESPACE=${apiNamespace}
 			$<$<STREQUAL:${apiNamespace},metal>:SPEEDO_GRAPHICS_API_METAL>
+			$<$<STREQUAL:${apiNamespace},d3d12>:SPEEDO_GRAPHICS_API_D3D12>
 		PRIVATE
 			SPEEDO_SLANG_VERSION="${slang_VERSION}"
 			SPEEDO_SHADERCOMPILER_FILE="$<TARGET_FILE_NAME:shadercompiler>"
@@ -392,6 +393,8 @@ endfunction()
 speedo_gfx_library(gfx vk)
 if(APPLE)
 	speedo_gfx_library(gfx_metal metal)
+elseif(WIN32)
+	speedo_gfx_library(gfx_d3d12 d3d12)
 endif()
 
 # the shader compiler library (gfx/shadercompiler.h): slang and the code that calls it, loaded by the client at its first
@@ -470,6 +473,7 @@ endif()
 # types, as Metal's are on macOS
 if(WIN32)
 	list(APPEND RHI_SOURCE_FILES
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/accelerationstructure.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/backend.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/buffer.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/command.cpp
@@ -477,6 +481,7 @@ if(WIN32)
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/descriptorset.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/device.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/frame.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/gpuprofiler.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/image.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/instance.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/instantiate.cpp
@@ -586,7 +591,7 @@ set(CLIENTLIB_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/client/windowedapplication.cpp)
 
 # the client for a graphics api, over its copy of gfx (speedo_gfx_library): Vulkan's clientlib, and on macOS Metal's
-# clientlib_metal, each in the copy's inline namespace (client::vk, client::metal), which the executable's C api runs
+# clientlib_metal, on Windows D3D12's clientlib_d3d12, each in the copy's inline namespace (client::vk, client::metal), which the executable's C api runs
 # (client/capi.cpp)
 function(speedo_client_library target gfxTarget outputName)
 	add_library(${target} STATIC ${CLIENTLIB_SOURCE_FILES})
@@ -611,6 +616,8 @@ endfunction()
 speedo_client_library(clientlib gfx client)
 if(APPLE)
 	speedo_client_library(clientlib_metal gfx_metal client-metal)
+elseif(WIN32)
+	speedo_client_library(clientlib_d3d12 gfx_d3d12 client-d3d12)
 endif()
 
 ###############################################################################
@@ -678,6 +685,8 @@ target_link_libraries(
 		$<LINK_ONLY:gfx>
 		$<$<BOOL:${APPLE}>:$<LINK_ONLY:clientlib_metal>>
 		$<$<BOOL:${APPLE}>:$<LINK_ONLY:gfx_metal>>
+		$<$<BOOL:${WIN32}>:$<LINK_ONLY:clientlib_d3d12>>
+		$<$<BOOL:${WIN32}>:$<LINK_ONLY:gfx_d3d12>>
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
 # the shader compiler beside it, which it loads (not links) to compile its shaders in a checkout

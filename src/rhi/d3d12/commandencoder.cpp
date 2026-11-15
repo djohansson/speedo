@@ -87,6 +87,40 @@ static std::pair<D3D12_BARRIER_SYNC, D3D12_BARRIER_ACCESS> ForList(D3D12_BARRIER
 	}
 	if (sync == D3D12_BARRIER_SYNC_NONE || access == D3D12_BARRIER_ACCESS_COMMON)
 		access = D3D12_BARRIER_ACCESS_NO_ACCESS;
+	// each sync with an access it's compatible with and each access with a sync, as D3D12 wants (the debug layer's error
+	// 1331), where rhi's barriers join resources' (the frame graph's: a copy's write of one buffer and a compute stage's
+	// reads of another, compute's sync and a copy's access): the side made whole by what each takes, which waits and
+	// flushes more, never less. what an attachment's layout is (a render target's, depth's) is left to its texture barriers
+	if (access != D3D12_BARRIER_ACCESS_NO_ACCESS && sync != D3D12_BARRIER_SYNC_ALL)
+	{
+		constexpr auto kShading = D3D12_BARRIER_SYNC_VERTEX_SHADING | D3D12_BARRIER_SYNC_PIXEL_SHADING |
+								  D3D12_BARRIER_SYNC_COMPUTE_SHADING | D3D12_BARRIER_SYNC_ALL_SHADING |
+								  D3D12_BARRIER_SYNC_NON_PIXEL_SHADING | D3D12_BARRIER_SYNC_DRAW;
+		constexpr auto kShaderAccess =
+			D3D12_BARRIER_ACCESS_UNORDERED_ACCESS | D3D12_BARRIER_ACCESS_SHADER_RESOURCE | D3D12_BARRIER_ACCESS_CONSTANT_BUFFER;
+		constexpr auto kCopyAccess = D3D12_BARRIER_ACCESS_COPY_SOURCE | D3D12_BARRIER_ACCESS_COPY_DEST;
+		auto has = [](auto flags, auto bits) { return (flags & bits) != 0; };
+		// an attachment's syncs without its accesses (a global barrier's, which can't take them): the draws' whole
+		constexpr auto kAttachmentSync = D3D12_BARRIER_SYNC_RENDER_TARGET | D3D12_BARRIER_SYNC_DEPTH_STENCIL;
+		constexpr auto kAttachmentAccess = D3D12_BARRIER_ACCESS_RENDER_TARGET | D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ |
+										   D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE;
+		if (has(sync, kAttachmentSync) && !has(access, kAttachmentAccess))
+			sync = (sync & ~kAttachmentSync) | D3D12_BARRIER_SYNC_DRAW;
+		// the syncs' accesses
+		if (has(sync, kShading) && !has(access, kShaderAccess))
+			access |= D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
+		if (has(sync, D3D12_BARRIER_SYNC_COPY) && !has(access, kCopyAccess))
+			access |= D3D12_BARRIER_ACCESS_COPY_DEST;
+		if (has(sync, D3D12_BARRIER_SYNC_EXECUTE_INDIRECT) && !has(access, D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT))
+			access |= D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT;
+		// the accesses' syncs
+		if (has(access, kShaderAccess) && !has(sync, kShading))
+			sync |= type == D3D12_COMMAND_LIST_TYPE_COMPUTE ? D3D12_BARRIER_SYNC_COMPUTE_SHADING : D3D12_BARRIER_SYNC_ALL_SHADING;
+		if (has(access, kCopyAccess) && !has(sync, D3D12_BARRIER_SYNC_COPY))
+			sync |= D3D12_BARRIER_SYNC_COPY;
+		if (has(access, D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT) && !has(sync, D3D12_BARRIER_SYNC_EXECUTE_INDIRECT))
+			sync |= D3D12_BARRIER_SYNC_EXECUTE_INDIRECT;
+	}
 	return {sync, access};
 }
 
@@ -243,9 +277,21 @@ void CommandEncoder<kD3D12>::UpdateBuffer(const Buffer<kD3D12>& buffer, uint64_t
 }
 
 template <>
-void CommandEncoder<kD3D12>::ExecuteCommands(std::vector<CommandBuffer<kD3D12>>&& /*secondaries*/) const
+void CommandEncoder<kD3D12>::ExecuteCommands(std::vector<CommandBuffer<kD3D12>>&& secondaries) const
 {
-	ENSUREF(false, "the D3D12 backend has no secondary command buffers yet (docs/backends-plan.md, step 3)");
+	// their commands were recorded inline, into this command buffer's list (see CommandPool::BeginSecondary): each is
+	// ended and handed back to its pool, and what they set on the list is the primary's to set again (as after Vulkan's
+	// vkCmdExecuteCommands, its state is undefined): its root signatures, which its next dispatch or draw sets
+	for (auto& secondary : secondaries)
+	{
+		ENSURE(secondary.IsSecondary());
+		ENSUREF(static_cast<CommandBufferHandle<kD3D12>>(secondary)->primary == myCmd, "a secondary command buffer executed by another than its primary");
+		if (secondary.IsRecording())
+			secondary.End();
+		(void)secondary.Release();
+	}
+	myCmd->computeRootSignature = nullptr;
+	myCmd->graphicsRootSignature = nullptr;
 }
 
 template <>
@@ -329,8 +375,20 @@ void CommandEncoder<kD3D12>::Barrier(PipelineStage srcStages, Access srcAccess, 
 {
 	// a global barrier (every buffer's and image's memory; an image's layout changes are its own, see Image::Transition).
 	// a side without work to wait for or before (none: the host's, the top of the pipe) takes no access
-	auto [syncBefore, accessBefore] = commandencoder::ForList(d3d12::ToD3D12Sync(srcStages), d3d12::ToD3D12Access(srcAccess), myCmd->type);
-	auto [syncAfter, accessAfter] = commandencoder::ForList(d3d12::ToD3D12Sync(dstStages), d3d12::ToD3D12Access(dstAccess), myCmd->type);
+	// the attachments' accesses are their layouts' in D3D12, which a global barrier doesn't change (the debug layer's error
+	// 1331): left out, the stages kept (a render target's writes are ordered within a queue)
+	constexpr auto kLayoutAccess = D3D12_BARRIER_ACCESS_RENDER_TARGET | D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ |
+								   D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE | D3D12_BARRIER_ACCESS_RESOLVE_SOURCE |
+								   D3D12_BARRIER_ACCESS_RESOLVE_DEST;
+	auto global = [](D3D12_BARRIER_ACCESS access)
+	{
+		if (access == D3D12_BARRIER_ACCESS_COMMON || access == D3D12_BARRIER_ACCESS_NO_ACCESS)
+			return access;
+		const auto rest = static_cast<D3D12_BARRIER_ACCESS>(access & ~kLayoutAccess);
+		return rest != D3D12_BARRIER_ACCESS_COMMON ? rest : D3D12_BARRIER_ACCESS_NO_ACCESS;
+	};
+	auto [syncBefore, accessBefore] = commandencoder::ForList(d3d12::ToD3D12Sync(srcStages), global(d3d12::ToD3D12Access(srcAccess)), myCmd->type);
+	auto [syncAfter, accessAfter] = commandencoder::ForList(d3d12::ToD3D12Sync(dstStages), global(d3d12::ToD3D12Access(dstAccess)), myCmd->type);
 	if (syncBefore == D3D12_BARRIER_SYNC_NONE && syncAfter == D3D12_BARRIER_SYNC_NONE)
 		return;
 	D3D12_GLOBAL_BARRIER barrier{.SyncBefore = syncBefore, .SyncAfter = syncAfter, .AccessBefore = accessBefore, .AccessAfter = accessAfter};

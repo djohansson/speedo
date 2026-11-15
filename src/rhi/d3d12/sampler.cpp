@@ -74,7 +74,7 @@ SamplerVector<kD3D12>::SamplerVector(CreateDescType&& desc)
 					.MinLOD = sampler.minLod,
 					.MaxLOD = sampler.maxLod,
 				};
-				auto* object = new d3d12::SamplerObject{.descriptor = allocator.samplers.Allocate()};
+				auto* object = new d3d12::SamplerObject{.descriptor = allocator.samplers.Allocate(), .desc = samplerDesc};
 				desc.device->CreateSampler(&samplerDesc, object->descriptor);
 				samplers.push_back(object);
 			}

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <string_view>
 
@@ -25,6 +26,24 @@ void SetName(ID3D12Object* object, std::string_view name)
 	std::wstring wide(static_cast<size_t>(count), L'\0');
 	MultiByteToWideChar(CP_UTF8, 0, name.data(), static_cast<int>(name.size()), wide.data(), count);
 	object->SetName(wide.c_str());
+}
+
+std::string GetName(ID3D12Object* object)
+{
+	if (object == nullptr)
+		return "(none)";
+	UINT size = 0;
+	if (FAILED(object->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, nullptr)) || size < sizeof(wchar_t))
+		return "(unnamed)";
+	std::wstring wide(size / sizeof(wchar_t), L'\0');
+	if (FAILED(object->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, wide.data())))
+		return "(unnamed)";
+	while (!wide.empty() && wide.back() == L'\0')
+		wide.pop_back();
+	const int count = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+	std::string name(static_cast<size_t>(count), '\0');
+	WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), name.data(), count, nullptr, nullptr);
+	return name;
 }
 
 void CpuDescriptorHeap::Init(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE type)
@@ -96,10 +115,12 @@ uint32_t GpuDescriptorHeap::Allocate(uint32_t count)
 	auto rangeIt = std::ranges::find_if(myFree, [count](const Range& range) { return range.count >= count; });
 	ENSUREF(
 		rangeIt != myFree.end(),
-		"the shader visible heap of {} ({} descriptors) has no {} free in a row: a capacity of D3D12's",
+		"the shader visible heap of {} ({} descriptors) has no {} free in a row ({} free in {} ranges): a capacity of D3D12's",
 		myName,
 		myCapacity,
-		count);
+		count,
+		std::ranges::fold_left(myFree, uint32_t{0}, [](uint32_t sum, const Range& range) { return sum + range.count; }),
+		myFree.size());
 	const uint32_t offset = rangeIt->offset;
 	rangeIt->offset += count;
 	rangeIt->count -= count;
@@ -127,6 +148,42 @@ void GpuDescriptorHeap::Free(uint32_t offset, uint32_t count) noexcept
 			before->count += nextIt->count;
 			myFree.erase(nextIt);
 		}
+}
+
+uint32_t DescriptorPoolObject::AcquireSamplerTable(ID3D12Device* device, std::span<const D3D12_SAMPLER_DESC> content)
+{
+	if (content.empty())
+		return GpuDescriptorHeap::kNone;
+	// (the descriptions compared as bytes: their fields are 4 bytes each, no padding)
+	static_assert(sizeof(D3D12_SAMPLER_DESC) == 13 * 4);
+	auto same = [content](const SamplerTable& table)
+	{ return table.content.size() == content.size() && std::memcmp(table.content.data(), content.data(), content.size_bytes()) == 0; };
+	std::scoped_lock lock{samplerTablesMutex};
+	auto table = std::ranges::find_if(samplerTables, same);
+	if (table == samplerTables.end())
+	{
+		// the samplers made in a range of the heap (a binding without one left as it is: its shaders don't sample it)
+		const uint32_t offset = samplers.Allocate(static_cast<uint32_t>(content.size()));
+		for (size_t samplerIt = 0; samplerIt < content.size(); samplerIt++)
+			if (content[samplerIt].AddressU != 0)
+				device->CreateSampler(&content[samplerIt], samplers.Cpu(offset + static_cast<uint32_t>(samplerIt)));
+		table = samplerTables.insert(samplerTables.end(), {.content = std::vector(content.begin(), content.end()), .offset = offset});
+	}
+	table->references++;
+	return table->offset;
+}
+
+void DescriptorPoolObject::ReleaseSamplerTable(uint32_t offset) noexcept
+{
+	if (offset == GpuDescriptorHeap::kNone)
+		return;
+	std::scoped_lock lock{samplerTablesMutex};
+	auto table = std::ranges::find(samplerTables, offset, &SamplerTable::offset);
+	ASSERT(table != samplerTables.end() && table->references > 0);
+	if (--table->references > 0)
+		return;
+	samplers.Free(table->offset, static_cast<uint32_t>(table->content.size()));
+	samplerTables.erase(table);
 }
 
 namespace

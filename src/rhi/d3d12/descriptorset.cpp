@@ -107,7 +107,7 @@ DescriptorSetArray<kD3D12>::DescriptorSetArray(CreateDescType&& desc, const Desc
 			for (auto& set : sets)
 				set = new d3d12::DescriptorSetObject{
 					.resources = pool.resources.Allocate(layoutObject->resourceCount),
-					.samplers = pool.samplers.Allocate(layoutObject->samplerCount),
+					.samplers = d3d12::GpuDescriptorHeap::kNone, // its samplers' table, at its first write
 					.resourceCount = layoutObject->resourceCount,
 					.samplerCount = layoutObject->samplerCount,
 				};
@@ -125,7 +125,7 @@ DescriptorSetArray<kD3D12>::~DescriptorSetArray()
 	for (auto* set : myDescriptorSets)
 	{
 		pool.resources.Free(set->resources, set->resourceCount);
-		pool.samplers.Free(set->samplers, set->samplerCount);
+		pool.ReleaseSamplerTable(set->samplers);
 		delete set;
 	}
 }

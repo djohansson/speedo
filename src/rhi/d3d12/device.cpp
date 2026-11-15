@@ -155,13 +155,26 @@ Device<kD3D12>::Device(CreateDescType&& desc, const Instance<kD3D12>& instance)
 	d3d12::RegisterAllocator(myDevice, allocator);
 	myAllocator = allocator;
 
-	// a family each queue type: direct (graphics, compute, copies), compute, copy, a queue each. no timestamps yet (the
-	// gpu profiler, step 6)
-	for (uint32_t flags : std::array<uint32_t, 3>{
-			 kQueueFamilyFlagBitsGraphics | kQueueFamilyFlagBitsCompute | kQueueFamilyFlagBitsTransfer,
-			 kQueueFamilyFlagBitsCompute | kQueueFamilyFlagBitsTransfer,
-			 kQueueFamilyFlagBitsTransfer})
-		myQueueFamilyDescs.push_back(QueueFamilyDesc<kD3D12>{.queueCount = 1, .flags = flags, .timestampValidBits = 0});
+	// the timestamps' period: a direct queue's frequency (ticks a second), from a queue made to ask
+	{
+		const D3D12_COMMAND_QUEUE_DESC queueDesc{.Type = D3D12_COMMAND_LIST_TYPE_DIRECT};
+		ID3D12CommandQueue* queue = nullptr;
+		d3d12::Check(myDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue)), "CreateCommandQueue (timestamp frequency)");
+		UINT64 frequency = 0;
+		d3d12::Check(queue->GetTimestampFrequency(&frequency), "GetTimestampFrequency");
+		d3d12::Release(queue);
+		ENSURE(frequency > 0);
+		allocator->timestampPeriod = static_cast<float>(1e9 / static_cast<double>(frequency));
+	}
+
+	// a family each queue type: direct (graphics, compute, copies), compute, copy, a queue each. timestamps on the direct
+	// and compute queues (a copy queue's are a heap type of their own, which not every device has: the copy queue isn't
+	// profiled)
+	for (auto [flags, timestampBits] : std::array<std::pair<uint32_t, uint32_t>, 3>{
+			 std::pair{kQueueFamilyFlagBitsGraphics | kQueueFamilyFlagBitsCompute | kQueueFamilyFlagBitsTransfer, 64U},
+			 std::pair{kQueueFamilyFlagBitsCompute | kQueueFamilyFlagBitsTransfer, 64U},
+			 std::pair{kQueueFamilyFlagBitsTransfer, 0U}})
+		myQueueFamilyDescs.push_back(QueueFamilyDesc<kD3D12>{.queueCount = 1, .flags = flags, .timestampValidBits = timestampBits});
 	std::println("\"{}\" is selected as primary graphics device (D3D12)", name);
 	SetCrashReportDevice(std::format("{} (D3D12)", name));
 }
@@ -228,7 +241,7 @@ DeviceLimits Device<kD3D12>::GetLimits() const
 {
 	// D3D12's: a buffer's views reach 2^31 bytes; resource binding tier 3's tables any number of textures (the shader
 	// visible heap's million); 16384 texels a 2D image's side, 2048 a 3D one's; indirect draws with a count
-	// (ExecuteIndirect's count buffer). no timestamps nor ray queries yet (step 6)
+	// (ExecuteIndirect's count buffer); timestamps in the direct queue's ticks. no ray queries yet (step 6)
 	constexpr uint64_t kMaxBufferViewByteCount = 1ULL << 31U;
 	constexpr uint32_t kMaxDrawIndirectCount = 1U << 24U;
 	return DeviceLimits{
@@ -237,7 +250,7 @@ DeviceLimits Device<kD3D12>::GetLimits() const
 		.maxDrawIndirectCount = kMaxDrawIndirectCount,
 		.maxImageDimension2d = D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION,
 		.maxImageDimension3d = D3D12_REQ_TEXTURE3D_U_V_OR_W_DIMENSION,
-		.timestampPeriod = 1.0F,
+		.timestampPeriod = myAllocator->timestampPeriod,
 		.drawIndirectCount = true,
 		.drawIndirectCountEmulated = false,
 		.rayQuery = false,

@@ -22,6 +22,7 @@
 #include <format>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -46,6 +47,8 @@ void Release(T*& object) noexcept
 
 // a name for the debug layer's messages, PIX and DRED (UTF-8, as rhi's names are)
 void SetName(ID3D12Object* object, std::string_view name);
+// an object's name (SetName's), for messages
+[[nodiscard]] std::string GetName(ID3D12Object* object);
 
 // the instance: the DXGI factory, made with DXGI's debug layer where D3D12's is on (SPEEDO_GRAPHICS_VALIDATION_LEVEL, or
 // SPEEDO_D3D12_VALIDATE=1, which assettest's -Validate sets)
@@ -128,6 +131,23 @@ struct DescriptorPoolObject
 {
 	GpuDescriptorHeap resources; // CBV, SRV and UAV
 	GpuDescriptorHeap samplers;
+
+	// the sets' sampler tables, shared by the sets of the same samplers and counted: D3D12's shader visible samplers are
+	// 2048, and a set array's 16 copies of the main layout's 64 global samplers took 1024 of them each. a table's content
+	// is its samplers' descriptions (zeroed where a binding has none: no address mode is 0), not their descriptors' places
+	// in the cpu heap, which a sampler made after another's release takes again (rhitest's environment checks sampled
+	// with a released sampler's table). a table is the heap's for a content once, made at its first set
+	[[nodiscard]] uint32_t AcquireSamplerTable(ID3D12Device* device, std::span<const D3D12_SAMPLER_DESC> content); // kNone for none
+	void ReleaseSamplerTable(uint32_t offset) noexcept;
+
+	struct SamplerTable
+	{
+		std::vector<D3D12_SAMPLER_DESC> content;
+		uint32_t offset = GpuDescriptorHeap::kNone;
+		uint32_t references = 0;
+	};
+	std::mutex samplerTablesMutex;
+	std::vector<SamplerTable> samplerTables;
 };
 
 // the device's own state behind its allocator handle (Device::GetAllocator): D3D12MA's allocator and its pool of host
@@ -147,6 +167,8 @@ struct AllocatorObject
 	CpuDescriptorHeap depthStencils;
 	DescriptorPoolObject pool;
 	ID3D12CommandSignature* dispatchSignature = nullptr; // DispatchIndirect's
+	// nanoseconds a timestamp tick (the direct queue's frequency: the compute queue's is the same on the gpus measured)
+	float timestampPeriod = 1.0F;
 	// DrawIndexedIndirect's, by the commands' stride (rhi's commands are D3D12's arguments; a signature has its stride)
 	std::mutex signaturesMutex;
 	std::vector<std::pair<uint32_t, ID3D12CommandSignature*>> drawIndexedSignatures;
@@ -251,9 +273,10 @@ struct ShaderModuleObject
 {
 	std::string name; // the entry point's
 	std::vector<char> code; // specialization 0's
-	std::vector<std::pair<uint32_t, std::vector<char>>> specializations;
+	std::vector<std::pair<uint32_t, std::vector<char>>> specializations; // none where the entry point doesn't read it
 
-	// the DXIL of a specialization, failing hard where it wasn't compiled (the layout's configuration names the values)
+	// the DXIL of a specialization (specialization 0's where the entry point doesn't read the constant), failing hard where
+	// it wasn't compiled (the layout's configuration names the values)
 	[[nodiscard]] const std::vector<char>& Code(uint32_t specialization) const;
 };
 
@@ -261,6 +284,7 @@ struct ShaderModuleObject
 struct SamplerObject
 {
 	D3D12_CPU_DESCRIPTOR_HANDLE descriptor{};
+	D3D12_SAMPLER_DESC desc{}; // what it samples with: the sets' sampler tables' content (DescriptorPoolObject)
 };
 
 // a command pool: its queue's type, and its command buffers (see command.cpp)
@@ -268,6 +292,11 @@ struct CommandPoolObject
 {
 	ID3D12Device10* device = nullptr;
 	D3D12_COMMAND_LIST_TYPE type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+	// the pool's lists' executions: the queue signals submitted on done after executing them (Queue::Submit), and a reset
+	// waits for it (an allocator reset while its lists run is undefined: the debug layer's error 552). rhi's frames reset a
+	// pool once its frame is done, so the wait is rarely one
+	ID3D12Fence* done = nullptr;
+	uint64_t submitted = 0;
 };
 
 // a command buffer: a command allocator of its own and a command list (D3D12's allocators record one list at a time, and
@@ -279,6 +308,10 @@ struct CommandBufferObject
 	ID3D12GraphicsCommandList7* list = nullptr;
 	D3D12_COMMAND_LIST_TYPE type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 	AllocatorObject* device = nullptr; // the device's state (descriptor heaps, command signatures)
+	CommandPoolObject* pool = nullptr; // its pool's (whose fence its executions signal)
+	// a secondary's primary, into whose list it records (no allocator nor list of its own: its commands run where the
+	// primary executes it, CommandEncoder::ExecuteCommands, recorded there in turn as Metal's are)
+	CommandBufferObject* primary = nullptr;
 	bool recording = false;
 	// bound for the next dispatch or draw (none on the list until then)
 	PipelineObject* pipeline = nullptr;
@@ -297,7 +330,7 @@ struct CommandBufferObject
 	// what a pushed set took of the shader visible heaps, and the upload memory of UpdateBuffer and FillBuffer: freed when
 	// the pool is reset (the commands are done)
 	std::vector<std::pair<uint32_t, uint32_t>> pushedResources; // offset, count
-	std::vector<std::pair<uint32_t, uint32_t>> pushedSamplers;
+	std::vector<uint32_t> pushedSamplers; // sampler tables (DescriptorPoolObject::AcquireSamplerTable)
 	std::vector<D3D12MA::Allocation*> transients;
 	std::vector<ID3D12Resource*> transientResources;
 
@@ -306,6 +339,19 @@ struct CommandBufferObject
 	void PrepareDraw();
 	// the transients freed, for the command buffer's next use
 	void FreeTransients() noexcept;
+};
+
+// a query pool of timestamps: a query heap, each query resolved where it is written into a readback buffer of the
+// values, which a reset sets to kUnwritten (rhi's reads say which were written: a tick count never reaches it). a reset
+// recorded on a command buffer copies kUnwritten from an upload buffer of them
+struct QueryPoolObject
+{
+	static constexpr uint64_t kUnwritten = ~uint64_t{0};
+
+	ID3D12QueryHeap* heap = nullptr;
+	D3D12MA::Allocation* readback = nullptr;
+	uint64_t* values = nullptr; // the readback buffer, mapped
+	D3D12MA::Allocation* unwritten = nullptr;
 };
 
 // a fence: a D3D12 fence and the value it waits for
@@ -324,6 +370,9 @@ struct ImageObject
 	D3D12_RESOURCE_DIMENSION dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
 	D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE; // which views it takes
 	uint32_t levelCount = 1;
+	// its layout as recorded (TransitionImage's): D3D12's, which isn't always rhi's (a copy list's textures are in the
+	// common layout, the only one D3D12's copy queues take)
+	D3D12_BARRIER_LAYOUT layout = D3D12_BARRIER_LAYOUT_COMMON;
 };
 
 // an image view: its descriptors in the device's cpu heaps, those its image's usage allows (ptr 0: none)
@@ -335,6 +384,26 @@ struct ImageViewObject
 	D3D12_CPU_DESCRIPTOR_HANDLE renderTarget{};
 	D3D12_CPU_DESCRIPTOR_HANDLE depthStencil{};
 };
+
+// what an image view views (ImageViewCreateDesc's)
+struct ImageViewDesc
+{
+	Format format = Format::kUndefined;
+	ImageAspect aspectFlags{};
+	uint32_t levelCount = 0; // from baseLevel: 0 for the rest of the image's
+	std::array<ComponentSwizzle, 4> components{};
+	uint32_t baseLevel = 0;
+};
+
+// a view of an image (an ImageView's, or a render target's attachment, which gfx also samples and writes as Vulkan's
+// views allow): each descriptor the image's usage allows, made in the device's cpu heaps (image.cpp), and freed
+[[nodiscard]] ImageViewObject* NewImageView(AllocatorObject& allocator, ImageObject* image, const ImageViewDesc& desc);
+void DeleteImageView(AllocatorObject& allocator, ImageViewObject* view) noexcept;
+
+// an image's texture barrier on cmd's list to after, from its layout (TransitionImage tracks it), or with its contents
+// discarded (from an undefined layout): a copy list's to the common layout, whatever after is (D3D12's copy queues take
+// no other: the debug layer's error 1425)
+void TransitionImage(CommandBufferObject& cmd, ImageObject& image, D3D12_BARRIER_LAYOUT after, bool discard = false);
 
 // a texture barrier on cmd's list from one layout to another, every subresource (image.cpp: the work and accesses each
 // layout's, the list's type's alone); from an undefined layout the contents are discarded
