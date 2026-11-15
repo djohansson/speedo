@@ -105,7 +105,7 @@ std::string ShaderLoader::ParametersHash(const SlangConfiguration& config)
 	std::string params;
 	params.append("slang-");
 	params.append(SPEEDO_SLANG_VERSION); // slang's version (its port's), so upgrading it recompiles
-	params.append("|cache-v8"); // bump when the serialized ShaderSet layout changes, to invalidate stale caches
+	params.append("|cache-v9"); // bump when the serialized ShaderSet layout changes, to invalidate stale caches
 	params.append(std::format("|format-{}", std::to_underlying(config.format)));
 	params.append(config.ToString());
 	static constexpr size_t kSha2Size = 32;

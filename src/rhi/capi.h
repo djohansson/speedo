@@ -26,7 +26,8 @@ extern "C"
 enum GraphicsApi : uint8_t
 {
 	kVk = 0,
-	kMetal = 1, // macOS, beside Vulkan while the backend grows (see docs/backends-plan.md)
+	kMetal = 1, // macOS, beside Vulkan (see docs/backends-plan.md)
+	kD3D12 = 2, // Windows, beside Vulkan while the backend grows (see docs/backends-plan.md)
 };
 
 struct SourceLocationData

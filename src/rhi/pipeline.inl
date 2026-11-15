@@ -13,6 +13,9 @@
 #if defined(__OSX__)
 #include "metal/pipeline.inl"
 #endif
+#if defined(__WINDOWS__)
+#include "d3d12/pipeline.inl"
+#endif
 
 namespace rhi
 {

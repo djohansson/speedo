@@ -1,4 +1,5 @@
-// rhitest [shader dir]: rhi's compute work on each backend the build has (docs/backends-plan.md, steps 3 and 4), on a
+// rhitest [shader dir [backend...]]: rhi's compute work on each backend the build has, or those named (vulkan, metal,
+// d3d12; docs/backends-plan.md, steps 3 and 4), on a
 // headless RHI: a kernel (tools/rhitest.slang) writing each thread's index times 3 plus a push constant into a storage
 // buffer, dispatched twice (its set from the pool, then pushed), and an image kernel (tools/rhitestimage.slang) reading
 // an uploaded image loaded and sampled, writing a storage image and a buffer; each read back and checked. Vulkan's is
@@ -66,6 +67,15 @@ struct RhiTestImageConstants
 
 using Texel = std::array<float, 4>;
 
+// the shader binaries a backend takes
+template <GraphicsApi G>
+constexpr rhi::ShaderFormat kFormat =
+	G == kMetal ? rhi::ShaderFormat::kMsl : (G == kD3D12 ? rhi::ShaderFormat::kDxil : rhi::ShaderFormat::kSpirv16);
+
+// what a backend runs of the checks, while it grows (the D3D12 backend's steps, docs/backends-plan.md)
+template <GraphicsApi G>
+constexpr bool kRunsImages = G != kD3D12;
+
 template <GraphicsApi G>
 rhi::ShaderSet Compile(const std::filesystem::path& shaderDir, std::string_view file, const char* entryPoint)
 {
@@ -74,7 +84,7 @@ rhi::ShaderSet Compile(const std::filesystem::path& shaderDir, std::string_view 
 		.entryPoints = {{entryPoint, SLANG_STAGE_COMPUTE}},
 		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 	};
-	config.format = G == kMetal ? rhi::ShaderFormat::kMsl : rhi::ShaderFormat::kSpirv16;
+	config.format = kFormat<G>;
 	return gfx::ShaderLoader::Compile(shaderDir / file, config, {shaderDir}, std::nullopt);
 }
 
@@ -349,7 +359,7 @@ std::vector<EnvironmentOutput> RunEnvironment(const std::filesystem::path& shade
 			},
 		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 	};
-	config.format = G == kMetal ? ShaderFormat::kMsl : ShaderFormat::kSpirv16;
+	config.format = kFormat<G>;
 	auto layout = pipeline.CreateLayout(
 		"RhiTestEnvironment",
 		gfx::ShaderLoader::Compile(gfxShaderDir / "environment.slang", config, {gfxShaderDir}, std::nullopt),
@@ -547,7 +557,7 @@ DrawPixels RunDraw(const std::filesystem::path& shaderDir, rhi::Device<G>& devic
 			.entryPoints = {{vertexEntryPoint, SLANG_STAGE_VERTEX}, {"FragmentRhiTestDraw", SLANG_STAGE_FRAGMENT}},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 		};
-		config.format = G == kMetal ? ShaderFormat::kMsl : ShaderFormat::kSpirv16;
+		config.format = kFormat<G>;
 		return pipeline.CreateLayout(name, gfx::ShaderLoader::Compile(shaderDir / "rhitestdraw.slang", config, {shaderDir}, std::nullopt));
 	};
 	auto layout = drawLayout("RhiTestDraw", "VertexRhiTestDraw");
@@ -756,6 +766,8 @@ RunResult Run(const char* backend, const std::filesystem::path& shaderDir)
 	});
 	auto& device = rhi.GetPrimaryDevice();
 	bool buffers = RunBuffers<G>(backend, shaderDir, device);
+	if constexpr (!kRunsImages<G>)
+		return {.passed = buffers, .environment = {}, .draw = {}};
 	bool images = RunImages<G>(backend, shaderDir, device);
 	auto environment = RunEnvironment<G>(shaderDir, device);
 	return {.passed = buffers && images, .environment = std::move(environment), .draw = RunDraw<G>(shaderDir, device)};
@@ -856,15 +868,76 @@ int main(int argc, char** argv)
 		std::println("{} msl: layouts {}, the kernel's MSL {} bytes", same ? "PASS" : "FAIL", bindings(msl), source.size());
 		if (!same)
 			return 1;
+#if defined(__WINDOWS__)
+		// and DXIL (its container's magic): the same layouts, its set in a register space of its own (1, its set's), the
+		// buffer an unordered access view at u0 of 4 byte elements, the push constants at b0 in space 0
+		auto dxil = Compile<kD3D12>(shaderDir, "rhitest.slang", "ComputeRhiTest");
+		const auto& code = std::get<0>(dxil.shaders.front());
+		const auto& set = dxil.layouts.at(kSet);
+		const auto& output = set.bindings.front();
+		const auto& pushConstants = dxil.layouts.at(0).pushConstants;
+		bool registers = set.slot == kSet && output.slot == 0 && output.writable && output.stride == sizeof(uint32_t) &&
+						 pushConstants && pushConstants->slot == 0 && pushConstants->space == 0;
+		same = bindings(spirv) == bindings(dxil) && code.size() > 4 && std::string_view(code.data(), 4) == "DXBC" && registers;
+		std::println(
+			"{} dxil: layouts {}, set {} in space {}, {} at register {} ({}, stride {}), push constants at b{} space {}, the kernel's DXIL {} bytes",
+			same ? "PASS" : "FAIL",
+			bindings(dxil),
+			kSet,
+			set.slot,
+			output.name,
+			output.slot,
+			output.writable ? "writable" : "read only",
+			output.stride,
+			pushConstants ? pushConstants->slot : rhi::kNoShaderSlot,
+			pushConstants ? pushConstants->space : rhi::kNoShaderSlot,
+			code.size());
+		if (!same)
+			return 1;
+#endif
 	}
 
-	auto vulkan = Run<kVk>("vulkan", shaderDir);
-	bool passed = vulkan.passed && CheckEnvironment("vulkan", vulkan.environment, nullptr, nullptr);
-	passed = CheckDrawPixels("vulkan", vulkan.draw, nullptr, nullptr) && passed;
+	// the backends the arguments after the shader dir name (vulkan, metal, d3d12), else every one the build has; another
+	// backend's checks against Vulkan's need Vulkan's run
+	auto runs = [argc, argv](std::string_view backend)
+	{
+		if (argc <= 2)
+			return true;
+		for (int argIt = 2; argIt < argc; argIt++)
+			if (backend == argv[argIt])
+				return true;
+		return false;
+	};
+	bool passed = true;
+	RunResult vulkan;
+	if (runs("vulkan"))
+	{
+		vulkan = Run<kVk>("vulkan", shaderDir);
+		passed = vulkan.passed && CheckEnvironment("vulkan", vulkan.environment, nullptr, nullptr);
+		passed = CheckDrawPixels("vulkan", vulkan.draw, nullptr, nullptr) && passed;
+	}
+	const bool reference = runs("vulkan");
 #if defined(__OSX__)
-	auto metal = Run<kMetal>("metal", shaderDir);
-	passed = metal.passed && CheckEnvironment("metal", metal.environment, &vulkan.environment, "vulkan") && passed;
-	passed = CheckDrawPixels("metal", metal.draw, &vulkan.draw, "vulkan") && passed;
+	if (runs("metal"))
+	{
+		auto metal = Run<kMetal>("metal", shaderDir);
+		passed = metal.passed && CheckEnvironment("metal", metal.environment, reference ? &vulkan.environment : nullptr, "vulkan") && passed;
+		passed = CheckDrawPixels("metal", metal.draw, reference ? &vulkan.draw : nullptr, "vulkan") && passed;
+	}
 #endif
+#if defined(__WINDOWS__)
+	// the D3D12 backend's: what it runs so far (kRunsImages)
+	if (runs("d3d12"))
+	{
+		auto d3d12 = Run<kD3D12>("d3d12", shaderDir);
+		passed = d3d12.passed && passed;
+		if constexpr (kRunsImages<kD3D12>)
+		{
+			passed = CheckEnvironment("d3d12", d3d12.environment, reference ? &vulkan.environment : nullptr, "vulkan") && passed;
+			passed = CheckDrawPixels("d3d12", d3d12.draw, reference ? &vulkan.draw : nullptr, "vulkan") && passed;
+		}
+	}
+#endif
+	(void)reference;
 	return passed ? 0 : 1;
 }

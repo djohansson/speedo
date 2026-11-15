@@ -16,6 +16,7 @@
 
 #include <xxhash.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -526,6 +527,213 @@ std::string AssignSlots(
 	return error;
 }
 
+// a buffer's data laid out by the code target as by the reflection target (DXIL's: a constant buffer's or the root
+// constants' packing, which keeps a vector within 16 bytes and an array's elements 16 bytes apart, and a structured
+// buffer's, which pads nothing: a float3 element is 12 bytes apart where std430 has 16), so that the backends read the
+// same bytes; mismatches named by their path are appended
+void CompareUniformLayout(
+	slang::TypeLayoutReflection* reflected, slang::TypeLayoutReflection* code, const std::string& path, std::vector<std::string>& mismatches)
+{
+	if (reflected == nullptr || code == nullptr)
+		return;
+	const auto reflectedSize = reflected->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
+	const auto codeSize = code->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM);
+	switch (reflected->getKind())
+	{
+	case slang::TypeReflection::Kind::Struct:
+		for (unsigned fieldIt = 0; fieldIt < reflected->getFieldCount() && fieldIt < code->getFieldCount(); fieldIt++)
+		{
+			auto* reflectedField = reflected->getFieldByIndex(fieldIt);
+			auto* codeField = code->getFieldByIndex(fieldIt);
+			const auto fieldPath = std::format("{}.{}", path, reflectedField->getName());
+			if (reflectedField->getOffset(SLANG_PARAMETER_CATEGORY_UNIFORM) != codeField->getOffset(SLANG_PARAMETER_CATEGORY_UNIFORM))
+				mismatches.push_back(std::format(
+					"{}: at {} in the code, {} reflected",
+					fieldPath,
+					codeField->getOffset(SLANG_PARAMETER_CATEGORY_UNIFORM),
+					reflectedField->getOffset(SLANG_PARAMETER_CATEGORY_UNIFORM)));
+			CompareUniformLayout(reflectedField->getTypeLayout(), codeField->getTypeLayout(), fieldPath, mismatches);
+		}
+		break;
+	case slang::TypeReflection::Kind::Array:
+		if (reflected->getElementStride(SLANG_PARAMETER_CATEGORY_UNIFORM) != code->getElementStride(SLANG_PARAMETER_CATEGORY_UNIFORM))
+			mismatches.push_back(std::format(
+				"{}: elements {} bytes apart in the code, {} reflected",
+				path,
+				code->getElementStride(SLANG_PARAMETER_CATEGORY_UNIFORM),
+				reflected->getElementStride(SLANG_PARAMETER_CATEGORY_UNIFORM)));
+		CompareUniformLayout(reflected->getElementTypeLayout(), code->getElementTypeLayout(), path + "[]", mismatches);
+		break;
+	case slang::TypeReflection::Kind::Scalar:
+	case slang::TypeReflection::Kind::Vector:
+	case slang::TypeReflection::Kind::Matrix:
+		if (reflectedSize != codeSize)
+			mismatches.push_back(std::format("{}: {} bytes in the code, {} reflected", path, codeSize, reflectedSize));
+		break;
+	default:
+		break;
+	}
+}
+
+// a parameter's register of a D3D register class, and the class, where it has one (none: a uniform, or a block)
+std::optional<std::pair<SlangParameterCategory, uint32_t>> D3DRegister(slang::VariableLayoutReflection* variable, size_t containerOffset = 0)
+{
+	for (unsigned categoryIt = 0; categoryIt < variable->getCategoryCount(); categoryIt++)
+	{
+		auto category = static_cast<SlangParameterCategory>(variable->getCategoryByIndex(categoryIt));
+		if (category == SLANG_PARAMETER_CATEGORY_SHADER_RESOURCE || category == SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS ||
+			category == SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER || category == SLANG_PARAMETER_CATEGORY_SAMPLER_STATE)
+			return std::make_pair(category, static_cast<uint32_t>(containerOffset + variable->getOffset(category)));
+	}
+	return std::nullopt;
+}
+
+// DXIL's registers (see rhi::kNoShaderSlot), from the code target's layout, whose parameters are the reflection target's in
+// the same order: each parameter block's register space (its set's slot), each of its fields' register (its binding's
+// slot, matched by name), a storage buffer's class (written where it's an unordered access view) and its element's size
+// in the code's layout (a structured buffer view's stride), the push constants' register and space, and the implicit
+// constant buffer of the global uniforms (the specialization constant's). every buffer's data laid out as the reflection
+// target lays it out (CompareUniformLayout). an error for a resource outside a parameter block, which has no set of its own
+std::string AssignRegisters(SlangCompileRequest* slangRequest, int codeTargetIndex, slang::ShaderReflection* reflection, rhi::ShaderSet& shaderSet)
+{
+	slang::IComponentType* program = nullptr;
+	if (SLANG_FAILED(spCompileRequest_getProgram(slangRequest, &program)) || program == nullptr)
+		return "failed to get the program's layout for its code target";
+	slang::ShaderReflection* codeLayout = program->getLayout(codeTargetIndex);
+	std::string error;
+	std::vector<std::string> mismatches;
+	if (codeLayout == nullptr || codeLayout->getParameterCount() != reflection->getParameterCount())
+		error = "the code target's layout has other parameters than the reflection target's";
+	auto& layouts = shaderSet.layouts;
+	for (unsigned parameterIt = 0; error.empty() && parameterIt < reflection->getParameterCount(); parameterIt++)
+	{
+		auto* parameter = reflection->getParameterByIndex(parameterIt);
+		auto* codeParameter = codeLayout->getParameterByIndex(parameterIt);
+		unsigned set = parameter->getBindingSpace();
+		bool pushConstants = false;
+		for (unsigned categoryIt = 0; categoryIt < parameter->getCategoryCount(); categoryIt++)
+		{
+			auto category = static_cast<SlangParameterCategory>(parameter->getCategoryByIndex(categoryIt));
+			if (category == SLANG_PARAMETER_CATEGORY_REGISTER_SPACE)
+				set = parameter->getBindingSpace(category);
+			else if (category == SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE)
+				set = static_cast<unsigned>(parameter->getOffset(category));
+			else if (category == SLANG_PARAMETER_CATEGORY_PUSH_CONSTANT_BUFFER)
+				pushConstants = true;
+		}
+		const bool parameterBlock = parameter->getType()->getKind() == slang::TypeReflection::Kind::ParameterBlock;
+		auto layoutIt = layouts.find(set);
+		if (pushConstants)
+		{
+			auto reg = D3DRegister(codeParameter);
+			if (!reg || reg->first != SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER)
+			{
+				error = std::format("{}: the push constants aren't a constant buffer in the code target's layout", parameter->getName());
+				continue;
+			}
+			if (layoutIt != layouts.end() && layoutIt->second.pushConstants)
+			{
+				layoutIt->second.pushConstants->slot = reg->second;
+				layoutIt->second.pushConstants->space = static_cast<uint32_t>(codeParameter->getBindingSpace(SLANG_PARAMETER_CATEGORY_CONSTANT_BUFFER));
+			}
+			CompareUniformLayout(
+				parameter->getTypeLayout()->getElementTypeLayout(),
+				codeParameter->getTypeLayout()->getElementTypeLayout(),
+				parameter->getName(),
+				mismatches);
+			continue;
+		}
+		if (!parameterBlock)
+		{
+			if (D3DRegister(codeParameter))
+				error = std::format("{}: a resource outside a parameter block (its set has no space in the code)", parameter->getName());
+			continue;
+		}
+		// the block's space, and its fields' registers in it (the element's offsets in the block, then each field's)
+		std::optional<uint32_t> space;
+		for (unsigned categoryIt = 0; categoryIt < codeParameter->getCategoryCount(); categoryIt++)
+		{
+			auto category = static_cast<SlangParameterCategory>(codeParameter->getCategoryByIndex(categoryIt));
+			if (category == SLANG_PARAMETER_CATEGORY_REGISTER_SPACE || category == SLANG_PARAMETER_CATEGORY_SUB_ELEMENT_REGISTER_SPACE)
+				space = static_cast<uint32_t>(codeParameter->getOffset(category));
+		}
+		if (!space)
+		{
+			error = std::format("{}: no register space in the code target's layout", parameter->getName());
+			continue;
+		}
+		if (layoutIt == layouts.end())
+			continue; // a set without bindings
+		auto& layout = layoutIt->second;
+		layout.slot = *space;
+		auto* reflectedElement = parameter->getTypeLayout()->getElementTypeLayout();
+		auto* codeElementVariable = codeParameter->getTypeLayout()->getElementVarLayout();
+		auto* codeElement = codeElementVariable->getTypeLayout();
+		if (codeElement->getSize(SLANG_PARAMETER_CATEGORY_UNIFORM) > 0)
+		{
+			error = std::format("{}: a parameter block with uniforms (an implicit constant buffer), which the D3D12 backend doesn't bind", parameter->getName());
+			continue;
+		}
+		for (unsigned fieldIt = 0; fieldIt < codeElement->getFieldCount(); fieldIt++)
+		{
+			auto* field = codeElement->getFieldByIndex(fieldIt);
+			std::string_view name(field->getName());
+			auto bindingIt = std::ranges::find(layout.bindings, name, &rhi::ShaderBinding::name);
+			if (bindingIt == layout.bindings.end())
+				continue; // nothing the reflection binds (unused)
+			std::optional<std::pair<SlangParameterCategory, uint32_t>> reg;
+			for (unsigned categoryIt = 0; categoryIt < field->getCategoryCount() && !reg; categoryIt++)
+			{
+				auto category = static_cast<SlangParameterCategory>(field->getCategoryByIndex(categoryIt));
+				reg = D3DRegister(field, codeElementVariable->getOffset(category));
+			}
+			if (!reg)
+			{
+				error = std::format("{}: no register in the code target's layout", name);
+				break;
+			}
+			bindingIt->slot = reg->second;
+			bindingIt->writable = reg->first == SLANG_PARAMETER_CATEGORY_UNORDERED_ACCESS;
+			// a buffer's element (through an array of buffers): its stride, and its data laid out as reflected
+			auto* codeType = field->getTypeLayout();
+			auto* reflectedType = fieldIt < reflectedElement->getFieldCount() ? reflectedElement->getFieldByIndex(fieldIt)->getTypeLayout() : nullptr;
+			if (codeType->getKind() == slang::TypeReflection::Kind::Array)
+			{
+				codeType = codeType->getElementTypeLayout();
+				reflectedType = reflectedType != nullptr ? reflectedType->getElementTypeLayout() : nullptr;
+			}
+			auto* codeData = codeType->getElementTypeLayout();
+			auto* reflectedData = reflectedType != nullptr ? reflectedType->getElementTypeLayout() : nullptr;
+			if (bindingIt->type == rhi::DescriptorType::kStorageBuffer && codeData != nullptr)
+			{
+				bindingIt->stride = static_cast<uint32_t>(codeData->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM));
+				if (reflectedData != nullptr && reflectedData->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM) != bindingIt->stride)
+					mismatches.push_back(std::format(
+						"{}[]: elements {} bytes apart in the code, {} reflected",
+						name,
+						bindingIt->stride,
+						reflectedData->getStride(SLANG_PARAMETER_CATEGORY_UNIFORM)));
+			}
+			if (bindingIt->type == rhi::DescriptorType::kStorageBuffer || bindingIt->type == rhi::DescriptorType::kUniformBuffer)
+				CompareUniformLayout(reflectedData, codeData, std::string(name), mismatches);
+		}
+	}
+	// the global uniforms' implicit constant buffer (the specialization constant's), in space 0
+	if (error.empty() && codeLayout->getGlobalConstantBufferSize() > 0)
+	{
+		shaderSet.globalsSlot = static_cast<uint32_t>(codeLayout->getGlobalConstantBufferBinding());
+		shaderSet.globalsSize = static_cast<uint32_t>(codeLayout->getGlobalConstantBufferSize());
+	}
+	program->release();
+	if (error.empty() && !mismatches.empty())
+	{
+		error = "buffers' data the DXIL target lays out otherwise than the reflection target (the backends would read other bytes: pad explicitly):";
+		for (const auto& mismatch : mismatches)
+			error += std::format("\n  {}", mismatch);
+	}
+	return error;
+}
+
 // one compile at a time (slang isn't thread safe, even across sessions: see gfx::ShaderLoader), and the session made at
 // the first, kept until the process ends
 std::mutex gMutex;
@@ -701,8 +909,12 @@ Response Compile(const Request& request)
 
 	// a format whose code binds each set and the push constants at a slot of its own (see rhi::kNoShaderSlot): each one's,
 	// from the code target's layout, whose parameters are the reflection target's in the same order
+	// (DXIL's registers, a set's space and a binding's register, and its buffers' layouts checked: AssignRegisters)
 	if (request.format != rhi::ShaderFormat::kSpirv16)
-		if (auto error = AssignSlots(slangRequest, codeTargetIndex, shaderReflection, shaderSet.layouts); !error.empty())
+		if (auto error = request.format == rhi::ShaderFormat::kDxil
+							 ? AssignRegisters(slangRequest, codeTargetIndex, shaderReflection, shaderSet)
+							 : AssignSlots(slangRequest, codeTargetIndex, shaderReflection, shaderSet.layouts);
+			!error.empty())
 		{
 			spDestroyCompileRequest(slangRequest);
 			response.diagnostics += error;

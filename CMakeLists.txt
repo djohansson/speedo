@@ -466,6 +466,34 @@ if(APPLE)
 		${SPEEDO_SOURCE_DIR}/rhi/metal/shader.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/swapchain.cpp)
 endif()
+# the D3D12 backend, beside Vulkan on Windows while it grows (docs/backends-plan.md): rhi's classes instantiated with its
+# types, as Metal's are on macOS
+if(WIN32)
+	list(APPEND RHI_SOURCE_FILES
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/backend.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/buffer.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/command.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/commandencoder.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/descriptorset.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/device.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/frame.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/instance.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/instantiate.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/memory.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/pipeline.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/pipelinedescriptors.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/pipelinelayout.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/querypool.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/queue.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/rendertarget.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/rhi.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/sampler.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/semaphore.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/shader.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/swapchain.cpp)
+	find_package(directx-headers CONFIG REQUIRED)
+	find_package(D3D12MemoryAllocator CONFIG REQUIRED)
+endif()
 add_library(rhi STATIC ${RHI_SOURCE_FILES})
 
 target_compile_features(
@@ -496,6 +524,17 @@ target_link_libraries(
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,QuartzCore>>
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,Foundation>>
 )
+if(WIN32)
+	# the D3D12 backend's: D3D12MA (which links d3d12, dxgi and dxguid) and DirectX-Headers' d3d12.h, whose newer
+	# interfaces' IIDs are DirectX-Guids'
+	target_link_libraries(
+		rhi
+		PRIVATE
+			GPUOpen::D3D12MemoryAllocator
+			Microsoft::DirectX-Headers
+			Microsoft::DirectX-Guids
+	)
+endif()
 
 ###############################################################################
 
@@ -869,6 +908,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 			VERBATIM
 		)
 	endforeach()
+	# and DXC, which slang loads to compile DXIL (the D3D12 backend's shaders, docs/backends-plan.md): dxcompiler and
+	# dxil, the validator it signs the DXIL with
+	add_custom_command(
+		TARGET shadercompiler POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SLANG_BIN_DIR}/dxcompiler.dll ${SLANG_BIN_DIR}/dxil.dll $<TARGET_FILE_DIR:shadercompiler>
+		VERBATIM
+	)
 endif()
 
 ###############################################################################

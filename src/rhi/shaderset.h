@@ -36,6 +36,16 @@ using EntryPoint = std::tuple<std::string, ShaderStage, std::optional<ComputeLau
 
 using Shader = std::tuple<ShaderBinary, EntryPoint>;
 
+// a set's, a binding's or the push constants' slot in the code, for a format whose code binds each at one of its own:
+// MSL's buffer index of a set or the push constants (an argument buffer's, or the push constants' bytes), which slang
+// numbers by the parameters' declaration order across the shader set's program, not by their sets (environment.slang's
+// parameter block is buffer 0, its push constants buffer 1); DXIL's register space of a set (a parameter block's own),
+// and register of a binding in its set's space, or of the push constants (in their space, ShaderPushConstants::space),
+// which slang numbers per register class in the fields' order, not by their bindings (an array takes its count of
+// registers, and a set's read only and writable resources are numbered apart: gfx's model instances' set has t0, t5,
+// t9, t14, t38). none for spir-v, whose sets are its descriptor sets and bindings
+inline constexpr uint32_t kNoShaderSlot = ~0U;
+
 // a resource binding of a descriptor set
 struct ShaderBinding
 {
@@ -45,13 +55,13 @@ struct ShaderBinding
 	ShaderStage stages{};
 	std::string name; // the shader variable, as Pipeline::SetDescriptorData takes it
 	uint64_t nameHash = 0; // XXH3_64bits of name
+	// DXIL's: its register (see kNoShaderSlot); a storage buffer's element's size in the code's layout (a structured
+	// buffer's view takes it), 0 for any other; and whether a storage buffer is written (an unordered access view, else a
+	// shader resource view: rhi's storage buffer type doesn't tell them apart, D3D12's views do)
+	uint32_t slot = kNoShaderSlot;
+	uint32_t stride = 0;
+	bool writable = false;
 };
-
-// a set's or the push constants' slot in the code, for a format whose code binds each at one of its own: MSL's buffer
-// index (an argument buffer's, or the push constants' bytes), which slang numbers by the parameters' declaration order
-// across the shader set's program, not by their sets (environment.slang's parameter block is buffer 0, its push
-// constants buffer 1). none for spir-v, whose sets are its descriptor sets
-inline constexpr uint32_t kNoShaderSlot = ~0U;
 
 struct ShaderPushConstants
 {
@@ -59,6 +69,7 @@ struct ShaderPushConstants
 	uint32_t offset = 0;
 	uint32_t size = 0;
 	uint32_t slot = kNoShaderSlot;
+	uint32_t space = 0; // DXIL's: their register's space
 };
 
 // a descriptor set's bindings, and the push constants declared with it
@@ -73,6 +84,11 @@ struct ShaderSet
 {
 	std::vector<Shader> shaders;
 	core::UnorderedMap<uint32_t, ShaderSetLayout> layouts; // by set index
+	// DXIL's: the implicit constant buffer of the code's global uniforms (slang makes the specialization constant, a
+	// [vk::constant_id] one, such a uniform: D3D12 has none, its backend sets it as a root constant): its register in space
+	// 0, and its size in bytes (0: none)
+	uint32_t globalsSlot = kNoShaderSlot;
+	uint32_t globalsSize = 0;
 };
 
 } // namespace rhi

@@ -101,6 +101,9 @@ struct PipelineGraphicsState;
 #if defined(__OSX__)
 #include "metal/pipelinestate.inl"
 #endif
+#if defined(__WINDOWS__)
+#include "d3d12/pipelinestate.inl"
+#endif
 
 namespace rhi
 {
