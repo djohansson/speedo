@@ -4,6 +4,7 @@
 #include <core/file.h>
 #include <core/math.h>
 #include <core/utils.h>
+#include <gfx/graphicsapi.h>
 #include <gfx/lens.h>
 #include <gfx/lightgizmos.h>
 #include <gfx/units.h>
@@ -1694,19 +1695,22 @@ void WindowedApplication::PrepareDraw()
 		if (Begin("About Speedo", &gShowAbout, ImGuiWindowFlags_AlwaysAutoResize))
 		{
 			CloseOnEscape(gShowAbout);
-			// the icon beside the text, as tall as its five lines
+			// the icon beside the text, as tall as its six lines
 			if (myAboutIcon)
 			{
-				const float side = GetTextLineHeightWithSpacing() * 5.0F; //NOLINT(readability-magic-numbers)
+				const float side = GetTextLineHeightWithSpacing() * 6.0F; //NOLINT(readability-magic-numbers)
 				ImGui::Image(myAboutIcon->GetTexRef(), ImVec2(side, side));
 				SameLine();
 			}
 			BeginGroup();
 			Text("Speedo %d.%d.%d", speedo::version::Major, speedo::version::Minor, speedo::version::Patch);
-			TextDisabled("A real-time renderer and asset viewer, built on Vulkan.");
+			TextDisabled("A real-time renderer and asset viewer, on Vulkan, Metal and D3D12.");
 			Separator();
 			auto name = device.GetName();
 			Text("GPU: %.*s", static_cast<int>(name.size()), name.data());
+			// the graphics api this copy of the client runs (SPEEDO_GRAPHICS_API, see client/capi.cpp)
+			constexpr const char* kApiName = gfx::kGraphicsApi == kD3D12 ? "D3D12" : gfx::kGraphicsApi == kMetal ? "Metal" : "Vulkan";
+			Text("Graphics API: %s", kApiName);
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			Text("Build: debug (validation on)");
 #elif (SPEEDO_PROFILING_LEVEL > 0)

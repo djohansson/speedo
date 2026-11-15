@@ -106,6 +106,13 @@ if ($validating)
 		}
 	}
 }
+# the clients' graphics api: SPEEDO_GRAPHICS_API's, or the client's default where it's unset (the platform's: d3d12 on
+# Windows, metal on macOS, vulkan elsewhere, see client/capi.cpp), set for them, so that what's validated below is theirs
+if (-not $env:SPEEDO_GRAPHICS_API)
+{
+	$env:SPEEDO_GRAPHICS_API = if ($IsWindows) { 'd3d12' } elseif ($IsMacOS) { 'metal' } else { 'vulkan' }
+}
+Write-Host "graphics api: $env:SPEEDO_GRAPHICS_API"
 # -Validate with the clients on Metal (SPEEDO_GRAPHICS_API=metal): Metal's api validation, any preset's, as
 # assettest.ps1's (not its shader validation, far too slow: see there), unless set
 if ($Validate -and $env:SPEEDO_GRAPHICS_API -eq 'metal' -and -not $env:MTL_DEBUG_LAYER)

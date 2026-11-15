@@ -118,6 +118,7 @@ jobs:
         if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+          SPEEDO_GRAPHICS_API: vulkan # lavapipe is a Vulkan driver (the client's default is the platform's fastest api)
           SPEEDO_GPU_HANG_TIMEOUT: '300'
         run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
 
@@ -230,6 +231,7 @@ jobs:
         if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+          SPEEDO_GRAPHICS_API: vulkan # lavapipe is a Vulkan driver (the client's default is the platform's fastest api)
           SPEEDO_GPU_HANG_TIMEOUT: '300'
         run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
 
@@ -354,6 +356,7 @@ jobs:
         if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+          SPEEDO_GRAPHICS_API: vulkan # lavapipe is a Vulkan driver (the client's default is the platform's fastest api)
           SPEEDO_GPU_HANG_TIMEOUT: '300'
         run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
 

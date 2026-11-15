@@ -105,13 +105,13 @@ The build puts `client`, the viewer, in the preset's build directory. Run it fro
 
 From a checkout the shaders compile from their sources at startup, through a shader compiler library the client loads only for that; an installed client gets them precompiled, and its package ships neither the compiler nor slang. A first launch compiles them in the background and has the driver create the pipelines, with the progress shown in a Loading window while the interface stays responsive; later launches take them from the profile's caches and start in seconds.
 
-On macOS, point the Vulkan loader at KosmicKrisp, which setup restores from the binary cache (with a workaround for a GPU restart in Apple's ray tracing, see [indirect lighting](docs/notes/indirect-lighting.md)):
+The client runs on the platform's fastest graphics API: D3D12 on Windows, Metal on macOS, Vulkan on Linux (`SPEEDO_GRAPHICS_API=vulkan`, `metal` or `d3d12` picks another; About > About Speedo shows the one running). For Vulkan on macOS, point the loader at KosmicKrisp, which setup restores from the binary cache (with a workaround for a GPU restart in Apple's ray tracing, see [indirect lighting](docs/notes/indirect-lighting.md)):
 
 ```sh
 export VK_DRIVER_FILES=$(ls $PWD/install/*/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json | head -1)
 ```
 
-On Windows and Linux, the client uses the system's GPU driver unless told otherwise. To render without a GPU, for reference renders or on a machine without one, choose lavapipe explicitly with the same variable (setup installs it on every platform; it is slow), e.g. `VK_DRIVER_FILES=$PWD/install/x64-linux-release/share/vulkan/icd.d/lvp_icd.x86_64.json` (on macOS `install/arm64-osx-release/share/vulkan/icd.d/lvp_icd.aarch64.json`).
+For Vulkan on Windows and Linux, the client uses the system's GPU driver unless told otherwise. To render without a GPU, for reference renders or on a machine without one, choose lavapipe explicitly with the same variable (setup installs it on every platform; it is slow), e.g. `VK_DRIVER_FILES=$PWD/install/x64-linux-release/share/vulkan/icd.d/lvp_icd.x86_64.json` (on macOS `install/arm64-osx-release/share/vulkan/icd.d/lvp_icd.aarch64.json`).
 
 For a debug build from a shell, also set `VK_LAYER_PATH=$PWD/install/<triplet>/share/vulkan/explicit_layer.d` so the validation layers are found. The VS Code launch configurations set the layer path, and on macOS the KosmicKrisp driver.
 
@@ -173,7 +173,7 @@ Debug and profile builds are instrumented with [Tracy](https://github.com/wolfpl
 |------|----------|
 | `src/core` | The task executor, memory pools, files, the application base. |
 | `src/platform` | The window system (headless too) and imgui's platform side. |
-| `src/rhi` | The graphics abstraction over Vulkan. |
+| `src/rhi` | The graphics abstraction over Vulkan, D3D12 and Metal. |
 | `src/gfx` | Everything above the rhi: importers, the scene, the renderer and frame graph, the shaders (Slang). |
 | `src/client`, `src/server` | The two programs. |
 | `src/tools` | `assettest`, `imagecompare`, `shaderprecompile`, the benchmarks (`filebench`, `taskbench`, `convergence`), and macOS's Metal repros (`src/tools/macos`). |

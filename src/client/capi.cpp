@@ -1,6 +1,6 @@
 // the client's C api (client/capi.h), the one part of the client compiled once: gfx and the client are compiled once per
 // graphics api the platform has, each copy in an inline namespace of its own (gfx/graphicsapi.h), and this runs the copy
-// SPEEDO_GRAPHICS_API names: vulkan (the default), metal (macOS's) or d3d12 (Windows')
+// SPEEDO_GRAPHICS_API names: vulkan, metal (macOS's, its default) or d3d12 (Windows', its default)
 #include <client/capi.h>
 
 #include <core/assert.h>
@@ -53,23 +53,26 @@ constexpr Copy kD3D12{.create = d3d12::Create, .main = d3d12::Main, .destroy = d
 
 const Copy* gCopy = nullptr; // the one running, from ClientCreate to ClientDestroy
 
-// the copy SPEEDO_GRAPHICS_API names: vulkan unless it says metal, which only macOS has, or d3d12, which only Windows has
-// (a hard failure elsewhere, and for any other name)
+// the copy SPEEDO_GRAPHICS_API names: vulkan, metal (only macOS has it) or d3d12 (only Windows has it), a hard failure
+// elsewhere and for any other name; unset, the platform's fastest (the user's call, 2026-11-15): D3D12 on Windows
+// (measured against Vulkan on the same gpu, docs/backends-plan.md), Metal on macOS (to measure), Vulkan elsewhere
 const Copy& Chosen()
 {
 	const char* value = std::getenv("SPEEDO_GRAPHICS_API");
 	const std::string_view api = value != nullptr ? value : "";
-	if (api.empty() || api == "vulkan")
+	if (api == "vulkan")
 		return kVulkan;
 #if defined(__APPLE__)
-	if (api == "metal")
+	if (api.empty() || api == "metal")
 		return kMetal;
 	ENSUREF(false, "SPEEDO_GRAPHICS_API={}: vulkan or metal", api);
 #elif defined(_WIN32)
-	if (api == "d3d12")
+	if (api.empty() || api == "d3d12")
 		return kD3D12;
 	ENSUREF(false, "SPEEDO_GRAPHICS_API={}: vulkan or d3d12", api);
 #else
+	if (api.empty())
+		return kVulkan;
 	ENSUREF(false, "SPEEDO_GRAPHICS_API={}: vulkan (metal is macOS's, d3d12 Windows')", api);
 #endif
 	return kVulkan;
