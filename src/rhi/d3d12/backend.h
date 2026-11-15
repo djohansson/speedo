@@ -70,6 +70,7 @@ struct InstanceObject
 {
 	IDXGIFactory6* factory = nullptr;
 	bool validation = false; // D3D12's debug layer enabled, before the devices were made
+	HMODULE warp = nullptr; // a d3d10warp.dll SPEEDO_D3D12_WARP named, loaded before D3D12 loads its own (see instance.cpp)
 };
 
 // a heap of descriptors only the cpu sees, a descriptor at a time from a free list: image views', samplers', render

@@ -43,7 +43,7 @@ RHIRegistration<kD3D12>::~RHIRegistration()
 static std::vector<Device<kD3D12>> DetectAndCreateDevices(Instance<kD3D12>& instance)
 {
 	const auto& physicalDevices = instance.GetPhysicalDevices();
-	ENSUREF(!physicalDevices.empty(), "Failed to find a D3D12 adapter (feature level 12.1; WARP with SPEEDO_D3D12_WARP=1)");
+	ENSUREF(!physicalDevices.empty(), "Failed to find a D3D12 adapter (feature level 12.1; WARP with SPEEDO_D3D12_WARP=1 or a d3d10warp.dll's path)");
 
 	std::vector<Device<kD3D12>> devices;
 	devices.emplace_back(

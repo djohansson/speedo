@@ -2,7 +2,7 @@
 # -Client (the importers, images, environments, the lens check) on the profile build, and the client itself, headless and
 # validated on lavapipe, mesa's cpu Vulkan driver, in scripts/visualtest.ps1's checks (the user's asks: Linux and Windows
 # from 2026-11-10, macOS from 2026-11-13; the client's full sets stay too heavy for a hosted runner's software Vulkan, the
-# user's call of 2026-11-06). macOS, Windows and
+# user's call of 2026-11-06), and on Windows on D3D12 too, on WARP (2026-11-15, not blocking yet). macOS, Windows and
 # Linux, which the shared vcpkg binary cache (docs/notes/build.md) holds packages for: setup restores them, LLVM too, rather
 # than build them on a hosted runner. A job per platform builds the three configurations in turn: their packages are the
 # same (each holds its debug and release builds), and a job per configuration would restore them, about 2 GB, three times.
@@ -233,6 +233,25 @@ jobs:
           SPEEDO_GPU_HANG_TIMEOUT: '300'
         run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
 
+      # the client on D3D12, on WARP, Microsoft's cpu driver, its NuGet package's (scripts/fetch-warp.ps1: newer than
+      # the runner's own, which spends minutes of each client's start compiling shaders on one core and crashes with ray
+      # queries; see "WARP from Microsoft's NuGet package" in docs/backends-plan.md), ray queries on. furnace left out
+      # (WARP's light is 0.05 stops under its reference, the gpus' within it: not looked into yet) and upscaling (582 s
+      # of the 20 minutes the rest took on 32 cores). not blocking until its times on the runner are known
+      - name: Visual checks (D3D12 on WARP)
+        id: warp
+        if: ${{ !cancelled() && steps.profile.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+          SPEEDO_GRAPHICS_API: d3d12
+          SPEEDO_RAY_QUERY: '1'
+          SPEEDO_GPU_HANG_TIMEOUT: '1800'
+        run: |
+          $env:SPEEDO_D3D12_WARP = & scripts/fetch-warp.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest-warp" -TimeoutSeconds 1800 -Only traced-shadows, shadow-atlas, emitters, ray-queries
+
       - name: Keep list
         if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
         run: ./scripts/prune-binary-cache.ps1 -WriteKeepList "$env:RUNNER_TEMP/abis-windows.txt"
@@ -245,7 +264,7 @@ jobs:
           retention-days: 1
 
       - name: Upload logs
-        if: failure()
+        if: ${{ failure() || steps.warp.outcome == 'failure' }}
         uses: actions/upload-artifact@v7
         with:
           name: logs-windows
@@ -253,6 +272,7 @@ jobs:
             temp/vcpkg/buildtrees/*/*.log
             ${{ runner.temp }}/assettest/logs
             ${{ runner.temp }}/visualtest
+            ${{ runner.temp }}/visualtest-warp
           if-no-files-found: ignore
 
   linux:

@@ -1,7 +1,8 @@
 // the D3D12 backend's instance: DXGI's factory, and the adapters as physical devices (each an IDXGIAdapter4 it holds), the
-// highest performance first; WARP, Microsoft's software adapter, alone where SPEEDO_D3D12_WARP=1 (lavapipe's role on
-// Windows: CI's runners have no gpu). D3D12's debug layer is enabled before any device is made, where validating: a
-// debug build (SPEEDO_GRAPHICS_VALIDATION_LEVEL), or SPEEDO_D3D12_VALIDATION=1 (assettest's -Validate on D3D12)
+// highest performance first; WARP, Microsoft's software adapter, alone where SPEEDO_D3D12_WARP is set (1, or a
+// d3d10warp.dll's path: lavapipe's role on Windows, CI's runners have no gpu). D3D12's debug layer is enabled before
+// any device is made, where validating: a debug build (SPEEDO_GRAPHICS_VALIDATION_LEVEL), or SPEEDO_D3D12_VALIDATION=1
+// (assettest's -Validate on D3D12)
 #include <rhi/d3d12/backend.h>
 
 #include <rhi/instance.h>
@@ -72,7 +73,20 @@ Instance<kD3D12>::Instance(InstanceCreateDesc<kD3D12>&& desc)
 		CreateDXGIFactory2(object->validation ? DXGI_CREATE_FACTORY_DEBUG : 0U, IID_PPV_ARGS(&object->factory)), "CreateDXGIFactory2");
 	myInstance = object;
 
-	const bool warp = instance::EnvironmentIs("SPEEDO_D3D12_WARP", "1");
+	// WARP: Windows' own (SPEEDO_D3D12_WARP=1), or a d3d10warp.dll of Microsoft's NuGet package's (its path, see
+	// scripts/fetch-warp.ps1: newer than Windows', compiling the shaders at a pipeline's creation on every core where
+	// Windows' 10.0.26100 compiles each at its first dispatch on one, minutes the client's start). loaded here and kept
+	// until the instance goes, so that D3D12, loading d3d10warp.dll by its name, finds it loaded (a module of that name
+	// already in the process is the one it gets)
+	const char* warpSetting = std::getenv("SPEEDO_D3D12_WARP");
+	const std::string_view warpValue = warpSetting != nullptr ? warpSetting : "";
+	const bool warp = !warpValue.empty() && warpValue != "0";
+	if (warp && warpValue != "1")
+	{
+		object->warp = LoadLibraryExA(warpSetting, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+		ENSUREF(object->warp != nullptr, "SPEEDO_D3D12_WARP={}: not a d3d10warp.dll that loads (error {})", warpValue, GetLastError());
+		std::println("D3D12: WARP from {}", warpValue);
+	}
 	IDXGIAdapter4* adapter = nullptr;
 	for (UINT adapterIt = 0;
 		 object->factory->EnumAdapterByGpuPreference(adapterIt, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)) !=
@@ -103,6 +117,8 @@ Instance<kD3D12>::~Instance()
 	if (myInstance != nullptr)
 	{
 		d3d12::Release(myInstance->factory);
+		if (myInstance->warp != nullptr)
+			FreeLibrary(myInstance->warp);
 		delete myInstance;
 	}
 }

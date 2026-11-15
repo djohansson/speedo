@@ -784,6 +784,17 @@ first). What it found on the way:
   checks (`visualtest.ps1`, on lavapipe as the profile build's) on the sanitizer builds too, so that what asan, ubsan
   and tsan report about the client's frames is caught as soon as it is pushed.
 
+**The client on D3D12, on WARP** (2026-11-15, the backends plan's D3D12 step 7): the Windows job runs the visual checks
+a second time on D3D12, on WARP, Microsoft's cpu driver, from its NuGet package (`scripts/fetch-warp.ps1`, its version
+and sha256 pinned, its path in `SPEEDO_D3D12_WARP`; testing only by its license, so never in a package: the install
+takes the client's imports alone, which it isn't), ray queries on. Not the runner's own WARP: Windows' 10.0.26100
+compiles each shader at its first dispatch on one core (about 6 minutes of every client's start here) and crashes with
+ray queries. The package's needs DXC's sinking and global value numbering off around a bug of its compiler's (1.0.18
+and later: `kDxcOptions` in gfx/shadercompiler.h; the repro in docs/warp-repro). The checks but furnace (WARP's light
+0.05 stops under the reference, not looked into yet) and upscaling (582 s of the 20 minutes the rest took on this
+machine's 32 cores), not blocking (`continue-on-error`, its logs uploaded where it fails) until its times on a 4-core
+runner are known; then decide what it runs and whether it blocks.
+
 ## Releases
 
 The client runs from a checkout or from an install (the user's ask, 2026-11-07: releases on GitHub, packaged for each
