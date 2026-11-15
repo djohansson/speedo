@@ -64,6 +64,7 @@
         "cppzmq",
         "cpptrace",
         "libdeflate",
+        "llvm-libc-math",
         {
           "name": "mimalloc",
           "features": [

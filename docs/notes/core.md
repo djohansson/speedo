@@ -1,8 +1,8 @@
 # Core: the conventions behind CLAUDE.md's rules
 
 A note of CLAUDE.md (its index names it): what its "Code" section says in a line each, in full, with what each
-cost to learn: the application's lifecycle, glm, portability, counts, capacity limits, containers, file I/O, locks and
-the task system.
+cost to learn: the application's lifecycle, glm, floating point, portability, counts, capacity limits, containers,
+file I/O, locks and the task system.
 
 ## Application lifecycle: create and destroy while registered in `gApplication`
 
@@ -65,6 +65,35 @@ vectors are anonymous unions, which zpp::bits can't serialize by members), and t
 If a glm heavy loop ever shows in a profile, use `glm::aligned_vec4`/`aligned_mat4` there. Never `-march=native`: it
 ties the binaries to the build machine's cpu, and what a machine builds is shared (packages, the binary cache,
 FASTBuild's cache).
+
+## Floating point: the same on every platform
+
+The user's call (2026-11-14): floating point behaves the same on every platform, consistent over fast. Three layers:
+
+- The compiler's: IEEE 754's, as the source writes it, in every configuration, the project's and the packages'
+  (`-ffp-contract=off -fno-math-errno`, no `-ffast-math`; what fast math did and what it costs, docs/notes/build.md).
+  `std::fma` where a fused multiply-add is meant.
+- The math functions: `core::Sin`, `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, `Exp`, `Exp2`, `Log2`, `Log10`, `Pow`
+  and `Cbrt` (`core/math.h`, float and double), LLVM libc's (the `llvm-libc-math` port: `libc/shared/math`, LLVM 23's
+  header-only interface to them, from the llvm port's source at its version), which are correctly rounded: the one
+  right answer, so every platform agrees. The platforms' own (`std::sin` and the rest: Apple's libm, glibc's,
+  Windows' UCRT) each round some inputs their own way; against the correctly rounded result, Apple's double `tan`
+  differed on 41% of a million random inputs, `acos` 15%, `cbrt` 8%, `sin` and `cos` 4%, `pow` 0.5%; its float `tan`
+  7.5%, `acos` 1.1%. `core/math.cpp` includes each function's header alone (all of `shared/math.h` is 1086 headers) and
+  configures them as the flags have it: no errno, no exception flags, round to nearest only (nothing sets another
+  mode; it saves a query each call), not `LIBC_MATH_SKIP_ACCURATE_PASS`, which is what rounds them correctly. They cost
+  a few nanoseconds against Apple's (M4 Pro: double `sin` 4.6 ns against 2.2, `tan` 6.0 against 3.0, float `pow` 5.2
+  against 2.8; double `pow` 4.4 against 7.4, float `sin` and `exp2` the same), which the few hundred to thousand calls
+  a frame or an import makes don't show. sqrt, fma, floor, fmod and the rest IEEE 754 rounds exactly: `std::`'s.
+- glm's functions that call `std::`'s: `core/glm_extra.h`'s `Perspective` (glm's `perspectiveRH_NO`), `Rotation`
+  (`rotate` of the identity), `AngleAxis` and `Slerp`, glm's formulas with core's functions; a vector's `exp` by its
+  components.
+
+What still takes a platform's math functions: the packages' own code (none of what the client computes with:
+tinyobjloader parses a number with `pow(10, -n)` beyond its table of digits and `pow(5, e)` for an exponent, exact for
+the integers OBJ files have; stb_image's `stbi_loadf` of an 8 bit image takes `pow`, which `gfx::environment::Import`
+replaces with `core::Pow`), and the cpu copies of the environment kernels assettest checks the gpu's against (slang's
+C++ prelude calls `::sinf` and the rest directly, no macro to point elsewhere).
 
 ## Portable by default, measured on one
 

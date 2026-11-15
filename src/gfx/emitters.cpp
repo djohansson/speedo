@@ -4,6 +4,8 @@
 #include <gfx/sceneanimation.h>
 
 #include <core/assert.h>
+#include <core/glm_extra.h>
+#include <core/math.h>
 #include <core/profiling.h>
 
 #include <algorithm>
@@ -57,9 +59,9 @@ struct Bounds
 static void UniteCones(const glm::vec3& axisA, float cosineA, const glm::vec3& axisB, float cosineB, glm::vec3& axis, float& cosine)
 {
 	constexpr float kPi = std::numbers::pi_v<float>;
-	float angleA = std::acos(std::clamp(cosineA, -1.0F, 1.0F));
-	float angleB = std::acos(std::clamp(cosineB, -1.0F, 1.0F));
-	float between = std::acos(std::clamp(glm::dot(axisA, axisB), -1.0F, 1.0F));
+	float angleA = core::Acos(std::clamp(cosineA, -1.0F, 1.0F));
+	float angleB = core::Acos(std::clamp(cosineB, -1.0F, 1.0F));
+	float between = core::Acos(std::clamp(glm::dot(axisA, axisB), -1.0F, 1.0F));
 	if (std::min(between + angleB, kPi) <= angleA)
 	{
 		axis = axisA;
@@ -80,8 +82,8 @@ static void UniteCones(const glm::vec3& axisA, float cosineA, const glm::vec3& a
 		cosine = -1.0F;
 		return;
 	}
-	axis = glm::normalize(glm::angleAxis(angle - angleA, glm::normalize(across)) * axisA);
-	cosine = std::cos(angle);
+	axis = glm::normalize(core::AngleAxis(angle - angleA, glm::normalize(across)) * axisA);
+	cosine = core::Cos(angle);
 }
 
 static Bounds Unite(const Bounds& a, const Bounds& b)
@@ -108,11 +110,11 @@ static double Cost(const Bounds& bounds, const glm::vec3& extent, int axis)
 	if (!(bounds.power > 0.0))
 		return 0.0;
 	double cosine = bounds.doubleSided ? -1.0 : bounds.cosine;
-	double angle = std::acos(std::clamp(cosine, -1.0, 1.0));
+	double angle = core::Acos(std::clamp(cosine, -1.0, 1.0));
 	double widened = std::min(angle + (kPi / 2.0), kPi);
 	double sine = std::sqrt(std::max(1.0 - (cosine * cosine), 0.0));
 	double solidAngle = (2.0 * kPi * (1.0 - cosine)) +
-						(kPi / 2.0 * ((2.0 * widened * sine) - std::cos(angle - (2.0 * widened)) - (2.0 * angle * sine) + cosine));
+						(kPi / 2.0 * ((2.0 * widened * sine) - core::Cos(angle - (2.0 * widened)) - (2.0 * angle * sine) + cosine));
 	glm::dvec3 size = glm::max(glm::dvec3(bounds.high - bounds.low), glm::dvec3(0.0));
 	double area = 2.0 * ((size.x * size.y) + (size.y * size.z) + (size.z * size.x));
 	double longest = std::max({extent.x, extent.y, extent.z});

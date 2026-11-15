@@ -5,6 +5,7 @@
 
 #include <core/assert.h>
 #include <core/file.h>
+#include <core/math.h>
 #include <core/profiling.h>
 
 #include <glm/glm.hpp>
@@ -4753,7 +4754,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 								{ return (0.2126F * light.intensity[0]) + (0.7152F * light.intensity[1]) + (0.0722F * light.intensity[2]); };
 								float ratio = (luminance(now) + 1e-6F) / (luminance(last) + 1e-6F);
 								return now.type == last.type && std::ranges::equal(now.positionRange, last.positionRange) && now.size == last.size &&
-									   glm::dot(glm::make_vec3(now.direction), glm::make_vec3(last.direction)) >= std::cos(glm::radians(kTurnDegrees)) &&
+									   glm::dot(glm::make_vec3(now.direction), glm::make_vec3(last.direction)) >= core::Cos(glm::radians(kTurnDegrees)) &&
 									   ratio <= kDimRatio && ratio >= 1.0F / kDimRatio;
 							});
 	if (myGiLightsGradual)
@@ -5175,7 +5176,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// what a probe keeps of what it held an update: the blend a frame (by time, see myGiTimeBased: at 60 frames a second)
 		// raised to the frames since the clip was last updated, so that a clip updated every other frame follows a change in
 		// as long as one updated every frame
-		auto hysteresis = static_cast<float>(std::pow(static_cast<double>(myGiHysteresis), clock.frames));
+		auto hysteresis = static_cast<float>(core::Pow(static_cast<double>(myGiHysteresis), clock.frames));
 		if (myGiTimeBased)
 		{
 			constexpr float kMinHysteresis = 0.8F;

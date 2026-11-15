@@ -1,11 +1,12 @@
 #pragma once
 
+#include <core/math.h>
+
 #include <rhi/vocabulary.h>
 
 #include <glm/vec2.hpp>
 
 #include <array>
-#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -40,8 +41,8 @@ struct TextureRef
 // KHR_texture_transform's offset, rotation (radians) and scale as TextureRef::transform: translation * rotation * scale
 [[nodiscard]] inline std::array<float, 6> TextureTransform(const glm::vec2& offset, float rotation, const glm::vec2& scale)
 {
-	auto c = std::cos(rotation);
-	auto s = std::sin(rotation);
+	auto c = core::Cos(rotation);
+	auto s = core::Sin(rotation);
 	return {c * scale.x, s * scale.y, offset.x, -s * scale.x, c * scale.y, offset.y};
 }
 

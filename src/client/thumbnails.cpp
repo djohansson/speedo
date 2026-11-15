@@ -2,6 +2,7 @@
 
 #include <core/application.h>
 #include <core/file.h>
+#include <core/math.h>
 #include <core/profiling.h>
 #include <core/task.h>
 
@@ -173,7 +174,7 @@ struct CaptureId
 [[nodiscard]] uint8_t ToSrgb8(float linear)
 {
 	linear = std::clamp(linear, 0.0F, 1.0F);
-	float encoded = linear <= 0.0031308F ? 12.92F * linear : (1.055F * std::pow(linear, 1.0F / 2.4F)) - 0.055F;
+	float encoded = linear <= 0.0031308F ? 12.92F * linear : (1.055F * core::Pow(linear, 1.0F / 2.4F)) - 0.055F;
 	return static_cast<uint8_t>(std::lround(encoded * 255.0F));
 }
 

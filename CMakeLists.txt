@@ -211,6 +211,9 @@ target_include_directories(
 		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
 		$<INSTALL_INTERFACE:include/speedo>
 )
+# LLVM libc's math functions (the llvm-libc-math port), by their paths from libc/ as they include each other: for
+# core/math.cpp, the only source that includes them
+target_include_directories(core SYSTEM PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include/llvm-libc-math)
 target_link_libraries(
 	core
 	PRIVATE

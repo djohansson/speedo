@@ -3,6 +3,7 @@
 #include <gfx/shaders/capi.h>
 
 #include <core/file.h>
+#include <core/math.h>
 #include <core/profiling.h>
 
 #include <algorithm>
@@ -36,13 +37,13 @@ glm::vec3 Direction(float u, float v)
 {
 	float phi = (u - 0.5F) * 2.0F * kPi;
 	float theta = v * kPi;
-	return {std::sin(theta) * std::sin(phi), std::cos(theta), -std::sin(theta) * std::cos(phi)};
+	return {core::Sin(theta) * core::Sin(phi), core::Cos(theta), -core::Sin(theta) * core::Cos(phi)};
 }
 
 // the sine of a panorama row's polar angle: its texels' solid angle relative to the equator's
 float RowWeight(uint32_t y, uint32_t height)
 {
-	return std::sin((static_cast<float>(y) + 0.5F) / static_cast<float>(height) * kPi);
+	return core::Sin((static_cast<float>(y) + 0.5F) / static_cast<float>(height) * kPi);
 }
 
 // the real spherical harmonics basis, bands 0 to 2
@@ -78,11 +79,28 @@ std::expected<Panorama, std::string> Import(std::span<const std::byte> data, std
 	int width = 0;
 	int height = 0;
 	int channelCount = 0;
-	std::unique_ptr<float, decltype(&stbi_image_free)> pixels(
-		stbi_loadf_from_memory(
-			reinterpret_cast<const stbi_uc*>(data.data()), static_cast<int>(data.size()), &width, &height, &channelCount, 3),
-		&stbi_image_free);
-	if (!pixels)
+	const auto* bytes = reinterpret_cast<const stbi_uc*>(data.data());
+	const int byteCount = static_cast<int>(data.size());
+	std::unique_ptr<float, decltype(&stbi_image_free)> hdrPixels(nullptr, &stbi_image_free);
+	std::vector<float> ldrPixels;
+	const float* pixels = nullptr;
+	if (stbi_is_hdr_from_memory(bytes, byteCount) != 0)
+	{
+		hdrPixels.reset(stbi_loadf_from_memory(bytes, byteCount, &width, &height, &channelCount, 3));
+		pixels = hdrPixels.get();
+	}
+	else if (std::unique_ptr<stbi_uc, decltype(&stbi_image_free)> levels(
+				 stbi_load_from_memory(bytes, byteCount, &width, &height, &channelCount, 3), &stbi_image_free);
+			 levels)
+	{
+		// an 8 bit panorama's levels made linear as stb_image's stbi_loadf would (gamma 2.2), with core's pow rather than
+		// the platform's it calls (see core/math.h)
+		ldrPixels.resize(static_cast<size_t>(width) * height * 3);
+		for (size_t valueIt = 0; valueIt < ldrPixels.size(); valueIt++)
+			ldrPixels[valueIt] = core::Pow(static_cast<float>(levels.get()[valueIt]) / 255.0F, 2.2F);
+		pixels = ldrPixels.data();
+	}
+	if (pixels == nullptr)
 		return std::unexpected(std::format("{}: can't read the panorama: {}", name, stbi_failure_reason()));
 	if (width != 2 * height)
 		return std::unexpected(std::format("{}: a panorama is twice as wide as high, not {}x{}", name, width, height));
@@ -94,13 +112,13 @@ std::expected<Panorama, std::string> Import(std::span<const std::byte> data, std
 		panorama.height = maxWidth / 2;
 		panorama.rgb.resize(static_cast<size_t>(panorama.width) * panorama.height * 3);
 		if (stbir_resize_float_linear(
-				pixels.get(), width, height, 0, panorama.rgb.data(), static_cast<int>(panorama.width), static_cast<int>(panorama.height), 0,
+				pixels, width, height, 0, panorama.rgb.data(), static_cast<int>(panorama.width), static_cast<int>(panorama.height), 0,
 				STBIR_RGB) == nullptr)
 			return std::unexpected(std::format("{}: can't scale the panorama", name));
 	}
 	else
 	{
-		panorama.rgb.assign(pixels.get(), pixels.get() + (static_cast<size_t>(width) * height * 3));
+		panorama.rgb.assign(pixels, pixels + (static_cast<size_t>(width) * height * 3));
 	}
 
 	// infinities (some files have them for the sun) and negatives would spread through the filtering
@@ -113,11 +131,11 @@ std::expected<Panorama, std::string> Import(std::span<const std::byte> data, std
 glm::vec3 SunDirection(float latitudeDegrees, float dayOfYear, float timeOfDay)
 {
 	float latitude = glm::radians(latitudeDegrees);
-	float declination = glm::radians(-23.44F) * std::cos(2.0F * detail::kPi / 365.0F * (dayOfYear + 10.0F));
+	float declination = glm::radians(-23.44F) * core::Cos(2.0F * detail::kPi / 365.0F * (dayOfYear + 10.0F));
 	float hourAngle = glm::radians(15.0F * (timeOfDay - 12.0F));
-	float east = -std::cos(declination) * std::sin(hourAngle);
-	float north = (std::cos(latitude) * std::sin(declination)) - (std::sin(latitude) * std::cos(declination) * std::cos(hourAngle));
-	float up = (std::sin(latitude) * std::sin(declination)) + (std::cos(latitude) * std::cos(declination) * std::cos(hourAngle));
+	float east = -core::Cos(declination) * core::Sin(hourAngle);
+	float north = (core::Cos(latitude) * core::Sin(declination)) - (core::Sin(latitude) * core::Cos(declination) * core::Cos(hourAngle));
+	float up = (core::Sin(latitude) * core::Sin(declination)) + (core::Cos(latitude) * core::Cos(declination) * core::Cos(hourAngle));
 	return glm::normalize(glm::vec3(east, up, -north));
 }
 
@@ -154,15 +172,15 @@ glm::vec3 SunTransmittance(const glm::vec3& direction, float aerosols)
 	for (int stepIt = 0; stepIt < kStepCount; stepIt++)
 	{
 		double altitude = glm::length(origin + (d * ((stepIt + 0.5) * step))) - kBottom;
-		double rayleigh = std::exp(-altitude / SHADER_TYPES_ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT);
-		double mie = std::exp(-altitude / SHADER_TYPES_ATMOSPHERE_MIE_SCALE_HEIGHT) * aerosols;
+		double rayleigh = core::Exp(-altitude / SHADER_TYPES_ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT);
+		double mie = core::Exp(-altitude / SHADER_TYPES_ATMOSPHERE_MIE_SCALE_HEIGHT) * aerosols;
 		double ozone = std::max(0.0, 1.0 - (std::abs(altitude - SHADER_TYPES_ATMOSPHERE_OZONE_CENTER) / SHADER_TYPES_ATMOSPHERE_OZONE_HALF_WIDTH));
 		depth += (glm::dvec3(SHADER_TYPES_ATMOSPHERE_RAYLEIGH_R, SHADER_TYPES_ATMOSPHERE_RAYLEIGH_G, SHADER_TYPES_ATMOSPHERE_RAYLEIGH_B) * rayleigh +
 				  glm::dvec3(SHADER_TYPES_ATMOSPHERE_MIE_EXTINCTION * mie) +
 				  glm::dvec3(SHADER_TYPES_ATMOSPHERE_OZONE_R, SHADER_TYPES_ATMOSPHERE_OZONE_G, SHADER_TYPES_ATMOSPHERE_OZONE_B) * ozone) *
 				 step;
 	}
-	return glm::vec3(glm::exp(-depth));
+	return glm::vec3(core::Exp(-depth.x), core::Exp(-depth.y), core::Exp(-depth.z));
 }
 
 DominantLight SkySun(const glm::vec3& direction, float aerosols)
@@ -189,7 +207,7 @@ namespace
 [[nodiscard]] double SunLongitude(double days)
 {
 	double meanAnomaly = glm::radians(357.528 + (0.9856003 * days));
-	return 280.460 + (0.9856474 * days) + (1.915 * std::sin(meanAnomaly)) + (0.020 * std::sin(2.0 * meanAnomaly));
+	return 280.460 + (0.9856474 * days) + (1.915 * core::Sin(meanAnomaly)) + (0.020 * core::Sin(2.0 * meanAnomaly));
 }
 
 [[nodiscard]] double Obliquity(double days)
@@ -202,19 +220,19 @@ void Equatorial(double longitude, double latitude, double obliquity, double& asc
 {
 	double lambda = glm::radians(longitude);
 	double beta = glm::radians(latitude);
-	double x = std::cos(beta) * std::cos(lambda);
-	double y = (std::cos(obliquity) * std::cos(beta) * std::sin(lambda)) - (std::sin(obliquity) * std::sin(beta));
-	double z = (std::sin(obliquity) * std::cos(beta) * std::sin(lambda)) + (std::cos(obliquity) * std::sin(beta));
-	ascension = std::atan2(y, x);
-	declination = std::asin(std::clamp(z, -1.0, 1.0));
+	double x = core::Cos(beta) * core::Cos(lambda);
+	double y = (core::Cos(obliquity) * core::Cos(beta) * core::Sin(lambda)) - (core::Sin(obliquity) * core::Sin(beta));
+	double z = (core::Sin(obliquity) * core::Cos(beta) * core::Sin(lambda)) + (core::Cos(obliquity) * core::Sin(beta));
+	ascension = core::Atan2(y, x);
+	declination = core::Asin(std::clamp(z, -1.0, 1.0));
 }
 
 // toward a body at an hour angle and declination from a latitude (radians), as SunDirection's frame
 [[nodiscard]] glm::vec3 TowardBody(double latitude, double hourAngle, double declination)
 {
-	double east = -std::cos(declination) * std::sin(hourAngle);
-	double north = (std::cos(latitude) * std::sin(declination)) - (std::sin(latitude) * std::cos(declination) * std::cos(hourAngle));
-	double up = (std::sin(latitude) * std::sin(declination)) + (std::cos(latitude) * std::cos(declination) * std::cos(hourAngle));
+	double east = -core::Cos(declination) * core::Sin(hourAngle);
+	double north = (core::Cos(latitude) * core::Sin(declination)) - (core::Sin(latitude) * core::Cos(declination) * core::Cos(hourAngle));
+	double up = (core::Sin(latitude) * core::Sin(declination)) + (core::Cos(latitude) * core::Cos(declination) * core::Cos(hourAngle));
 	return glm::normalize(glm::vec3(east, up, -north));
 }
 
@@ -236,19 +254,19 @@ Moon MoonAt(float latitudeDegrees, float dayOfYear, float timeOfDay, int year)
 	double meanLongitude = 218.316 + (13.176396 * days);
 	double meanAnomaly = glm::radians(134.963 + (13.064993 * days));
 	double node = glm::radians(93.272 + (13.229350 * days));
-	double longitude = meanLongitude + (6.289 * std::sin(meanAnomaly));
-	double latitude = 5.128 * std::sin(node);
+	double longitude = meanLongitude + (6.289 * core::Sin(meanAnomaly));
+	double latitude = 5.128 * core::Sin(node);
 	double ascension = 0.0;
 	double declination = 0.0;
 	Equatorial(longitude, latitude, Obliquity(days), ascension, declination);
 	double hourAngle = static_cast<double>(LocalSiderealTime(dayOfYear, timeOfDay, year)) - ascension;
 	Moon moon{.direction = TowardBody(glm::radians(static_cast<double>(latitudeDegrees)), hourAngle, declination)};
 	auto sun = SunDirection(latitudeDegrees, dayOfYear, timeOfDay);
-	moon.elongation = std::acos(std::clamp(glm::dot(moon.direction, sun), -1.0F, 1.0F));
+	moon.elongation = core::Acos(std::clamp(glm::dot(moon.direction, sun), -1.0F, 1.0F));
 	// Allen's: by the phase angle (sun, moon, earth: 180 degrees less the elongation), 0 at full
 	double phaseAngle = 180.0 - glm::degrees(static_cast<double>(moon.elongation));
 	double magnitudes = (0.026 * phaseAngle) + (4e-9 * phaseAngle * phaseAngle * phaseAngle * phaseAngle);
-	moon.illuminance = static_cast<float>(SHADER_TYPES_ATMOSPHERE_MOON_ILLUMINANCE * std::pow(10.0, -0.4 * magnitudes));
+	moon.illuminance = static_cast<float>(SHADER_TYPES_ATMOSPHERE_MOON_ILLUMINANCE * core::Pow(10.0, -0.4 * magnitudes));
 	return moon;
 }
 
@@ -269,8 +287,8 @@ int CurrentYear()
 void AddSun(Panorama& panorama, const DominantLight& sun)
 {
 	auto sunDirection = glm::normalize(sun.direction);
-	float cosRadius = std::cos(kSkySunRadius);
-	float cosReach = std::cos(kSkySunRadius + (4.0F * detail::kPi / static_cast<float>(panorama.height)));
+	float cosRadius = core::Cos(kSkySunRadius);
+	float cosReach = core::Cos(kSkySunRadius + (4.0F * detail::kPi / static_cast<float>(panorama.height)));
 	constexpr uint32_t kSamples = 4;
 	std::vector<std::pair<size_t, float>> covered; // texel, coverage
 	double solidAngles = 0.0;
@@ -363,7 +381,7 @@ DominantLight ExtractDominantLight(Panorama& panorama, float referenceMean)
 
 	// the region: flood filled from the brightest texel (4-connected, around in u)
 	float threshold = std::max(maxLuminance * kCore, kMinimumThreshold * mean);
-	float cosMaxRadius = std::cos(kMaxRadius);
+	float cosMaxRadius = core::Cos(kMaxRadius);
 	auto center = direction(brightest);
 	std::vector<uint8_t> inRegion(static_cast<size_t>(width) * height, 0);
 	std::vector<size_t> region;
@@ -443,7 +461,7 @@ DominantLight ExtractDominantLight(Panorama& panorama, float referenceMean)
 		const float* p = &panorama.rgb[texel * 3];
 		auto excess = glm::max(glm::dvec3(p[0], p[1], p[2]) - glm::dvec3(background), glm::dvec3(0.0));
 		auto weight = glm::dot(excess, glm::dvec3(0.2126, 0.7152, 0.0722)) * solidAngle(static_cast<uint32_t>(texel / width));
-		auto angle = std::acos(std::clamp(static_cast<double>(glm::dot(direction(texel), lightDirection)), -1.0, 1.0));
+		auto angle = core::Acos(std::clamp(static_cast<double>(glm::dot(direction(texel), lightDirection)), -1.0, 1.0));
 		spread += weight * angle * angle;
 	}
 	auto halfTexel = std::numbers::pi / static_cast<double>(height) * 0.5;
@@ -490,7 +508,7 @@ glm::dvec3 MeanRadiance(const Panorama& panorama)
 	double weight = 0.0;
 	for (uint32_t y = 0; y < panorama.height; y++)
 	{
-		double solidAngle = std::sin((static_cast<double>(y) + 0.5) / panorama.height * std::numbers::pi);
+		double solidAngle = core::Sin((static_cast<double>(y) + 0.5) / panorama.height * std::numbers::pi);
 		for (uint32_t x = 0; x < panorama.width; x++)
 		{
 			const float* p = &panorama.rgb[(static_cast<size_t>(y) * panorama.width + x) * 3];

@@ -1,5 +1,7 @@
 #include "shadows.h"
 
+#include <core/glm_extra.h>
+#include <core/math.h>
 #include <core/profiling.h>
 
 #include <gfx/frustum.h>
@@ -175,7 +177,7 @@ void Cascades(
 	for (uint32_t i = 0; i <= SHADER_TYPES_SHADOW_CASCADE_COUNT; i++)
 	{
 		float t = static_cast<float>(i) / static_cast<float>(SHADER_TYPES_SHADOW_CASCADE_COUNT);
-		float logarithmic = nearDepth * std::pow(farDepth / nearDepth, t);
+		float logarithmic = nearDepth * core::Pow(farDepth / nearDepth, t);
 		float uniform = nearDepth + ((farDepth - nearDepth) * t);
 		splits[i] = (kSplitLambda * logarithmic) + ((1.0F - kSplitLambda) * uniform);
 	}
@@ -197,7 +199,7 @@ void Cascades(
 		for (const auto& corner : slice)
 			radius = std::max(radius, glm::distance(corner, center));
 		// in steps of a 16th of itself, so that it doesn't change by rounding errors from frame to frame
-		float step = std::exp2(std::floor(std::log2(std::max(radius, 1e-6F))) - 4.0F);
+		float step = core::Exp2(std::floor(core::Log2(std::max(radius, 1e-6F))) - 4.0F);
 		radius = std::ceil(radius / step) * step;
 
 		// depth: from the nearest caster in the scene (or the slice) to the farthest point
@@ -239,12 +241,12 @@ ShadowData PerspectiveView(
 	const glm::vec3& position, const glm::vec3& forward, const glm::vec3& up, float fovY, float farPlane, const ShadowPlan::Tile& tile)
 {
 	float nearPlane = std::max(farPlane * 1e-3F, 1e-4F);
-	auto viewProjection = kClip * glm::perspective(fovY, 1.0F, nearPlane, farPlane) * glm::lookAt(position, position + forward, up);
+	auto viewProjection = kClip * core::Perspective(fovY, 1.0F, nearPlane, farPlane) * glm::lookAt(position, position + forward, up);
 	ShadowData data{};
 	Store(data, viewProjection);
 	auto rect = AtlasRect(tile);
 	std::copy_n(&rect[0], 4, data.atlasRect);
-	data.params[0] = 2.0F * std::tan(fovY * 0.5F) / static_cast<float>(tile.size);
+	data.params[0] = 2.0F * core::Tan(fovY * 0.5F) / static_cast<float>(tile.size);
 	data.params[1] = 1.0F;
 	data.params[2] = nearPlane;
 	data.params[3] = farPlane;
@@ -436,7 +438,7 @@ ShadowPlan Plan(std::span<const LightData> lights, std::span<const ShadowCamera>
 		{
 			// each face a little wider than 90 degrees, so that the filter of a point near a face's edge stays inside it
 			float faceTexels = static_cast<float>(lightTiles.front().size);
-			float fov = 2.0F * std::atan(1.0F + (8.0F / faceTexels));
+			float fov = 2.0F * core::Atan(1.0F + (8.0F / faceTexels));
 			static const std::array<std::pair<glm::vec3, glm::vec3>, 6> kFaces{{
 				{{1.0F, 0.0F, 0.0F}, {0.0F, -1.0F, 0.0F}},
 				{{-1.0F, 0.0F, 0.0F}, {0.0F, -1.0F, 0.0F}},
@@ -451,7 +453,7 @@ ShadowPlan Plan(std::span<const LightData> lights, std::span<const ShadowCamera>
 		else
 		{
 			// the cone (its outer angle: the attenuation's 0, see LightData::spotOffset), a little wider for the filter
-			float outer = std::acos(SpotCosOuter(light));
+			float outer = core::Acos(SpotCosOuter(light));
 			float fov = std::min((2.0F * outer) + glm::radians(4.0F), glm::radians(170.0F));
 			plan.views.push_back(PerspectiveView(position, direction, UpFor(direction), fov, reach, lightTiles.front()));
 		}

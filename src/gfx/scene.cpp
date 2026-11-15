@@ -3,6 +3,7 @@
 #include <core/application.h>
 #include <core/assert.h>
 #include <core/file.h>
+#include <core/math.h>
 #include <core/profiling.h>
 #include <core/task.h>
 #include <core/taskexecutor.h>
@@ -359,8 +360,8 @@ static void ApplyMaterialProperty(MaterialData& data, const ModelMaterial& desc,
 	case MaterialProperty::kDiffuseTransmission: data.diffuseTransmission[3] = v[0]; break;
 	case MaterialProperty::kDiffuseTransmissionColor: copy(data.diffuseTransmission, 3); break;
 	case MaterialProperty::kAnisotropyRotation:
-		data.anisotropy[1] = std::cos(v[0]);
-		data.anisotropy[2] = std::sin(v[0]);
+		data.anisotropy[1] = core::Cos(v[0]);
+		data.anisotropy[2] = core::Sin(v[0]);
 		break;
 	case MaterialProperty::kEmissiveStrength: break; // with kEmissive
 	}
@@ -770,7 +771,7 @@ struct Scene::Impl
 		// auto exposure), and the sensor's half diagonal: its height and the first view's aspect (split screen's views
 		// share one), which an anamorphic lens's image is the squeeze wider than (see Views::SetLens)
 		auto aperture = ChosenExposure(0).aperture;
-		auto apertureSixths = static_cast<int>(std::lround(6.0 * std::log2(static_cast<double>(aperture) * static_cast<double>(aperture))));
+		auto apertureSixths = static_cast<int>(std::lround(6.0 * core::Log2(static_cast<double>(aperture) * static_cast<double>(aperture))));
 		auto viewports = views.GetViewports();
 		float aspect = viewports.empty() || viewports.front().height == 0 ? 1.0F : static_cast<float>(viewports.front().width) / static_cast<float>(viewports.front().height);
 		if (views.GetLensSqueeze() == prescription.squeeze)
@@ -783,7 +784,7 @@ struct Scene::Impl
 			myLensState.sensorHeight = sensorHeight;
 			myLensState.aspect = aspect;
 			myLensState.halfDiagonal = 0.5F * sensorHeight * std::sqrt(1.0F + aspect * aspect);
-			auto quantized = static_cast<float>(std::exp2(static_cast<double>(apertureSixths) / 12.0));
+			auto quantized = static_cast<float>(core::Exp2(static_cast<double>(apertureSixths) / 12.0));
 			myLensState.appearance = lens::Appear(prescription, quantized, myLensState.halfDiagonal);
 			// the frame rendered wider than the lens's image by what reads beyond it: the ideal image's radius at the lens's
 			// corner under barrel distortion, 1 - k, and the red or the blue beyond the green's (see LensSample)
@@ -830,7 +831,7 @@ struct Scene::Impl
 			constexpr float kGreenWavelengthMm = 550e-6F;
 			auto width = kGreenWavelengthMm * appearance.focalLength / std::max(edge, 1e-6F);
 			auto sigma = std::max(width / 2.5F, 0.6F * pixelMm);
-			myLensState.starGain = edge > 0.0F ? edge * edge * fNumber * fNumber / std::pow(glm::pi<float>(), 3.0F) * width / (sigma * std::sqrt(2.0F * glm::pi<float>())) : 0.0F;
+			myLensState.starGain = edge > 0.0F ? edge * edge * fNumber * fNumber / core::Pow(glm::pi<float>(), 3.0F) * width / (sigma * std::sqrt(2.0F * glm::pi<float>())) : 0.0F;
 		}
 		const auto& appearance = myLensState.appearance;
 		bool glare = mySettings.lensGlare.load(std::memory_order_relaxed);
@@ -941,7 +942,7 @@ struct Scene::Impl
 	// ViewData::exposure)
 	float ViewExposure(size_t view) const
 	{
-		return std::exp2(mySettings.exposureStops.load(std::memory_order_relaxed) + ChosenExposure(view).Stops());
+		return core::Exp2(mySettings.exposureStops.load(std::memory_order_relaxed) + ChosenExposure(view).Stops());
 	}
 	float ViewScotopic(size_t view) const { return view < myScotopic.size() ? myScotopic[view].load(std::memory_order_relaxed) : 0.0F; }
 
@@ -1031,8 +1032,8 @@ struct Scene::Impl
 					   : sceneLight.type == SceneLight::Type::kSpot ? LIGHT_TYPE_SPOT
 																	  : LIGHT_TYPE_DIRECTIONAL;
 			// KHR_lights_punctual's cone attenuation
-			auto cosOuter = std::cos(sceneLight.outerConeAngle);
-			light.spotScale = 1.0F / std::max(0.001F, std::cos(sceneLight.innerConeAngle) - cosOuter);
+			auto cosOuter = core::Cos(sceneLight.outerConeAngle);
+			light.spotScale = 1.0F / std::max(0.001F, core::Cos(sceneLight.innerConeAngle) - cosOuter);
 			light.spotOffset = -cosOuter * light.spotScale;
 		}
 		mySceneLightData = std::move(lights);
@@ -1093,7 +1094,7 @@ struct Scene::Impl
 	static void FillSkyData(EnvironmentData& data, const SkyState& sky)
 	{
 		std::copy_n(glm::value_ptr(sky.sun), 3, data.skySun);
-		float cosRadius = std::cos(environment::kSkySunRadius);
+		float cosRadius = core::Cos(environment::kSkySunRadius);
 		float solidAngle = 2.0F * glm::pi<float>() * (1.0F - cosRadius);
 		data.skySun[3] = cosRadius;
 		auto radiance = environment::SkySun(sky.sun, sky.aerosols).irradiance / solidAngle;
@@ -1105,7 +1106,7 @@ struct Scene::Impl
 		// a Lambertian sphere's phase law: the share of its full light at an elongation e from the sun (a phase angle of pi
 		// less e) is (sin e - e cos e) / pi, and its full disk's mean cosine is 2/3
 		float elongation = sky.moon.elongation;
-		float litShare = std::max(2.0F / 3.0F * (std::sin(elongation) - (elongation * std::cos(elongation))) / glm::pi<float>(), 0.01F);
+		float litShare = std::max(2.0F / 3.0F * (core::Sin(elongation) - (elongation * core::Cos(elongation))) / glm::pi<float>(), 0.01F);
 		auto moonRadiance = environment::SkyMoon(sky.moon, sky.aerosols).irradiance / (solidAngle * litShare);
 		std::copy_n(glm::value_ptr(moonRadiance), 3, data.skyMoonRadiance);
 		data.skyMoonRadiance[3] = sky.moon.illuminance;
@@ -1127,7 +1128,7 @@ struct Scene::Impl
 	std::optional<uint32_t> SkySunLight(const glm::vec3& sun) const
 	{
 		std::optional<uint32_t> found;
-		float best = std::cos(glm::radians(kMergeAngle));
+		float best = core::Cos(glm::radians(kMergeAngle));
 		for (size_t lightIt = 0; lightIt < myLightData.size(); lightIt++)
 		{
 			const auto& light = myLightData[lightIt];
@@ -1156,8 +1157,8 @@ struct Scene::Impl
 	glm::vec3 SkyWorld(const glm::vec3& d) const
 	{
 		float angle = glm::radians(mySettings.environmentRotationDegrees.load(std::memory_order_relaxed));
-		float c = std::cos(angle);
-		float s = std::sin(angle);
+		float c = core::Cos(angle);
+		float s = core::Sin(angle);
 		return {(c * d.x) + (s * d.z), d.y, (-s * d.x) + (c * d.z)};
 	}
 
@@ -1201,8 +1202,8 @@ struct Scene::Impl
 		if (!mySky)
 			return;
 		auto sky = SkyNow();
-		float redraw = std::cos(glm::radians(kSkyRedrawAngle));
-		float update = std::cos(glm::radians(kSkyUpdateAngle));
+		float redraw = core::Cos(glm::radians(kSkyRedrawAngle));
+		float update = core::Cos(glm::radians(kSkyUpdateAngle));
 		bool redrawTables = glm::dot(sky.sun, mySkySunDrawn) < redraw || glm::dot(sky.moon.direction, mySkyMoonDrawn) < redraw ||
 							sky.aerosols != mySkyAerosolsDrawn;
 		if (!redrawTables && glm::dot(sky.sun, mySkySunUploaded) >= update && glm::dot(sky.moon.direction, mySkyMoonUploaded) >= update)
@@ -1308,9 +1309,9 @@ struct Scene::Impl
 		// the panorama's space to the world's (the inverse of the shader's EnvironmentDirection)
 		float angle = glm::radians(mySettings.environmentRotationDegrees.load(std::memory_order_relaxed));
 		float intensity = mySettings.environmentIntensity.load(std::memory_order_relaxed);
-		float c = std::cos(angle);
-		float s = std::sin(angle);
-		float cosMerge = std::cos(glm::radians(kMergeAngle));
+		float c = core::Cos(angle);
+		float s = core::Sin(angle);
+		float cosMerge = core::Cos(glm::radians(kMergeAngle));
 		bool merge = mySettings.mergeLights.load(std::memory_order_relaxed);
 
 		std::vector<DominantLightInfo> info;
@@ -1397,7 +1398,7 @@ struct Scene::Impl
 			if (elapsed <= 0.0 || !measured)
 				current = target;
 			else
-				current += (target - current) * static_cast<float>(1.0 - std::exp(-elapsed * kAdaptationSpeed));
+				current += (target - current) * static_cast<float>(1.0 - core::Exp(-elapsed * kAdaptationSpeed));
 			measured = true;
 			value.store(current, std::memory_order_relaxed);
 		};
@@ -1449,7 +1450,7 @@ struct Scene::Impl
 				}
 				auto log2Distance = SHADER_TYPES_DISTANCE_LOG2_MIN +
 									((static_cast<double>(medianBin) + 0.5) / SHADER_TYPES_DISTANCE_BINS * (SHADER_TYPES_DISTANCE_LOG2_MAX - SHADER_TYPES_DISTANCE_LOG2_MIN));
-				adapt(myLookDistances[view], myLookDistanceMeasured[view], static_cast<float>(std::exp2(log2Distance)));
+				adapt(myLookDistances[view], myLookDistanceMeasured[view], static_cast<float>(core::Exp2(log2Distance)));
 			}
 			// and the autofocus modes' (see MeasuredFocusUnits): the median of what is under the view's center spot and
 			// its center zone, and the nearest tenth of the whole view; where nothing is drawn there (the sky), each stays
@@ -1468,7 +1469,7 @@ struct Scene::Impl
 				}
 				auto log2Distance = SHADER_TYPES_DISTANCE_LOG2_MIN +
 									((static_cast<double>(bin) + 0.5) / static_cast<double>(counts.size()) * (SHADER_TYPES_DISTANCE_LOG2_MAX - SHADER_TYPES_DISTANCE_LOG2_MIN));
-				adapt(distance, measured, static_cast<float>(std::exp2(log2Distance)));
+				adapt(distance, measured, static_cast<float>(core::Exp2(log2Distance)));
 			};
 			const auto* focusBins = bins.data() + SHADER_TYPES_EXPOSURE_BINS + SHADER_TYPES_DISTANCE_BINS;
 			percentile(std::span(focusBins, SHADER_TYPES_FOCUS_BINS), 1, 2, myFocusDistances[view], myFocusMeasured[view]);
@@ -1515,7 +1516,7 @@ struct Scene::Impl
 				litPixelCount += bins[binIt];
 		if (litPixelCount * kLitPixelShareDivisor <= total)
 			return;
-		auto litWeight = [&binLog2Luminance](size_t binIt) { return std::exp2(std::min(binLog2Luminance(binIt) - kPhotopicLog2, 0.0)); };
+		auto litWeight = [&binLog2Luminance](size_t binIt) { return core::Exp2(std::min(binLog2Luminance(binIt) - kPhotopicLog2, 0.0)); };
 		// the mean log2 luminance of the pixels between the 50th and 95th percentile of the histogram with each bin's
 		// pixels weighed by weightOf, none where it weighs nothing
 		auto percentileMean = [&bins, &binLog2Luminance](auto&& weightOf) -> std::optional<double>
@@ -1563,7 +1564,7 @@ struct Scene::Impl
 		double night = std::clamp((kNightLog2 - mean) / (kNightLog2 - kMoonlightLog2), 0.0, 1.0);
 		double scotopic = std::clamp((kPhotopicLog2 - mean) / (kPhotopicLog2 - kScotopicLog2), 0.0, 1.0);
 		adapt(myScotopic[view], myScotopicMeasured[view], static_cast<float>(scotopic));
-		double target = std::log2(kAutoExposureKey) - (kNightStops * darkness) - (kMoonlightStops * night) - mean;
+		double target = core::Log2(kAutoExposureKey) - (kNightStops * darkness) - (kMoonlightStops * night) - mean;
 		// SPEEDO_EXPOSURE_LOG=1: what the exposure keys on, every frame for the first 120 measured (the startup's) and every
 		// 30th after: the histogram's percentiles, the lit share, the mean and the target
 		static const bool kLog = [] { const char* log = std::getenv("SPEEDO_EXPOSURE_LOG"); return log != nullptr && std::string_view(log) == "1"; }();
@@ -1923,8 +1924,8 @@ struct Scene::Impl
 				{
 					material.flags |= MATERIAL_FLAG_ANISOTROPY;
 					material.anisotropy[0] = desc.anisotropy;
-					material.anisotropy[1] = std::cos(desc.anisotropyRotation);
-					material.anisotropy[2] = std::sin(desc.anisotropyRotation);
+					material.anisotropy[1] = core::Cos(desc.anisotropyRotation);
+					material.anisotropy[2] = core::Sin(desc.anisotropyRotation);
 					if (auto id = viewOf(textures[materialIt].anisotropy, desc.anisotropyTexture))
 					{
 						material.anisotropyView = *id;

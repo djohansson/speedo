@@ -3,11 +3,11 @@
 #include <gfx/lightbounds.h>
 
 #include <core/assert.h>
+#include <core/math.h>
 #include <core/profiling.h>
 
 #include <algorithm>
 #include <bit>
-#include <cmath>
 
 namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::gi
 {
@@ -89,7 +89,7 @@ Clipmap MakeClipmap(
 	// no bigger than the last clip along an axis: as slabs of the scene's shape (Bistro's 122x53x128 voxels, 14.7 m tall
 	// at 27.7 cm; Sponza's 4.9 m), the ground fell out of them from a high viewpoint, and the square below the user was
 	// lit by the last clip's probes, 8.9 m apart, of which the one inside the building by its entrance passed
-	uint32_t cube = static_cast<uint32_t>(std::cbrt(static_cast<double>(size.x) * static_cast<double>(size.y) * static_cast<double>(size.z))) / 4 * 4;
+	uint32_t cube = static_cast<uint32_t>(core::Cbrt(static_cast<double>(size.x) * static_cast<double>(size.y) * static_cast<double>(size.z))) / 4 * 4;
 
 	// the finer ones around their centers, on a grid of kSnapProbes of their probes from the last's corner (the probes stay
 	// where they are in the world, see MakeLayout; what scrolls in is voxelized), inside the last. clamped to whole snaps:

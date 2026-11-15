@@ -9,6 +9,7 @@
 
 #include <core/application.h>
 #include <core/file.h>
+#include <core/math.h>
 #include <core/profiling.h>
 
 #include <glm/glm.hpp>
@@ -1108,7 +1109,7 @@ static void MergeAnimation(
 		largest = 1.0F;
 	auto halfExtent = kExtent * largest;
 	auto target = halfExtent / kTilesPerSide;
-	auto power = std::pow(10.0F, std::floor(std::log10(target)));
+	auto power = core::Pow(10.0F, std::floor(core::Log10(target)));
 	auto tile = power * (target >= 5.0F * power ? 5.0F : (target >= 2.0F * power ? 2.0F : 1.0F));
 	glm::vec2 center{desc.bounds.Center().x, desc.bounds.Center().z};
 	glm::ivec2 first(glm::floor((center - halfExtent) / tile));

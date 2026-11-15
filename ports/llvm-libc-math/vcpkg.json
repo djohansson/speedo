@@ -1,0 +1,7 @@
+{
+  "name": "llvm-libc-math",
+  "version": "23.1.5",
+  "description": "LLVM libc's correctly rounded math functions as headers, and only those (libc/shared/math and the support headers they use)",
+  "homepage": "https://libc.llvm.org",
+  "license": "Apache-2.0 WITH LLVM-exception"
+}

@@ -1,13 +1,13 @@
 #include "environmentkernels.h"
 #include "environmentkernelsbridge.h"
 
+#include <core/math.h>
 #include <core/taskexecutor.h>
 
 #include <glm/gtc/packing.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
-#include <cmath>
 #include <utility>
 
 namespace environmentkernels
@@ -30,11 +30,11 @@ gfx::environment::Environment Prefilter(const Source& source, std::vector<std::b
 	{
 		auto sun = glm::normalize(*source.skySun);
 		std::copy_n(glm::value_ptr(sun), 3, environmentData.skySun);
-		environmentData.skySun[3] = std::cos(kSkySunRadius);
+		environmentData.skySun[3] = core::Cos(kSkySunRadius);
 		environmentData.skySunRadiance[3] = 1.0F;
 		environmentData.skyAtmosphere[0] = SkyAerosols(kSkyDefaultVisibility); // as the sun's gfx::environment::SkySun has it
 		environmentData.skyMoon[1] = -1.0F; // no moon (skyMoonRadiance's w 0), nor the night's glow: the sun's sky alone is checked
-		environmentData.skyMoon[3] = std::cos(kSkySunRadius);
+		environmentData.skyMoon[3] = core::Cos(kSkySunRadius);
 	}
 	auto output = bridge::Prefilter(
 		input,

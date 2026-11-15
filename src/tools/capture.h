@@ -5,6 +5,7 @@
 // |log2| difference of two luminances
 
 #include <core/file.h>
+#include <core/math.h>
 
 #include <algorithm>
 #include <array>
@@ -111,7 +112,7 @@ struct Image
 		for (int level = 0; level < 256; level++)
 		{
 			double c = level / 255.0;
-			table[level] = static_cast<float>(c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4));
+			table[level] = static_cast<float>(c <= 0.04045 ? c / 12.92 : core::Pow((c + 0.055) / 1.055, 2.4));
 		}
 		return table;
 	}();
@@ -160,7 +161,7 @@ constexpr float kLogFloor = 0.002F;
 	for (size_t at = 0; at < reference.size(); at++)
 		if (reference[at] > kLogFloor)
 		{
-			sum += std::abs(std::log2(std::max(image[at], kLogFloor) / reference[at]));
+			sum += std::abs(core::Log2(std::max(image[at], kLogFloor) / reference[at]));
 			count++;
 		}
 	return count != 0 ? sum / static_cast<double>(count) : 0.0;

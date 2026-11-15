@@ -19,6 +19,8 @@
 
 #include "capture.h"
 
+#include <core/math.h>
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -96,7 +98,7 @@ struct Measures
 	// both black: the same light. one black: as far apart as a ratio can say
 	double referenceMean = std::max(mean(referenceLuminance), static_cast<double>(capture::kLogFloor));
 	double imageMean = std::max(mean(imageLuminance), static_cast<double>(capture::kLogFloor));
-	measures.ratio = std::log2(imageMean / referenceMean);
+	measures.ratio = core::Log2(imageMean / referenceMean);
 	return measures;
 }
 

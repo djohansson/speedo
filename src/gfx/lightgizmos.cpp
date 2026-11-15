@@ -1,5 +1,7 @@
 #include "lightgizmos.h"
 
+#include <core/math.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -28,7 +30,7 @@ void AddCircle(LightGizmos& gizmos, glm::vec3 center, glm::vec3 axis, float radi
 	for (uint32_t segmentIt = 1; segmentIt <= kCircleSegments; segmentIt++)
 	{
 		float angle = 2.0F * std::numbers::pi_v<float> * static_cast<float>(segmentIt) / kCircleSegments;
-		glm::vec3 point = center + (((u * std::cos(angle)) + (v * std::sin(angle))) * radius);
+		glm::vec3 point = center + (((u * core::Cos(angle)) + (v * core::Sin(angle))) * radius);
 		gizmos.lines.push_back({previous, point, color});
 		previous = point;
 	}

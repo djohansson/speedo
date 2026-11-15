@@ -4,6 +4,7 @@
 #include <gfx/lightbounds.h>
 
 #include <core/assert.h>
+#include <core/math.h>
 #include <core/profiling.h>
 
 #include <algorithm>
@@ -35,7 +36,7 @@ constexpr float kMargin = 1e-3F;
 // the slice (fractional) of a distance from the near plane
 [[nodiscard]] float Slice(const ClusterView& view, float distance)
 {
-	return std::log2(1.0F + (std::max(distance, 0.0F) * view.depthInverseUnit)) * view.depthScale;
+	return core::Log2(1.0F + (std::max(distance, 0.0F) * view.depthInverseUnit)) * view.depthScale;
 }
 
 } // namespace detail
@@ -85,7 +86,7 @@ ClusterPlan Plan(std::span<const LightData> lights, std::span<const glm::mat4> v
 		range = std::max(range, 1e-4F);
 		std::copy_n(&nearPlane[0], 4, view.depthPlane);
 		view.depthInverseUnit = kDepthUnits / range;
-		view.depthScale = static_cast<float>(kSlices) / std::log2(1.0F + kDepthUnits);
+		view.depthScale = static_cast<float>(kSlices) / core::Log2(1.0F + kDepthUnits);
 
 		// each light's box of clusters
 		for (size_t lightIt = 0; lightIt < lights.size(); lightIt++)

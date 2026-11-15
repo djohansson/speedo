@@ -25,6 +25,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <core/file.h>
+#include <core/math.h>
 #include <core/utils.h>
 
 #include <algorithm>
@@ -1066,7 +1067,7 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 		}
 	}
 	auto mse = squaredError / static_cast<double>(pixelCount * channelCount);
-	auto psnr = mse > 0.0 ? 10.0 * std::log10(255.0 * 255.0 / mse) : 99.0;
+	auto psnr = mse > 0.0 ? 10.0 * core::Log10(255.0 * 255.0 / mse) : 99.0;
 	report.Info("level 0 psnr {:.1f} dB", psnr);
 	// bc1 can't do much better on noisy textures
 	if (psnr < 18.0)
@@ -1095,7 +1096,7 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 			}
 			auto dot = glm::dot(a, b);
 			auto lengths = glm::length(a) * glm::length(b);
-			auto angle = std::acos(std::clamp(lengths > 0.0 ? dot / lengths : 1.0, -1.0, 1.0)) * 180.0 / std::numbers::pi;
+			auto angle = core::Acos(std::clamp(lengths > 0.0 ? dot / lengths : 1.0, -1.0, 1.0)) * 180.0 / std::numbers::pi;
 			angleSum += angle;
 			maxAngle = std::max(maxAngle, angle);
 		}
@@ -1131,11 +1132,11 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 	auto toLinear = [srgb](double c)
 	{
 		c /= 255.0;
-		return !srgb ? c : c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+		return !srgb ? c : c <= 0.04045 ? c / 12.92 : core::Pow((c + 0.055) / 1.055, 2.4);
 	};
 	auto fromLinear = [srgb](double c)
 	{
-		return 255.0 * (!srgb ? c : c <= 0.0031308 ? c * 12.92 : (1.055 * std::pow(c, 1.0 / 2.4)) - 0.055);
+		return 255.0 * (!srgb ? c : c <= 0.0031308 ? c * 12.92 : (1.055 * core::Pow(c, 1.0 / 2.4)) - 0.055);
 	};
 	auto average = [&toLinear, &fromLinear](const std::vector<uint8_t>& rgba)
 	{
@@ -1260,8 +1261,8 @@ Report CheckEnvironment(
 		{
 			const auto& dominant = dominants.front();
 			auto cosine = glm::dot(dominant.direction, expected.direction);
-			if (cosine < std::cos(glm::radians(0.5)))
-				report.Fail("the dominant light is {:.2f} degrees off", glm::degrees(std::acos(std::min(cosine, 1.0F))));
+			if (cosine < core::Cos(glm::radians(0.5)))
+				report.Fail("the dominant light is {:.2f} degrees off", glm::degrees(core::Acos(std::min(cosine, 1.0F))));
 			else if (auto error = std::abs((irradianceOf(dominant) / expectedIrradiance) - 1.0); error > 0.03)
 				report.Fail("the dominant light's irradiance {:.4g} is off by {:.1f}%", irradianceOf(dominant), error * 100.0);
 		}
@@ -1276,7 +1277,7 @@ Report CheckEnvironment(
 		double weight = 0.0;
 		for (uint32_t y = 0; y < level.height; y++)
 		{
-			double w = std::sin((y + 0.5) / level.height * std::numbers::pi);
+			double w = core::Sin((y + 0.5) / level.height * std::numbers::pi);
 			for (uint32_t x = 0; x < level.width; x++)
 			{
 				const auto* texel = &texels[(static_cast<size_t>(y) * level.width + x) * 4];
@@ -1417,9 +1418,9 @@ Report CheckSky(core::TaskExecutor& executor)
 		for (uint32_t y = 0; y < panorama.height / 2; y++)
 		{
 			double theta = (y + 0.5) / panorama.height * std::numbers::pi;
-			double solidAngle = (2.0 * std::numbers::pi / panorama.width) * (std::numbers::pi / panorama.height) * std::sin(theta);
+			double solidAngle = (2.0 * std::numbers::pi / panorama.width) * (std::numbers::pi / panorama.height) * core::Sin(theta);
 			for (uint32_t x = 0; x < panorama.width; x++)
-				sum += glm::dvec3(glm::make_vec3(&panorama.rgb[(static_cast<size_t>(y) * panorama.width + x) * 3])) * (std::cos(theta) * solidAngle);
+				sum += glm::dvec3(glm::make_vec3(&panorama.rgb[(static_cast<size_t>(y) * panorama.width + x) * 3])) * (core::Cos(theta) * solidAngle);
 		}
 		return sum;
 	};
@@ -1432,7 +1433,7 @@ Report CheckSky(core::TaskExecutor& executor)
 	auto report = CheckEnvironment(executor, panorama, sun, skySun);
 	report.Info(
 		"sun ({:.3f}, {:.3f}, {:.3f}), {:.1f} degrees up, irradiance ({:.3f}, {:.3f}, {:.3f})",
-		sun.x, sun.y, sun.z, glm::degrees(std::asin(sun.y)), skySun.irradiance.x, skySun.irradiance.y, skySun.irradiance.z);
+		sun.x, sun.y, sun.z, glm::degrees(core::Asin(sun.y)), skySun.irradiance.x, skySun.irradiance.y, skySun.irradiance.z);
 
 	// the transmittance table where the sun's light is looked up (from the eye's altitude), against the cpu's: as sky.h's
 	// SkyTransmittanceUv, bilinear
@@ -1459,7 +1460,7 @@ Report CheckSky(core::TaskExecutor& executor)
 	};
 	for (double elevation : {90.0, 30.0, 10.0, 3.0})
 	{
-		double mu = std::sin(glm::radians(elevation));
+		double mu = core::Sin(glm::radians(elevation));
 		auto cpu = glm::dvec3(SunTransmittance(glm::vec3(static_cast<float>(std::sqrt(1.0 - (mu * mu))), static_cast<float>(mu), 0.0F)));
 		auto table = tableAt(mu);
 		double error = 0.0;
@@ -1506,7 +1507,7 @@ Report CheckSky(core::TaskExecutor& executor)
 
 	// the sun near the horizon (3 degrees up): red
 	float sunsetTime = 12.0F;
-	while (sunsetTime < 24.0F && sunAt(sunsetTime).y > std::sin(glm::radians(3.0F)))
+	while (sunsetTime < 24.0F && sunAt(sunsetTime).y > core::Sin(glm::radians(3.0F)))
 		sunsetTime += 1.0F / 60.0F;
 	auto evening = SkySun(sunAt(sunsetTime)).irradiance;
 	report.Info("the sun at {:.2f} h, 3 degrees up: ({:.4f}, {:.4f}, {:.4f})", sunsetTime, evening.x, evening.y, evening.z);
@@ -1518,7 +1519,7 @@ Report CheckSky(core::TaskExecutor& executor)
 	auto midnight = draw(midnightSun);
 	auto night = luminance(MeanRadiance(midnight.panorama));
 	auto day = luminance(MeanRadiance(noon.panorama));
-	report.Info("midnight: the sun {:.1f} degrees up, the sky's mean radiance {:.3g} (noon's {:.3g})", glm::degrees(std::asin(midnightSun.y)), night, day);
+	report.Info("midnight: the sun {:.1f} degrees up, the sky's mean radiance {:.3g} (noon's {:.3g})", glm::degrees(core::Asin(midnightSun.y)), night, day);
 	if (SkySun(midnightSun) || !(night < day * 1e-3))
 		report.Fail("the sky isn't dark at midnight");
 	return report;

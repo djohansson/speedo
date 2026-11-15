@@ -5,6 +5,8 @@
 #include <gfx/shaders/capi.h>
 
 #include <core/assert.h>
+#include <core/glm_extra.h>
+#include <core/math.h>
 #include <core/profiling.h>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -153,8 +155,8 @@ void Views::FrameBounds(const Bounds3f& bounds, const Bounds3f& reach, float pit
 	// does, and the nearest was cut off)
 	auto nominal = InternalPinnedFov(CameraCreateDesc{}.fovY);
 	auto radius = std::max(bounds.Radius(), 1e-3F);
-	auto distance = (whole ? 1.0F : 1.4F * std::sin(0.5F * CameraCreateDesc{}.fovY)) * radius / std::sin(0.5F * nominal);
-	auto eye = bounds.Center() + (distance * glm::vec3(0.0F, std::sin(pitch), std::cos(pitch)));
+	auto distance = (whole ? 1.0F : 1.4F * core::Sin(0.5F * CameraCreateDesc{}.fovY)) * radius / core::Sin(0.5F * nominal);
+	auto eye = bounds.Center() + (distance * glm::vec3(0.0F, core::Sin(pitch), core::Cos(pitch)));
 	// and seeing as far as the farthest corner of reach
 	auto farPlane = 4.0F * radius;
 	for (uint32_t corner = 0; corner < 8; corner++)
@@ -243,9 +245,9 @@ void Views::Orbit(float yaw, float pitch, std::optional<size_t> view)
 		// where it looks from, as yaw (from -z towards +x) and pitch (positive looking down), turned
 		glm::vec3 look = (center - eye) / distance;
 		constexpr float kPitchLimit = 1.5F;
-		float lookPitch = std::clamp(std::asin(std::clamp(-look.y, -1.0F, 1.0F)) + pitch, -kPitchLimit, kPitchLimit);
-		float lookYaw = std::atan2(look.x, -look.z) + yaw;
-		look = glm::vec3(std::sin(lookYaw) * std::cos(lookPitch), -std::sin(lookPitch), -std::cos(lookYaw) * std::cos(lookPitch));
+		float lookPitch = std::clamp(core::Asin(std::clamp(-look.y, -1.0F, 1.0F)) + pitch, -kPitchLimit, kPitchLimit);
+		float lookYaw = core::Atan2(look.x, -look.z) + yaw;
+		look = glm::vec3(core::Sin(lookYaw) * core::Cos(lookPitch), -core::Sin(lookPitch), -core::Cos(lookYaw) * core::Cos(lookPitch));
 		desc.position = -(center - look * distance);
 		desc.cameraRotation = glm::vec3(lookPitch, lookYaw, 0.0F);
 		camera.UpdateAll();
@@ -328,15 +330,15 @@ void Views::InternalApplySceneCamera(const SceneCamera& camera, const Bounds3f& 
 	// (cos(pitch) sin(yaw), -sin(pitch), -cos(pitch) cos(yaw))
 	auto eye = glm::vec3(sceneCamera->position[0], sceneCamera->position[1], sceneCamera->position[2]);
 	auto forward = glm::vec3(sceneCamera->forward[0], sceneCamera->forward[1], sceneCamera->forward[2]);
-	auto pitch = std::asin(std::clamp(-forward.y, -1.0F, 1.0F));
-	auto yaw = std::atan2(forward.x, -forward.z);
+	auto pitch = core::Asin(std::clamp(-forward.y, -1.0F, 1.0F));
+	auto yaw = core::Atan2(forward.x, -forward.z);
 	// roll (about the view's z, before pitch and yaw, see Camera::UpdateViewMatrix) turns pitch and yaw's up, up0, to
 	// cos(roll) * up0 - sin(roll) * right0, which is the file's up
-	auto turn = glm::rotate(glm::mat4(1.0F), yaw, glm::vec3(0, -1, 0)) * glm::rotate(glm::mat4(1.0F), pitch, glm::vec3(-1, 0, 0));
+	auto turn = core::Rotation(yaw, glm::vec3(0, -1, 0)) * core::Rotation(pitch, glm::vec3(-1, 0, 0));
 	auto up0 = glm::vec3(turn * glm::vec4(0, 1, 0, 0));
 	auto right0 = glm::vec3(turn * glm::vec4(1, 0, 0, 0));
 	auto up = glm::vec3(sceneCamera->up[0], sceneCamera->up[1], sceneCamera->up[2]);
-	auto roll = std::atan2(-glm::dot(up, right0), glm::dot(up, up0));
+	auto roll = core::Atan2(-glm::dot(up, right0), glm::dot(up, up0));
 
 	// no far plane where the scene reaches the horizon (a perspective camera over the ground plane): the ground runs to the
 	// horizon whatever the file's zfar (ThousandsOfLights' camera has one of 500 m, which cut the plane's rings 4 degrees
@@ -414,13 +416,13 @@ void Views::SetFieldOfView(float fieldOfView)
 float Views::InternalRenderedFov(float nominal) const noexcept
 {
 	// wider by the margin, as the tangent: clamped short of the projection's limit
-	auto rendered = 2.0F * std::atan(myLensMargin.load(std::memory_order_relaxed) * std::tan(0.5F * nominal));
+	auto rendered = 2.0F * core::Atan(myLensMargin.load(std::memory_order_relaxed) * core::Tan(0.5F * nominal));
 	return std::clamp(rendered, glm::radians(1.0F), glm::radians(175.0F));
 }
 
 float Views::InternalNominalFov(float rendered) const noexcept
 {
-	return 2.0F * std::atan(std::tan(0.5F * rendered) / myLensMargin.load(std::memory_order_relaxed));
+	return 2.0F * core::Atan(core::Tan(0.5F * rendered) / myLensMargin.load(std::memory_order_relaxed));
 }
 
 float Views::InternalPinnedFov(float fieldOfView) const noexcept
@@ -561,7 +563,7 @@ std::vector<Camera> Views::Upload(
 		views[viewIt].jitter[1] = ndcJitter.y;
 		views[viewIt].jitter[2] = last.jitter.x;
 		views[viewIt].jitter[3] = last.jitter.y;
-		views[viewIt].textureLodBias = jitter ? std::log2(std::min(viewportScale.x, viewportScale.y)) + views::kJitterTextureLodBias : 0.0F;
+		views[viewIt].textureLodBias = jitter ? core::Log2(std::min(viewportScale.x, viewportScale.y)) + views::kJitterTextureLodBias : 0.0F;
 		views[viewIt].exposure = viewIt < exposures.size() ? exposures[viewIt] : (exposures.empty() ? 1.0F : exposures.front());
 		views[viewIt].scotopic = viewIt < scotopics.size() ? scotopics[viewIt] : 0.0F;
 		if (myUploaded.size() <= viewIt)
@@ -584,7 +586,7 @@ void Views::OnInputStateChanged(const core::InputState& input)
 	if (input.mouse.insideWindow && input.mouse.scroll[1] != 0.0F)
 	{
 		constexpr float kSpeedStep = 1.2F;
-		SetMoveSpeed(GetMoveSpeed() * std::pow(kSpeedStep, input.mouse.scroll[1]));
+		SetMoveSpeed(GetMoveSpeed() * core::Pow(kSpeedStep, input.mouse.scroll[1]));
 	}
 
 	auto cameras = myCameras.Write();

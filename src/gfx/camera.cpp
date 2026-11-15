@@ -1,19 +1,19 @@
 #include <gfx/camera.h>
 
 #include <core/assert.h>
+#include <core/glm_extra.h>
+#include <core/math.h>
 
 #include <glm/gtc/matrix_transform.hpp>
-
-#include <cmath>
 
 namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
 void Camera::UpdateViewMatrix()
 {
-	auto rotx = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.x, glm::vec3(-1, 0, 0));
-	auto roty = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.y, glm::vec3(0, -1, 0));
-	auto rotz = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.z, glm::vec3(0, 0, 1));
+	auto rotx = core::Rotation(myDesc.cameraRotation.x, glm::vec3(-1, 0, 0));
+	auto roty = core::Rotation(myDesc.cameraRotation.y, glm::vec3(0, -1, 0));
+	auto rotz = core::Rotation(myDesc.cameraRotation.z, glm::vec3(0, 0, 1));
 	auto trans = glm::translate(glm::mat4(1.0), -myDesc.position);
 
 	myViewMatrix = glm::inverse(trans * roty * rotx * rotz);
@@ -49,7 +49,7 @@ void Camera::UpdateProjectionMatrix()
 		if (myDesc.viewport.type == ViewType::Perspective && myDesc.farPlane <= 0.0F)
 		{
 			// no far plane: glm::perspective's as the far plane goes to infinity (depth 0 there, which nothing reaches)
-			float tanHalf = std::tan(0.5F * myDesc.fovY);
+			float tanHalf = core::Tan(0.5F * myDesc.fovY);
 			glm::mat4 projection(0.0F);
 			projection[0][0] = 1.0F / (aspect * tanHalf);
 			projection[1][1] = 1.0F / tanHalf;
@@ -60,7 +60,7 @@ void Camera::UpdateProjectionMatrix()
 		}
 		else if (myDesc.viewport.type == ViewType::Perspective)
 		{
-			myProjectionMatrix = kClip * glm::perspective(myDesc.fovY, aspect, myDesc.nearPlane, myDesc.farPlane);
+			myProjectionMatrix = kClip * core::Perspective(myDesc.fovY, aspect, myDesc.nearPlane, myDesc.farPlane);
 		}
 		else
 		{

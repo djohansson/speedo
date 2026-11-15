@@ -1,6 +1,7 @@
 #include <gfx/lens.h>
 
 #include <core/assert.h>
+#include <core/math.h>
 
 #include <algorithm>
 #include <cmath>
@@ -510,7 +511,7 @@ float StraightEdgeLength(const Prescription& lens, float stopRadius) noexcept
 	// the polygon's edge (2 a tan(pi / N) for the apothem a), or the chord the opening leaves of it where the polygon's
 	// corners reach past the opening
 	float open = OpenRadius(lens);
-	float edge = 2.0F * stopRadius * std::tan(std::numbers::pi_v<float> / static_cast<float>(lens.bladeCount));
+	float edge = 2.0F * stopRadius * core::Tan(std::numbers::pi_v<float> / static_cast<float>(lens.bladeCount));
 	float chord = 2.0F * std::sqrt(std::max(open * open - stopRadius * stopRadius, 0.0F));
 	return std::min(edge, chord);
 }
@@ -533,7 +534,7 @@ Appearance Appear(const Prescription& lens, float fNumber, float sensorHalfDiago
 	constexpr float kCoatedGlare = 0.005F;
 	constexpr float kUncoatedGlare = 0.02F;
 	appearance.glare = lens.coated ? kCoatedGlare : kUncoatedGlare;
-	appearance.fieldAngle = std::atan(sensorHalfDiagonal / std::max(green.focalLength, 1e-3F));
+	appearance.fieldAngle = core::Atan(sensorHalfDiagonal / std::max(green.focalLength, 1e-3F));
 
 	// the mechanical vignetting: of a grid of rays over the aperture stop's disk (height y along the field, x across it)
 	// at the field angle, each traced back to the entrance by the matrix to the stop and forward from there, those that
@@ -582,7 +583,7 @@ Appearance Appear(const Prescription& lens, float fNumber, float sensorHalfDiago
 	auto overlap = [](float distance)
 	{
 		float half = 0.5F * distance;
-		return (2.0F * std::acos(std::clamp(half, -1.0F, 1.0F)) - half * std::sqrt(std::max(4.0F - distance * distance, 0.0F))) / std::numbers::pi_v<float>;
+		return (2.0F * core::Acos(std::clamp(half, -1.0F, 1.0F)) - half * std::sqrt(std::max(4.0F - distance * distance, 0.0F))) / std::numbers::pi_v<float>;
 	};
 	// the natural vignetting: cos^4 of the angle the chief ray meets the sensor at, the exit pupil's solid angle as a point
 	// of the image sees it (its distance, its tilt, the sensor's). the image side's angle is the field's times the
@@ -600,7 +601,7 @@ Appearance Appear(const Prescription& lens, float fNumber, float sensorHalfDiago
 	for (size_t sampleIt = 0; sampleIt < Appearance::kVignettingSamples; sampleIt++)
 	{
 		float angle = appearance.fieldAngle * static_cast<float>(sampleIt) / static_cast<float>(Appearance::kVignettingSamples - 1);
-		float natural = std::pow(std::cos(std::atan(chiefSlope * std::tan(angle))), 4.0F);
+		float natural = core::Pow(core::Cos(core::Atan(chiefSlope * core::Tan(angle))), 4.0F);
 		float mechanical = std::min(passing(angle) / onAxis, 1.0F);
 		appearance.vignetting[sampleIt] = natural * mechanical;
 		float low = 0.0F;
@@ -636,10 +637,10 @@ Appearance Appear(const Prescription& lens, float fNumber, float sensorHalfDiago
 			if (!height)
 				continue;
 			sumY2 += static_cast<double>(y) * y;
-			sumY4 += std::pow(static_cast<double>(y), 4.0);
-			sumY6 += std::pow(static_cast<double>(y), 6.0);
+			sumY4 += core::Pow(static_cast<double>(y), 4.0);
+			sumY6 += core::Pow(static_cast<double>(y), 6.0);
 			sumHY += static_cast<double>(*height) * y;
-			sumHY3 += static_cast<double>(*height) * std::pow(static_cast<double>(y), 3.0);
+			sumHY3 += static_cast<double>(*height) * core::Pow(static_cast<double>(y), 3.0);
 		}
 		// the least squares of [y, y^3]: the normal equations' 2x2
 		double determinant = sumY2 * sumY6 - sumY4 * sumY4;
@@ -707,8 +708,8 @@ std::optional<float> TraceRay(const Prescription& lens, float wavelength, float 
 	// plane, and the index it is in
 	double z = 0.0;
 	double y = height;
-	double dz = std::cos(angle);
-	double dy = std::sin(angle);
+	double dz = core::Cos(angle);
+	double dy = core::Sin(angle);
 	double index = 1.0;
 	double vertex = 0.0;
 	for (size_t surfaceIt = 0; surfaceIt < lens.surfaces.size(); surfaceIt++)
@@ -792,7 +793,7 @@ float Reflectance(float indexBefore, float indexAfter, float wavelength, bool co
 	float r1 = fresnel(indexBefore, kCoating);
 	float r2 = fresnel(kCoating, indexAfter);
 	float phase = std::numbers::pi_v<float> * tuned / wavelength;
-	float c = std::cos(phase);
+	float c = core::Cos(phase);
 	return (r1 * r1 + r2 * r2 + 2.0F * r1 * r2 * c) / (1.0F + r1 * r1 * r2 * r2 + 2.0F * r1 * r2 * c);
 }
 

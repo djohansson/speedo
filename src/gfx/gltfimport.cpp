@@ -2,6 +2,7 @@
 #include "tangents.h"
 
 #include <core/file.h>
+#include <core/math.h>
 #include <core/profiling.h>
 #include <core/utils.h>
 
@@ -2136,7 +2137,7 @@ std::expected<Mesh, std::string> Import(
 				for (cgltf_size primitiveIt = 0; primitiveIt < node->mesh->primitives_count; primitiveIt++)
 					if (const auto* material = node->mesh->primitives[primitiveIt].material; material != nullptr && material->has_volume)
 						hasVolume = true;
-				scaledVolume = hasVolume && std::abs(std::cbrt(std::abs(Determinant(world))) - 1.0) > 1e-4;
+				scaledVolume = hasVolume && std::abs(core::Cbrt(std::abs(Determinant(world))) - 1.0) > 1e-4;
 			}
 			if (moving || scaledVolume || (transforms && !transforms->empty()))
 			{

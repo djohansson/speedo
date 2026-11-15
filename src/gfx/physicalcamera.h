@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/math.h>
+
 #include <gfx/shaders/capi.h>
 
 #include <algorithm>
@@ -20,12 +22,12 @@ namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::camera
 {
 
 inline constexpr float kUnitLuminance = 128000.0F / static_cast<float>(SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE); // cd/m^2
-inline const float kSaturationEv100 = std::log2(kUnitLuminance / 1.2F); // 15.32
+inline const float kSaturationEv100 = core::Log2(kUnitLuminance / 1.2F); // 15.32
 
 // the exposure value at ISO 100 of an aperture (an f-number), a shutter (seconds) and an ISO
 [[nodiscard]] inline float Ev100(float aperture, float shutter, float iso) noexcept
 {
-	return std::log2(aperture * aperture / shutter) - std::log2(iso / 100.0F);
+	return core::Log2(aperture * aperture / shutter) - core::Log2(iso / 100.0F);
 }
 
 // the exposure in stops (what the image is scaled by, 2^stops, before tonemapping: Scene::Settings::exposureStops is
@@ -38,17 +40,17 @@ inline const float kSaturationEv100 = std::log2(kUnitLuminance / 1.2F); // 15.32
 // the setting that gives stops with the other two
 [[nodiscard]] inline float IsoFor(float stops, float aperture, float shutter) noexcept
 {
-	return 100.0F * std::exp2(std::log2(aperture * aperture / shutter) - (kSaturationEv100 - stops));
+	return 100.0F * core::Exp2(core::Log2(aperture * aperture / shutter) - (kSaturationEv100 - stops));
 }
 
 [[nodiscard]] inline float ShutterFor(float stops, float aperture, float iso) noexcept
 {
-	return aperture * aperture / (std::exp2(kSaturationEv100 - stops) * iso / 100.0F);
+	return aperture * aperture / (core::Exp2(kSaturationEv100 - stops) * iso / 100.0F);
 }
 
 [[nodiscard]] inline float ApertureFor(float stops, float shutter, float iso) noexcept
 {
-	return std::sqrt(shutter * std::exp2(kSaturationEv100 - stops) * iso / 100.0F);
+	return std::sqrt(shutter * core::Exp2(kSaturationEv100 - stops) * iso / 100.0F);
 }
 
 // how the camera exposes (View > Camera > Exposure, SPEEDO_EXPOSURE_MODE): what the user sets, and what the camera
@@ -127,9 +129,9 @@ struct ExposureLimits
 	const Exposure pivot{}; // sunny sixteen
 	float below = pivot.Stops() - stops; // stops the scene is brighter than the pivot's exposure (negative: darker)
 	if (mode != ExposureMode::kAperturePriority)
-		chosen.aperture = pivot.aperture * std::exp2(0.25F * below);
+		chosen.aperture = pivot.aperture * core::Exp2(0.25F * below);
 	if (mode != ExposureMode::kShutterPriority)
-		chosen.shutter = pivot.shutter * std::exp2(-0.5F * below);
+		chosen.shutter = pivot.shutter * core::Exp2(-0.5F * below);
 	chosen.aperture = std::clamp(chosen.aperture, limits.widestAperture, limits.narrowestAperture);
 	chosen.shutter = std::clamp(chosen.shutter, limits.fastestShutter, mode == ExposureMode::kShutterPriority ? limits.slowestShutter : limits.handheldShutter);
 	// where the aperture or the shutter couldn't go (priority: half of the way was never theirs), the other takes it
@@ -212,12 +214,12 @@ struct SensorSize
 // the vertical field of view (radians) of a focal length (mm) on a sensor height (mm), and back
 [[nodiscard]] inline float FieldOfView(float sensorHeight, float focalLength) noexcept
 {
-	return 2.0F * std::atan(sensorHeight / (2.0F * std::max(focalLength, 1e-3F)));
+	return 2.0F * core::Atan(sensorHeight / (2.0F * std::max(focalLength, 1e-3F)));
 }
 
 [[nodiscard]] inline float FocalLength(float sensorHeight, float fieldOfView) noexcept
 {
-	return sensorHeight / (2.0F * std::tan(std::clamp(0.5F * fieldOfView, 1e-3F, 1.5F)));
+	return sensorHeight / (2.0F * core::Tan(std::clamp(0.5F * fieldOfView, 1e-3F, 1.5F)));
 }
 
 } // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::camera

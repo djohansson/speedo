@@ -366,7 +366,9 @@ add `libobjc` implicitly the way Apple's linker does (`undefined symbol: objc_ms
 llvm is vcpkg's own port since 2026-11-12 (23.1.5#1), at the registry's baseline: setup reads its version from the
 registry's `versions/baseline.json` at that commit for `LLVM_PORT_VERSION` (see the binary cache below), so a baseline
 move that moves llvm rebuilds every package. An override in `vcpkg.json` would pin it; the user decided against one
-(2026-11-12: one version fewer to maintain). Until then `ports/llvm` was vcpkg's 23.1.3 port but for one fix, upstream
+(2026-11-12: one version fewer to maintain). Such a move moves `ports/llvm-libc-math` too (2026-11-14: LLVM libc's math
+functions as headers, for core's correctly rounded math, docs/notes/core.md), whose version is the llvm port's and its
+archive the same: its version and the archive's SHA-512 by hand, where the llvm port's portfile has it. Until then `ports/llvm` was vcpkg's 23.1.3 port but for one fix, upstream
 since (microsoft/vcpkg#54988, merged 2026-11-12): its `libcxx` feature required `libcxxabi`, which LLVM refuses for
 MSVC targets (a `FATAL_ERROR` in libcxxabi's `CMakeLists.txt`; vcpkg's CI lists `llvm[libcxxabi](windows)=feature-fails`
 and skips llvm), while Windows takes LLVM's libc++ (over the vcruntime ABI) for the clang triplets; so `libcxxabi` is

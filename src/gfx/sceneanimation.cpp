@@ -2,6 +2,7 @@
 
 #include <gfx/shaders/capi.h>
 
+#include <core/glm_extra.h>
 #include <core/profiling.h>
 
 #include <glm/glm.hpp>
@@ -68,7 +69,7 @@ static void Sample(const SceneAnimationChannel& channel, float time, size_t comp
 	case SceneAnimationChannel::Interpolation::kLinear:
 		if (channel.path == SceneAnimationChannel::Path::kRotation)
 		{
-			auto q = glm::slerp(glm::normalize(ToQuat(value(key, 1))), glm::normalize(ToQuat(value(next, 1))), t);
+			auto q = core::Slerp(glm::normalize(ToQuat(value(key, 1))), glm::normalize(ToQuat(value(next, 1))), t);
 			out[0] = q.x;
 			out[1] = q.y;
 			out[2] = q.z;
@@ -204,7 +205,7 @@ std::vector<SceneMatrix> EvaluateNodes(const SceneAnimationData& data, const Sce
 			auto& local = locals[nodeIt];
 			const auto& fromLocal = fromLocals[nodeIt];
 			local.translation = glm::mix(fromLocal.translation, local.translation, t);
-			local.rotation = glm::slerp(fromLocal.rotation, local.rotation, t);
+			local.rotation = core::Slerp(fromLocal.rotation, local.rotation, t);
 			local.scale = glm::mix(fromLocal.scale, local.scale, t);
 		}
 	}

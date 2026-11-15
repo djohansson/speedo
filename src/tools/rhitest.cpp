@@ -6,6 +6,7 @@
 // test of its own while the client stays on Vulkan. Run from the checkout's root (the shader dir is src/tools by
 // default); Vulkan's driver as for the client (VK_DRIVER_FILES). Exits 0 when every backend passes.
 #include <core/application.h>
+#include <core/math.h>
 #include <gfx/shaderloader.h>
 #include <gfx/shaders/capi.h>
 #include <rhi/buffer.h>
@@ -800,7 +801,7 @@ bool CheckEnvironment(const char* backend, const std::vector<EnvironmentOutput>&
 			const float otherValue = other.channels[channelIt];
 			if (value < kSmallest && otherValue < kSmallest)
 				continue;
-			const float stops = std::abs(std::log2((std::max(value, kSmallest)) / std::max(otherValue, kSmallest)));
+			const float stops = std::abs(core::Log2((std::max(value, kSmallest)) / std::max(otherValue, kSmallest)));
 			sum += stops;
 			most = std::max(most, stops);
 			apart += stops > kApartStops ? 1 : 0;

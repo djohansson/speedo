@@ -2,6 +2,7 @@
 #include "windowedapplicationdetail.h"
 
 #include <core/file.h>
+#include <core/math.h>
 #include <core/utils.h>
 #include <gfx/lens.h>
 #include <gfx/lightgizmos.h>
@@ -1520,7 +1521,7 @@ void WindowedApplication::PrepareDraw()
 						for (int rayIt = 0; rayIt < 8; rayIt++)
 						{
 							float angle = static_cast<float>(rayIt) * std::numbers::pi_v<float> / 4.0F;
-							ImVec2 direction(std::cos(angle), std::sin(angle));
+							ImVec2 direction(core::Cos(angle), core::Sin(angle));
 							drawList->AddLine(
 								ImVec2(at.x + direction.x * kRadius * 1.4F, at.y + direction.y * kRadius * 1.4F),
 								ImVec2(at.x + direction.x * kRadius * 2.1F, at.y + direction.y * kRadius * 2.1F),
