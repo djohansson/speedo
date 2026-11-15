@@ -97,6 +97,18 @@
         "bcdec",
         "cgltf",
         "curl",
+        {
+          "name": "d3d12-memory-allocator",
+          "platform": "windows"
+        },
+        {
+          "name": "directx-dxc",
+          "platform": "windows"
+        },
+        {
+          "name": "directx-headers",
+          "platform": "windows"
+        },
         "draco",
         "glfw3",
         {

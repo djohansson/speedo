@@ -16,7 +16,6 @@
 
 #include <xxhash.h>
 
-#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -48,6 +47,9 @@ std::tuple<SlangCompileTarget, const char*> SlangTarget(rhi::ShaderFormat format
 	{
 	case rhi::ShaderFormat::kSpirv16: return {SLANG_SPIRV, "SPIRV_1_6"};
 	case rhi::ShaderFormat::kMsl: return {SLANG_METAL, ""};
+	// 6.8 for SV_StartInstanceLocation (the indirect draws name their records by their first instance, which D3D12's
+	// SV_InstanceID doesn't count; 6.6 refused it); DXC compiles and validates the DXIL
+	case rhi::ShaderFormat::kDxil: return {SLANG_DXIL, "sm_6_8"};
 	}
 	ASSERT(false);
 	return {SLANG_TARGET_UNKNOWN, ""};
@@ -579,6 +581,10 @@ Response Compile(const Request& request)
 
 	for (const auto& [key, value] : request.definitions)
 		spAddPreprocessorDefine(slangRequest, key.c_str(), value.c_str());
+	// what a format's target lacks, for the shaders to leave out (slang defines nothing per target: __HLSL__ is every
+	// target's, the language's): D3D has no point size, its points always a pixel
+	if (request.format == rhi::ShaderFormat::kDxil)
+		spAddPreprocessorDefine(slangRequest, "SHADER_TARGET_NO_POINT_SIZE", "1");
 
 	// the code's target. for a format other than spir-v, spir-v first all the same: the reflection is the first target's,
 	// and rhi's layouts are its descriptor sets and bindings (slang reflects Metal's argument buffers otherwise), which
@@ -596,8 +602,12 @@ Response Compile(const Request& request)
 
 	// keep the entry points' names in the binaries (rhi::EntryPoint names them): for spir-v, slang otherwise renames every
 	// entry point to "main"
-	constexpr std::array<const char*, 1> kKeepEntryPointNames{"-fvk-use-entrypoint-name"};
-	if (SLANG_FAILED(spProcessCommandLineArguments(slangRequest, kKeepEntryPointNames.data(), kKeepEntryPointNames.size())))
+	// and for DXIL each descriptor set (a parameter block, see bindings.slang) a register space of its own, D3D12's
+	// descriptor tables (slang packs them all into one space otherwise)
+	std::vector<const char*> options{"-fvk-use-entrypoint-name"};
+	if (request.format == rhi::ShaderFormat::kDxil)
+		options.push_back("-parameter-blocks-use-register-spaces");
+	if (SLANG_FAILED(spProcessCommandLineArguments(slangRequest, options.data(), static_cast<int>(options.size()))))
 	{
 		spDestroyCompileRequest(slangRequest);
 		response.diagnostics = "failed to set slang's options";

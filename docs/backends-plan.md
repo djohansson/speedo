@@ -86,7 +86,29 @@ The Metal api from C++: metal-cpp, Apple's header only C++ wrapper (the user's c
 | memory | D3D12MA (vcpkg's `d3d12-memory-allocator`, 3.3.0), VMA's sibling |
 | headless and CI | WARP, Microsoft's cpu driver, lavapipe's role on Windows runners |
 
-Needs: `directx-headers` (in vcpkg, the mesa port's dependency already), `directx-dxc`, `d3d12-memory-allocator`, and for enhanced barriers on older Windows the Agility SDK (not in vcpkg's registry: an overlay port, or Windows 11 24H2's runtime as the minimum). Nothing blocks it; it follows Metal, and the binding work below serves both.
+Needs: `directx-headers` (in vcpkg, the mesa port's dependency already), `directx-dxc`, `d3d12-memory-allocator`, and for enhanced barriers on older Windows the Agility SDK (in vcpkg's registry since, `directx12-agility` 1.619.5 at the 2026-11-12 baseline; or Windows 11 24H2's runtime as the minimum). Nothing blocks it; it follows Metal, and the binding work below serves both.
+
+## The plan (D3D12)
+
+The user's ask (2026-11-15): a D3D12 backend for rhi beside Vulkan's on Windows, as Metal's is beside it on macOS. Branch `d3d12-backend`. The steps are Metal's, its design the model where the apis agree (Metal's design section above), D3D12's own where they don't:
+
+1. The shaders as DXIL: `rhi::ShaderFormat::kDxil`, slang's DXIL target through DXC (`directx-dxc`), a register space per descriptor set (`-parameter-blocks-use-register-spaces`); `scripts/shadercheck.ps1 -Target dxil` compiles every entry point with DXC's validation.
+2. The backend beside Vulkan on Windows: `kD3D12` and `BackendTypes<kD3D12>` (`rhi/d3d12/types.inl`), rhi's classes instantiated with them (`rhi/d3d12/instantiate.cpp`), and rhitest on D3D12: the RHI (headless), DXGI's adapters and the device (the debug layer with `-Validate`), queues with `ID3D12Fence` timelines, command allocators and lists, buffers (D3D12MA), shader modules (DXIL), root signatures from the layouts, descriptor tables from shader visible heaps, compute pipeline states, enhanced barriers: rhitest's compute dispatch, then its images and the environment kernels against Vulkan's.
+3. Render pipelines and passes (`BeginRenderPass` or plain render targets and their descriptors), indirect draws with a count (`ExecuteIndirect`, the count buffer: no exception), rects cleared inside a pass (`ClearRenderTargetView`'s rects, D3D12 has them), scaled blits (a draw, as Metal's): rhitest's draws bit for bit Vulkan's.
+4. The client on D3D12 (`SPEEDO_GRAPHICS_API=d3d12`, gfx and the client compiled a third time on Windows), headless first: its captures against Vulkan's (`imagecompare`).
+5. The swapchain (DXGI flip model, present modes, the frame latency waitable object for present wait, exclusive fullscreen), the ImGui renderer.
+6. Timestamps, crash reports (DRED's breadcrumbs and page faults), acceleration structures and ray queries (DXR 1.1 inline).
+7. The quick tier and the visual checks on D3D12 (`-Validate` with the debug layer), CI on WARP, frame times against Vulkan's on the same gpu.
+
+Decided as it was built:
+
+- **Shader model 6.8** (step 1): the indirect draws name their records by their first instance (`SV_StartInstanceLocation`), which D3D12's `SV_InstanceID` doesn't count and shader model 6.6 refuses; 6.8 has it, so rhi's indirect commands stay Vulkan's layout (no root constant per draw from the command signature). DXC 1.9 (vcpkg's `directx-dxc` 2026-05-27).
+- **No point size on D3D** (step 1): the vertex stage writes `SV_PointSize` for Vulkan's point lists, which D3D has no such thing as (its points a pixel always). Slang defines nothing per target (`__HLSL__` is every target's, the language's), so the shader compiler defines `SHADER_TARGET_NO_POINT_SIZE` for DXIL (named for what the target lacks), and `VertexMain` leaves the field out.
+- **The OS's D3D12 runtime** to start (the development machine's, Windows 11 build 26300: enhanced barriers and shader model 6.8 in the box); the Agility SDK (`directx12-agility`) when a runner or a machine lacks them, the backend checking each and failing hard naming what's missing.
+
+### Progress (D3D12)
+
+- 2026-11-15, step 1: `directx-headers`, `directx-dxc` and `d3d12-memory-allocator` in the client's dependencies on Windows. `shadercheck.ps1 -Target dxil` at shader model 6.6 compiled 168 of 172 entry points to validated DXIL; the 4 failing, both layouts' `VertexZPrepass` and `VertexMain`, each for a semantic: `SV_StartInstanceLocation` (shader model 6.8's) and `SV_PointSize` (none in D3D). With 6.8 and `SHADER_TARGET_NO_POINT_SIZE` (above): **all 172 compile to DXIL and pass DXC's validation**, the 16 ray query entry points included (141 s). `rhi::ShaderFormat::kDxil` is the shader compiler's (slang's `SLANG_DXIL`, sm_6_8, a register space per set); Vulkan's and Metal's code unchanged (the define is DXIL's alone).
 
 ## Exceptions, by "portable by default"
 

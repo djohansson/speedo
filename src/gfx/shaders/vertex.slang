@@ -85,8 +85,10 @@ struct VertexOutput : IInterpolants
 struct VertexMainOutput
 {
 	VertexOutput varyings;
-	// points are a pixel (vulkan needs the size written for point lists)
+	// points are a pixel (vulkan needs the size written for point lists; D3D has none, its points a pixel always)
+#if !defined(SHADER_TARGET_NO_POINT_SIZE)
 	float pointSize : SV_PointSize;
+#endif
 };
 
 [shader("vertex")]
@@ -172,5 +174,9 @@ VertexMainOutput VertexMain(InputStream input)
 	if ((draw.flags & DRAW_FLAG_MOVES) != 0u)
 		output.previousPosition = WorldPosition(draw, input.vertexId, input.instanceId, (frameIndex + SHADER_TYPES_FRAME_COUNT - 1u) % SHADER_TYPES_FRAME_COUNT);
 
+#if defined(SHADER_TARGET_NO_POINT_SIZE)
+	return { output };
+#else
 	return { output, 1.0 };
+#endif
 }

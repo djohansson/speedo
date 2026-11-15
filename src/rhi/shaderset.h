@@ -21,6 +21,7 @@ enum class ShaderFormat : uint8_t
 {
 	kSpirv16, // spir-v 1.6 (Vulkan)
 	kMsl, // Metal shading language source, an entry point each (Metal, see docs/backends-plan.md)
+	kDxil, // DXIL for shader model 6.8, an entry point each, each descriptor set a register space (D3D12)
 };
 
 using ShaderBinary = std::vector<char>;

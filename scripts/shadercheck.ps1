@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
 Every shader layout the client loads, compiled by slang to another backend's target: Metal's MSL (checked by Metal's
-own compiler with -Validate) or D3D12's HLSL (docs/backends-plan.md).
+own compiler with -Validate), D3D12's HLSL, or D3D12's DXIL (compiled and validated by DXC, on Windows) (docs/backends-plan.md).
 
 .DESCRIPTION
 The layouts are the files and variants the client compiles (gfx::SceneShaderLayouts with ray queries and without,
@@ -9,11 +9,11 @@ ImGuiShaderLayout, EnvironmentFilter's): each file's entry points come from slan
 functions), each compiled alone with the client's options (shadercompiler.cpp), as the Metal backend will: slang can't
 put all of a file's into one Metal library (it makes groupshared memory module scope threadgroup variables, which a
 vertex function can't have). HLSL for shader model 6.6, a register space per descriptor set (each set is a parameter
-block, see bindings.slang).
+block, see bindings.slang). DXIL as the client compiles it (gfx/shadercompiler.cpp): shader model 6.8, a register space
+per set, SHADER_TARGET_NO_POINT_SIZE; slang hands it to DXC (vcpkg's directx-dxc, the triplet's bin), which validates it.
 
 -Validate (macOS, metal) compiles each MSL file with Metal's runtime compiler (src/tools/macos/mslcheck.mm, built into
-the work dir with the command line tools' clang). DXIL needs DXC, which slang loads and macOS doesn't have: validate
-HLSL on Windows. Until the Metal backend compiles the shaders itself (docs/backends-plan.md, step 4), this is the check
+the work dir with the command line tools' clang). Until the Metal backend compiles the shaders itself (docs/backends-plan.md, step 4), this is the check
 after a shader change: it takes about a minute.
 
 .EXAMPLE
@@ -22,7 +22,7 @@ pwsh scripts/shadercheck.ps1 -Preset arm64-osx-clang-profile -Target metal -Vali
 [CmdletBinding()]
 param(
 	[Parameter(Mandatory = $true)] [string] $Preset,
-	[Parameter(Mandatory = $true)] [ValidateSet('metal', 'hlsl')] [string] $Target,
+	[Parameter(Mandatory = $true)] [ValidateSet('metal', 'hlsl', 'dxil')] [string] $Target,
 	[string] $Work,
 	[switch] $Validate
 )
@@ -36,6 +36,11 @@ if (-not (Test-Path -LiteralPath $slangc -PathType Leaf))
 {
 	[Console]::Error.WriteLine("no ${slangc}: run setup first")
 	exit 2
+}
+if ($Target -eq 'dxil')
+{
+	# slang loads DXC (dxcompiler.dll, dxil.dll) from the path
+	$env:PATH = (Join-Path $root "install/$triplet/bin") + [IO.Path]::PathSeparator + $env:PATH
 }
 $shaders = Join-Path $root 'src/gfx/shaders'
 if (-not $Work)
@@ -51,6 +56,7 @@ $targetArgs = switch ($Target)
 {
 	'metal' { @('-target', 'metal') }
 	'hlsl' { @('-target', 'hlsl', '-profile', 'sm_6_6', '-parameter-blocks-use-register-spaces') }
+	'dxil' { @('-target', 'dxil', '-profile', 'sm_6_8', '-parameter-blocks-use-register-spaces', '-D', 'SHADER_TARGET_NO_POINT_SIZE=1') }
 }
 $layouts = @(
 	@{ Name = 'main'; File = 'shaders.slang'; Defines = @() }
