@@ -112,6 +112,11 @@ if ($Validate -and $env:SPEEDO_GRAPHICS_API -eq 'metal' -and -not $env:MTL_DEBUG
 {
 	$env:MTL_DEBUG_LAYER = '1'
 }
+# and on D3D12 (SPEEDO_GRAPHICS_API=d3d12) its debug layer, as assettest.ps1's
+if ($Validate -and $env:SPEEDO_GRAPHICS_API -eq 'd3d12' -and -not $env:SPEEDO_D3D12_VALIDATION)
+{
+	$env:SPEEDO_D3D12_VALIDATION = '1'
+}
 # what fails a client's run besides its exit code, as assettest.ps1's client runs: a load's failure, a failed assert's
 # errno line, the validation layer's messages (Metal's failed assertions, its command buffers' failures), the sanitizers'
 # reports
@@ -322,6 +327,13 @@ foreach ($check in $checks)
 	if ($check.NeedsRayQueries -and $kosmicKrisp)
 	{
 		Write-Host "SKIP $($check.Name) (ray queries on KosmicKrisp: run it on lavapipe)"
+		continue
+	}
+	# ray queries off (SPEEDO_RAY_QUERY=0: D3D12's WARP, whose ray queries crash in its own threads, see
+	# docs/backends-plan.md): nothing to compare the BVHs with
+	if ($check.NeedsRayQueries -and $env:SPEEDO_RAY_QUERY -eq '0')
+	{
+		Write-Host "SKIP $($check.Name) (SPEEDO_RAY_QUERY=0)"
 		continue
 	}
 	$ran++

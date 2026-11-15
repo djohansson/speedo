@@ -220,6 +220,10 @@ static Side SideOf(D3D12_BARRIER_LAYOUT layout, D3D12_COMMAND_LIST_TYPE type)
 	case D3D12_BARRIER_LAYOUT_COPY_DEST: return {D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_ACCESS_COPY_DEST};
 	case D3D12_BARRIER_LAYOUT_SHADER_RESOURCE: return {shading, D3D12_BARRIER_ACCESS_SHADER_RESOURCE};
 	case D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS: return {shading, D3D12_BARRIER_ACCESS_UNORDERED_ACCESS};
+	// Vulkan's general layout (TransitionImage): written as storage and sampled alike
+	case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON:
+	case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON:
+		return {shading, D3D12_BARRIER_ACCESS_UNORDERED_ACCESS | D3D12_BARRIER_ACCESS_SHADER_RESOURCE};
 	case D3D12_BARRIER_LAYOUT_RENDER_TARGET: return {D3D12_BARRIER_SYNC_RENDER_TARGET, D3D12_BARRIER_ACCESS_RENDER_TARGET};
 	case D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE: return {D3D12_BARRIER_SYNC_DEPTH_STENCIL, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE};
 	default: return {}; // undefined, common, present: no work before or after on this list
@@ -237,7 +241,9 @@ namespace d3d12
 // present's copy source, which its frame transitions from undefined each frame as Vulkan's swapchain images are)
 void Transition(CommandBufferObject& cmd, ID3D12Resource* resource, D3D12_BARRIER_LAYOUT before, D3D12_BARRIER_LAYOUT after, D3D12_BARRIER_LAYOUT last)
 {
-	if (before == after && before != D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS)
+	// (in the layouts that take unordered access, a barrier between the writes and what reads them all the same)
+	if (before == after && before != D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS && before != D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON &&
+		before != D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON)
 		return;
 	// an attachment's contents discarded (from an undefined layout) are initialized where the discard leaves it in its
 	// attachment's layout, which a resource not zeroed (placed, or committed not zeroed) needs before its first use (the
@@ -317,6 +323,18 @@ void TransitionImage(CommandBufferObject& cmd, ImageObject& image, D3D12_BARRIER
 	// source panorama, among its storage images, error 1332) is only read there: a shader resource's
 	else if (after == D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS && (image.flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0)
 		after = D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+	// and for one that can, its queue's common layout, which takes unordered access and shader resource reads both, as
+	// Vulkan's general layout does: D3D12's unordered access layout takes no sampling (gpu based validation's error
+	// 1358, the upscaler's luma and the sky's tables sampled where they're storage images; WARP crashed in its threads)
+	else if (after == D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS)
+		after = cmd.type == D3D12_COMMAND_LIST_TYPE_COMPUTE ? D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON : D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON;
+	// (a queue's common layout is its own: an image another queue's list left in its own goes through the common
+	// layout, on that queue, first)
+	ENSUREF(
+		!(cmd.type == D3D12_COMMAND_LIST_TYPE_COMPUTE && image.layout == D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON) &&
+			!(cmd.type == D3D12_COMMAND_LIST_TYPE_DIRECT && image.layout == D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON),
+		"{}: a transition on one queue of an image left in another queue's general layout",
+		GetName(image.resource));
 	Transition(cmd, image.resource, discard ? D3D12_BARRIER_LAYOUT_UNDEFINED : image.layout, after, image.layout);
 	image.layout = after;
 }
