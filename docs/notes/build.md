@@ -124,6 +124,16 @@ by module auto-loading, so `Get-InstalledModule` says installed while the cmdlet
 recognized". Don't reintroduce modules; also avoid hardcoded install roots (the Windows SDK root
 comes from the `KitsRoot10` registry value).
 
+D3D12's debug layer (`d3d12SDKLayers.dll`, Windows' optional Graphics Tools; the user's ask, 2026-11-15) is opt in
+(`SPEEDO_D3D12_DEBUG_LAYER=1`, the user's call: Windows' download of it took long; without it setup prints how), and
+setup's one step that needs an administrator: DISM's `/Add-Capability` (`Tools.Graphics.DirectX~~~~0.0.1.0`), run where `System32`
+lacks the layer, elevated through one UAC prompt where setup isn't. `Add-WindowsCapability`, tried first, failed in the
+Microsoft Store's PowerShell 7 (exit 1, its error gone with the elevated window), where `dism.exe` installed it; its log
+is `speedo-graphics-tools.log` in the temp directory. A declined prompt or a failure warns, not fails, since the D3D12 backend runs
+without it, unvalidated (the debug layer's absence is what the backend's first validated run found: `rhitest` printed
+"the debug layer isn't installed"). The Agility SDK, if the backend takes it up,
+carries a debug layer of its own (`D3D12SDKLayers.dll` beside the executable), which would make the step redundant.
+
 ## FASTBuild: precompiled headers with clang-cl overwrite themselves
 
 With clang-cl, CMake's FASTBuild generator (4.4.5, and its master on 2026-11-09) builds no target with precompiled

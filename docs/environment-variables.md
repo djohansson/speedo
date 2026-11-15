@@ -296,6 +296,7 @@ The debug views, by name (and number): `base-color` (1), `normal` (2), `geometry
 | `SPEEDO_FASTBUILD_CACHE` | `0` off. Default: on. | The presets' FASTBuild launcher runs FBuild with its cache, local and remote; `0` runs it as asked (see [build](notes/build.md), "FASTBuild's cache"). |
 | `FASTBUILD_CACHE_MODE` | FASTBuild's own (`r`, `w`, `rw`). Default: unset. | Set, the launcher leaves the cache's mode to FBuild rather than adding `-cache`. |
 | `ASSETTEST_CLIENT_TIMEOUT` | Seconds. Default: 600. | How long `assettest.ps1` gives each client run. |
+| `SPEEDO_D3D12_DEBUG_LAYER` | Exactly `1` on. Default: off. | Setup on Windows installs D3D12's debug layer (Windows' Graphics Tools, an optional feature) where it's missing, asking once for an administrator's rights (UAC); opt in, as Windows' download of it takes long. Declined or failed, setup warns and goes on: the D3D12 backend then runs unvalidated. |
 
 `SPEEDO_TEST_ASSETS` and `SPEEDO_VALIDATE_SYNC` above are the scripts' too. Variables like `SPEEDO_TARGET_CPU` and `SPEEDO_SANITIZE` are CMake's, set by the presets, not the environment's.
 
