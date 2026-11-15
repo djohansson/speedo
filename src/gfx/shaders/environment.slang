@@ -43,7 +43,7 @@ ParameterBlock<EnvironmentSet> gSetEnvironment;
 // set 0 is the push constants' (as in the main layout), the resources are in set 1
 [[vk::binding(0, 0)]]
 [[vk::push_constant]]
-ConstantBuffer<EnvironmentFilterConstants> gFilter;
+ConstantBuffer<EnvironmentFilterConstants> gFilter : register(b0); // (D3D's b0: see bindings.slang)
 
 #include "sky.h"
 

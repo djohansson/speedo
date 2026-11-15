@@ -80,15 +80,22 @@ struct ShaderSetLayout
 	uint32_t slot = kNoShaderSlot;
 };
 
+// a shader compiled with its specialization constant 0 a value, for a format without specialization constants (DXIL):
+// the compiler folds the value as Vulkan's driver does a specialization, dropping the code it disables
+struct ShaderSpecialization
+{
+	uint32_t shader = 0; // its index in ShaderSet::shaders (whose binary is its specialization 0)
+	uint32_t value = 0;
+	ShaderBinary code;
+};
+
 struct ShaderSet
 {
 	std::vector<Shader> shaders;
 	core::UnorderedMap<uint32_t, ShaderSetLayout> layouts; // by set index
-	// DXIL's: the implicit constant buffer of the code's global uniforms (slang makes the specialization constant, a
-	// [vk::constant_id] one, such a uniform: D3D12 has none, its backend sets it as a root constant): its register in space
-	// 0, and its size in bytes (0: none)
-	uint32_t globalsSlot = kNoShaderSlot;
-	uint32_t globalsSize = 0;
+	// DXIL's: the shaders that read the specialization constant, compiled again for each of its other values the layout's
+	// configuration names (slang's [vk::constant_id] constant is a uniform otherwise, which D3D12 can't specialize)
+	std::vector<ShaderSpecialization> specializations;
 };
 
 } // namespace rhi

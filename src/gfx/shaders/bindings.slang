@@ -6,14 +6,24 @@
 // (Pipeline::SetDescriptorData), so the fields keep the names the globals had, and a define per field lets the other
 // parts use them as before
 
+// (D3D's b0 explicitly, for DXIL: where the code reads the specialization constant as a uniform, slang puts the
+// implicit constant buffer of the global uniforms first, at b0, and the push constants after it, but a specialization
+// compiled with the constant a literal has none; so that every binary of the layout has them where its root signature
+// does. Vulkan's and Metal's code ignore it)
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL)]]
 [[vk::push_constant]]
-ConstantBuffer<PushConstants> gPushConstants;
+ConstantBuffer<PushConstants> gPushConstants : register(b0);
 
 // the layer groups (SHADER_TYPES_LAYERS_*) this pipeline is specialized without: their code compiles away. 0 in the
-// generic pipelines, which draw any material
+// generic pipelines, which draw any material. a specialization constant, set at the pipeline's creation; where the format
+// has none (DXIL), the shader compiler compiles each value with it a literal (SHADER_SPECIALIZATION_CONSTANT_0, see
+// gfx/shadercompiler.cpp's CompileSpecializations)
+#if defined(SHADER_SPECIALIZATION_CONSTANT_0)
+static const uint kSkippedLayers = SHADER_SPECIALIZATION_CONSTANT_0;
+#else
 [vk::constant_id(0)]
 const uint kSkippedLayers = 0;
+#endif
 
 // whether a material's layer can be drawn by this pipeline
 bool Layer(MaterialData material, uint flag)

@@ -477,6 +477,9 @@ std::vector<ShaderLayout> SceneShaderLayouts(const std::filesystem::path& shader
 		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 		.debugInfoLevel = kShaderDebugInfoLevel,
 		.preprocessorDefinitions = definitions,
+		// the specialization constant's values besides 0 (kSkippedLayers, the layer groups a pipeline skips: the renderer's
+		// and the draw lists' variants), compiled each where the format has no specialization constants (DXIL)
+		.specializations = {SHADER_TYPES_LAYERS_EXTENDED, SHADER_TYPES_LAYERS_GLASS, SHADER_TYPES_LAYERS_EXTENDED | SHADER_TYPES_LAYERS_GLASS},
 	};
 	// diagnostic: the ray query replay's kernel (see gfx/rayquerywatch.h), after the others (the renderer's
 	// kRayQueryReplayEntryPoint), where the shaders have the watch

@@ -20,7 +20,7 @@ struct RhiTestDrawConstants
 
 [[vk::binding(0, 0)]]
 [[vk::push_constant]]
-ConstantBuffer<RhiTestDrawConstants> gRhiTestDraw;
+ConstantBuffer<RhiTestDrawConstants> gRhiTestDraw : register(b0); // (D3D's b0: see bindings.slang)
 
 struct RhiTestDrawSet
 {

@@ -11,7 +11,7 @@ struct RhiTestImageConstants
 
 [[vk::binding(0, 0)]]
 [[vk::push_constant]]
-ConstantBuffer<RhiTestImageConstants> gRhiTestImage;
+ConstantBuffer<RhiTestImageConstants> gRhiTestImage : register(b0); // (D3D's b0: see bindings.slang)
 
 struct RhiTestImageSet
 {

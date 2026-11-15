@@ -192,9 +192,8 @@ struct DescriptorSetObject
 	uint32_t samplerCount = 0;
 };
 
-// a pipeline layout: a root signature (version 1.1) of the push constants (root constants), the global uniforms' implicit
-// constant buffer (the specialization constant: a root constant, set from the bound pipeline's variant) and each set's
-// tables, and where each is among its parameters (kNone: not in it)
+// a pipeline layout: a root signature (version 1.1) of the push constants (root constants) and each set's tables, and
+// where each is among its parameters (kNone: not in it)
 struct PipelineLayoutObject
 {
 	static constexpr uint32_t kNone = ~0U;
@@ -208,28 +207,30 @@ struct PipelineLayoutObject
 	ID3D12RootSignature* rootSignature = nullptr;
 	uint32_t pushConstants = kNone; // the root parameter's index
 	uint32_t pushConstantCount = 0; // in 32 bit values
-	uint32_t globals = kNone;
 	std::vector<SetTables> sets; // by set index
 };
 
-// a pipeline: its pipeline state, and what its binding sets besides: the specialization (the variant's, the globals'
-// root constant), and a graphics one's primitive topology (a draw's, where the state has its class alone)
+// a pipeline: its pipeline state, and what its binding sets besides: a graphics one's primitive topology (a draw's,
+// where the state has its class alone)
 struct PipelineObject
 {
 	ID3D12PipelineState* state = nullptr;
 	ID3D12RootSignature* rootSignature = nullptr; // its layout's (not referenced here)
 	const PipelineLayoutObject* layout = nullptr; // where the root signature has the sets' tables and the push constants
-	uint32_t globals = PipelineLayoutObject::kNone;
-	uint32_t specialization = 0;
 	D3D_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	bool compute = false;
 };
 
-// a shader module: its entry point's DXIL (a container DXC signed)
+// a shader module: its entry point's DXIL (a container DXC signed), and where it reads the specialization constant, its
+// DXIL for each other value compiled (D3D12 has no specialization constants: rhi::ShaderSet::specializations)
 struct ShaderModuleObject
 {
 	std::string name; // the entry point's
-	std::vector<char> code;
+	std::vector<char> code; // specialization 0's
+	std::vector<std::pair<uint32_t, std::vector<char>>> specializations;
+
+	// the DXIL of a specialization, failing hard where it wasn't compiled (the layout's configuration names the values)
+	[[nodiscard]] const std::vector<char>& Code(uint32_t specialization) const;
 };
 
 // a sampler: its descriptor in the device's cpu heap of samplers

@@ -88,16 +88,22 @@ std::string ShaderLoader::SlangConfiguration::ToString() const
 	for (const auto& [name, value] : preprocessorDefinitions)
 		definitionsString.append(std::format("[{}={}]", name, value));
 
+	// and the specializations compiled (DXIL's, see SlangConfiguration::specializations)
+	std::string specializationsString;
+	for (uint32_t value : specializations)
+		specializationsString.append(std::format("[{}]", value));
+
 	return std::format(
 		"sourceLanguage: {}, entryPoints: {}, "
-		"optimizationLevel: {}, debugInfoLevel: {}, debugInfoFormat: {}, matrixLayoutMode: {}, definitions: {}",
+		"optimizationLevel: {}, debugInfoLevel: {}, debugInfoFormat: {}, matrixLayoutMode: {}, definitions: {}, specializations: {}",
 		static_cast<SlangSourceLanguageIntegral>(sourceLanguage),
 		entryPointsString,
 		static_cast<SlangOptimizationLevelIntegral>(optimizationLevel),
 		static_cast<SlangDebugInfoLevelIntegral>(debugInfoLevel),
 		static_cast<SlangDebugInfoFormatIntegral>(debugInfoFormat),
 		static_cast<SlangMatrixLayoutModeIntegral>(matrixLayoutMode),
-		definitionsString);
+		definitionsString,
+		specializationsString);
 }
 
 std::string ShaderLoader::ParametersHash(const SlangConfiguration& config)
@@ -105,7 +111,7 @@ std::string ShaderLoader::ParametersHash(const SlangConfiguration& config)
 	std::string params;
 	params.append("slang-");
 	params.append(SPEEDO_SLANG_VERSION); // slang's version (its port's), so upgrading it recompiles
-	params.append("|cache-v9"); // bump when the serialized ShaderSet layout changes, to invalidate stale caches
+	params.append("|cache-v11"); // bump when the serialized ShaderSet layout changes, to invalidate stale caches
 	params.append(std::format("|format-{}", std::to_underlying(config.format)));
 	params.append(config.ToString());
 	static constexpr size_t kSha2Size = 32;
@@ -146,7 +152,8 @@ rhi::ShaderSet ShaderLoader::Compile(
 		.debugInfoLevel = static_cast<int32_t>(config.debugInfoLevel),
 		.debugInfoFormat = static_cast<int32_t>(config.debugInfoFormat),
 		.matrixLayoutMode = static_cast<int32_t>(config.matrixLayoutMode),
-		.definitions = config.preprocessorDefinitions};
+		.definitions = config.preprocessorDefinitions,
+		.specializations = config.specializations};
 	for (const auto& includePath : includePaths)
 		request.includePaths.push_back(includePath.generic_string());
 	for (const auto& [name, stage] : config.entryPoints)

@@ -9,7 +9,7 @@ struct RhiTestConstants
 
 [[vk::binding(0, 0)]]
 [[vk::push_constant]]
-ConstantBuffer<RhiTestConstants> gRhiTest;
+ConstantBuffer<RhiTestConstants> gRhiTest : register(b0); // (D3D's b0: see bindings.slang)
 
 struct RhiTestSet
 {

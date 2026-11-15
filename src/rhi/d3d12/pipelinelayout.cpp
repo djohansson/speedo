@@ -1,9 +1,9 @@
 // the D3D12 backend's pipeline layouts: a root signature (version 1.1) of the push constants (root constants at their
-// register and space), the global uniforms' implicit constant buffer (the specialization constant: a root constant, set
-// from the bound pipeline's variant, see PipelineObject), and each set's descriptor tables, the set's CBV, SRV and UAV
-// bindings' and its samplers' (backend.h's DescriptorSetLayoutObject: the same ranges, at the same offsets). every range
-// volatile: the sets are partly bound (the 1024 textures), and written before the commands that read them run. at most 32
-// values of root constants and 2 tables a set: 49 of the root signature's 64 values with 8 sets
+// register and space) and each set's descriptor tables, the set's CBV, SRV and UAV bindings' and its samplers' (backend.h's
+// DescriptorSetLayoutObject: the same ranges, at the same offsets). every range volatile: the sets are partly bound (the
+// 1024 textures), and written before the commands that read them run. at most 32 values of root constants and 2 tables a
+// set: 48 of the root signature's 64 values with 8 sets. the specialization constant is none of it: each value is a
+// binary of its own (the shader modules' specializations, rhi::ShaderSet::specializations)
 #include <rhi/d3d12/backend.h>
 
 #include <rhi/pipeline.h>
@@ -136,16 +136,6 @@ static d3d12::PipelineLayoutObject* CreateLayoutObject(ID3D12Device* device, con
 		layout->sets[set].resources = table(std::move(resources));
 		layout->sets[set].samplers = table(std::move(samplers));
 	}
-	// the specialization constant (slang's [vk::constant_id] uniform, in space 0's implicit constant buffer)
-	if (shaderSet.globalsSize > 0)
-	{
-		layout->globals = static_cast<uint32_t>(parameters.size());
-		parameters.push_back(D3D12_ROOT_PARAMETER1{
-			.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
-			.Constants = {.ShaderRegister = shaderSet.globalsSlot, .RegisterSpace = 0, .Num32BitValues = (shaderSet.globalsSize + 3) / 4},
-			.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL});
-	}
-
 	const D3D12_VERSIONED_ROOT_SIGNATURE_DESC desc{
 		.Version = D3D_ROOT_SIGNATURE_VERSION_1_1,
 		.Desc_1_1 = {
@@ -219,6 +209,12 @@ PipelineLayout<kD3D12>::PipelineLayout(CreateDescType&& desc, const ShaderSet& s
 						SuperType::CreateDeviceObjectCreateDesc("ShaderModule", desc.device),
 						shader,
 					});
+			// each module's binaries of the specialization constant's other values
+			for (const auto& specialization : shaderSet.specializations)
+			{
+				ShaderModuleHandle<kD3D12> module = shaderModules.at(specialization.shader);
+				module->specializations.emplace_back(specialization.value, specialization.code);
+			}
 			return shaderModules;
 		}(),
 		[&shaderSet, &desc, pushDescriptorSets]

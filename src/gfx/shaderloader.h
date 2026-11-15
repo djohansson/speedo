@@ -47,6 +47,10 @@ public:
 		std::vector<std::pair<std::string, std::string>> preprocessorDefinitions = { {"SHADERTYPES_H_GPU_TARGET", "true"} };
 		// the copy's backend's (gfx::kShaderFormat), unless asked otherwise (rhitest compiles for each backend)
 		rhi::ShaderFormat format = kShaderFormat;
+		// the values the shaders' specialization constant 0 (kSkippedLayers) takes besides 0, which a format without
+		// specialization constants (DXIL) compiles each for the entry points that read it (rhi::ShaderSet::specializations);
+		// the others specialize at the pipeline's creation, and ignore it
+		std::vector<uint32_t> specializations;
 
 		[[nodiscard]] std::string ToString() const;
 	};

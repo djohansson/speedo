@@ -1,6 +1,7 @@
-// shaderprecompile <shader dir> <out dir>: compiles every shader layout an installed client loads (gfx/shaderlayouts.h:
-// the ImGui renderer's and the scene's, with and without the device's ray queries), in each format an installed client
-// takes (spir-v, Vulkan's; and on macOS MSL, Metal's: SPEEDO_GRAPHICS_API=metal), into <out dir>, as the precompiled sets
+// shaderprecompile <shader dir> <out dir> [format...]: compiles every shader layout an installed client loads
+// (gfx/shaderlayouts.h: the ImGui renderer's and the scene's, with and without the device's ray queries), in each format an
+// installed client takes (spir-v, Vulkan's; and on macOS MSL, Metal's: SPEEDO_GRAPHICS_API=metal), or those named
+// (spirv, msl, dxil: DXIL, the D3D12 backend's while it grows, docs/backends-plan.md), into <out dir>, as the precompiled sets
 // gfx::ShaderLoader::Load reads (<stem>-<parameters hash>.shaderset, the hash naming the format too), the ones there before
 // removed. scripts/package.ps1 runs it: a package ships them in place of the shader sources, the shader compiler and
 // slang. it compiles through the shader compiler library beside it, as the client does (see gfx/shadercompiler.h)
@@ -9,15 +10,17 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <iterator>
 #include <print>
+#include <string_view>
 #include <vector>
 
 int main(int argc, char** argv)
 {
-	if (argc != 3)
+	if (argc < 3)
 	{
-		std::println(stderr, "usage: shaderprecompile <shader dir> <out dir>");
+		std::println(stderr, "usage: shaderprecompile <shader dir> <out dir> [spirv|msl|dxil...]");
 		return 2;
 	}
 	std::filesystem::path shaderPath = std::filesystem::absolute(argv[1]);
@@ -38,6 +41,25 @@ int main(int argc, char** argv)
 #if defined(__APPLE__)
 	formats.push_back(rhi::ShaderFormat::kMsl);
 #endif
+	if (argc > 3)
+	{
+		formats.clear();
+		for (int argIt = 3; argIt < argc; argIt++)
+		{
+			std::string_view name(argv[argIt]);
+			if (name == "spirv")
+				formats.push_back(rhi::ShaderFormat::kSpirv16);
+			else if (name == "msl")
+				formats.push_back(rhi::ShaderFormat::kMsl);
+			else if (name == "dxil")
+				formats.push_back(rhi::ShaderFormat::kDxil);
+			else
+			{
+				std::println(stderr, "shaderprecompile: no format {} (spirv, msl or dxil)", name);
+				return 2;
+			}
+		}
+	}
 
 	std::vector<std::filesystem::path> written;
 	for (auto format : formats)
@@ -51,7 +73,11 @@ int main(int argc, char** argv)
 			auto shaderSet = gfx::ShaderLoader::Compile(layout.file, layout.config, {shaderPath}, std::nullopt);
 			gfx::ShaderLoader::SavePrecompiled(outPath / name, shaderSet);
 			written.push_back(name);
-			std::println("{} ({} entry points)", (outPath / name).string(), shaderSet.shaders.size());
+			std::println(
+				"{} ({} entry points{})",
+				(outPath / name).string(),
+				shaderSet.shaders.size(),
+				shaderSet.specializations.empty() ? "" : std::format(", {} specializations", shaderSet.specializations.size()));
 		}
 	std::println("{} precompiled shader sets in {}", written.size(), outPath.string());
 	return 0;

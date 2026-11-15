@@ -37,8 +37,6 @@ void CommandBufferObject::PrepareDispatch()
 		pushConstants.resize(layout->pushConstantCount);
 		list->SetComputeRoot32BitConstants(layout->pushConstants, layout->pushConstantCount, pushConstants.data(), 0);
 	}
-	if (pipeline->globals != PipelineLayoutObject::kNone)
-		list->SetComputeRoot32BitConstant(pipeline->globals, pipeline->specialization, 0);
 	for (uint32_t set = 0; set < layout->sets.size(); set++)
 	{
 		const auto& tables = layout->sets[set];
@@ -68,8 +66,6 @@ void CommandBufferObject::PrepareDraw()
 		pushConstants.resize(layout->pushConstantCount);
 		list->SetGraphicsRoot32BitConstants(layout->pushConstants, layout->pushConstantCount, pushConstants.data(), 0);
 	}
-	if (pipeline->globals != PipelineLayoutObject::kNone)
-		list->SetGraphicsRoot32BitConstant(pipeline->globals, pipeline->specialization, 0);
 	for (uint32_t set = 0; set < layout->sets.size(); set++)
 	{
 		const auto& tables = layout->sets[set];

@@ -318,11 +318,17 @@ uint32_t CreateLayoutBindings(
 			elementField, genericParameterIndices, layouts, &bindingSpace, parameterBlock ? nullptr : fullName.c_str());
 	}
 
+	// a binding of the parameter: the push constants' once, where it has their category (a D3D register given them, b0 in
+	// bindings.slang, has the reflection list a descriptor table slot of theirs too: two bindings of one number, which
+	// Vulkan's layouts refused)
+	bool pushConstants = false;
+	for (auto categoryIndex = 0; std::cmp_less(categoryIndex, categoryCount); categoryIndex++)
+		pushConstants = pushConstants || parameter->getCategoryByIndex(categoryIndex) == slang::ParameterCategory::PushConstantBuffer;
 	for (auto categoryIndex = 0; std::cmp_less(categoryIndex, categoryCount); categoryIndex++)
 	{
 		auto subCategory = parameter->getCategoryByIndex(categoryIndex);
 
-		if (subCategory == slang::ParameterCategory::DescriptorTableSlot ||
+		if ((subCategory == slang::ParameterCategory::DescriptorTableSlot && !pushConstants) ||
 			subCategory == slang::ParameterCategory::PushConstantBuffer)
 		{
 			AddBinding(
@@ -575,6 +581,9 @@ void CompareUniformLayout(
 	}
 }
 
+std::string CompileSpecializations(
+	const Request& request, SlangCompileRequest* compiled, int codeTargetIndex, slang::ShaderReflection* codeLayout, rhi::ShaderSet& shaderSet);
+
 // a parameter's register of a D3D register class, and the class, where it has one (none: a uniform, or a block)
 std::optional<std::pair<SlangParameterCategory, uint32_t>> D3DRegister(slang::VariableLayoutReflection* variable, size_t containerOffset = 0)
 {
@@ -591,10 +600,11 @@ std::optional<std::pair<SlangParameterCategory, uint32_t>> D3DRegister(slang::Va
 // DXIL's registers (see rhi::kNoShaderSlot), from the code target's layout, whose parameters are the reflection target's in
 // the same order: each parameter block's register space (its set's slot), each of its fields' register (its binding's
 // slot, matched by name), a storage buffer's class (written where it's an unordered access view) and its element's size
-// in the code's layout (a structured buffer view's stride), the push constants' register and space, and the implicit
-// constant buffer of the global uniforms (the specialization constant's). every buffer's data laid out as the reflection
+// in the code's layout (a structured buffer view's stride), and the push constants' register and space; then the
+// specialization constant's values compiled each (CompileSpecializations). every buffer's data laid out as the reflection
 // target lays it out (CompareUniformLayout). an error for a resource outside a parameter block, which has no set of its own
-std::string AssignRegisters(SlangCompileRequest* slangRequest, int codeTargetIndex, slang::ShaderReflection* reflection, rhi::ShaderSet& shaderSet)
+std::string AssignRegisters(
+	const Request& request, SlangCompileRequest* slangRequest, int codeTargetIndex, slang::ShaderReflection* reflection, rhi::ShaderSet& shaderSet)
 {
 	slang::IComponentType* program = nullptr;
 	if (SLANG_FAILED(spCompileRequest_getProgram(slangRequest, &program)) || program == nullptr)
@@ -718,12 +728,9 @@ std::string AssignRegisters(SlangCompileRequest* slangRequest, int codeTargetInd
 				CompareUniformLayout(reflectedData, codeData, std::string(name), mismatches);
 		}
 	}
-	// the global uniforms' implicit constant buffer (the specialization constant's), in space 0
-	if (error.empty() && codeLayout->getGlobalConstantBufferSize() > 0)
-	{
-		shaderSet.globalsSlot = static_cast<uint32_t>(codeLayout->getGlobalConstantBufferBinding());
-		shaderSet.globalsSize = static_cast<uint32_t>(codeLayout->getGlobalConstantBufferSize());
-	}
+	// the specialization constant's values compiled each (DXIL has no specialization constants: CompileSpecializations)
+	if (error.empty())
+		error = CompileSpecializations(request, slangRequest, codeTargetIndex, codeLayout, shaderSet);
 	program->release();
 	if (error.empty() && !mismatches.empty())
 	{
@@ -738,6 +745,164 @@ std::string AssignRegisters(SlangCompileRequest* slangRequest, int codeTargetInd
 // the first, kept until the process ends
 std::mutex gMutex;
 SlangSession* gSession = nullptr;
+
+// the specialization constant 0 (slang's [vk::constant_id(0)], kSkippedLayers in bindings.slang) as a literal, for a
+// format without specialization constants (DXIL): the shaders declare it a static const of this definition where it is
+// defined, so that the compiler folds it as Vulkan's driver does a specialization
+constexpr const char* kSpecializationDefinition = "SHADER_SPECIALIZATION_CONSTANT_0";
+
+// a compile request set up as request asks: its search paths, options, definitions (and specialization, where given),
+// and targets (the reflection's first, where asked: see below). the code target's index, or an error
+std::pair<int, std::string> ConfigureRequest(
+	SlangCompileRequest* slangRequest, const Request& request, std::optional<uint32_t> specialization, bool reflectionTarget)
+{
+	for (const auto& includePath : request.includePaths)
+	{
+		std::error_code error;
+		auto path = std::filesystem::canonical(includePath, error);
+		if (error || !std::filesystem::is_directory(path))
+			return {-1, std::format("the include path {} isn't a directory", includePath)};
+		if (Logging())
+			std::println("Add include search path: \"{}\"", path.string());
+		spAddSearchPath(slangRequest, path.generic_string().c_str());
+	}
+
+	spSetDebugInfoLevel(slangRequest, static_cast<SlangDebugInfoLevel>(request.debugInfoLevel));
+	spSetDebugInfoFormat(slangRequest, static_cast<SlangDebugInfoFormat>(request.debugInfoFormat));
+	spSetOptimizationLevel(slangRequest, static_cast<SlangOptimizationLevel>(request.optimizationLevel));
+	spSetMatrixLayoutMode(slangRequest, static_cast<SlangMatrixLayoutMode>(request.matrixLayoutMode));
+
+	for (const auto& [key, value] : request.definitions)
+		spAddPreprocessorDefine(slangRequest, key.c_str(), value.c_str());
+	// what a format's target lacks, for the shaders to leave out (slang defines nothing per target: __HLSL__ is every
+	// target's, the language's): D3D has no point size, its points always a pixel
+	if (request.format == rhi::ShaderFormat::kDxil)
+		spAddPreprocessorDefine(slangRequest, "SHADER_TARGET_NO_POINT_SIZE", "1");
+	if (specialization)
+		spAddPreprocessorDefine(slangRequest, kSpecializationDefinition, std::format("{}u", *specialization).c_str());
+
+	// the code's target. for a format other than spir-v, spir-v first all the same: the reflection is the first target's,
+	// and rhi's layouts are its descriptor sets and bindings (slang reflects Metal's argument buffers otherwise), which
+	// the other backends map their own way (see docs/backends-plan.md); the code is then the second target's
+	if (reflectionTarget && request.format != rhi::ShaderFormat::kSpirv16)
+	{
+		auto [target, profile] = SlangTarget(rhi::ShaderFormat::kSpirv16);
+		int reflectionIndex = spAddCodeGenTarget(slangRequest, target);
+		spSetTargetProfile(slangRequest, reflectionIndex, spFindProfile(gSession, profile));
+	}
+	auto [target, targetProfile] = SlangTarget(request.format);
+	const int codeTargetIndex = spAddCodeGenTarget(slangRequest, target);
+	if (*targetProfile != '\0')
+		spSetTargetProfile(slangRequest, codeTargetIndex, spFindProfile(gSession, targetProfile));
+
+	// keep the entry points' names in the binaries (rhi::EntryPoint names them): for spir-v, slang otherwise renames every
+	// entry point to "main"
+	// and for DXIL each descriptor set (a parameter block, see bindings.slang) a register space of its own, D3D12's
+	// descriptor tables (slang packs them all into one space otherwise)
+	std::vector<const char*> options{"-fvk-use-entrypoint-name"};
+	if (request.format == rhi::ShaderFormat::kDxil)
+		options.push_back("-parameter-blocks-use-register-spaces");
+	if (SLANG_FAILED(spProcessCommandLineArguments(slangRequest, options.data(), static_cast<int>(options.size()))))
+		return {-1, "failed to set slang's options"};
+	return {codeTargetIndex, {}};
+}
+
+// whether spir-v decorates a specialization constant SpecId 0 (OpDecorate, 71, of SpecId, 1, the literal 0), after its
+// header of 5 words
+bool ReadsSpecializationConstant(std::span<const uint32_t> words)
+{
+	constexpr uint32_t kHeaderWordCount = 5;
+	constexpr uint32_t kOpDecorate = 71;
+	constexpr uint32_t kDecorationSpecId = 1;
+	for (size_t at = kHeaderWordCount; at < words.size();)
+	{
+		const uint32_t wordCount = words[at] >> 16U;
+		const uint32_t opcode = words[at] & 0xFFFFU;
+		if (wordCount == 0 || at + wordCount > words.size())
+			return false;
+		if (opcode == kOpDecorate && wordCount >= 4 && words[at + 2] == kDecorationSpecId && words[at + 3] == 0)
+			return true;
+		at += wordCount;
+	}
+	return false;
+}
+
+// DXIL's specializations (a format without specialization constants, see kSpecializationDefinition): the entry points
+// that read the constant (the global uniforms' implicit constant buffer in their DXIL; found by their spir-v, see below)
+// compiled again for each value of the request's specializations and 0, the constant a literal, so
+// that DXC folds it and drops the code it disables. their binaries for 0 replace theirs (no binary then reads $Globals:
+// the push constants keep their register, b0, which the shaders give them explicitly, see bindings.slang), the others
+// are the set's specializations. an error where the constant's values compile to other layouts, or something else is a
+// global uniform
+std::string CompileSpecializations(
+	const Request& request, SlangCompileRequest* compiled, int codeTargetIndex, slang::ShaderReflection* codeLayout, rhi::ShaderSet& shaderSet)
+{
+	if (codeLayout->getGlobalConstantBufferSize() == 0)
+		return {};
+	// the entry points that read it: their spir-v (the reflection target's, the request's first) decorates a
+	// specialization constant SpecId 0, where slang keeps it per entry point that uses it. (slang's entry point metadata,
+	// isParameterLocationUsed, isn't there for a compile request's program: getEntryPointMetadata fails, E_INVALIDARG)
+	(void)codeTargetIndex;
+	std::vector<size_t> reading;
+	for (size_t entryPointIt = 0; entryPointIt < request.entryPoints.size(); entryPointIt++)
+	{
+		ISlangBlob* blob = nullptr;
+		if (SLANG_FAILED(spGetEntryPointCodeBlob(compiled, static_cast<int>(entryPointIt), 0, &blob)))
+			return std::format("failed to get the spir-v of {}", request.entryPoints[entryPointIt].name);
+		const bool reads = ReadsSpecializationConstant(
+			std::span(static_cast<const uint32_t*>(blob->getBufferPointer()), blob->getBufferSize() / sizeof(uint32_t)));
+		blob->release();
+		if (reads)
+			reading.push_back(entryPointIt);
+	}
+	if (Logging())
+		std::println("SPECIALIZATIONS: {} of {} entry points read the specialization constant", reading.size(), request.entryPoints.size());
+	if (reading.empty())
+		return {};
+
+	std::vector<uint32_t> values{0};
+	for (uint32_t value : request.specializations)
+		if (std::ranges::find(values, value) == values.end())
+			values.push_back(value);
+	for (uint32_t value : values)
+	{
+		SlangCompileRequest* slangRequest = spCreateCompileRequest(gSession);
+		auto [targetIndex, error] = ConfigureRequest(slangRequest, request, value, false);
+		int translationUnitIndex = spAddTranslationUnit(slangRequest, static_cast<SlangSourceLanguage>(request.sourceLanguage), nullptr);
+		spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, request.file.c_str());
+		for (size_t entryPointIt : reading)
+		{
+			const auto& [name, stage] = request.entryPoints[entryPointIt];
+			spAddEntryPoint(slangRequest, translationUnitIndex, name.c_str(), static_cast<SlangStage>(stage));
+		}
+		if (error.empty() && SLANG_FAILED(spCompile(slangRequest)))
+			error = std::format("specialization {}: {}", value, spGetDiagnosticOutput(slangRequest) != nullptr ? spGetDiagnosticOutput(slangRequest) : "");
+		if (error.empty())
+			if (auto* layout = slang::ShaderReflection::get(slangRequest); layout != nullptr && layout->getGlobalConstantBufferSize() > 0)
+				error = std::format("specialization {}: global uniforms besides the specialization constant, which DXIL can't bind", value);
+		for (size_t readingIt = 0; error.empty() && readingIt < reading.size(); readingIt++)
+		{
+			ISlangBlob* blob = nullptr;
+			if (SLANG_FAILED(spGetEntryPointCodeBlob(slangRequest, static_cast<int>(readingIt), targetIndex, &blob)))
+			{
+				error = std::format("specialization {}: failed to get the code of {}", value, request.entryPoints[reading[readingIt]].name);
+				break;
+			}
+			rhi::ShaderBinary code(blob->getBufferSize());
+			std::memcpy(code.data(), blob->getBufferPointer(), blob->getBufferSize());
+			blob->release();
+			const auto shader = static_cast<uint32_t>(reading[readingIt]);
+			if (value == 0)
+				std::get<0>(shaderSet.shaders[shader]) = std::move(code);
+			else
+				shaderSet.specializations.push_back({.shader = shader, .value = value, .code = std::move(code)});
+		}
+		spDestroyCompileRequest(slangRequest);
+		if (!error.empty())
+			return error;
+	}
+	return {};
+}
 
 Response Compile(const Request& request)
 {
@@ -767,58 +932,11 @@ Response Compile(const Request& request)
 		spSetDumpIntermediates(slangRequest, true);
 	}
 
-	for (const auto& includePath : request.includePaths)
-	{
-		std::error_code error;
-		auto path = std::filesystem::canonical(includePath, error);
-		if (error || !std::filesystem::is_directory(path))
-		{
-			spDestroyCompileRequest(slangRequest);
-			response.diagnostics = std::format("the include path {} isn't a directory", includePath);
-			return response;
-		}
-		if (Logging())
-			std::println("Add include search path: \"{}\"", path.string());
-		spAddSearchPath(slangRequest, path.generic_string().c_str());
-	}
-
-	spSetDebugInfoLevel(slangRequest, static_cast<SlangDebugInfoLevel>(request.debugInfoLevel));
-	spSetDebugInfoFormat(slangRequest, static_cast<SlangDebugInfoFormat>(request.debugInfoFormat));
-	spSetOptimizationLevel(slangRequest, static_cast<SlangOptimizationLevel>(request.optimizationLevel));
-	spSetMatrixLayoutMode(slangRequest, static_cast<SlangMatrixLayoutMode>(request.matrixLayoutMode));
-
-	for (const auto& [key, value] : request.definitions)
-		spAddPreprocessorDefine(slangRequest, key.c_str(), value.c_str());
-	// what a format's target lacks, for the shaders to leave out (slang defines nothing per target: __HLSL__ is every
-	// target's, the language's): D3D has no point size, its points always a pixel
-	if (request.format == rhi::ShaderFormat::kDxil)
-		spAddPreprocessorDefine(slangRequest, "SHADER_TARGET_NO_POINT_SIZE", "1");
-
-	// the code's target. for a format other than spir-v, spir-v first all the same: the reflection is the first target's,
-	// and rhi's layouts are its descriptor sets and bindings (slang reflects Metal's argument buffers otherwise), which
-	// the other backends map their own way (see docs/backends-plan.md); the code is then the second target's
-	if (request.format != rhi::ShaderFormat::kSpirv16)
-	{
-		auto [reflectionTarget, reflectionProfile] = SlangTarget(rhi::ShaderFormat::kSpirv16);
-		int reflectionIndex = spAddCodeGenTarget(slangRequest, reflectionTarget);
-		spSetTargetProfile(slangRequest, reflectionIndex, spFindProfile(gSession, reflectionProfile));
-	}
-	auto [target, targetProfile] = SlangTarget(request.format);
-	const int codeTargetIndex = spAddCodeGenTarget(slangRequest, target);
-	if (*targetProfile != '\0')
-		spSetTargetProfile(slangRequest, codeTargetIndex, spFindProfile(gSession, targetProfile));
-
-	// keep the entry points' names in the binaries (rhi::EntryPoint names them): for spir-v, slang otherwise renames every
-	// entry point to "main"
-	// and for DXIL each descriptor set (a parameter block, see bindings.slang) a register space of its own, D3D12's
-	// descriptor tables (slang packs them all into one space otherwise)
-	std::vector<const char*> options{"-fvk-use-entrypoint-name"};
-	if (request.format == rhi::ShaderFormat::kDxil)
-		options.push_back("-parameter-blocks-use-register-spaces");
-	if (SLANG_FAILED(spProcessCommandLineArguments(slangRequest, options.data(), static_cast<int>(options.size()))))
+	auto [codeTargetIndex, setupError] = ConfigureRequest(slangRequest, request, std::nullopt, true);
+	if (!setupError.empty())
 	{
 		spDestroyCompileRequest(slangRequest);
-		response.diagnostics = "failed to set slang's options";
+		response.diagnostics = setupError;
 		return response;
 	}
 
@@ -912,7 +1030,7 @@ Response Compile(const Request& request)
 	// (DXIL's registers, a set's space and a binding's register, and its buffers' layouts checked: AssignRegisters)
 	if (request.format != rhi::ShaderFormat::kSpirv16)
 		if (auto error = request.format == rhi::ShaderFormat::kDxil
-							 ? AssignRegisters(slangRequest, codeTargetIndex, shaderReflection, shaderSet)
+							 ? AssignRegisters(request, slangRequest, codeTargetIndex, shaderReflection, shaderSet)
 							 : AssignSlots(slangRequest, codeTargetIndex, shaderReflection, shaderSet.layouts);
 			!error.empty())
 		{

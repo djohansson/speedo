@@ -1,6 +1,6 @@
-// the D3D12 backend's pipelines: compute pipeline states (graphics ones come with the render passes, step 3), each with
-// what its binding sets besides (backend.h's PipelineObject: the variant's specialization, D3D12 having no specialization
-// constants, a root constant), bound on the command buffer's object for the next dispatch with the push constants; no
+// the D3D12 backend's pipelines: compute pipeline states (graphics ones come with the render passes, step 3), each of its
+// variant's specialization's binary (D3D12 has no specialization constants: ShaderModuleObject), bound on the command
+// buffer's object for the next dispatch with the push constants; no
 // descriptor pool (the device's shader visible heaps, see descriptorset.cpp) and no pipeline cache yet (a pipeline
 // library, later)
 #include <rhi/d3d12/backend.h>
@@ -97,7 +97,8 @@ PipelineHandle<kD3D12> Pipeline<kD3D12>::InternalCreateComputePipeline(
 	ZoneScopedN("Pipeline::InternalCreateComputePipeline");
 
 	auto creationStart = std::chrono::steady_clock::now();
-	const auto& code = stage.module->code;
+	// the variant's specialization: a binary of its own (D3D12 has no specialization constants, see ShaderModuleObject)
+	const auto& code = stage.module->Code(variant.specialization);
 	const D3D12_COMPUTE_PIPELINE_STATE_DESC desc{
 		.pRootSignature = layout->rootSignature,
 		.CS = {.pShaderBytecode = code.data(), .BytecodeLength = code.size()},
@@ -110,17 +111,7 @@ PipelineHandle<kD3D12> Pipeline<kD3D12>::InternalCreateComputePipeline(
 	d3d12::SetName(state, stage.name);
 	pipeline::LogCreation("compute", stage.name, variant.specialization, creationStart);
 
-	// the variant's specialization constant 0 (slang's [vk::constant_id(0)], a uniform in the code): the layout's root
-	// constant for it, set at the bind where the code has it, as Vulkan's backend sets the constant (its default where 0
-	// isn't: the shaders' defaults are 0)
-	return new d3d12::PipelineObject{
-		.state = state,
-		.rootSignature = layout->rootSignature,
-		.layout = layout,
-		.globals = layout->globals,
-		.specialization = variant.specialization,
-		.compute = true,
-	};
+	return new d3d12::PipelineObject{.state = state, .rootSignature = layout->rootSignature, .layout = layout, .compute = true};
 }
 
 // (the pipelines' map, requests and binds, the launch parameters and the layouts by name are every backend's, in

@@ -51,6 +51,9 @@ struct Request
 	int32_t debugInfoFormat = 0; // SlangDebugInfoFormat
 	int32_t matrixLayoutMode = 0; // SlangMatrixLayoutMode
 	std::vector<std::pair<std::string, std::string>> definitions;
+	// the values the shaders' specialization constant 0 takes, compiled each for a format without specialization
+	// constants (DXIL: rhi::ShaderSet::specializations); 0 always is
+	std::vector<uint32_t> specializations;
 };
 
 // the compiled shaders and their resources, the files the source included (which the cache keeps, so that editing one

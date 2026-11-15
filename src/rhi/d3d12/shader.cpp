@@ -8,11 +8,31 @@
 
 #include <core/assert.h>
 
+#include <algorithm>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace rhi
 {
+
+namespace d3d12
+{
+
+const std::vector<char>& ShaderModuleObject::Code(uint32_t specialization) const
+{
+	if (specialization == 0)
+		return code;
+	auto found = std::ranges::find(specializations, specialization, &std::pair<uint32_t, std::vector<char>>::first);
+	ENSUREF(
+		found != specializations.end(),
+		"{}: no DXIL of specialization {} (D3D12 has no specialization constants: the layout's configuration names the values compiled, SlangConfiguration::specializations)",
+		name,
+		specialization);
+	return found->second;
+}
+
+} // namespace d3d12
 
 IMPLEMENT_OBJECT_GETINSTANCE(ShaderModule<kD3D12>);
 IMPLEMENT_DEVICEOBJECT_GETDEVICE(ShaderModule<kD3D12>);

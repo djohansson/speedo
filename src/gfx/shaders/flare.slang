@@ -11,7 +11,7 @@
 
 [[vk::binding(0, 0)]]
 [[vk::push_constant]]
-ConstantBuffer<FlareConstants> gFlare;
+ConstantBuffer<FlareConstants> gFlare : register(b0); // (D3D's b0: see bindings.slang)
 
 // set 1's resources, a parameter block's fields in their bindings' order, named as gfx binds them (see bindings.slang)
 struct FlareSet
