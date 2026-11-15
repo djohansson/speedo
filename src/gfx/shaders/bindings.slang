@@ -16,9 +16,12 @@ ConstantBuffer<PushConstants> gPushConstants : register(b0);
 
 // the layer groups (SHADER_TYPES_LAYERS_*) this pipeline is specialized without: their code compiles away. 0 in the
 // generic pipelines, which draw any material. a specialization constant, set at the pipeline's creation; where the format
-// has none (DXIL), the shader compiler compiles each value with it a literal (SHADER_SPECIALIZATION_CONSTANT_0, see
-// gfx/shadercompiler.cpp's CompileSpecializations)
-#if defined(SHADER_SPECIALIZATION_CONSTANT_0)
+// has none (DXIL), the shader compiler links each value in, the constant a link-time one that a module of its own
+// defines (SHADER_SPECIALIZATION_CONSTANT_LINKED), or compiles each with it a literal (SHADER_SPECIALIZATION_CONSTANT_0;
+// see gfx/shadercompiler.cpp's CompileSpecializations)
+#if defined(SHADER_SPECIALIZATION_CONSTANT_LINKED)
+extern static const uint kSkippedLayers;
+#elif defined(SHADER_SPECIALIZATION_CONSTANT_0)
 static const uint kSkippedLayers = SHADER_SPECIALIZATION_CONSTANT_0;
 #else
 [vk::constant_id(0)]

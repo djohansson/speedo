@@ -17,6 +17,7 @@
 #include <xxhash.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -750,11 +751,18 @@ SlangSession* gSession = nullptr;
 // format without specialization constants (DXIL): the shaders declare it a static const of this definition where it is
 // defined, so that the compiler folds it as Vulkan's driver does a specialization
 constexpr const char* kSpecializationDefinition = "SHADER_SPECIALIZATION_CONSTANT_0";
+// or a link-time constant, extern there, which a module of its own defines (CompileSpecializations)
+constexpr const char* kLinkedSpecializationDefinition = "SHADER_SPECIALIZATION_CONSTANT_LINKED";
 
-// a compile request set up as request asks: its search paths, options, definitions (and specialization, where given),
-// and targets (the reflection's first, where asked: see below). the code target's index, or an error
+// a compile request set up as request asks: its search paths, options, definitions (and specialization, where given, or
+// a link-time one where linkedSpecialization), and targets (the reflection's first, where asked: see below). the code
+// target's index, or an error
 std::pair<int, std::string> ConfigureRequest(
-	SlangCompileRequest* slangRequest, const Request& request, std::optional<uint32_t> specialization, bool reflectionTarget)
+	SlangCompileRequest* slangRequest,
+	const Request& request,
+	std::optional<uint32_t> specialization,
+	bool reflectionTarget,
+	bool linkedSpecialization = false)
 {
 	for (const auto& includePath : request.includePaths)
 	{
@@ -784,6 +792,8 @@ std::pair<int, std::string> ConfigureRequest(
 	}
 	if (specialization)
 		spAddPreprocessorDefine(slangRequest, kSpecializationDefinition, std::format("{}u", *specialization).c_str());
+	if (linkedSpecialization)
+		spAddPreprocessorDefine(slangRequest, kLinkedSpecializationDefinition, "1");
 
 	// the code's target. for a format other than spir-v, spir-v first all the same: the reflection is the first target's,
 	// and rhi's layouts are its descriptor sets and bindings (slang reflects Metal's argument buffers otherwise), which
@@ -873,44 +883,101 @@ std::string CompileSpecializations(
 	for (uint32_t value : request.specializations)
 		if (std::ranges::find(values, value) == values.end())
 			values.push_back(value);
+
+	// the module parsed and checked once, the constant a link-time one (SHADER_SPECIALIZATION_CONSTANT_LINKED: extern,
+	// see bindings.slang), no entry points (their code needs the constant): each value is then a module of its own
+	// defining it, linked with the module and the entry points that read it, whose DXIL the linked program gives. a
+	// request per value with the constant defined, as before, parsed the whole module each (12 values' requests, about
+	// 13 s each: every layout precompiled as DXIL took 228 s, 121 without the specializations)
+	SlangCompileRequest* slangRequest = spCreateCompileRequest(gSession);
+	auto [targetIndex, error] = ConfigureRequest(slangRequest, request, std::nullopt, false, true);
+	int translationUnitIndex = spAddTranslationUnit(slangRequest, static_cast<SlangSourceLanguage>(request.sourceLanguage), nullptr);
+	spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, request.file.c_str());
+	// checked and laid out, no code: the module's own, its constant unresolved until linked
+	spSetCompileFlags(slangRequest, SLANG_COMPILE_FLAG_NO_CODEGEN);
+	if (error.empty() && SLANG_FAILED(spCompile(slangRequest)))
+		error = std::format("specializations: {}", spGetDiagnosticOutput(slangRequest) != nullptr ? spGetDiagnosticOutput(slangRequest) : "");
+	slang::IModule* module = nullptr;
+	if (error.empty() && (SLANG_FAILED(spCompileRequest_getModule(slangRequest, translationUnitIndex, &module)) || module == nullptr))
+		error = "specializations: no module of the request";
+	slang::ISession* session = module != nullptr ? module->getSession() : nullptr;
+	// the entry points that read it, found and checked in the module
+	std::vector<slang::IEntryPoint*> entryPoints;
+	for (size_t entryPointIt : reading)
+	{
+		if (!error.empty())
+			break;
+		const auto& [name, stage] = request.entryPoints[entryPointIt];
+		slang::IEntryPoint* entryPoint = nullptr;
+		ISlangBlob* diagnostics = nullptr;
+		if (SLANG_FAILED(module->findAndCheckEntryPoint(name.c_str(), static_cast<SlangStage>(stage), &entryPoint, &diagnostics)) || entryPoint == nullptr)
+			error = std::format(
+				"specializations: no entry point {}: {}", name, diagnostics != nullptr ? static_cast<const char*>(diagnostics->getBufferPointer()) : "");
+		if (diagnostics != nullptr)
+			diagnostics->release();
+		entryPoints.push_back(entryPoint);
+	}
 	for (uint32_t value : values)
 	{
-		SlangCompileRequest* slangRequest = spCreateCompileRequest(gSession);
-		auto [targetIndex, error] = ConfigureRequest(slangRequest, request, value, false);
-		int translationUnitIndex = spAddTranslationUnit(slangRequest, static_cast<SlangSourceLanguage>(request.sourceLanguage), nullptr);
-		spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, request.file.c_str());
-		for (size_t entryPointIt : reading)
-		{
-			const auto& [name, stage] = request.entryPoints[entryPointIt];
-			spAddEntryPoint(slangRequest, translationUnitIndex, name.c_str(), static_cast<SlangStage>(stage));
-		}
-		if (error.empty() && SLANG_FAILED(spCompile(slangRequest)))
-			error = std::format("specialization {}: {}", value, spGetDiagnosticOutput(slangRequest) != nullptr ? spGetDiagnosticOutput(slangRequest) : "");
-		if (error.empty())
-			if (auto* layout = slang::ShaderReflection::get(slangRequest); layout != nullptr && layout->getGlobalConstantBufferSize() > 0)
-				error = std::format("specialization {}: global uniforms besides the specialization constant, which DXIL can't bind", value);
+		if (!error.empty())
+			break;
+		// the constant's module
+		const auto constantsName = std::format("speedo_specialization_{}", value);
+		const auto constantsSource = std::format("export static const uint kSkippedLayers = {}u;\n", value);
+		ISlangBlob* diagnostics = nullptr;
+		slang::IModule* constants =
+			session->loadModuleFromSourceString(constantsName.c_str(), (constantsName + ".slang").c_str(), constantsSource.c_str(), &diagnostics);
+		if (constants == nullptr)
+			error = std::format(
+				"specialization {}: its constant's module: {}", value, diagnostics != nullptr ? static_cast<const char*>(diagnostics->getBufferPointer()) : "");
+		if (diagnostics != nullptr)
+			diagnostics->release();
 		for (size_t readingIt = 0; error.empty() && readingIt < reading.size(); readingIt++)
 		{
+			// the module, the constant's and the entry point linked, its code the linked program's
+			std::array<slang::IComponentType*, 3> components{module, constants, entryPoints[readingIt]};
+			slang::IComponentType* composite = nullptr;
+			slang::IComponentType* linked = nullptr;
 			ISlangBlob* blob = nullptr;
-			if (SLANG_FAILED(spGetEntryPointCodeBlob(slangRequest, static_cast<int>(readingIt), targetIndex, &blob)))
+			diagnostics = nullptr;
+			if (SLANG_FAILED(session->createCompositeComponentType(components.data(), static_cast<SlangInt>(components.size()), &composite, &diagnostics)) ||
+				SLANG_FAILED(composite->link(&linked, &diagnostics)) ||
+				SLANG_FAILED(linked->getEntryPointCode(0, targetIndex, &blob, &diagnostics)))
+				error = std::format(
+					"specialization {}: {}: {}",
+					value,
+					request.entryPoints[reading[readingIt]].name,
+					diagnostics != nullptr ? static_cast<const char*>(diagnostics->getBufferPointer()) : "failed to link");
+			if (diagnostics != nullptr)
+				diagnostics->release();
+			if (error.empty())
 			{
-				error = std::format("specialization {}: failed to get the code of {}", value, request.entryPoints[reading[readingIt]].name);
-				break;
+				if (auto* layout = linked->getLayout(targetIndex); layout != nullptr && layout->getGlobalConstantBufferSize() > 0)
+					error = std::format("specialization {}: global uniforms besides the specialization constant, which DXIL can't bind", value);
 			}
-			rhi::ShaderBinary code(blob->getBufferSize());
-			std::memcpy(code.data(), blob->getBufferPointer(), blob->getBufferSize());
-			blob->release();
-			const auto shader = static_cast<uint32_t>(reading[readingIt]);
-			if (value == 0)
-				std::get<0>(shaderSet.shaders[shader]) = std::move(code);
-			else
-				shaderSet.specializations.push_back({.shader = shader, .value = value, .code = std::move(code)});
+			if (error.empty())
+			{
+				rhi::ShaderBinary code(blob->getBufferSize());
+				std::memcpy(code.data(), blob->getBufferPointer(), blob->getBufferSize());
+				const auto shader = static_cast<uint32_t>(reading[readingIt]);
+				if (value == 0)
+					std::get<0>(shaderSet.shaders[shader]) = std::move(code);
+				else
+					shaderSet.specializations.push_back({.shader = shader, .value = value, .code = std::move(code)});
+			}
+			if (blob != nullptr)
+				blob->release();
+			if (linked != nullptr)
+				linked->release();
+			if (composite != nullptr)
+				composite->release();
 		}
-		spDestroyCompileRequest(slangRequest);
-		if (!error.empty())
-			return error;
 	}
-	return {};
+	for (auto* entryPoint : entryPoints)
+		if (entryPoint != nullptr)
+			entryPoint->release();
+	spDestroyCompileRequest(slangRequest);
+	return error;
 }
 
 Response Compile(const Request& request)
