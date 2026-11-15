@@ -113,6 +113,9 @@ std::string ShaderLoader::ParametersHash(const SlangConfiguration& config)
 	params.append(SPEEDO_SLANG_VERSION); // slang's version (its port's), so upgrading it recompiles
 	params.append("|cache-v12"); // bump when the serialized ShaderSet layout changes, to invalidate stale caches
 	params.append(std::format("|format-{}", std::to_underlying(config.format)));
+	if (config.format == rhi::ShaderFormat::kDxil)
+		for (const char* option : shadercompiler::kDxcOptions)
+			params.append(std::format("|dxc{}", option)); // what the compiler hands DXC (see kDxcOptions)
 	params.append(config.ToString());
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2{};

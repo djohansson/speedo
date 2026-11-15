@@ -802,10 +802,15 @@ std::pair<int, std::string> ConfigureRequest(
 	// keep the entry points' names in the binaries (rhi::EntryPoint names them): for spir-v, slang otherwise renames every
 	// entry point to "main"
 	// and for DXIL each descriptor set (a parameter block, see bindings.slang) a register space of its own, D3D12's
-	// descriptor tables (slang packs them all into one space otherwise)
+	// descriptor tables (slang packs them all into one space otherwise), and DXC's options (see kDxcOptions)
 	std::vector<const char*> options{"-fvk-use-entrypoint-name"};
 	if (request.format == rhi::ShaderFormat::kDxil)
+	{
 		options.push_back("-parameter-blocks-use-register-spaces");
+		options.push_back("-Xdxc...");
+		options.insert(options.end(), kDxcOptions.begin(), kDxcOptions.end());
+		options.push_back("-X.");
+	}
 	if (SLANG_FAILED(spProcessCommandLineArguments(slangRequest, options.data(), static_cast<int>(options.size()))))
 		return {-1, "failed to set slang's options"};
 	return {codeTargetIndex, {}};

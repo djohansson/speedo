@@ -4,6 +4,7 @@
 
 #include <zpp_bits.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -30,6 +31,14 @@ namespace gfx::shadercompiler
 	}();
 	return kLog;
 }
+
+// DXC's options for DXIL (slang hands them on): its sinking and global value numbering off, around a bug of WARP's
+// (Microsoft's software adapter, 1.0.18 to 1.0.22 and 1.65535.22-preview, not Windows' own nor 1.0.17): its compiler
+// removes the device at a dispatch of a shader with a resource's load in a loop with two exits, the load's result read
+// after the loop (DXC's sinking moves the reads there), and of others GVN made (ComputeMainVisibility's: an unresolved
+// handle). part of DXIL's cache key (ShaderLoader::ParametersHash). see docs/backends-plan.md, WARP: look again with
+// each WARP release
+inline constexpr std::array<const char*, 4> kDxcOptions{"-opt-disable", "sink", "-opt-disable", "gvn"};
 
 struct EntryPoint
 {
