@@ -173,10 +173,21 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   imgui frames (see "ImGui's renderer", below). `gfx/graphicsqueue.h` has
   the draw thread's graphics queue helpers (`UpdateBufferOnGraphics`, `TransitionThenBind`, `RetireAfterGraphicsWork`).
 - `client` is the application: `client::WindowedApplication` (a `platform::WindowedApplication`) owns the rhi, the
-  views, the scene, the imgui layer and its renderer, and keeps the frame loop (`client/windowedapplication.cpp`: `Draw`, fences,
-  pool resets, draw calls, present, frame statistics; construction, resizes and `Shutdown`), the ui (`client/ui.cpp`:
+  views, the scene, the imgui layer and its renderer, and keeps the frame loop (`client/windowedapplication.cpp`: `Draw`;
+  construction and `Shutdown`). `Draw` takes the frame through its phases, each a method of its own (the user's ask,
+  2026-11-15: `Draw` had grown every pass, capture and statistic inline): the window's changes, presentation and size
+  (`InternalPrepareWindow`, `client/windowedapplicationwindow.cpp`, with the resizes); the flip, the queue ring's
+  fences, the frame's slot and the draw calls (in `Draw`); then a `FrameContext` (the locked graphics context, the
+  frame's queue, swapchain, slot, output image, the preview drawn or not, and the callbacks its submit's timeline runs)
+  through `InternalUpdate` (the scenes' per frame buffers, before the command buffer is begun: their updates submit
+  command buffers of their own), `InternalRecord` (the preview, the scene with the ui over it, the captures:
+  `client/framecapture.cpp`) and `InternalSubmit` (the submit after the previous frame's and the acquire, the present by
+  the queue the swapchain says, `SPEEDO_CRASH_TEST=hang`); and the frame counted (`client/framestats.cpp`). More of
+  the passes on the `drawCalls` queue was considered and left: the queue keeps its order per producer only
+  (moodycamel's), and the passes depend on one another within the frame (the ui's prepare inside the scene's record,
+  the captures after both), which a queue would hide. The ui (`client/ui.cpp`:
   `PrepareDraw`'s menus and windows, and the autoload variables) and the load policy (`client/loading.cpp`: files by
-  type, zip archives extracted into the user profile, folders). What the three share is in
+  type, zip archives extracted into the user profile, folders) are files of their own. What the three share is in
   `client/windowedapplicationdetail.h` (internal): `App()`, the frame statistics, the archive choice, the extensions
   the dialogs filter by and the load functions.
   The file browser's preview is `client::Preview` (`client/preview.h`): a second, off-screen scene with its own pipeline,

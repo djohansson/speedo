@@ -104,6 +104,8 @@ private:
 		uint16_t outputIndex = 0; // the output's image it is drawn into (the swapchain's, or headless the image output's)
 		bool drawPreview = false; // the browser's preview drawn this frame (see SetPreviewVisible)
 		std::vector<core::TaskHandle> callbacks; // run by the frame's submit's timeline once the gpu is done with it
+		uint64_t waitTimelineValue = 0; // the ring's previous queue's last submit's, which the frame's submit waits for
+		gfx::Semaphore acquireSemaphore; // the acquired image's (none headless), which the frame's submit waits for
 	};
 	// the frame's updates of its per frame buffers, before its command buffer is begun: the scene's, and the preview's
 	// where drawn (their updates submit command buffers of their own, ordered before the frame's)
@@ -111,6 +113,9 @@ private:
 	// the frame recorded into cmd, in order: the preview (its image sampled by the ui), the scene with the ui drawn over
 	// it, then the captures asked for
 	void InternalRecord(gfx::CommandBufferHandle cmd, FrameContext& frame);
+	// the frame's command buffer submitted, after the previous frame's and the acquire, and the image presented (by the
+	// queue the swapchain says): what the present waits on and its fences kept by the frame's slot (InternalRetirePresents)
+	void InternalSubmit(gfx::CommandBuffer&& cmd, FrameContext& frame);
 
 	
 	std::unique_ptr<gfx::RHI> myRHI;

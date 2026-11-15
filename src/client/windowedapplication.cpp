@@ -157,7 +157,9 @@ bool WindowedApplication::Draw()
 			.swapchain = swapchain,
 			.frameSlot = frameSlot,
 			.outputIndex = static_cast<uint16_t>(outputIndex),
-			.drawPreview = myPreview && myPreviewVisible.load(std::memory_order_relaxed)};
+			.drawPreview = myPreview && myPreviewVisible.load(std::memory_order_relaxed),
+			.waitTimelineValue = lastGraphicsSubmits.maxTimelineValue,
+			.acquireSemaphore = flip ? std::move(flip->acquireNextImageSemaphore) : Semaphore{}};
 		InternalUpdate(frame);
 
 		// the frame's command buffer: recorded into by the scenes and the ui (which borrow it), and submitted below
@@ -167,97 +169,7 @@ bool WindowedApplication::Draw()
 
 		InternalRecord(cmd, frame);
 
-		QueueDeviceSyncInfo frameSync{
-			.waitSemaphores = {graphics->semaphore},
-			.waitDstStageMasks = {PipelineStage::kAllGraphics},
-			.waitSemaphoreValues = {lastGraphicsSubmits.maxTimelineValue},
-			.signalSemaphores = {graphics->semaphore},
-			.signalSemaphoreValues = {++graphics->timeline}};
-
-		// what the present needs (none headless): the acquired image, and a semaphore the frame signals for the present
-		auto presentInfo = swapchain != nullptr ? std::optional(swapchain->PreparePresent()) : std::nullopt;
-		SemaphoreHandle graphicsDoneSemaphoreHandle{};
-		if (swapchain != nullptr)
-		{
-			SemaphoreHandle acquireNextImageSemaphoreHandle = flip->acquireNextImageSemaphore;
-			auto graphicsDoneSemaphore = Semaphore(
-				SemaphoreCreateDesc{
-					device.CreateDeviceObjectCreateDesc(std::format("graphicsDoneSemaphore{}", outputIndex)),
-					SemaphoreType::kBinary
-				});
-			graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
-			// keeps the acquire semaphore alive until the gpu has waited on it. the acquire fence is owned (and waited on) by
-			// the swapchain instead, see Swapchain::myAcquireFences
-			frame.callbacks.emplace_back(
-				core::CreateTask(
-					[acquireNextImageSemaphore = std::move(flip->acquireNextImageSemaphore)] {}).handle);
-			// and the present's until the present is done with it: kept by the frame's slot (see InternalRetirePresents).
-			// a timeline callback waited for each present (vkWaitForPresentKHR), blocking an executor thread for a refresh
-			// or more under fifo; it never did, since the swapchain's present ids were never on (their extension was looked
-			// for among the instance's), so the semaphores went with the frame's gpu work
-			myPresentSemaphores[frameSlot].push_back(std::move(graphicsDoneSemaphore));
-
-			// the acquired image may still be in use by the presentation engine until the acquire semaphore signals:
-			// nothing may touch it before that (PipelineStage::kNone waited for nothing, which flickered in fullscreen)
-			frameSync.waitSemaphores.push_back(acquireNextImageSemaphoreHandle);
-			frameSync.waitDstStageMasks.push_back(PipelineStage::kAllCommands);
-			frameSync.waitSemaphoreValues.push_back(1);
-			frameSync.signalSemaphores.push_back(graphicsDoneSemaphoreHandle);
-			frameSync.signalSemaphoreValues.push_back(1);
-		}
-		frameSync.callbacks = std::move(frame.callbacks);
-		// SPEEDO_CRASH_TEST=hang: from the 100th frame drawn, the frame waits for a semaphore nothing signals, so that the
-		// next wait for it reports a hang (rhi::CrashEvent's report, see rhi/vulkan/crashreport.h), to check the reports end
-		// to end (with SPEEDO_GPU_HANG_TIMEOUT=<seconds> to see it sooner)
-		static const bool kCrashTestHang = []
-		{
-			const char* test = std::getenv("SPEEDO_CRASH_TEST");
-			return test != nullptr && std::string_view(test) == "hang";
-		}();
-		constexpr uint64_t kCrashTestFrame = 100;
-		if (kCrashTestHang && gDrawnFrameCount.load(std::memory_order_relaxed) >= kCrashTestFrame)
-		{
-			static Semaphore gNeverSignaled(
-				SemaphoreCreateDesc{device.CreateDeviceObjectCreateDesc("SPEEDO_CRASH_TEST"), SemaphoreType::kTimeline});
-			static const bool kOnce = []
-			{
-				rhi::CrashEvent("SPEEDO_CRASH_TEST=hang: the frame waits for a semaphore nothing signals");
-				return true;
-			}();
-			frameSync.waitSemaphores.push_back(gNeverSignaled);
-			frameSync.waitDstStageMasks.push_back(PipelineStage::kAllCommands);
-			frameSync.waitSemaphoreValues.push_back(1);
-		}
-		graphicsQueue.EnqueueSubmit(std::move(frameSync), std::move(cmd));
-		myFrameSlotTimelines[frameSlot] = graphics->timeline;
-
-		graphicsSubmits |= graphicsQueue.Submit();
-
-		// from the queue the swapchain says (Swapchain::GetPresentQueueType: a dedicated compute queue where its family can
-		// present, its images shared by both families, else the graphics queue)
-		if (swapchain != nullptr)
-		{
-			presentInfo->waitSemaphores.emplace_back(graphicsDoneSemaphoreHandle);
-
-			PresentResult presentResult = PresentResult::kSuccess;
-			if (swapchain->GetPresentQueueType() != kQueueTypeGraphics)
-			{
-				// one lock at a time: the compute queue's is another context than the graphics queue's here (another
-				// family), so holding both doesn't deadlock (see Device::GetQueue)
-				auto present = device.GetQueue(swapchain->GetPresentQueueType()).Write();
-				auto& [presentQueue, presentSubmits] = present->queues.Get();
-				presentQueue.EnqueuePresent(std::move(*presentInfo));
-				auto presented = presentQueue.Present(&presentResult);
-				std::ranges::move(presented.fences, std::back_inserter(myPresentFences[frameSlot]));
-			}
-			else
-			{
-				graphicsQueue.EnqueuePresent(std::move(*presentInfo));
-				auto presented = graphicsQueue.Present(&presentResult);
-				std::ranges::move(presented.fences, std::back_inserter(myPresentFences[frameSlot]));
-			}
-			swapchain->OnPresentResult(presentResult);
-		}
+		InternalSubmit(std::move(cmd), frame);
 
 		// the frame counted: the frame rate, the submits per frame, the frame times (see FrameStats)
 		myFrameStats.Count(myScene && myScene->IsReady() && myScene->GetRenderer().IsLightingWarmingUp());
@@ -266,6 +178,113 @@ bool WindowedApplication::Draw()
 	GetExecutor().Submit(frameTasks);
 
 	return frameReady;
+}
+
+void WindowedApplication::InternalSubmit(gfx::CommandBuffer&& cmd, FrameContext& frame)
+{
+	using namespace windowedapplication;
+
+	ZoneScopedN("WindowedApplication::InternalSubmit");
+
+	auto& device = GetRHI().GetPrimaryDevice();
+	auto& graphics = frame.graphics;
+	auto& graphicsQueue = frame.graphicsQueue;
+	auto& graphicsSubmits = graphics.queues.Get().second; // the frame's queue's, which the present's fences join
+	auto* swapchain = frame.swapchain;
+	auto frameSlot = frame.frameSlot;
+	auto outputIndex = frame.outputIndex;
+
+	QueueDeviceSyncInfo frameSync{
+		.waitSemaphores = {graphics.semaphore},
+		.waitDstStageMasks = {PipelineStage::kAllGraphics},
+		.waitSemaphoreValues = {frame.waitTimelineValue},
+		.signalSemaphores = {graphics.semaphore},
+		.signalSemaphoreValues = {++graphics.timeline}};
+
+	// what the present needs (none headless): the acquired image, and a semaphore the frame signals for the present
+	auto presentInfo = swapchain != nullptr ? std::optional(swapchain->PreparePresent()) : std::nullopt;
+	SemaphoreHandle graphicsDoneSemaphoreHandle{};
+	if (swapchain != nullptr)
+	{
+		SemaphoreHandle acquireNextImageSemaphoreHandle = frame.acquireSemaphore;
+		auto graphicsDoneSemaphore = Semaphore(
+			SemaphoreCreateDesc{
+				device.CreateDeviceObjectCreateDesc(std::format("graphicsDoneSemaphore{}", outputIndex)),
+				SemaphoreType::kBinary
+			});
+		graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
+		// keeps the acquire semaphore alive until the gpu has waited on it. the acquire fence is owned (and waited on) by
+		// the swapchain instead, see Swapchain::myAcquireFences
+		frame.callbacks.emplace_back(
+			core::CreateTask(
+				[acquireNextImageSemaphore = std::move(frame.acquireSemaphore)] {}).handle);
+		// and the present's until the present is done with it: kept by the frame's slot (see InternalRetirePresents).
+		// a timeline callback waited for each present (vkWaitForPresentKHR), blocking an executor thread for a refresh
+		// or more under fifo; it never did, since the swapchain's present ids were never on (their extension was looked
+		// for among the instance's), so the semaphores went with the frame's gpu work
+		myPresentSemaphores[frameSlot].push_back(std::move(graphicsDoneSemaphore));
+
+		// the acquired image may still be in use by the presentation engine until the acquire semaphore signals:
+		// nothing may touch it before that (PipelineStage::kNone waited for nothing, which flickered in fullscreen)
+		frameSync.waitSemaphores.push_back(acquireNextImageSemaphoreHandle);
+		frameSync.waitDstStageMasks.push_back(PipelineStage::kAllCommands);
+		frameSync.waitSemaphoreValues.push_back(1);
+		frameSync.signalSemaphores.push_back(graphicsDoneSemaphoreHandle);
+		frameSync.signalSemaphoreValues.push_back(1);
+	}
+	frameSync.callbacks = std::move(frame.callbacks);
+	// SPEEDO_CRASH_TEST=hang: from the 100th frame drawn, the frame waits for a semaphore nothing signals, so that the
+	// next wait for it reports a hang (rhi::CrashEvent's report, see rhi/vulkan/crashreport.h), to check the reports end
+	// to end (with SPEEDO_GPU_HANG_TIMEOUT=<seconds> to see it sooner)
+	static const bool kCrashTestHang = []
+	{
+		const char* test = std::getenv("SPEEDO_CRASH_TEST");
+		return test != nullptr && std::string_view(test) == "hang";
+	}();
+	constexpr uint64_t kCrashTestFrame = 100;
+	if (kCrashTestHang && gDrawnFrameCount.load(std::memory_order_relaxed) >= kCrashTestFrame)
+	{
+		static Semaphore gNeverSignaled(
+			SemaphoreCreateDesc{device.CreateDeviceObjectCreateDesc("SPEEDO_CRASH_TEST"), SemaphoreType::kTimeline});
+		static const bool kOnce = []
+		{
+			rhi::CrashEvent("SPEEDO_CRASH_TEST=hang: the frame waits for a semaphore nothing signals");
+			return true;
+		}();
+		frameSync.waitSemaphores.push_back(gNeverSignaled);
+		frameSync.waitDstStageMasks.push_back(PipelineStage::kAllCommands);
+		frameSync.waitSemaphoreValues.push_back(1);
+	}
+	graphicsQueue.EnqueueSubmit(std::move(frameSync), std::move(cmd));
+	myFrameSlotTimelines[frameSlot] = graphics.timeline;
+
+	graphicsSubmits |= graphicsQueue.Submit();
+
+	// from the queue the swapchain says (Swapchain::GetPresentQueueType: a dedicated compute queue where its family can
+	// present, its images shared by both families, else the graphics queue)
+	if (swapchain != nullptr)
+	{
+		presentInfo->waitSemaphores.emplace_back(graphicsDoneSemaphoreHandle);
+
+		PresentResult presentResult = PresentResult::kSuccess;
+		if (swapchain->GetPresentQueueType() != kQueueTypeGraphics)
+		{
+			// one lock at a time: the compute queue's is another context than the graphics queue's here (another
+			// family), so holding both doesn't deadlock (see Device::GetQueue)
+			auto present = device.GetQueue(swapchain->GetPresentQueueType()).Write();
+			auto& [presentQueue, presentSubmits] = present->queues.Get();
+			presentQueue.EnqueuePresent(std::move(*presentInfo));
+			auto presented = presentQueue.Present(&presentResult);
+			std::ranges::move(presented.fences, std::back_inserter(myPresentFences[frameSlot]));
+		}
+		else
+		{
+			graphicsQueue.EnqueuePresent(std::move(*presentInfo));
+			auto presented = graphicsQueue.Present(&presentResult);
+			std::ranges::move(presented.fences, std::back_inserter(myPresentFences[frameSlot]));
+		}
+		swapchain->OnPresentResult(presentResult);
+	}
 }
 
 void WindowedApplication::InternalUpdate(FrameContext& frame)
