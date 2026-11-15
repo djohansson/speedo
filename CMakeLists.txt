@@ -470,7 +470,7 @@ if(APPLE)
 		${SPEEDO_SOURCE_DIR}/rhi/metal/shader.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/metal/swapchain.cpp)
 endif()
-# the D3D12 backend, beside Vulkan on Windows while it grows (docs/backends-plan.md): rhi's classes instantiated with its
+# the D3D12 backend, beside Vulkan on Windows (docs/backends-plan.md, SPEEDO_GRAPHICS_API=d3d12): rhi's classes instantiated with its
 # types, as Metal's are on macOS
 if(WIN32)
 	list(APPEND RHI_SOURCE_FILES

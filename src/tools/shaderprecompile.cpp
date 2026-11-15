@@ -1,7 +1,7 @@
 // shaderprecompile <shader dir> <out dir> [format...]: compiles every shader layout an installed client loads
 // (gfx/shaderlayouts.h: the ImGui renderer's and the scene's, with and without the device's ray queries), in each format an
-// installed client takes (spir-v, Vulkan's; and on macOS MSL, Metal's: SPEEDO_GRAPHICS_API=metal), or those named
-// (spirv, msl, dxil: DXIL, the D3D12 backend's while it grows, docs/backends-plan.md), into <out dir>, as the precompiled sets
+// installed client takes (spir-v, Vulkan's; on macOS MSL, Metal's: SPEEDO_GRAPHICS_API=metal; on Windows DXIL, D3D12's:
+// SPEEDO_GRAPHICS_API=d3d12), or those named (spirv, msl, dxil), into <out dir>, as the precompiled sets
 // gfx::ShaderLoader::Load reads (<stem>-<parameters hash>.shaderset, the hash naming the format too), the ones there before
 // removed. scripts/package.ps1 runs it: a package ships them in place of the shader sources, the shader compiler and
 // slang. it compiles through the shader compiler library beside it, as the client does (see gfx/shadercompiler.h)
@@ -40,6 +40,8 @@ int main(int argc, char** argv)
 	std::vector<rhi::ShaderFormat> formats{rhi::ShaderFormat::kSpirv16};
 #if defined(__APPLE__)
 	formats.push_back(rhi::ShaderFormat::kMsl);
+#elif defined(_WIN32)
+	formats.push_back(rhi::ShaderFormat::kDxil); // the D3D12 client's (SPEEDO_GRAPHICS_API=d3d12)
 #endif
 	if (argc > 3)
 	{
