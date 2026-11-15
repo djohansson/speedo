@@ -109,6 +109,7 @@ Device<kD3D12>::Device(CreateDescType&& desc, const Instance<kD3D12>& instance)
 	const auto name = device::AdapterName(adapter);
 	d3d12::Check(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(&myDevice)), std::format("D3D12CreateDevice ({})", name));
 	d3d12::SetName(myDevice, name);
+	d3d12::SetDeviceRemovedReportDevice(myDevice);
 	device::CheckFeatures(myDevice, name);
 
 	if (static_cast<InstanceHandle<kD3D12>>(instance)->validation)
@@ -246,6 +247,7 @@ Device<kD3D12>::~Device()
 	delete allocator;
 	if (device::gValidationErrors > 0)
 		std::println(stderr, "D3D12: {} validation errors", device::gValidationErrors.load());
+	d3d12::SetDeviceRemovedReportDevice(nullptr);
 	myDevice->Release();
 }
 

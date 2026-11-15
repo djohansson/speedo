@@ -478,6 +478,7 @@ if(WIN32)
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/buffer.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/command.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/commandencoder.cpp
+		${SPEEDO_SOURCE_DIR}/rhi/d3d12/crashreport.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/descriptorset.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/device.cpp
 		${SPEEDO_SOURCE_DIR}/rhi/d3d12/frame.cpp

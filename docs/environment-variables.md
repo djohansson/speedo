@@ -270,6 +270,7 @@ The renderer's, but for `SPEEDO_CULLING`, which is View > Culling's starting sta
 | `SPEEDO_D3D12_VALIDATION` | Exactly `1` on. Default: off (on in debug builds). | The D3D12 backend (docs/backends-plan.md, growing on its branch) with D3D12's debug layer: its errors print as `D3D12 Validation Error` lines. Needs the layer, Windows' Graphics Tools, which setup installs where asked (`SPEEDO_D3D12_DEBUG_LAYER=1`, below). |
 | `SPEEDO_D3D12_GPU_VALIDATION` | Exactly `1` on. Default: off. | With `SPEEDO_D3D12_VALIDATION`, the debug layer's gpu based validation too (much slower). |
 | `SPEEDO_D3D12_WARP` | Exactly `1` on. Default: off. | The D3D12 backend on WARP, Microsoft's software adapter, alone (lavapipe's role: a machine without a gpu). |
+| `SPEEDO_D3D12_DRED` | `0` off. Default: on. | The D3D12 backend's device removed reports: DRED's automatic breadcrumbs, their contexts (the passes' names) and page faults, which a lost device's crash report reads (the lists the gpu hadn't finished, around the operation it stopped at, and the faulting allocation). Costs nothing measurable (Sponza at 2560x1440: 17.3 to 17.7 ms either way, measured before the GPU upload heap). |
 
 ## Diagnostics
 

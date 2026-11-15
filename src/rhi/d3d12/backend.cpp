@@ -15,7 +15,12 @@ namespace rhi::d3d12
 
 void Check(HRESULT result, std::string_view what)
 {
-	ENSUREF(SUCCEEDED(result), "D3D12: {} failed ({:#010x})", what, static_cast<uint32_t>(result));
+	if (SUCCEEDED(result))
+		return;
+	// a removed device's: the crash report, with what DRED kept (crashreport.cpp)
+	if (IsDeviceRemoved(result))
+		ReportDeviceRemoved(result, what);
+	ENSUREF(false, "D3D12: {} failed ({:#010x})", what, static_cast<uint32_t>(result));
 }
 
 void SetName(ID3D12Object* object, std::string_view name)

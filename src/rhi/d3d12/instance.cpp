@@ -66,6 +66,8 @@ Instance<kD3D12>::Instance(InstanceCreateDesc<kD3D12>&& desc)
 			object->validation = false;
 		}
 	}
+	// the device removed reports' breadcrumbs and page faults (crashreport.cpp), set before any device is made
+	d3d12::EnableDeviceRemovedReports();
 	d3d12::Check(
 		CreateDXGIFactory2(object->validation ? DXGI_CREATE_FACTORY_DEBUG : 0U, IID_PPV_ARGS(&object->factory)), "CreateDXGIFactory2");
 	myInstance = object;

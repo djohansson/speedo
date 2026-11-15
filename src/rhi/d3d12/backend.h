@@ -40,6 +40,13 @@ namespace rhi::d3d12
 // an HRESULT that must succeed: fails hard naming what failed and the result
 void Check(HRESULT result, std::string_view what);
 
+// device removed reports (crashreport.cpp): DRED enabled before a device is made (SPEEDO_D3D12_DRED=0 off), the device
+// whose DRED a report reads, whether a result is a removed device's, and the report (Check's, for such a result)
+void EnableDeviceRemovedReports();
+void SetDeviceRemovedReportDevice(ID3D12Device* device) noexcept;
+[[nodiscard]] bool IsDeviceRemoved(HRESULT result) noexcept;
+[[noreturn]] void ReportDeviceRemoved(HRESULT result, std::string_view what);
+
 // a COM object released and nulled (where it is one)
 template <typename T>
 void Release(T*& object) noexcept
