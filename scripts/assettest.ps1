@@ -36,14 +36,17 @@ hand: ShadowScene's 30 frames took 328 s with it, 2 without). On D3D12 it sets D
 errors and warnings the clients print as 'D3D12 Validation Error' or 'Warning', which fail the run. Each api's run its
 own (see -GraphicsApi), unless the variable is set.
 
-Client runs go -Jobs at once (default 4; one with KosmicKrisp's ray queries, which the client asks for only with
+Client runs go -Jobs at once (by default as many as the machine's cores, memory and gpu memory take, each over what a
+client takes of it, the least of them: 11 on a 32-thread machine with 64 GB and a 16 GB gpu, printed with its bounds;
+see Get-ClientJobs. one with KosmicKrisp's ray queries, which the client asks for only with
 SPEEDO_RAY_QUERY=1 on macOS, and which made the gpu restart and the machine panic when several clients traced at once), each worker with a user profile dir of its own under <work> (user-1 to
 user-N), and a model to the same worker (by a hash of its name), whose caches stay warm, each worker's longest first (by
 what they took last time, <work>/logs/<preset>/durations.tsv); a worker with none of its own left takes the shortest
-of the busiest worker's (the most time left), so that the end of a run isn't one worker's alone. On macOS a new worker's
-dir starts as a copy-on-write clone of <work>/user, warm too: in a new work dir a first client (the warm-up, with the sky
-alone) compiles the shaders and makes the pipelines into it, once, rather than every worker at once (four cold compiles side
-by side took a sanitize build's clients past the timeout). Results are printed in the order of a serial run. assettest checks its models and images on all of the cpu's threads.
+of the busiest worker's (the most time left), so that the end of a run isn't one worker's alone. A new worker's dir
+starts as a copy of <work>/user (on macOS a copy-on-write clone), or of a worker's already there, warm too: in a new work
+dir a first client a graphics api (the warm-up, with the sky alone) compiles the shaders and makes the pipelines into
+<work>/user, once, rather than every worker at once (four cold compiles side by side took a sanitize build's clients past
+the timeout). Results are printed in the order of a serial run. assettest checks its models and images on all of the cpu's threads.
 
 Inputs are directories, zip archives and panoramas (.hdr). scripts/fetch-test-assets.ps1 -Quick prints a smaller set,
 a model or two per feature, for iterating.
@@ -81,7 +84,7 @@ param(
 	[string[]] $GraphicsApi,
 	[string] $Preset,
 	[string] $Work,
-	[int] $Jobs = 4,
+	[int] $Jobs = 0, # 0: from the machine's resources (see Get-ClientJobs)
 	[Parameter(ValueFromRemainingArguments = $true)] [string[]] $Inputs
 )
 
@@ -110,6 +113,86 @@ if ($Presentation)
 	}
 }
 $check = -not $ClientOnly
+
+# how many clients run at once by default: as many as the machine's resources take, each bound the resource over what
+# a client takes of it, the least of them, 1 to 16. measured on the quick tier's clients (validated, headless, both
+# apis, warm; 2026-11-15, 32 logical cores, 64 GB, RTX 4070 Ti SUPER of 16 GB): 4 at once took 120 s, 8 103 s, 12 88 s,
+# no resource saturated (the cpu 30, 39 and 49% on average, each client slower alongside more: the summed clients 465,
+# 711 and 944 s, the shared gpu and its driver's work at a client's start, not looked into further); a client takes
+# about 3.5 GB of memory (7.4 at most, while it compiles the shaders) and about 1 GB of the gpu's (2.1 at most; 13.5 GB
+# in all at 12). a gpu's own memory where it has its own (a discrete gpu's, found on Windows in the display adapters'
+# registry, on Linux in an amd gpu's sysfs or nvidia-smi); a gpu that shares the system's (Apple's, lavapipe's) takes
+# from the memory's bound instead
+function Get-ClientJobs
+{
+	$kCoresPerClient = 2
+	$kMemoryPerClientGB = 4.0
+	$kMemoryReserveGB = 8.0 # the system's and the other processes'
+	$kGpuMemoryPerClientGB = 1.2
+	$kGpuMemoryReserveGB = 2.0 # the desktop's and the other processes'
+
+	$cores = [Environment]::ProcessorCount
+	$memoryGB = 0.0
+	$gpuMemoryGB = 0.0
+	try
+	{
+		if ($IsWindows)
+		{
+			$memoryGB = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB
+			# each display adapter's memory size (64 bits, where Win32_VideoController's AdapterRAM stops at 4 GB)
+			$class = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'
+			foreach ($adapter in Get-ChildItem $class -ErrorAction SilentlyContinue)
+			{
+				$size = (Get-ItemProperty $adapter.PSPath -Name 'HardwareInformation.qwMemorySize' -ErrorAction SilentlyContinue).'HardwareInformation.qwMemorySize'
+				if ($size) { $gpuMemoryGB = [Math]::Max($gpuMemoryGB, [double]$size / 1GB) }
+			}
+		}
+		elseif ($IsMacOS)
+		{
+			$memoryGB = [double](& sysctl -n hw.memsize) / 1GB
+		}
+		else
+		{
+			$line = Get-Content /proc/meminfo | Where-Object { $_ -match '^MemTotal:\s+(\d+) kB' } | Select-Object -First 1
+			if ($line -match '(\d+) kB') { $memoryGB = [double]$Matches[1] / 1MB }
+			foreach ($vram in Get-ChildItem /sys/class/drm/card*/device/mem_info_vram_total -ErrorAction SilentlyContinue)
+			{
+				$gpuMemoryGB = [Math]::Max($gpuMemoryGB, [double](Get-Content $vram) / 1GB)
+			}
+			if ($gpuMemoryGB -eq 0 -and (Get-Command nvidia-smi -ErrorAction SilentlyContinue))
+			{
+				$mib = & nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>$null | Select-Object -First 1
+				if ($mib) { $gpuMemoryGB = [double]$mib / 1KB }
+			}
+		}
+	}
+	catch
+	{
+		[Console]::Error.WriteLine("assettest: couldn't read the machine's memory ($($_.Exception.Message)): the cores' bound alone")
+	}
+
+	$byCores = [Math]::Floor($cores / $kCoresPerClient)
+	$bounds = [ordered]@{ "$cores logical cores" = $byCores }
+	if ($memoryGB -gt 0)
+	{
+		$bounds[('{0:F0} GB of memory' -f $memoryGB)] = [Math]::Floor(($memoryGB - $kMemoryReserveGB) / $kMemoryPerClientGB)
+	}
+	if ($gpuMemoryGB -gt 0)
+	{
+		$bounds[('{0:F0} GB of gpu memory' -f $gpuMemoryGB)] = [Math]::Floor(($gpuMemoryGB - $kGpuMemoryReserveGB) / $kGpuMemoryPerClientGB)
+	}
+	$jobs = [int][Math]::Min(16, [Math]::Max(1, ($bounds.Values | Measure-Object -Minimum).Minimum))
+	$reasons = ($bounds.GetEnumerator() | ForEach-Object { "$($_.Key): $($_.Value)" }) -join ', '
+	return @($jobs, $reasons)
+}
+if ($Jobs -le 0)
+{
+	$Jobs, $jobsReasons = Get-ClientJobs
+	if ($Client -or $ClientOnly)
+	{
+		[Console]::Error.WriteLine("assettest: $Jobs clients at once (the least of $jobsReasons; -Jobs <n> to choose)")
+	}
+}
 $Jobs = [Math]::Max(1, $Jobs)
 
 if ((-not $Inputs -or $Inputs.Count -eq 0) -and -not $Presentation)
@@ -570,34 +653,47 @@ if ($Client)
 			}
 		}
 
-		# a new worker's profile starts as a copy of <work>/user, on macos as a clone (copy-on-write, so it takes no time or
-		# space until it changes), so that its caches are warm. in a new work dir a client with nothing to load but the sky
-		# (the warm-up, a run like the others) first compiles the shaders and makes the pipelines into it, once: every worker
-		# compiling them at once, four cold compiles side by side took 601 s in a sanitize build, past the clients' timeout
-		# (the first of each worker's; one alone took 291 s)
+		# a new worker's profile starts as a copy of a warm one, so that its caches are warm: of <work>/user, or else of a
+		# worker's that is there (a work dir from before the warm-up, or from fewer -Jobs); on macos a clone (copy-on-write,
+		# so it takes no time or space until it changes), elsewhere a copy. where there is none, a client with nothing to
+		# load but the sky (the warm-up, a run like the others, one a graphics api) first compiles the shaders and makes
+		# the pipelines into <work>/user, once: every worker compiling them at once, four cold compiles side by side took
+		# 601 s in a sanitize build, past the clients' timeout (the first of each worker's; one alone took 291 s), and the
+		# quick tier's first run on 12 workers 276 s against 88 warm (Windows, profile, 2026-11-15)
 		$shared = Join-Path $Work 'user'
-		$fresh = -not (Test-Path -LiteralPath $shared) -and -not @(1..$Jobs | Where-Object { Test-Path -LiteralPath (Join-Path $Work "user-$_") })
-		if ($IsMacOS -and $Jobs -gt 1 -and $fresh)
+		$missing = @(1..$Jobs | Where-Object { -not (Test-Path -LiteralPath (Join-Path $Work "user-$_")) })
+		$source = if (Test-Path -LiteralPath $shared) { $shared } else
 		{
-			$warmup = [pscustomobject]@{
-				Model = ''; Image = ''; Label = 'warm-up'; Environment = ''; PresentationTest = ''; Variables = @{}; Worker = 0
-				Process = $null; Start = $null; Log = (Join-Path $logs 'client-warm-up.log'); Done = $false; Lines = @()
-				Estimate = 0.0; Seconds = 0; TimedOut = $false
-			}
-			Start-ClientRun $warmup
-			while (-not $warmup.Process.HasExited -and ((Get-Date) - $warmup.Start).TotalSeconds -le $timeout)
-			{
-				Start-Sleep -Milliseconds 200
-			}
-			Complete-ClientRun $warmup (-not $warmup.Process.HasExited)
-			$warmup.Lines | ForEach-Object { Write-Output $_ }
+			Get-ChildItem -LiteralPath $Work -Directory -Filter 'user-*' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^user-\d+$' } |
+				Sort-Object { [int]($_.Name -replace 'user-', '') } | Select-Object -First 1 -ExpandProperty FullName
 		}
-		foreach ($worker in 1..$Jobs)
+		if ($Jobs -gt 1 -and $missing.Count -gt 0 -and -not $source)
+		{
+			foreach ($api in $GraphicsApi)
+			{
+				$label = if ($GraphicsApi.Count -gt 1) { "warm-up-$api" } else { 'warm-up' }
+				$warmup = [pscustomobject]@{
+					Model = ''; Image = ''; Label = $label; Environment = ''; PresentationTest = ''; Variables = @{}; Worker = 0
+					Api = $api; Process = $null; Start = $null; Log = (Join-Path $logs "client-$label.log"); Done = $false; Lines = @()
+					Estimate = 0.0; Seconds = 0; TimedOut = $false
+				}
+				Start-ClientRun $warmup
+				while (-not $warmup.Process.HasExited -and ((Get-Date) - $warmup.Start).TotalSeconds -le $timeout)
+				{
+					Start-Sleep -Milliseconds 200
+				}
+				Complete-ClientRun $warmup (-not $warmup.Process.HasExited)
+				$warmup.Lines | ForEach-Object { Write-Output $_ }
+			}
+			$source = $shared
+		}
+		foreach ($worker in $missing)
 		{
 			$user = Join-Path $Work "user-$worker"
-			if ($IsMacOS -and -not (Test-Path -LiteralPath $user) -and (Test-Path -LiteralPath $shared))
+			if ($source -and (Test-Path -LiteralPath $source))
 			{
-				& cp -c -R $shared $user
+				if ($IsMacOS) { & cp -c -R $source $user }
+				else { Copy-Item -LiteralPath $source -Destination $user -Recurse }
 			}
 		}
 

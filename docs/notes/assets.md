@@ -440,7 +440,13 @@ system's caches; the next new profile's took 0.93 s. The validation layer's
 dylib is in `debug/lib`, so a debug client run by hand sets `DYLD_LIBRARY_PATH` to it as the script does;
 `VK_LAYER_VALIDATE_GPU_BASED=GPU_BASED_GPU_ASSISTED` adds gpu assisted validation. Both run in
 parallel: `assettest` checks its models and images on every thread (`CheckInOrder`: results printed in the serial order;
-`--jobs N`), and the script runs `-Jobs` clients at once (default 4), each worker with a user profile of its own
+`--jobs N`), and the script runs `-Jobs` clients at once (by default from the machine's resources since 2026-11-15, the
+user's ask: the least of the logical cores over 2, the memory less 8 GB over 4 GB, and a discrete gpu's memory less 2
+GB over 1.2 GB, 11 on this machine (32 threads, 64 GB, a 16 GB RTX 4070 Ti SUPER), printed with its bounds; 4 before.
+Measured on the quick tier's clients, warm: 4 at once 120 s, 8 103 s, 12 88 s, with nothing saturated, the cpu 30 to 49%
+on average, each client slower alongside more, the summed clients 465, 711 and 944 s, both apis alike, the first frame
+twice as long: the one gpu and its driver's work at each client's start, not looked into further; a client about 3.5 GB
+of memory and 1 GB of the gpu's, 13.5 GB of the 16 at 12), each worker with a user profile of its own
 (`<work>/user-<n>`: clients write pipeline caches, shader intermediates and asset caches there), a model to the same
 worker (FNV-1a of its label), so its caches stay warm, each worker's longest first (by what each took the last time with
 the preset, `<work>/logs/<preset>/durations.tsv`), and a worker with none of its own left takes the shortest of the
@@ -452,7 +458,9 @@ worker compiled the shaders and made the pipelines cold, four at once: in a sani
 quick tier's first client of each worker; the clients' timeout is 600), where one client alone took 291 s. Since
 2026-11-09 a new work dir's first client is the warm-up (`client-warm-up.log`, counted as a run: the sky alone, into
 `<work>/user`), which the workers' clones then start from (only on macos, where they are clones; elsewhere each worker
-still compiles its own). Its first runs: the warm-up 25 s profile, 102 s sanitize, 166 s tsan, then the quick tier's 60
+still compiled its own, until 2026-11-15: a warm-up a graphics api everywhere since, and a new worker a copy of
+`<work>/user`, or of a worker's already there, where there's no clone, 1.5 GB in 3 s; the quick tier's first run on 12
+new workers took 276 s, warm 88). Its first runs: the warm-up 25 s profile, 102 s sanitize, 166 s tsan, then the quick tier's 60
 clients passed in each (the sanitize quick tier, cpu checks and clients, in 199 s). Results print in the serial order, and the logs are kept per preset (`<work>/logs/<preset>`: a debug run after a profile one overwrote its logs, so a profile failure couldn't be read). That took the full regression from about 30
 minutes to 5 or 6 (130 to 175 s profile, 180 s debug, warm). (Before each client, the script also used to wait a second in `caffeinate -u -t 1` to wake the
 display; it wakes it once now, and keeps it awake until it exits, `caffeinate -d -i -w` on itself: kept awake per client,
