@@ -52,8 +52,7 @@ if ($arm64 -and $cache -match '(?m)^CMAKE_(C|CXX)_FLAGS:STRING=.*-march=native')
 	throw "build/$Preset is built for this machine's cpu: cmake --preset $Preset --fresh, then build it"
 }
 
-$header = Get-Content -Raw (Join-Path $root 'src/version.h')
-$version = (@('Major', 'Minor', 'Patch') | ForEach-Object { if ($header -match "$_ = ([0-9]+)") { $Matches[1] } else { throw "no $_ version in src/version.h" } }) -join '.'
+$version = "$(& (Join-Path $PSScriptRoot 'version.ps1'))" # src/version.h's
 
 function Write-Message([string] $Message) { [Console]::Error.WriteLine($Message) }
 

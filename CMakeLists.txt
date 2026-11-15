@@ -8,6 +8,9 @@ cmake_policy(SET CMP0131 NEW)
 
 set(SPEEDO_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+# the version: src/version.h's, the one place it's written (scripts/release.ps1 changes it). this reads it for the
+# project, the packages and the crash reports; the scripts read it through scripts/version.ps1, the same way; the
+# client's About text includes the header. vcpkg.json has none
 message("Parsing ${SPEEDO_SOURCE_DIR}/version.h file")
 
 file(READ "${SPEEDO_SOURCE_DIR}/version.h" version)

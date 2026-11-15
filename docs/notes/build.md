@@ -855,6 +855,13 @@ needs `desktop-file-validate`, which the job now installs), then all three (the 
 59.3, as artifacts); `scripts/release.ps1 -Version 1.0.0 -Push` then tagged v1.0.0, whose run made the draft release with
 the three packages and their `.sha256`.
 
+**The version** is written in one place, `src/version.h` (Major, Minor, Patch), which `release.ps1` alone changes (the
+user's call, 2026-11-15). CMakeLists.txt reads it for the project's version, the packages' (CPack, Info.plist) and the
+crash reports' (`SPEEDO_VERSION`); the client's About text includes the header; the scripts read it through
+`scripts/version.ps1` (`package.ps1`, `release.ps1`, the release workflow's check of the tag), each of which had parsed
+it itself. `vcpkg.json` had a version of its own, `0.0.1` (the manifest's first, never changed), which matched nothing:
+a project's manifest needs none, so it has none.
+
 ## Licenses
 
 Speedo's own code is proprietary, all rights reserved (`LICENSE`, the user's call, 2026-11-07: to keep every option open,

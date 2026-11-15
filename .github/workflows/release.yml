@@ -39,8 +39,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          $header = Get-Content -Raw src/version.h
-          $version = (@('Major', 'Minor', 'Patch') | ForEach-Object { if ($header -match "$_ = ([0-9]+)") { $Matches[1] } else { throw "no $_ version in src/version.h" } }) -join '.'
+          $version = "$(& scripts/version.ps1)"
           if ($env:TAG -ne "v$version") { throw "the tag $env:TAG isn't src/version.h's version, v$version" }
           gh release create $env:TAG --draft --verify-tag --title "Speedo $version" --generate-notes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

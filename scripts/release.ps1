@@ -40,10 +40,9 @@ function Invoke-Git
 	$output
 }
 
-# the version's parts, as CMakeLists.txt and package.ps1 read them
+# src/version.h's version, as everything reads it (version.ps1)
 $header = [System.IO.File]::ReadAllText($headerPath)
-$parts = @('Major', 'Minor', 'Patch') | ForEach-Object { if ($header -match "$_ = ([0-9]+)") { [int]$Matches[1] } else { throw "no $_ version in src/version.h" } }
-$current = [version]::new($parts[0], $parts[1], $parts[2])
+$current = & (Join-Path $PSScriptRoot 'version.ps1')
 
 if ($Version)
 {
