@@ -41,6 +41,7 @@ struct PipelineLayoutObject; // a root signature, and where each set's tables an
 struct DescriptorPoolObject; // the shader visible descriptor heaps' allocator
 struct DescriptorSetObject; // a set's ranges of the shader visible heaps
 struct PipelineObject; // an ID3D12PipelineState and what binding it sets besides
+struct PipelineCacheObject; // a pipeline library and the bytes it was loaded from
 struct CommandPoolObject; // the queue's type, and its command allocators and lists
 struct CommandBufferObject; // a command allocator and list, and what the pipeline bound on it
 struct FenceObject; // an ID3D12Fence and the value it waits for
@@ -232,7 +233,7 @@ struct BackendTypes<kD3D12>
 	using DescriptorSetHandle = rhi::d3d12::DescriptorSetObject*;
 	using RenderPassHandle = rhi::d3d12::RenderPassObject*;
 	using PipelineHandle = rhi::d3d12::PipelineObject*;
-	using PipelineCacheHandle = ID3D12PipelineLibrary*;
+	using PipelineCacheHandle = rhi::d3d12::PipelineCacheObject*;
 	using PipelineShaderStageCreateInfo = rhi::d3d12::PipelineShaderStageCreateInfo;
 	using PipelineVertexInputStateCreateInfo = rhi::d3d12::PipelineVertexInputStateCreateInfo;
 	using PipelineInputAssemblyStateCreateInfo = rhi::d3d12::PipelineInputAssemblyStateCreateInfo;

@@ -258,6 +258,7 @@ struct PipelineLayoutObject
 	};
 
 	ID3D12RootSignature* rootSignature = nullptr;
+	uint64_t rootSignatureHash = 0; // of its serialized blob (a cached pipeline's name, see PipelineCacheObject)
 	uint32_t pushConstants = kNone; // the root parameter's index
 	uint32_t pushConstantCount = 0; // in 32 bit values
 	std::vector<SetTables> sets; // by set index
@@ -267,9 +268,43 @@ struct PipelineLayoutObject
 // where the state has its class alone). D3D12's cull mode and winding are a graphics pipeline state's, where rhi sets
 // them per draw (CommandEncoder::SetCullMode, SetFrontFace): a graphics pipeline keeps its description, and a state per
 // cull mode and front face, each made at its first draw
+// a pipeline cache (pipeline.cpp): a pipeline library, loaded from the user profile's file when the Pipeline is made and
+// saved to it when it's destroyed (as Vulkan's backend's pipeline cache), and the bytes it was made from (which it reads
+// as long as it lives). a pipeline state is named in it by a hash of all it's made of (its shaders' bytecode, its root
+// signature's serialized blob, its fixed state), so that a changed shader is a new name rather than a mismatch; one
+// not in it is made and stored. its loads and stores one at a time (the pipelines are made on several threads)
+struct PipelineCacheObject
+{
+	ID3D12PipelineLibrary1* library = nullptr;
+	std::vector<std::byte> bytes;
+	std::mutex mutex;
+	bool stored = false; // a state stored since it was loaded: saved then
+
+	// the pipeline state of desc named key: loaded from the library, or made (and stored)
+	[[nodiscard]] static ID3D12PipelineState* Graphics(
+		PipelineCacheObject* cache, ID3D12Device* device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& desc, uint64_t key, std::string_view name);
+	[[nodiscard]] static ID3D12PipelineState* Compute(
+		PipelineCacheObject* cache, ID3D12Device* device, const D3D12_COMPUTE_PIPELINE_STATE_DESC& desc, uint64_t key, std::string_view name);
+};
+
+// FNV-1a, 64 bits: the cached pipelines' names
+[[nodiscard]] inline uint64_t HashBytes(std::span<const std::byte> bytes, uint64_t hash = 14695981039346656037ULL) noexcept
+{
+	for (auto byte : bytes)
+		hash = (hash ^ static_cast<uint64_t>(byte)) * 1099511628211ULL;
+	return hash;
+}
+template <typename T>
+[[nodiscard]] uint64_t HashBytesOf(const T& value, uint64_t hash) noexcept
+{
+	return HashBytes(std::as_bytes(std::span(&value, 1)), hash);
+}
+
 struct PipelineObject
 {
 	ID3D12PipelineState* state = nullptr; // a compute pipeline's
+	PipelineCacheObject* cache = nullptr; // where its states are kept (the Pipeline's)
+	uint64_t key = 0; // a graphics pipeline's name in it, but its cull mode and front face (see State)
 	ID3D12RootSignature* rootSignature = nullptr; // its layout's (not referenced here)
 	const PipelineLayoutObject* layout = nullptr; // where the root signature has the sets' tables and the push constants
 	D3D_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;

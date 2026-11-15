@@ -157,6 +157,8 @@ static d3d12::PipelineLayoutObject* CreateLayoutObject(ID3D12Device* device, con
 	d3d12::Check(
 		device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&layout->rootSignature)),
 		std::format("{}: CreateRootSignature", name));
+	layout->rootSignatureHash =
+		d3d12::HashBytes(std::span(static_cast<const std::byte*>(blob->GetBufferPointer()), blob->GetBufferSize()));
 	d3d12::Release(blob);
 	d3d12::SetName(layout->rootSignature, name);
 	return layout;
