@@ -227,6 +227,7 @@ ID3D12PipelineState* PipelineCacheObject::Graphics(
 	const auto cachedName = pipelinecache::NameOf(key);
 	if (cache != nullptr)
 	{
+		std::scoped_lock lock{cache->loadLocks[key % PipelineCacheObject::kLoadLockCount]};
 		if (SUCCEEDED(cache->library->LoadGraphicsPipeline(cachedName.c_str(), &desc, IID_PPV_ARGS(&state))))
 			return state;
 	}
@@ -234,7 +235,8 @@ ID3D12PipelineState* PipelineCacheObject::Graphics(
 	if (cache != nullptr)
 	{
 		std::scoped_lock lock{cache->mutex};
-		cache->stored = SUCCEEDED(cache->library->StorePipeline(cachedName.c_str(), state)) || cache->stored;
+		if (cache->storedKeys.insert(key).second)
+			cache->stored = SUCCEEDED(cache->library->StorePipeline(cachedName.c_str(), state)) || cache->stored;
 	}
 	return state;
 }
@@ -246,6 +248,7 @@ ID3D12PipelineState* PipelineCacheObject::Compute(
 	const auto cachedName = pipelinecache::NameOf(key);
 	if (cache != nullptr)
 	{
+		std::scoped_lock lock{cache->loadLocks[key % PipelineCacheObject::kLoadLockCount]};
 		if (SUCCEEDED(cache->library->LoadComputePipeline(cachedName.c_str(), &desc, IID_PPV_ARGS(&state))))
 			return state;
 	}
@@ -253,7 +256,8 @@ ID3D12PipelineState* PipelineCacheObject::Compute(
 	if (cache != nullptr)
 	{
 		std::scoped_lock lock{cache->mutex};
-		cache->stored = SUCCEEDED(cache->library->StorePipeline(cachedName.c_str(), state)) || cache->stored;
+		if (cache->storedKeys.insert(key).second)
+			cache->stored = SUCCEEDED(cache->library->StorePipeline(cachedName.c_str(), state)) || cache->stored;
 	}
 	return state;
 }

@@ -16,6 +16,7 @@
 #include <rhi/types.h>
 
 #include <core/assert.h>
+#include <core/utils.h> // core::UnorderedSet
 
 #include <array>
 #include <cstdint>
@@ -279,6 +280,15 @@ struct PipelineCacheObject
 	std::vector<std::byte> bytes;
 	std::mutex mutex;
 	bool stored = false; // a state stored since it was loaded: saved then
+	// the names stored since, each once: two threads may make the same state at once, neither finding it, and the
+	// library takes a name once (the debug layer's warning 970 for the second)
+	core::UnorderedSet<uint64_t> storedKeys;
+	// loads of the same name one at a time: the library is free-threaded but for that ("multiple threads loading the
+	// same PSO ... should synchronize themselves", ID3D12PipelineLibrary's documentation: an access violation in the
+	// quick tier's cold run); a lock a stripe of the names, so that different ones still load at once (one lock for all
+	// took Sponza's 83 compute pipelines from 0.23 s to 0.59 s)
+	static constexpr size_t kLoadLockCount = 64;
+	std::array<std::mutex, kLoadLockCount> loadLocks;
 
 	// the pipeline state of desc named key: loaded from the library, or made (and stored)
 	[[nodiscard]] static ID3D12PipelineState* Graphics(
