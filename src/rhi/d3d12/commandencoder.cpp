@@ -106,6 +106,9 @@ static std::pair<D3D12_BARRIER_SYNC, D3D12_BARRIER_ACCESS> ForList(D3D12_BARRIER
 										   D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE;
 		if (has(sync, kAttachmentSync) && !has(access, kAttachmentAccess))
 			sync = (sync & ~kAttachmentSync) | D3D12_BARRIER_SYNC_DRAW;
+		// a UAV clear's sync (rhi's transfer stage's, FillBuffer's) with its unordered access
+		if (has(sync, D3D12_BARRIER_SYNC_CLEAR_UNORDERED_ACCESS_VIEW) && !has(access, D3D12_BARRIER_ACCESS_UNORDERED_ACCESS))
+			access |= D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
 		// the acceleration structures' syncs: a build's, a copy's or a postbuild info's (rhi's build stage, all three)
 		// with their structures' reads where none of theirs is there, and their accesses with a build's sync
 		constexpr auto kStructureSync = D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE |
@@ -130,7 +133,7 @@ static std::pair<D3D12_BARRIER_SYNC, D3D12_BARRIER_ACCESS> ForList(D3D12_BARRIER
 		if (has(sync, D3D12_BARRIER_SYNC_EXECUTE_INDIRECT) && !has(access, D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT))
 			access |= D3D12_BARRIER_ACCESS_INDIRECT_ARGUMENT;
 		// the accesses' syncs
-		if (has(access, kShaderAccess) && !has(sync, kShading))
+		if (has(access, kShaderAccess) && !has(sync, kShading | D3D12_BARRIER_SYNC_CLEAR_UNORDERED_ACCESS_VIEW))
 			sync |= type == D3D12_COMMAND_LIST_TYPE_COMPUTE ? D3D12_BARRIER_SYNC_COMPUTE_SHADING : D3D12_BARRIER_SYNC_ALL_SHADING;
 		if (has(access, kCopyAccess) && !has(sync, D3D12_BARRIER_SYNC_COPY))
 			sync |= D3D12_BARRIER_SYNC_COPY;
@@ -315,10 +318,37 @@ void CommandEncoder<kD3D12>::FillBuffer(const Buffer<kD3D12>& buffer, uint64_t o
 {
 	ZoneScopedN("CommandEncoder::FillBuffer");
 
-	// an upload buffer of the value, copied in (the command buffer's until its commands are done, see UpdateBuffer)
 	ID3D12Resource* target = buffer;
-	const uint64_t byteCount = size != 0 ? size : target->GetDesc().Width - offset;
-	ENSUREF(byteCount % 4 == 0, "FillBuffer fills a multiple of 4 bytes ({})", byteCount);
+	const auto desc = target->GetDesc();
+	const uint64_t byteCount = size != 0 ? size : desc.Width - offset;
+	ENSUREF(byteCount % 4 == 0 && offset % 4 == 0, "FillBuffer fills a multiple of 4 bytes, from a multiple of 4 ({} at {})", byteCount, offset);
+	// a clear of a raw view of it (the gpu's: the GI's buffers, megabytes, cleared from uploads took 6 ms, and the OIT's
+	// and the upscaler's 0.25 ms a frame each), where it takes unordered access and the list clears (not a copy list's):
+	// its view in a range of the shader visible heap the command buffer takes, and in the cpu heap, which the clear reads
+	// as it's recorded. rhi's transfer stage is D3D12's copy and UAV clear both (ToD3D12Sync)
+	if ((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0 && myCmd->type != D3D12_COMMAND_LIST_TYPE_COPY)
+	{
+		auto& allocator = *myCmd->device;
+		const D3D12_UNORDERED_ACCESS_VIEW_DESC view{
+			.Format = DXGI_FORMAT_R32_TYPELESS,
+			.ViewDimension = D3D12_UAV_DIMENSION_BUFFER,
+			.Buffer = {
+				.FirstElement = offset / 4,
+				.NumElements = static_cast<UINT>(byteCount / 4),
+				.StructureByteStride = 0,
+				.CounterOffsetInBytes = 0,
+				.Flags = D3D12_BUFFER_UAV_FLAG_RAW}};
+		const uint32_t shaderVisible = allocator.pool.resources.Allocate(1);
+		myCmd->pushedResources.emplace_back(shaderVisible, 1);
+		const auto cpu = allocator.views.Allocate();
+		allocator.device->CreateUnorderedAccessView(target, nullptr, &view, cpu);
+		allocator.device->CreateUnorderedAccessView(target, nullptr, &view, allocator.pool.resources.Cpu(shaderVisible));
+		const std::array<UINT, 4> values{value, value, value, value};
+		myCmd->list->ClearUnorderedAccessViewUint(allocator.pool.resources.Gpu(shaderVisible), cpu, target, values.data(), 0, nullptr);
+		allocator.views.Free(cpu);
+		return;
+	}
+	// else an upload buffer of the value, copied in (the command buffer's until its commands are done, see UpdateBuffer)
 	std::vector<uint32_t> values(byteCount / 4, value);
 	auto* source = commandencoder::Upload(*myCmd, values.data(), byteCount);
 	myCmd->list->CopyBufferRegion(target, offset, source, 0, byteCount);

@@ -56,8 +56,15 @@ static D3D12MA::ALLOCATION_DESC AllocationDesc(d3d12::AllocatorObject& allocator
 	D3D12MA::ALLOCATION_DESC allocation{};
 	const bool hostVisible = (memory & MemoryProperty::kHostVisible) == MemoryProperty::kHostVisible;
 	const bool gpuWrites = Any(usage & (BufferUsage::kStorage | BufferUsage::kTransferDestination | BufferUsage::kAccelerationStructureStorage));
+	// one the shaders read (or write) where the host writes it each frame (the renderer's lights, clusters, views): video
+	// memory the host writes, the GPU upload heap (resizable BAR), where the system has it, as Vulkan's host visible memory
+	// is on NVIDIA's (its first host visible type is device local). in system memory, read across PCIe, the frame took
+	// 3x Vulkan's (Sponza at 2560x1440: the GI's and the composite's kernels reading the clusters and the lights)
+	const bool shaders = (static_cast<uint32_t>(usage) & ~static_cast<uint32_t>(BufferUsage::kTransferSource | BufferUsage::kTransferDestination)) != 0;
 	if (!hostVisible)
 		allocation.HeapType = D3D12_HEAP_TYPE_DEFAULT;
+	else if (shaders && allocator.allocator->IsGPUUploadHeapSupported())
+		allocation.HeapType = D3D12_HEAP_TYPE_GPU_UPLOAD;
 	else if (!gpuWrites)
 		allocation.HeapType = D3D12_HEAP_TYPE_UPLOAD;
 	else

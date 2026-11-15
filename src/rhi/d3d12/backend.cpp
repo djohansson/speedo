@@ -285,9 +285,10 @@ D3D12_BARRIER_SYNC ToD3D12Sync(PipelineStage stages)
 			sync |= value;
 	};
 	// the top of the pipe, and the host's (its reads and writes are ordered by fences): none
-	// copies: the backend's transfers (its clears are render target and depth stencil views', its fills copies; a resolve's
-	// or a UAV clear's sync, besides, refused a copy's access in one barrier)
-	add(PipelineStage::kTransfer, D3D12_BARRIER_SYNC_COPY);
+	// copies and UAV clears: the backend's transfers (its image clears are render target and depth stencil views', its
+	// fills UAV clears where the buffer takes them, else copies). a UAV clear's sync beside a copy's needs an access of its
+	// own, which the global barriers add (commandencoder.cpp's ForList); a resolve's isn't one
+	add(PipelineStage::kTransfer, D3D12_BARRIER_SYNC_COPY | D3D12_BARRIER_SYNC_CLEAR_UNORDERED_ACCESS_VIEW);
 	add(PipelineStage::kVertexShader, D3D12_BARRIER_SYNC_VERTEX_SHADING);
 	add(PipelineStage::kFragmentShader, D3D12_BARRIER_SYNC_PIXEL_SHADING);
 	add(PipelineStage::kComputeShader, D3D12_BARRIER_SYNC_COMPUTE_SHADING);
