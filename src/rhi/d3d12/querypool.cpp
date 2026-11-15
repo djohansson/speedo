@@ -1,9 +1,10 @@
 // the D3D12 backend's query pools of timestamps: a query heap, each timestamp resolved where it is written
 // (ResolveQueryData right after its EndQuery, on the same list) into a readback buffer of the values, which the host reads
-// once the commands are done. A reset sets the values to QueryPoolObject::kUnwritten (by the host, or recorded: a copy
-// from an upload buffer of them), so that a read tells which were written since (no tick count reaches it). The ticks are
-// the queue's (DeviceLimits::timestampPeriod: the direct queue's frequency). acceleration structures' compacted sizes
-// come with the ray queries (docs/backends-plan.md, step 6)
+// once the commands are done; or of acceleration structures' compacted sizes, each written as its postbuild info into a
+// buffer of the pool's (CommandEncoder::WriteAccelerationStructureCompactedSize) and copied into the readback buffer. A
+// reset sets the values to QueryPoolObject::kUnwritten (by the host, or recorded: a copy from an upload buffer of them),
+// so that a read tells which were written since (no tick count nor size reaches it). The ticks are the queue's
+// (DeviceLimits::timestampPeriod: the direct queue's frequency)
 #include <rhi/d3d12/backend.h>
 
 #include <rhi/querypool.h>
@@ -29,7 +30,8 @@ namespace querypool
 {
 
 // a buffer of size bytes in heapType's memory, mapped
-static std::pair<D3D12MA::Allocation*, void*> CreateMapped(ID3D12Device* device, D3D12_HEAP_TYPE heapType, uint64_t size, std::string_view name)
+static std::pair<D3D12MA::Allocation*, void*> CreateMapped(
+	ID3D12Device* device, D3D12_HEAP_TYPE heapType, uint64_t size, std::string_view name, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE)
 {
 	auto& allocator = d3d12::AllocatorObject::ForDevice(device);
 	D3D12MA::ALLOCATION_DESC allocationDesc{};
@@ -44,7 +46,7 @@ static std::pair<D3D12MA::Allocation*, void*> CreateMapped(ID3D12Device* device,
 		.Format = DXGI_FORMAT_UNKNOWN,
 		.SampleDesc = {.Count = 1, .Quality = 0},
 		.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-		.Flags = D3D12_RESOURCE_FLAG_NONE,
+		.Flags = flags,
 		.SamplerFeedbackMipRegion = {},
 	};
 	D3D12MA::Allocation* allocation = nullptr;
@@ -53,8 +55,10 @@ static std::pair<D3D12MA::Allocation*, void*> CreateMapped(ID3D12Device* device,
 			&allocationDesc, &desc, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, 0, nullptr, &allocation, IID_NULL, nullptr),
 		std::format("{}: CreateResource3 (a buffer of {} bytes)", name, size));
 	d3d12::SetName(allocation->GetResource(), name);
+	// (the default heap's not mapped)
 	void* data = nullptr;
-	d3d12::Check(allocation->GetResource()->Map(0, nullptr, &data), std::format("{}: ID3D12Resource::Map", name));
+	if (heapType != D3D12_HEAP_TYPE_DEFAULT)
+		d3d12::Check(allocation->GetResource()->Map(0, nullptr, &data), std::format("{}: ID3D12Resource::Map", name));
 	return {allocation, data};
 }
 
@@ -73,16 +77,18 @@ QueryPool<kD3D12>::QueryPool(CreateDescType&& desc)
 		[&desc]
 		{
 			ENSURE(desc.count > 0);
-			ENSUREF(
-				desc.type == QueryType::kTimestamp,
-				"the D3D12 backend's query pools hold timestamps alone until its acceleration structures (docs/backends-plan.md, step 6)");
 
 			auto* pool = new d3d12::QueryPoolObject{}; //NOLINT(cppcoreguidelines-owning-memory)
-			const D3D12_QUERY_HEAP_DESC heapDesc{.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP, .Count = desc.count, .NodeMask = 0};
-			d3d12::Check(desc.device->CreateQueryHeap(&heapDesc, IID_PPV_ARGS(&pool->heap)), std::format("{}: CreateQueryHeap", desc.name));
-			d3d12::SetName(pool->heap, desc.name);
-
 			const uint64_t size = uint64_t{desc.count} * sizeof(uint64_t);
+			if (desc.type == QueryType::kTimestamp)
+			{
+				const D3D12_QUERY_HEAP_DESC heapDesc{.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP, .Count = desc.count, .NodeMask = 0};
+				d3d12::Check(desc.device->CreateQueryHeap(&heapDesc, IID_PPV_ARGS(&pool->heap)), std::format("{}: CreateQueryHeap", desc.name));
+				d3d12::SetName(pool->heap, desc.name);
+			}
+			else
+				pool->postbuild = querypool::CreateMapped(
+					desc.device, D3D12_HEAP_TYPE_DEFAULT, size, std::format("{} (postbuild)", desc.name), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS).first;
 			auto [readback, values] =
 				querypool::CreateMapped(desc.device, D3D12_HEAP_TYPE_READBACK, size, std::format("{} (values)", desc.name));
 			pool->readback = readback;
@@ -116,6 +122,8 @@ QueryPool<kD3D12>::~QueryPool()
 	if (!IsValid() || myPool == nullptr)
 		return;
 	d3d12::Release(myPool->heap);
+	if (myPool->postbuild != nullptr)
+		myPool->postbuild->Release();
 	if (myPool->readback != nullptr)
 		myPool->readback->Release();
 	if (myPool->unwritten != nullptr)
@@ -144,17 +152,15 @@ void QueryPool<kD3D12>::Reset(CommandBufferHandle<kD3D12> cmd, uint32_t first, u
 	const uint64_t offset = uint64_t{first} * sizeof(uint64_t);
 	cmd->list->CopyBufferRegion(
 		myPool->readback->GetResource(), offset, myPool->unwritten->GetResource(), offset, uint64_t{count} * sizeof(uint64_t));
-	// before the timestamps resolved after it (copies both)
-	const D3D12_BUFFER_BARRIER barrier{
+	// before the values written after it (copies both): a global barrier, a readback heap's buffer being in the legacy
+	// copy destination state D3D12 gives it, which a buffer barrier naming it can't take (the debug layer's error 1351)
+	const D3D12_GLOBAL_BARRIER barrier{
 		.SyncBefore = D3D12_BARRIER_SYNC_COPY,
 		.SyncAfter = D3D12_BARRIER_SYNC_COPY,
 		.AccessBefore = D3D12_BARRIER_ACCESS_COPY_DEST,
 		.AccessAfter = D3D12_BARRIER_ACCESS_COPY_DEST,
-		.pResource = myPool->readback->GetResource(),
-		.Offset = 0,
-		.Size = UINT64_MAX,
 	};
-	const D3D12_BARRIER_GROUP group{.Type = D3D12_BARRIER_TYPE_BUFFER, .NumBarriers = 1, .pBufferBarriers = &barrier};
+	const D3D12_BARRIER_GROUP group{.Type = D3D12_BARRIER_TYPE_GLOBAL, .NumBarriers = 1, .pGlobalBarriers = &barrier};
 	cmd->list->Barrier(1, &group);
 }
 
@@ -163,6 +169,7 @@ void QueryPool<kD3D12>::WriteTimestamp(CommandBufferHandle<kD3D12> cmd, uint32_t
 {
 	// D3D12's timestamps are written once the commands before are done (bottom of pipe, whatever the stage)
 	ENSURE(index < GetDesc().count);
+	ENSUREF(myPool->heap != nullptr, "a timestamp written to a query pool of compacted sizes");
 	cmd->list->EndQuery(myPool->heap, D3D12_QUERY_TYPE_TIMESTAMP, index);
 	cmd->list->ResolveQueryData(
 		myPool->heap, D3D12_QUERY_TYPE_TIMESTAMP, index, 1, myPool->readback->GetResource(), uint64_t{index} * sizeof(uint64_t));

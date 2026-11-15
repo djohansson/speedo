@@ -128,9 +128,20 @@ static void WriteDescriptorSet(
 					binding.type == DescriptorType::kStorageImage ? "unordered access" : "shader resource");
 				device.device->CopyDescriptorsSimple(1, device.pool.resources.Cpu(resources + index), source, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 			}
+			else if (const auto* structure = std::get_if<AccelerationStructureHandle<kD3D12>>(&value))
+			{
+				// a shader resource view of its address (no resource: D3D12's for an acceleration structure)
+				ENSUREF(*structure != nullptr, "binding {} has no acceleration structure", entry.dstBinding);
+				const D3D12_SHADER_RESOURCE_VIEW_DESC desc{
+					.Format = DXGI_FORMAT_UNKNOWN,
+					.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE,
+					.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+					.RaytracingAccelerationStructure = {.Location = (*structure)->address}};
+				device.device->CreateShaderResourceView(nullptr, &desc, device.pool.resources.Cpu(resources + index));
+			}
 			else
 			{
-				ENSUREF(false, "the D3D12 backend's sets hold no acceleration structures, texel buffers or inline uniform blocks yet (binding {})", entry.dstBinding);
+				ENSUREF(false, "the D3D12 backend's sets hold no texel buffers or inline uniform blocks (binding {})", entry.dstBinding);
 			}
 		}
 	}

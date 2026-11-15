@@ -176,6 +176,8 @@ struct AllocatorObject
 	ID3D12CommandQueue* directQueue = nullptr; // the graphics queue's, which swapchains present from (not referenced)
 	// nanoseconds a timestamp tick (the direct queue's frequency: the compute queue's is the same on the gpus measured)
 	float timestampPeriod = 1.0F;
+	// the shaders' inline ray queries (DXR 1.1: raytracing tier 1.1), unless SPEEDO_RAY_QUERY=0
+	bool rayQuery = false;
 	// DrawIndexedIndirect's, by the commands' stride (rhi's commands are D3D12's arguments; a signature has its stride)
 	std::mutex signaturesMutex;
 	std::vector<std::pair<uint32_t, ID3D12CommandSignature*>> drawIndexedSignatures;
@@ -348,14 +350,18 @@ struct CommandBufferObject
 	void FreeTransients() noexcept;
 };
 
-// a query pool of timestamps: a query heap, each query resolved where it is written into a readback buffer of the
-// values, which a reset sets to kUnwritten (rhi's reads say which were written: a tick count never reaches it). a reset
-// recorded on a command buffer copies kUnwritten from an upload buffer of them
+// a query pool of timestamps (a query heap, each query resolved where it is written) or of acceleration structures'
+// compacted sizes (each written to postbuild and copied), into a readback buffer of the values, which a reset sets to
+// kUnwritten (rhi's reads say which were written: no tick count nor size reaches it). a reset recorded on a command
+// buffer copies kUnwritten from an upload buffer of them
 struct QueryPoolObject
 {
 	static constexpr uint64_t kUnwritten = ~uint64_t{0};
 
-	ID3D12QueryHeap* heap = nullptr;
+	ID3D12QueryHeap* heap = nullptr; // a pool of timestamps'
+	// a pool of compacted sizes': the buffer their postbuild infos are written to (unordered access, which a readback
+	// buffer can't be), each copied into the readback buffer after it's written
+	D3D12MA::Allocation* postbuild = nullptr;
 	D3D12MA::Allocation* readback = nullptr;
 	uint64_t* values = nullptr; // the readback buffer, mapped
 	D3D12MA::Allocation* unwritten = nullptr;
@@ -380,6 +386,13 @@ struct SwapchainObject
 	uint64_t submitted = 0;
 	UINT syncInterval = 1;
 	UINT presentFlags = 0;
+};
+
+// an acceleration structure (accelerationstructure.cpp): its buffer (the AccelerationStructure's) and gpu address
+struct AccelerationStructureObject
+{
+	ID3D12Resource* buffer = nullptr;
+	D3D12_GPU_VIRTUAL_ADDRESS address = 0;
 };
 
 // a fence: a D3D12 fence and the value it waits for

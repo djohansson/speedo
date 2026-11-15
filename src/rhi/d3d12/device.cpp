@@ -160,6 +160,14 @@ Device<kD3D12>::Device(CreateDescType&& desc, const Instance<kD3D12>& instance)
 	d3d12::RegisterAllocator(myDevice, allocator);
 	myAllocator = allocator;
 
+	// ray queries where the device has DXR 1.1's inline ones
+	{
+		D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5{};
+		allocator->rayQuery = d3d12::RayQueriesEnabled() &&
+							  SUCCEEDED(myDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5))) &&
+							  options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1;
+	}
+
 	// the timestamps' period: a direct queue's frequency (ticks a second), from a queue made to ask
 	{
 		const D3D12_COMMAND_QUEUE_DESC queueDesc{.Type = D3D12_COMMAND_LIST_TYPE_DIRECT};
@@ -246,7 +254,7 @@ DeviceLimits Device<kD3D12>::GetLimits() const
 {
 	// D3D12's: a buffer's views reach 2^31 bytes; resource binding tier 3's tables any number of textures (the shader
 	// visible heap's million); 16384 texels a 2D image's side, 2048 a 3D one's; indirect draws with a count
-	// (ExecuteIndirect's count buffer); timestamps in the direct queue's ticks. no ray queries yet (step 6)
+	// (ExecuteIndirect's count buffer); timestamps in the direct queue's ticks; ray queries where the device has DXR 1.1
 	constexpr uint64_t kMaxBufferViewByteCount = 1ULL << 31U;
 	constexpr uint32_t kMaxDrawIndirectCount = 1U << 24U;
 	return DeviceLimits{
@@ -258,7 +266,7 @@ DeviceLimits Device<kD3D12>::GetLimits() const
 		.timestampPeriod = myAllocator->timestampPeriod,
 		.drawIndirectCount = true,
 		.drawIndirectCountEmulated = false,
-		.rayQuery = false,
+		.rayQuery = myAllocator->rayQuery,
 		.accelerationStructureScratchAlignment = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT};
 }
 

@@ -106,6 +106,22 @@ static std::pair<D3D12_BARRIER_SYNC, D3D12_BARRIER_ACCESS> ForList(D3D12_BARRIER
 										   D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE;
 		if (has(sync, kAttachmentSync) && !has(access, kAttachmentAccess))
 			sync = (sync & ~kAttachmentSync) | D3D12_BARRIER_SYNC_DRAW;
+		// the acceleration structures' syncs: a build's, a copy's or a postbuild info's (rhi's build stage, all three)
+		// with their structures' reads where none of theirs is there, and their accesses with a build's sync
+		constexpr auto kStructureSync = D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE |
+										D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE |
+										D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO;
+		constexpr auto kStructureAccess =
+			D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ | D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE;
+		// (each its own: a postbuild info's reads a structure and writes a buffer, never a structure)
+		if (has(sync, D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE | D3D12_BARRIER_SYNC_COPY_RAYTRACING_ACCELERATION_STRUCTURE) &&
+			!has(access, kStructureAccess))
+			access |= D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ;
+		if (has(sync, D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO) &&
+			!has(access, D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ | D3D12_BARRIER_ACCESS_UNORDERED_ACCESS))
+			access |= D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ;
+		if (has(access, kStructureAccess) && !has(sync, kStructureSync | kShading))
+			sync |= D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE;
 		// the syncs' accesses
 		if (has(sync, kShading) && !has(access, kShaderAccess))
 			access |= D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
@@ -337,9 +353,44 @@ void CommandEncoder<kD3D12>::AcquireOwnership(const Image<kD3D12>&, uint32_t, ui
 
 template <>
 void CommandEncoder<kD3D12>::WriteAccelerationStructureCompactedSize(
-	const AccelerationStructure<kD3D12>& /*structure*/, const QueryPool<kD3D12>& /*pool*/, uint32_t /*query*/) const
+	const AccelerationStructure<kD3D12>& structure, const QueryPool<kD3D12>& pool, uint32_t query) const
 {
-	ENSUREF(false, "the D3D12 backend has no acceleration structures yet (docs/backends-plan.md, step 6)");
+	// its postbuild info written to the pool's buffer (unordered access) and copied into its readback buffer, which the
+	// host reads (QueryPool::Read); the buffer back to unordered access for the next
+	QueryPoolHandle<kD3D12> object = pool;
+	ENSUREF(object->postbuild != nullptr, "a compacted size written to a query pool of timestamps");
+	ENSURE(query < pool.GetDesc().count);
+	auto* postbuild = object->postbuild->GetResource();
+	const uint64_t offset = uint64_t{query} * sizeof(uint64_t);
+	const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC desc{
+		.DestBuffer = postbuild->GetGPUVirtualAddress() + offset,
+		.InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE};
+	const D3D12_GPU_VIRTUAL_ADDRESS source = structure.GetDeviceAddress();
+	myCmd->list->EmitRaytracingAccelerationStructurePostbuildInfo(&desc, 1, &source);
+	auto barrier = [this, postbuild](D3D12_BARRIER_SYNC syncBefore, D3D12_BARRIER_ACCESS accessBefore, D3D12_BARRIER_SYNC syncAfter, D3D12_BARRIER_ACCESS accessAfter)
+	{
+		const D3D12_BUFFER_BARRIER buffer{
+			.SyncBefore = syncBefore,
+			.SyncAfter = syncAfter,
+			.AccessBefore = accessBefore,
+			.AccessAfter = accessAfter,
+			.pResource = postbuild,
+			.Offset = 0,
+			.Size = UINT64_MAX};
+		const D3D12_BARRIER_GROUP group{.Type = D3D12_BARRIER_TYPE_BUFFER, .NumBarriers = 1, .pBufferBarriers = &buffer};
+		myCmd->list->Barrier(1, &group);
+	};
+	barrier(
+		D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO,
+		D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,
+		D3D12_BARRIER_SYNC_COPY,
+		D3D12_BARRIER_ACCESS_COPY_SOURCE);
+	myCmd->list->CopyBufferRegion(object->readback->GetResource(), offset, postbuild, offset, sizeof(uint64_t));
+	barrier(
+		D3D12_BARRIER_SYNC_COPY,
+		D3D12_BARRIER_ACCESS_COPY_SOURCE,
+		D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO,
+		D3D12_BARRIER_ACCESS_UNORDERED_ACCESS);
 }
 
 template <>
