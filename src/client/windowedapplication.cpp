@@ -1,3 +1,4 @@
+#include "framecapture.h"
 #include "windowedapplicationdetail.h"
 
 namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
@@ -17,20 +18,6 @@ bool WindowedApplication::gShowTps = false;
 namespace windowedapplication
 {
 
-// about when the process started (its static initialization, before main), which the first frame's time counts from
-const auto gStartTime = std::chrono::steady_clock::now();
-
-// with SPEEDO_GPU_TIMINGS=1, the frame time of each half second the frame rate is measured over (milliseconds), and
-// whether the lighting warmed up in it (Renderer::IsLightingWarmingUp), whose medians Shutdown prints: the settled
-// frames' and the warm-up's. unthrottled (SPEEDO_PRESENT_MODE=immediate) the gpu's whole frame, where a backend doesn't
-// time every pass (KosmicKrisp, see "GPU timings" in CLAUDE.md)
-std::vector<std::pair<float, bool>> gFrameTimes;
-const bool gCollectFrameTimes = []
-{
-	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
-	return collect != nullptr && std::string_view(collect) == "1";
-}();
-
 // SPEEDO_UI=0: the ui isn't drawn over the window's frames (nor its panels' blur), for captures of the scene alone; it
 // still runs (the autoloads, the camera's placement, the capture itself), and its textures are still uploaded and
 // released (PrepareFrame)
@@ -39,68 +26,6 @@ const bool gDrawUi = []
 	const char* setting = std::getenv("SPEEDO_UI");
 	return setting == nullptr || std::string_view(setting) != "0";
 }();
-
-// a presentation mode's name, for crash reports' events
-constexpr std::string_view PresentationModeName(rhi::PresentationMode mode) noexcept
-{
-	switch (mode)
-	{
-	case rhi::PresentationMode::kFifo: return "fifo";
-	case rhi::PresentationMode::kFifoRelaxed: return "fifo relaxed";
-	case rhi::PresentationMode::kMailbox: return "mailbox";
-	case rhi::PresentationMode::kImmediate: return "immediate";
-	case rhi::PresentationMode::kCount: break;
-	}
-	return "?";
-}
-
-// recreates the swapchain at the current surface size, and everything sized after it. caller holds gDrawMutex.
-// returns false if the surface has no area (minimized), in which case nothing is recreated.
-bool RecreateWindowDependentObjects(RHI& rhi, platform::Window& window)
-{
-	ZoneScopedN("RecreateWindowDependentObjects");
-
-	auto& device = rhi.GetPrimaryDevice();
-	auto& swapchain = rhi.GetSwapchain(window);
-
-	auto extent = swapchain.QuerySurfaceExtent();
-	if (extent.width == 0 || extent.height == 0)
-		return false;
-
-	// from the previous one (oldSwapchain), unless a window change released it first (see Draw). none if the window was
-	// minimized since the check above (the device's wait takes a while): its size is the one that counts
-	device.WaitIdle();
-	if (!swapchain.CreateSwapchain())
-		return false;
-	extent = swapchain.GetDesc().extent;
-	rhi::CrashEvent(std::format(
-		"swapchain made: {}x{}, {}, {} images", extent.width, extent.height, PresentationModeName(swapchain.GetPresentationMode()),
-		swapchain.GetImageCount()));
-
-	// the window's size in screen coordinates, as its framebuffer's (the swapchain's) over its content scale
-	auto& state = window.GetState();
-	state.width = static_cast<uint32_t>(static_cast<float>(extent.width) / state.xscale);
-	state.height = static_cast<uint32_t>(static_cast<float>(extent.height) / state.yscale);
-
-	App().GetViews().OnResizeFramebuffer({extent.width, extent.height});
-	App().GetScene().Resize();
-
-	return true;
-}
-
-// headless: the frames' image at extent (the window's framebuffer's), and everything sized after it. caller holds
-// gDrawMutex
-void ResizeImageOutput(RHI& rhi, gfx::ImageOutput& output, rhi::Extent2d extent)
-{
-	ZoneScopedN("ResizeImageOutput");
-
-	rhi.GetPrimaryDevice().WaitIdle();
-	output.Resize(extent);
-	rhi::CrashEvent(std::format("image output made: {}x{}", extent.width, extent.height));
-
-	App().GetViews().OnResizeFramebuffer({extent.width, extent.height});
-	App().GetScene().Resize();
-}
 
 } // namespace windowedapplication
 
@@ -146,121 +71,12 @@ bool WindowedApplication::Draw()
 	auto& pipeline = rhi.GetPrimaryDevice().GetPipeline();
 	auto& executor = GetExecutor();
 
-	// a window change (RequestWindowChange: a fullscreen switch, a size, a monitor): the main thread changes the window
-	// once nothing presented is still waiting to be shown, with no swapchain (see Swapchain::Release), and frames are
-	// skipped until it has. with fifo, frames queued for the coming vertical blanks when exclusive fullscreen changed the
-	// display mode were never shown, and NVIDIA's driver then waited for them in vkCreateSwapchainKHR (or
-	// vkDestroySwapchainKHR), forever: every switch into exclusive fullscreen under fifo hung; and a swapchain made after
-	// leaving fullscreen, under fifo, hung there when the window was resized with frames queued. while minimized too
-	// (windows minimizes exclusive fullscreen when it loses the focus): no frames are drawn then, and the switch waited for
-	// one
-	if (auto state = myWindowChangeState.load(std::memory_order_acquire); state != kWindowChangeNone)
-	{
-		if (state == kWindowChangeRequested)
-		{
-			rhi::CrashEvent("window change: swapchain released");
-			device.WaitIdle();
-			if (swapchain != nullptr)
-			{
-				InternalRetirePresents(*swapchain);
-				swapchain->Release();
-			}
-			std::vector<core::std_extra::move_only_function<void()>> changes;
-			{
-				std::scoped_lock changesLock(myWindowChangesMutex);
-				changes = std::exchange(myWindowChanges, {});
-			}
-			myWindowChangeState.store(kWindowChangeChanging, std::memory_order_release);
-			CallOnMain(
-				[this, changes = std::move(changes)]() mutable
-				{
-					for (auto& change : changes)
-						change();
-					{
-						const auto& state = GetWindow(GetCurrentWindow()).GetState();
-						rhi::CrashEvent(std::format(
-							"window changed: {}x{}{}", state.width, state.height,
-							state.fullscreenEnabled != 0U ? (state.fullscreenMode == FULLSCREEN_MODE_EXCLUSIVE ? ", exclusive fullscreen" : ", borderless fullscreen") : ""));
-					}
-					// resized, or not (exclusive fullscreen at the window's size): recreated either way
-					myResizeRequested.store(true, std::memory_order_release);
-					std::scoped_lock changesLock(myWindowChangesMutex);
-					myWindowChangeState.store(
-						myWindowChanges.empty() ? kWindowChangeNone : kWindowChangeRequested, std::memory_order_release);
-				});
-		}
-		return false;
-	}
-
-	if (window.IsMinimized())
-		return false;
-
 	rhi::CrashFrame(gDrawnFrameCount.load(std::memory_order_relaxed));
 
-	// the presentation the ui asked for (View > Presentation), applied by recreating the swapchain below (headless,
-	// nothing is presented)
-	if (auto request = myPresentationRequest.exchange(0, std::memory_order_relaxed); request != 0 && swapchain != nullptr)
-	{
-		auto presentation = UnpackPresentation(request);
-		rhi::CrashEvent(std::format("presentation asked for: {}, {} images", PresentationModeName(presentation.mode), presentation.imageCount));
-		swapchain->Configure(presentation.mode, presentation.imageCount);
-	}
-
-	// exclusive fullscreen takes the monitor (see Swapchain::SetExclusiveFullscreen), recreating the swapchain below when
-	// it changes, and where the system refused it (composited meanwhile), when the window comes to the foreground
-	if (swapchain != nullptr)
-	{
-		const auto& state = window.GetState();
-		swapchain->SetExclusiveFullscreen(
-			state.fullscreenEnabled != 0U && state.fullscreenMode == FULLSCREEN_MODE_EXCLUSIVE ? GetCurrentWindow()
-																							 : kInvalidWindowHandle);
-	}
-
-	// a resize (see OnResizeFramebuffer), or what the swapchain found out of date (e.g. a fullscreen switch can leave it
-	// at the previous size without a matching resize event)
-	if (myResizeRequested.exchange(false, std::memory_order_acquire) || (swapchain != nullptr && swapchain->NeedsRecreate()))
-	{
-		if (swapchain == nullptr)
-		{
-			// headless: the image at the window's framebuffer size
-			auto size = myFramebufferSize.load(std::memory_order_relaxed);
-			rhi::Extent2d extent{.width = static_cast<uint32_t>(size >> 32U), .height = static_cast<uint32_t>(size & 0xFFFFFFFFU)};
-			if (extent.width > 0 && extent.height > 0 && extent != myImageOutput->GetExtent())
-				ResizeImageOutput(rhi, *myImageOutput, extent);
-		}
-		// releasing it first, and waiting for its presents, made a swapchain under fifo hang in vkDestroySwapchainKHR when
-		// the window was resized: recreated from it, as the drivers expect, it doesn't
-		else if (!RecreateWindowDependentObjects(rhi, window))
-		{
-			// no area yet: again before the next frame
-			myResizeRequested.store(true, std::memory_order_release);
-			return false;
-		}
-	}
-	// a change of the render size (View > Upscaling), with the graphics queues done with the render targets (theirs alone),
-	// waited for under their lock: a device wait raced the loaders' submits on the queues aliased to them (KosmicKrisp's
-	// transfer queue is its graphics queue; validation's threading errors, at a startup with SPEEDO_UPSCALING)
-	else if (App().GetScene().NeedsResize())
-	{
-		{
-			auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
-			for (auto& [queue, submits] : graphics->queues)
-				queue.WaitIdle();
-		}
-		App().GetScene().Resize();
-	}
-	if (swapchain != nullptr)
-	{
-		auto [minImageCount, maxImageCount] = swapchain->GetImageCountLimits();
-		myPresentation.store(
-			PackPresentation(Presentation{
-				.mode = swapchain->GetPresentationMode(),
-				.imageCount = swapchain->GetImageCount(),
-				.modes = swapchain->GetPresentationModes(),
-				.minImageCount = minImageCount,
-				.maxImageCount = maxImageCount}),
-			std::memory_order_relaxed);
-	}
+	// the window's changes, its presentation and its size, applied before the frame (see InternalPrepareWindow): none
+	// drawn while it can't be
+	if (!InternalPrepareWindow(swapchain))
+		return false;
 
 	// what the scene makes once its shaders have compiled in the background (see Scene::Prepare: the first launch's take
 	// tens of seconds, during which the frames are the ui alone), outside of the graphics queue's lock (it takes it)
@@ -335,6 +151,9 @@ bool WindowedApplication::Draw()
 			drawCall(*graphics.Get());
 		}
 
+		// TODO: make more use of the draw calls queue for other rendering tasks
+		// perhaps we should split into Update and Record phases for different rendering tasks
+
 		// the frame's exposure histogram, and instance and joint buffers, now that the frame's previous use of them is done
 		// (see the fences above)
 		myScene->Update(*graphics, frameSlot);
@@ -394,94 +213,17 @@ bool WindowedApplication::Draw()
 				.uiBlurRects = myUiBlurRects,
 				.executor = &GetExecutor()});
 
-		// a read back of the frame into a bitmap file at path, then done (if given) once written: out of the present layout
-		// and back (headless, out of the image output's and back)
-		auto capture = [&](std::string path, std::atomic_uint8_t* done)
-		{
-			auto extent = myOutput->GetExtent();
-			auto size = static_cast<size_t>(extent.width) * extent.height * 4;
-			auto buffer = std::make_shared<gfx::Buffer>(gfx::BufferCreateDesc{
-				device.CreateDeviceObjectCreateDesc("Frame Capture"), size, BufferUsage::kTransferDestination, MemoryProperty::kHostVisible});
-			gfx::CommandEncoder encoder(cmd);
-			Format format = Format::kUndefined;
-			if (swapchain != nullptr)
-			{
-				auto& frame = swapchain->GetFrames()[outputIndex];
-				auto layout = frame.GetLayout(0);
-				frame.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor, 0);
-				encoder.CopyImageToBuffer(frame.GetImages()[0], extent, *buffer);
-				frame.Transition(cmd, layout, ImageAspect::kColor, 0);
-				format = frame.GetDesc().imageFormats[0];
-			}
-			else
-			{
-				auto& image = myImageOutput->GetImage();
-				auto layout = image.GetDesc().layout;
-				image.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor);
-				encoder.CopyImageToBuffer(image, *buffer);
-				image.Transition(cmd, layout, ImageAspect::kColor);
-				format = image.GetDesc().format;
-			}
-			encoder.Barrier(PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kHost, Access::kHostRead);
-			bool bgra = format == Format::kB8G8R8A8Unorm || format == Format::kB8G8R8A8Srgb;
-			graphicsCallbacks.emplace_back(
-				core::CreateTask(
-					[buffer, extent, size, bgra, path = std::move(path), done]
-					{
-						// a bitmap file header and info header, then the pixels, top down (a negative height), as bgra
-						std::vector<std::byte> file(54 + size);
-						auto put = [&file](size_t offset, uint32_t value, size_t bytes)
-						{
-							for (size_t byteIt = 0; byteIt < bytes; byteIt++)
-								file[offset + byteIt] = static_cast<std::byte>((value >> (8 * byteIt)) & 0xFFU);
-						};
-						file[0] = std::byte{'B'};
-						file[1] = std::byte{'M'};
-						put(2, static_cast<uint32_t>(file.size()), 4);
-						put(10, 54, 4);
-						put(14, 40, 4);
-						put(18, extent.width, 4);
-						put(22, static_cast<uint32_t>(-static_cast<int32_t>(extent.height)), 4);
-						put(26, 1, 2);
-						put(28, 32, 2);
-						auto memory = buffer->Map();
-						buffer->Invalidate(0, size);
-						std::memcpy(file.data() + 54, memory.data(), size);
-						buffer->Unmap();
-						if (!bgra)
-							for (size_t pixelIt = 54; pixelIt + 3 < file.size(); pixelIt += 4)
-								std::swap(file[pixelIt], file[pixelIt + 2]);
-						if (!core::file::Write(path, file))
-							std::println(stderr, "SPEEDO_CAPTURE: couldn't write {}", path);
-						if (done != nullptr)
-							*done = 3;
-					}).handle);
-		};
-		// the frame an autoload exit ends on (SPEEDO_CAPTURE, see gCaptureState): the ui's request, or with SPEEDO_REPEATABLE
-		// the frame counted from the sequences' restart, here (see gRepeatableCaptureFrame)
-		if (gRepeatableCaptureFrame && gDrawnFrameCount.load(std::memory_order_relaxed) == *gRepeatableCaptureFrame)
-		{
-			if (uint8_t idle = 0; gCaptureState.compare_exchange_strong(idle, 2))
-				capture(gCapturePath, &gCaptureState);
-		}
-		else if (uint8_t requested = 1; gCaptureState.compare_exchange_strong(requested, 2))
-			capture(gCapturePath, &gCaptureState);
-		// each frame drawing a pose of SPEEDO_CAMERA_PATH for the first time (SPEEDO_CAPTURE_PATH=<directory>:
-		// pose-<NNNN>.bmp), to compare a move's frames
-		static const char* gCapturePathDirectory = std::getenv("SPEEDO_CAPTURE_PATH");
-		// SPEEDO_CAPTURE_PATH_FIRST=<pose>: from that pose on (a still pose repeated, once what settles over frames has: the
-		// indirect lighting, auto exposure); SPEEDO_CAPTURE_PATH_STRIDE=<n>: every n-th pose of those (a long move)
-		auto setting = [](const char* name, uint32_t fallback)
-		{
-			const char* value = std::getenv(name);
-			return value != nullptr && *value != '\0' ? static_cast<uint32_t>(std::strtoul(value, nullptr, 10)) : fallback;
-		};
-		static const uint32_t kCapturePathFirst = setting("SPEEDO_CAPTURE_PATH_FIRST", 0U);
-		static const uint32_t kCapturePathStride = std::max(setting("SPEEDO_CAPTURE_PATH_STRIDE", 1U), 1U);
-		if (gCapturePathDirectory != nullptr && *gCapturePathDirectory != '\0')
-			if (auto pose = myViews->GetPlacedPose();
-				pose && *pose >= kCapturePathFirst && (*pose - kCapturePathFirst) % kCapturePathStride == 0)
-				capture((std::filesystem::path(gCapturePathDirectory) / std::format("pose-{:04}.bmp", *pose)).string(), nullptr);
+		// the captures this frame asks for (SPEEDO_CAPTURE, SPEEDO_CAPTURE_PATH), after the scene and the ui (see FrameCapture)
+		RecordFrameCaptures(
+			cmd,
+			FrameCaptureTarget{
+				.device = device,
+				.swapchain = swapchain,
+				.imageOutput = myImageOutput,
+				.extent = myOutput->GetExtent(),
+				.outputIndex = outputIndex,
+				.placedPose = myViews->GetPlacedPose()},
+			graphicsCallbacks);
 
 		QueueDeviceSyncInfo frameSync{
 			.waitSemaphores = {graphics->semaphore},
@@ -575,37 +317,8 @@ bool WindowedApplication::Draw()
 			swapchain->OnPresentResult(presentResult);
 		}
 
-		// the frame rate, and the gpu submits (and their batches) per frame, over the frames of (at least) half a second
-		using namespace std::chrono_literals;
-		static auto gFpsTime = std::chrono::steady_clock::now();
-		static uint32_t gFpsFrameCount = 0;
-		static uint64_t gFpsSubmitCount = Queue::GetSubmitCount();
-		static uint64_t gFpsSubmitBatchCount = Queue::GetSubmitBatchCount();
-		static bool gFpsWarming = false;
-		gFpsFrameCount++;
-		gFpsWarming = gFpsWarming || (myScene && myScene->IsReady() && myScene->GetRenderer().IsLightingWarmingUp());
-		// how long the window took to show its first frame (the startup's cost before anything is drawn: the ImGui
-		// renderer's shaders, compiled or precompiled, and the window's pipelines)
-		if (gDrawnFrameCount.fetch_add(1, std::memory_order_relaxed) == 0)
-			std::println(
-				"first frame presented {:.2f} s after start",
-				std::chrono::duration<double>(std::chrono::steady_clock::now() - windowedapplication::gStartTime).count());
-		if (auto now = std::chrono::steady_clock::now(); now - gFpsTime >= 500ms)
-		{
-			auto submitCount = Queue::GetSubmitCount();
-			auto submitBatchCount = Queue::GetSubmitBatchCount();
-			auto frames = static_cast<float>(gFpsFrameCount);
-			gFramesPerSecond.store(frames / std::chrono::duration<float>(now - gFpsTime).count(), std::memory_order_relaxed);
-			if (windowedapplication::gCollectFrameTimes)
-				windowedapplication::gFrameTimes.emplace_back(std::chrono::duration<float, std::milli>(now - gFpsTime).count() / frames, gFpsWarming);
-			gSubmitsPerFrame.store(static_cast<float>(submitCount - gFpsSubmitCount) / frames, std::memory_order_relaxed);
-			gSubmitBatchesPerFrame.store(static_cast<float>(submitBatchCount - gFpsSubmitBatchCount) / frames, std::memory_order_relaxed);
-			gFpsFrameCount = 0;
-			gFpsWarming = false;
-			gFpsTime = now;
-			gFpsSubmitCount = submitCount;
-			gFpsSubmitBatchCount = submitBatchCount;
-		}
+		// the frame counted: the frame rate, the submits per frame, the frame times (see FrameStats)
+		myFrameStats.Count(myScene && myScene->IsReady() && myScene->GetRenderer().IsLightingWarmingUp());
 	}
 
 	GetExecutor().Submit(frameTasks);
@@ -712,27 +425,7 @@ void WindowedApplication::Shutdown()
 
 	rhi::CrashEvent("shutdown");
 
-	if (gFrameTimes.size() > 2)
-	{
-		// the settled frames: those after the lighting first warmed up but not warming up again (its warm-up rays cost Bistro
-		// 16 ms a frame for its first 256 frames, which a run of 400 frames measured as most of its frame time), else, where
-		// it never warmed up (no indirect lighting, or no surface cache), past the first half seconds' load and compile
-		auto warmed = std::ranges::find_if(gFrameTimes, [](const auto& time) { return time.second; });
-		auto first = warmed != gFrameTimes.end() ? warmed : gFrameTimes.begin() + static_cast<ptrdiff_t>(gFrameTimes.size() / 4);
-		std::vector<float> settled;
-		std::vector<float> warming;
-		for (const auto& [time, warmingUp] : std::ranges::subrange(first, gFrameTimes.end()))
-			(warmingUp ? warming : settled).push_back(time);
-		auto median = [](std::vector<float>& times)
-		{
-			std::ranges::sort(times);
-			return times[times.size() / 2];
-		};
-		if (!settled.empty())
-			std::println("frame time: {:.3f} ms (median of {} half seconds)", median(settled), settled.size());
-		if (!warming.empty())
-			std::println("frame time warming up: {:.3f} ms (median of {} half seconds)", median(warming), warming.size());
-	}
+	myFrameStats.PrintFrameTimes();
 	// what auto exposure settled on, to capture the same view at it (SPEEDO_AUTO_EXPOSURE=0 SPEEDO_EXPOSURE=<stops>):
 	// measured as it adapts, a capture's change mixes the exposure's with the scene's
 	if (myScene && myScene->GetSettings().AutoExposure())
@@ -813,39 +506,6 @@ void WindowedApplication::Shutdown()
 	myOutput.reset();
 	myViews.reset();
 	myRHI.reset();
-}
-
-void WindowedApplication::RequestWindowChange(core::std_extra::move_only_function<void()> change)
-{
-	// made by Draw's next frame (see Draw), after the ones asked for before
-	std::scoped_lock changesLock(myWindowChangesMutex);
-	myWindowChanges.push_back(std::move(change));
-	// unless requested already, or changing: the main call that ends that one asks again (see Draw)
-	auto none = kWindowChangeNone;
-	myWindowChangeState.compare_exchange_strong(none, kWindowChangeRequested, std::memory_order_acq_rel);
-}
-
-void WindowedApplication::OnResizeFramebuffer(WindowHandle window, int width, int height)
-{
-	using namespace windowedapplication;
-
-	ZoneScopedN("WindowedApplication::OnResizeFramebuffer");
-
-	// minimizing reports 0x0: keep the swapchain, and have Draw skip frames until the window is restored
-	platform::WindowedApplication::OnResizeFramebuffer(window, width, height);
-	if (GetWindow(window).IsMinimized())
-		return;
-
-	// headless, no surface knows the size: the image takes this one
-	myFramebufferSize.store(
-		(static_cast<uint64_t>(std::max(width, 0)) << 32U) | static_cast<uint64_t>(std::max(height, 0)), std::memory_order_relaxed);
-
-	// recreated by Draw, on the draw thread, before its next frame (sized after the surface, which already has this
-	// size): never here. this runs on the main thread, inside the window system's calls (a fullscreen switch's
-	// glfwSetWindowMonitor), and it used to take the draw lock and recreate the swapchain itself: while Draw held the lock
-	// recreating it (out of date), which on Windows waits for the window's thread to handle its messages, the main thread
-	// waited for the lock, and neither went on (a switch out of fullscreen hung 2 runs in 3)
-	myResizeRequested.store(true, std::memory_order_release);
 }
 
 } // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

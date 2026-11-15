@@ -585,12 +585,15 @@ target_link_libraries(
 set(CLIENTLIB_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/client/browser.cpp
 	${SPEEDO_SOURCE_DIR}/client/client.cpp
+	${SPEEDO_SOURCE_DIR}/client/framecapture.cpp
+	${SPEEDO_SOURCE_DIR}/client/framestats.cpp
 	${SPEEDO_SOURCE_DIR}/client/loading.cpp
 	${SPEEDO_SOURCE_DIR}/client/preview.cpp
 	${SPEEDO_SOURCE_DIR}/client/testassets.cpp
 	${SPEEDO_SOURCE_DIR}/client/thumbnails.cpp
 	${SPEEDO_SOURCE_DIR}/client/ui.cpp
-	${SPEEDO_SOURCE_DIR}/client/windowedapplication.cpp)
+	${SPEEDO_SOURCE_DIR}/client/windowedapplication.cpp
+	${SPEEDO_SOURCE_DIR}/client/windowedapplicationwindow.cpp)
 
 # the client for a graphics api, over its copy of gfx (speedo_gfx_library): Vulkan's clientlib, and on macOS Metal's
 # clientlib_metal, on Windows D3D12's clientlib_d3d12, each in the copy's inline namespace (client::vk, client::metal), which the executable's C api runs

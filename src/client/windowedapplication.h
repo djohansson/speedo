@@ -5,6 +5,7 @@
 #include <gfx/scene.h>
 #include <gfx/views.h>
 
+#include "framestats.h"
 #include "preview.h"
 #include "thumbnails.h"
 
@@ -86,6 +87,10 @@ private:
 	// opens what the browser or File > Open Recent says (a file by its type, or several models as one, see RecentFile),
 	// and makes it the most recent. ui thread
 	void InternalOpen(const windowedapplication::RecentFile& file);
+	// before a frame: the window's changes (RequestWindowChange), the presentation the ui asked for, exclusive fullscreen,
+	// and the swapchain (or headless, the image) and the render targets resized after the window. false where no frame is
+	// drawn now (a change under way, minimized, no area). draw thread, under gDrawMutex (windowedapplicationwindow.cpp)
+	[[nodiscard]] bool InternalPrepareWindow(gfx::Swapchain* swapchain);
 
 	
 	std::unique_ptr<gfx::RHI> myRHI;
@@ -101,6 +106,7 @@ private:
 	std::unique_ptr<platform::ImGuiLayer> myImGui; // the user interface: imgui's context and frames
 	std::unique_ptr<gfx::ImGuiRenderer> myImGuiRenderer; // which draws them
 	std::vector<UiBlurRect> myUiBlurRects; // the ui frame drawn's frosted panels (see Draw), draw thread only
+	FrameStats myFrameStats; // the frame rate, submits per frame and frame times (see Draw), draw thread only
 	std::unique_ptr<Preview> myPreview; // made on the draw thread once requested (see RequestPreview)
 	// the browser's thumbnails, and its image preview (one big slot): made with its first frame, ui thread. destroyed after
 	// imgui's renderer, which destroys their textures
