@@ -26,7 +26,8 @@ int main(int argc, char** argv)
 		std::printf("device: %s\n", device.name.UTF8String);
 		MTLCompileOptions* options = [MTLCompileOptions new];
 		options.languageVersion = MTLLanguageVersion3_2;
-		options.mathMode = MTLMathModeFast;
+		options.mathMode = MTLMathModeRelaxed; // as the Metal backend compiles them (src/rhi/metal/shader.cpp)
+		options.mathFloatingPointFunctions = MTLMathFloatingPointFunctionsFast;
 		int failed = 0;
 		for (int argIt = 1; argIt < argc; argIt++)
 		{

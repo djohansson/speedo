@@ -466,6 +466,13 @@ comment rather than in Mesa's code. It isn't for upstream as it is: Mesa wants s
 its entry in `docs/drivers/kosmickrisp/workarounds.rst` in the contributor's own words, and an AI written one labelled
 (`Generated-by: LLM`, the tree's `AGENTS.md`). A change to the patch or the portfile changes the port's hash, so every
 build directory rebuilds mesa (`cmake --preset <name>`), and the binary cache holds it once seeded again.
+`0003-kk-relaxed-math.patch` (2026-11-15) compiles KosmicKrisp's Metal libraries, its own shaders' and the
+applications', in Metal's relaxed math rather than fast math: it keeps infinities and NaNs, as the other drivers and the
+Metal backend do (the user's call; see docs/notes/core.md, "Floating point"). Upstream's choice is fast math, which
+assumes there are none, made precise only where a shader asks to keep them (`SPV_KHR_float_controls2`), which slang's
+SPIR-V doesn't. Safe math with the precise functions, tried first, cost KosmicKrisp 43 to 47% of a frame (Sponza 22.86
+to 33.61 ms, Bistro 39.71 to 56.62); relaxed costs nothing measurable. A choice of this project's, not a fix, so not for
+upstream.
 
 **Updating the mesa fork from upstream.** The fork's `main` is upstream's alone, and `kk-ray-query` is our commits on
 top of it. The checkout is `~/Repos/mesa`, with the remotes `origin` (gitlab.freedesktop.org/mesa/mesa, fetched

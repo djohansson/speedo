@@ -95,6 +95,18 @@ the integers OBJ files have; stb_image's `stbi_loadf` of an 8 bit image takes `p
 replaces with `core::Pow`), and the cpu copies of the environment kernels assettest checks the gpu's against (slang's
 C++ prelude calls `::sinf` and the rest directly, no macro to point elsewhere).
 
+On the gpu, the shaders compile with Metal's relaxed math (the user's call, 2026-11-15), the Metal backend's and
+KosmicKrisp's (ports/mesa's 0003 patch): it keeps infinities and NaNs, as the Vulkan drivers do, where the fast math
+both had assumed there are none (the gpu's `-ffast-math -fno-finite-math-only`). Its fast functions and reassociation
+stay: Vulkan itself only bounds how inexact `sin` and `exp` may be, lets the drivers fuse multiply-adds and leaves
+denormals to them, so no two gpus agree to the bit whatever Metal does, and safe math or the precise functions cost the
+M4 Pro a third of a frame each. Measured with the Metal backend (profile, headless, interleaved): Sponza's benchmark
+pose 15.69 ms a frame fast, 15.77 relaxed, 20.69 relaxed with the precise functions, 21.42 safe, 27.20 safe with the
+precise functions; Bistro's 28.64, 28.78, 36.60, 36.55 and 45.89; KosmicKrisp safe with the precise functions, tried
+first, took Sponza from 22.86 to 33.61 ms and Bistro from 39.71 to 56.62. Relaxed against fast, run beside each other
+(the gpu's clock drifted 0.8 ms over the three rounds): the Metal backend +0.09 to +0.20 ms at Sponza, +0.15 to +0.65
+at Bistro; KosmicKrisp +0.01 to +0.13 at Sponza, -0.41 to +0.40 at Bistro, its noise.
+
 ## Portable by default, measured on one
 
 This code runs on several platforms and gpus (macOS through KosmicKrisp, Windows and Linux on desktop

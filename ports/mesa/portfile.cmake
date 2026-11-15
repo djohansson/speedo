@@ -26,6 +26,11 @@ vcpkg_from_github(
 		# u_atomic.h's MSVC path calls (mesa issue 8902): defined from the others under clang, MSVC unchanged. Local until
 		# upstream has a fix
 		0002-u-atomic-clang-cl-interlocked.patch
+		# KosmicKrisp compiles every shader, its own as well, in Metal's fast math, which assumes no infinity or NaN (kept
+		# only where a shader asks, SPV_KHR_float_controls2): relaxed math instead, which keeps them, as the other drivers
+		# and the Metal backend do (the user's call, 2026-11-15; safe math and the precise functions cost a third to a half
+		# of a frame, see docs/notes/build.md). Local: a choice of this project's, not a fix
+		0003-kk-relaxed-math.patch
 )
 
 # Windows: pip bootstrapped here, which x_vcpkg_get_python_packages then takes (it runs get-pip only where vcpkg's Python

@@ -1,5 +1,5 @@
 // the Metal backend's shader modules: a library per entry point, compiled from slang's MSL by Metal's runtime compiler
-// (MSL 3.2, fast math, as scripts/shadercheck.ps1 checks them; a whole file's MSL fails where entry points share
+// (MSL 3.2, relaxed math, as scripts/shadercheck.ps1 checks them; a whole file's MSL fails where entry points share
 // groupshared memory, see docs/backends-plan.md), asynchronously from the module's creation: the first pipeline made of
 // it waits for it (metal::ShaderModuleObject)
 #include <rhi/metal/backend.h>
@@ -55,7 +55,12 @@ ShaderModule<kMetal>::ShaderModule(CreateDescType&& desc)
 			auto* source = NS::String::alloc()->init(text.c_str(), NS::UTF8StringEncoding);
 			auto* options = MTL::CompileOptions::alloc()->init();
 			options->setLanguageVersion(MTL::LanguageVersion3_2);
-			options->setMathMode(MTL::MathModeFast);
+			// infinities and NaNs kept, as the Vulkan drivers keep them (the user's call, 2026-11-15; KosmicKrisp's libraries
+			// the same, ports/mesa's 0003 patch): relaxed math, which fast math was but for assuming there are none. the
+			// fast functions and reassociation stay, within the precision Vulkan allows too: safe math and the precise
+			// functions cost the M4 Pro a third of a frame each and bring no two gpus nearer (docs/notes/core.md)
+			options->setMathMode(MTL::MathModeRelaxed);
+			options->setMathFloatingPointFunctions(MTL::MathFloatingPointFunctionsFast);
 			// on Metal's thread when it's done (the module waits for it before it's freed: see the destructor)
 			desc.device->newLibrary(
 				source,

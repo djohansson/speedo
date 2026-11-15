@@ -1,7 +1,7 @@
 {
   "name": "mesa",
   "version": "26.3.0",
-  "port-version": 3,
+  "port-version": 4,
   "description": "Mesa's Vulkan drivers the client runs on, from the djohansson/mesa fork: KosmicKrisp, a driver over Metal, which the fork adds ray queries to (VK_KHR_acceleration_structure, VK_KHR_ray_query); and lavapipe, a driver on the cpu (llvmpipe), for headless runs without a gpu (CI).",
   "homepage": "https://github.com/djohansson/mesa",
   "license": "MIT",
