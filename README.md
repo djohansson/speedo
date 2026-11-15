@@ -4,7 +4,7 @@
 
 ![A glass dragon against a sunset, the sun's anamorphic streak across it and the cloth behind it seen through its body](docs/screenshots/dragonattenuation.jpg)
 
-speedo is a real-time renderer built on Vulkan 1.4 for physically based images at interactive frame rates.
+speedo is a real-time renderer physically based images at interactive frame rates.
 
 Light bounces through the scene from irradiance probes over a voxel clipmap, sharpened by a surface cache and a ray traced near field, and every emissive surface lights its surroundings as an area light. Hardware ray queries trace soft shadows from lights with a real size, glossy reflections, refraction through glass, and caustics. The sky is Earth's atmosphere, with the sun, moon and stars where the date and time of day put them, aerial perspective and fog.
 
@@ -35,12 +35,12 @@ CarConcept: SPEEDO_CAMERA=2.5407,0.6069,0.7475,9.462,-58.063 SPEEDO_AUTOLOAD_VAR
 - **Rendering:** a frame graph, a visibility buffer, GPU culling with two-phase occlusion, clustered lighting, a cached shadow atlas, order independent transparency, transmission and subsurface scattering, reversed depth, and one to four views of the scene in split screen. [rendering](docs/notes/rendering.md)
 - **The camera:** a physical sensor and exposure (auto exposure, by the eye at night), lenses with their vignetting, aberration, distortion and glare (anamorphic ones too), depth of field, motion blur and grain, and temporal upscaling by a port of AMD's FSR 3.1. [rendering](docs/notes/rendering.md)
 - **The sky:** Earth's atmosphere, the sun, moon and stars where the time of day and the date put them, aerial perspective and fog. [sky](docs/notes/sky.md)
-- **The engine:** a task executor, Vulkan 1.4 behind a backend-neutral abstraction, crash reports with GPU breadcrumbs, and a headless mode (no window, surface or swapchain) for runs without a display. [core](docs/notes/core.md), [layering](docs/notes/layering.md), [rhi](docs/notes/rhi.md)
-- **Testing:** every importer checked against reference decodes, the client run over the test sets with Vulkan validation, and its frames checked against the renderer's own references and a known answer, repeatably, with CI running all of it on every push. [visual testing](docs/visual-testing-plan.md), [assets](docs/notes/assets.md)
+- **The engine:** a task executor, Vulkan 1.4, D3D12 and Metal behind a backend-neutral abstraction, crash reports with GPU breadcrumbs, and a headless mode (no window, surface or swapchain) for runs without a display. [core](docs/notes/core.md), [layering](docs/notes/layering.md), [rhi](docs/notes/rhi.md)
+- **Testing:** every importer checked against reference decodes, the client run over the test sets with graphics backend validation, and its frames checked against the renderer's own references and a known answer, repeatably, with CI running all of it on every push. [visual testing](docs/visual-testing-plan.md), [assets](docs/notes/assets.md)
 
 ## Installing
 
-Each release on GitHub has an installer for every platform: a `.dmg` for macOS on Apple silicon, an `.msi` for Windows x64, and an AppImage for Linux x64 (glibc 2.43 or newer, as on Ubuntu 26.04), each with its sha256. They aren't signed by a developer yet, so the system asks the first time: on macOS, System Settings > Privacy & Security > Open Anyway (or `xattr -dr com.apple.quarantine /Applications/Speedo.app`); on Windows, SmartScreen's More info > Run anyway. The first launch offers to download the test models while the driver creates its pipelines. An installed client's shaders come precompiled: the installers ship no shader compiler. On macOS, the app brings its own Vulkan driver (KosmicKrisp, which runs Vulkan on Metal), so there is nothing else to install.
+Each release on GitHub has an installer for every platform: a `.dmg` for macOS on Apple silicon, an `.msi` for Windows x64, and an AppImage for Linux x64 (glibc 2.43 or newer, as on Ubuntu 26.04), each with its sha256. They aren't signed by a developer yet, so the system asks the first time: on macOS, System Settings > Privacy & Security > Open Anyway (or `xattr -dr com.apple.quarantine /Applications/Speedo.app`); on Windows, SmartScreen's More info > Run anyway. The first launch offers to download the test models while the driver creates its pipelines. An installed client's shaders come precompiled: the installers ship no shader compiler. On macOS, if running the Vulkan renderer, the app loads a bundled driver, so there is nothing else to install.
 
 ## Using the client
 
