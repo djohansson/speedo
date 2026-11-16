@@ -876,6 +876,9 @@ struct EmitterNode
 // the deepest a leaf is (the shaders' walk down to one stops there)
 #define EMITTER_NODE_DEPTH_MOST 64u
 
+// the threads of a traced pixel's group in the Emitter New pass, each a sample (see ComputeEmitterNew)
+#define SHADER_TYPES_EMITTER_NEW_THREAD_COUNT 16u
+
 // the frame's emitters (gEmitterData[frame])
 struct EmitterData
 {
@@ -916,6 +919,11 @@ struct EmitterData
 	// how many frames a point found visible stays so without another ray while the camera doesn't move
 	// (SPEEDO_EMITTER_VISIBILITY_FRAME_COUNT; fewer where something moves, which may come between: see ComputeEmitterShade)
 	alignas(4) UINT1(visibilityFrameCount);
+	// how many samples a newly seen traced pixel's light is the mean of in its first frame
+	// (SPEEDO_EMITTER_NEW_SAMPLE_COUNT; 1 for one, as every other pixel's: see ComputeEmitterNew, EmitterNew), and the
+	// candidates each of them resamples (SPEEDO_EMITTER_NEW_CANDIDATE_COUNT)
+	alignas(4) UINT1(newSampleCount);
+	alignas(4) UINT1(newCandidateCount);
 };
 
 // a view a light's shadow is drawn from: world to clip space (depth reversed, 1 at its near plane to 0 at its far), drawn

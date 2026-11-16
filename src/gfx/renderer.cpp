@@ -123,6 +123,8 @@ constexpr uint8_t kStarburstEntryPoint = 68;
 constexpr uint8_t kFlareSizeEntryPoint = 69;
 // an anamorphic lens's streaks' running sums (see ComputeStreakScan)
 constexpr uint8_t kStreakScanEntryPoint = 70;
+// the emitters' samples for what is newly seen (see ComputeEmitterNew)
+constexpr uint8_t kEmitterNewEntryPoint = 71;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -1611,8 +1613,30 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myEmitterRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 			for (auto image : myEmitterSurfaces)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			// the last frame's pixels' surfaces, for whether a traced pixel's point is newly seen (see EmitterNew)
+			for (auto image : myEmitterPixelSurfaces)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 		},
 		[tracedKernel](FrameGraph::PassContext& context) { tracedKernel(context.cmd, kEmitterShadeEntryPoint); });
+	// more samples where the traced pixels are newly seen (see ComputeEmitterNew): a group of threads per traced pixel
+	myEmitterNewPass = myGraph.AddPass(
+		"Emitter New",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myEmitterRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			auto extent = myGraph.GetExtent();
+			uint32_t stride = myEmitterStride;
+			kernel(
+				context.cmd,
+				ComputePipelineVariant{.entryPoint = kEmitterNewEntryPoint},
+				((extent.width + stride - 1) / stride) * SHADER_TYPES_EMITTER_NEW_THREAD_COUNT,
+				(extent.height + stride - 1) / stride);
+		});
 	myEmitterXPass = myGraph.AddPass(
 		"Emitter X",
 		[this](FrameGraph::PassBuilder& builder)
@@ -2616,6 +2640,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	if (const char* roulette = std::getenv("SPEEDO_EMITTER_ROULETTE"); roulette != nullptr && *roulette != '\0')
 		myEmitterRoulette = std::max(std::strtof(roulette, nullptr), 0.0F);
 	count("SPEEDO_EMITTER_VISIBILITY_FRAME_COUNT", myEmitterVisibilityFrameCount, 1, 1024);
+	count("SPEEDO_EMITTER_NEW_SAMPLE_COUNT", myEmitterNewSampleCount, 1, 64);
+	count("SPEEDO_EMITTER_NEW_CANDIDATE_COUNT", myEmitterNewCandidateCount, 1, 256);
 	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
 	myCollectTimings = collect != nullptr && std::string_view(collect) == "1";
 }
@@ -3734,6 +3760,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myEmittersOn = emitterCount > 0;
 		for (auto pass : {myEmitterSamplePass, myEmitterShadePass, myEmitterXPass, myEmitterYPass, myEmitterTemporalPass})
 			myGraph.SetEnabled(pass, myEmittersOn);
+		myGraph.SetEnabled(myEmitterNewPass, myEmittersOn && myEmitterNewSampleCount > 1);
 		bool history = myEmitterHistoryValid && myEmittersOn;
 		EmitterData data{};
 		data.count = emitterCount;
@@ -3753,6 +3780,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		data.filterReach = myEmitterFilterReach;
 		data.stride = myEmitterStride;
 		data.roulette = myEmitterRoulette;
+		data.newSampleCount = myEmitterNewSampleCount;
+		data.newCandidateCount = myEmitterNewCandidateCount;
 		// fewer where something moves, which may come between a point and the pixel
 		data.visibilityFrameCount = data.movingBvh != 0U ? std::max(myEmitterVisibilityFrameCount / 4, 1U) : myEmitterVisibilityFrameCount;
 		data.raw = frame.pushConstants.debugView == DEBUG_VIEW_EMITTERS_RAW ? 1U : (frame.pushConstants.debugView == DEBUG_VIEW_EMITTERS_REFERENCE ? 2U : 0U);

@@ -196,6 +196,8 @@ The renderer's tuning of the emissive surfaces' light (`SPEEDO_EMISSIVE_LIGHTS`)
 | `SPEEDO_EMITTER_HISTORY_FRAME_COUNT` | Frames, 1 to 1024. Default: 32. | About how many frames the light is averaged over. |
 | `SPEEDO_EMITTER_STILL_FRAME_COUNT` | Frames, 1 to 2048. Default: 256. | A longer average while the camera and the model are still. |
 | `SPEEDO_EMITTER_VISIBILITY_FRAME_COUNT` | Frames, 1 to 1024. Default: 8 (a quarter of it for a model that moves). | While the camera is still, how long a point found visible is trusted before its shadow ray is traced again. |
+| `SPEEDO_EMITTER_NEW_SAMPLE_COUNT` | 1 to 64. Default: 16. | The samples, each with a shadow ray, a traced pixel's light is the mean of in the frame its point comes into view (off the screen or hidden the frame before). 1 for one, as every other pixel's. |
+| `SPEEDO_EMITTER_NEW_CANDIDATE_COUNT` | 1 to 256. Default: 8. | The emitters each of those samples picks its one from (walks down the light tree; fewer are cheaper and noisier). |
 | `SPEEDO_EMITTER_ROULETTE` | 0 or more, on screen brightness. Default: 0.02. | Below it a shadow ray is traced only by chance, in proportion; 0 traces every one. |
 
 ## Culling and drawing

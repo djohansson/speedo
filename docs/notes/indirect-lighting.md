@@ -997,6 +997,46 @@ takes a voxel's emission out), and what the emitters give arrives through these:
   `EmitterViewStill`). Below `SPEEDO_EMITTER_ROULETTE` (0.02) of the frame's white (the unshadowed estimate times the
   exposure) the ray is traced by chance, weighed up by it: Bistro's street by day under auto exposure, 2.5 ms (65.4 to
   67.9 with every ray).
+- **What comes into view** (`EmitterNew`, the Emitter New pass, `ComputeEmitterNew`; the user's report, 2026-11-16:
+  moving quickly in a dark scene, the image is noisy where it comes into view). Measured in a turn of 1.5 degrees a frame,
+  flying 10 cm a frame, over Bistro's facades at night (the user's pose `724.7479,659.6074,-2775.4233,-21.034,93.844` at
+  02:14, 1080p, balanced, exposure fixed at 8.6, grain and motion blur off; D3D12, RTX 4070 Ti SUPER): each moving
+  frame against a settled capture of the same pose, the mean difference of 255 in eight vertical strips, over five poses
+  of the turn. The leading strip was 30.0 in the emitters' view against 8.3 over the rest (the lit image 14.8 against
+  5.1), as bright on average: variance, and all of it the emitters' (the near field's is flat across the screen). A
+  newly seen pixel had the frame's one sample, filtered over the traced pixels around, which hold one each: blotches a
+  filter's reach wide until its frames added up. What the settings could do, as bounds (without upscaling, the strip 28):
+  stride 2 and a reach of 48, 15; stride 1, that reach and 32 candidates, 10; the reuse (`SPEEDO_EMITTER_REUSE=1`) 31.8,
+  worse. So a newly seen traced pixel's light is the mean of `SPEEDO_EMITTER_NEW_SAMPLE_COUNT` (16) samples in its first
+  frame, each its own `SPEEDO_EMITTER_NEW_CANDIDATE_COUNT` (8) candidates and ray, as the reference's, and the count goes
+  with the light (the raw image's alpha): the filter weighs each traced pixel by its samples (its alpha their mean),
+  the upsampling carries it, and the history counts in samples (the frame's weight its samples over them). The strip:
+  21.7 with 8, 18.1 with 16, 15.6 with 32, 13.8 with 64; the lit image's 9.4 with 16 and 8.3 with 32; the strip beside
+  it 16.3 to 13.7; the rest and the settled image the same (0.83 of 255 against 0.76 between two runs of one setting);
+  on Vulkan 30.4 to 18.0. Newly seen is by where the point was, and of a region:
+  - By the history's count (new: fewer than 16 samples where the point was, `PixelHistory`'s), a fifth of Bistro's
+    traced pixels took all of the samples every frame, a still view's too (Emitter Shade 0.10 ms to 1.22): along thin
+    geometry and edges (a window's frame, a ledge, a railing) a pixel's history starts over most frames, whichever
+    surface its jittered sample met and whatever its normal map gave.
+  - By where it was (`EmitterSurfaceNew`: the last frame's 3x3 pixels there off the screen, or all of something nearer;
+    not where one saw this depth, whatever its normal, or something farther or the sky, a thin thing its sample missed
+    then), a still view still cost 0.87 ms and the turn 1.44: single pixels (a gap its jittered sample looked through, a
+    sliver beside an edge), few, but a thread waits for the slowest of its wave. So only where at least three of the four
+    traced pixels beside it are new too (off the screen and sky count), and never in a still view: those pixels alone
+    gain little (their light is the filter's over the traced pixels around, which hold one sample each). Then a still
+    view and flying straight cost nothing (what a building uncovers there is slivers), and a frame of the turn marks its
+    leading strip, 3% of the traced pixels. Not what moves (the stencil): it has no history at all, and takes one
+    sample as before.
+  - Taken in a row by the pixel's thread of Emitter Shade, that strip alone held the pass 1.45 ms (0.71 with 8
+    samples) while most of the gpu had nothing to do: a sample is a chain of dependent loads, 0.011 ms of the pass a
+    candidate (its walk down the tree) and 0.005 its ray, however few pixels take it. Fewer candidates a sample was no
+    better a trade (the strip, and the pass's time: 16 samples of 8 candidates 18.0 and 1.44 ms; 8 of 8 20.9 and 0.67;
+    16 of 4 20.4 and 0.76; 32 of 2 20.5 and 0.87; 16 of 2 23.3; 48 of 1 22.4 and 0.79; 16 of 1 27.8). So the samples are a
+    pass of their own, a group of `SHADER_TYPES_EMITTER_NEW_THREAD_COUNT` (16) threads per traced pixel, each a sample
+    (in turns where there are more), summed through the group's shared memory, where Emitter Shade marked the pixel
+    (its alpha a half, `kEmitterNewPending`): 0.18 ms in the turn with 16 samples (0.17 with 8, 0.29 with 32; Vulkan
+    0.16), 0.034 where nothing is new (a still view; the groups' launch), on a frame of 5.1 ms.
+  Where the view jumped every pixel is new: at most `kEmitterJumpSampleCount` (4) samples each.
 - **Filter and frames**: Emitter X and Y at the traced pixels (`EmitterFilter`: the traced pixels within
   `SPEEDO_EMITTER_FILTER_REACH`, 16, pixels along rows and columns, on the same surface, by a tent, as the near field's);
   then Emitter Temporal at every pixel of the pre-pass's depth: the frame's filtered light upsampled (`EmitterUpsample`:

@@ -905,6 +905,7 @@ private:
 	std::array<FrameGraph::ImageId, 2> myEmitterPixelSurfaces{};
 	FrameGraph::PassId myEmitterSamplePass;
 	FrameGraph::PassId myEmitterShadePass;
+	FrameGraph::PassId myEmitterNewPass;
 	FrameGraph::PassId myEmitterXPass;
 	FrameGraph::PassId myEmitterYPass;
 	FrameGraph::PassId myEmitterTemporalPass;
@@ -921,6 +922,10 @@ private:
 	// EmitterData::visibilityFrameCount; a quarter of it where something moves)
 	uint32_t myEmitterStride = 4;
 	uint32_t myEmitterVisibilityFrameCount = 8;
+	// the samples a newly seen traced pixel's light is the mean of, and the candidates each resamples
+	// (SPEEDO_EMITTER_NEW_SAMPLE_COUNT, SPEEDO_EMITTER_NEW_CANDIDATE_COUNT, see EmitterData::newSampleCount)
+	uint32_t myEmitterNewSampleCount = 16;
+	uint32_t myEmitterNewCandidateCount = 8;
 	// the light below which a shadow ray is traced by chance (SPEEDO_EMITTER_ROULETTE, see EmitterData::roulette)
 	float myEmitterRoulette = 0.02F;
 	float myEmitterBlend = 1.0F / 32.0F; // 1 over SPEEDO_EMITTER_HISTORY_FRAME_COUNT

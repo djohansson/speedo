@@ -510,6 +510,70 @@ bool EmitterViewStill(ViewData view)
 	return view.previousEyePosition.w > 1.5;
 }
 
+// how many samples a traced pixel's light is the mean of in a frame where the view jumped, so that every pixel is new
+// (at most: EmitterData::newSampleCount is what a newly seen pixel's is otherwise, see ComputeEmitterNew); and the raw
+// image's alpha where Emitter Shade found a pixel newly seen, until Emitter New has made it that mean (no count of
+// samples is a half)
+static const uint kEmitterJumpSampleCount = 4u;
+static const float kEmitterNewPending = 0.5;
+
+// whether a point the view sees is newly seen: the last frame's pixels where it was then (PixelHistoryAt, the 3x3
+// around, as PixelHistory's) were off the screen, or all saw something nearer (it was hidden). by where it was alone,
+// not by how many samples its history holds: along thin geometry and edges (a window's frame, a ledge, a railing) a
+// pixel's history starts over most frames, whichever surface its jittered sample met and whatever its normal map gave,
+// and with a count below EmitterData::newSampleCount for new, a fifth of Bistro's traced pixels took all of the samples
+// every frame, a still view's too (Emitter Shade 0.10 ms to 1.22). so not where one of the last frame's pixels saw this
+// depth (whatever its normal, and whatever its history holds), nor where one saw something farther or the sky (a thin
+// thing its sample missed then)
+bool EmitterSurfaceNew(ViewData view, ShadowSurface surface, uint current)
+{
+	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
+	if (clip.w <= 0.0)
+		return true;
+	float3 toEye = view.eyePosition.xyz - surface.position;
+	float expected = distance(surface.position, view.previousEyePosition.xyz);
+	float slant = abs(dot(surface.normal, normalize(toEye)));
+	float tolerance = 0.002 * expected + 2.0 * surface.metersPerPixel * sqrt(max(1.0 - slant * slant, 0.0)) / max(slant, 0.05);
+	Texture2D lastSurfaces = gTextures[SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE + (current ^ 1u)];
+	int2 center = int2(round(PixelHistoryAt(view, clip)));
+	for (int y = -1; y <= 1; y++)
+		for (int x = -1; x <= 1; x++)
+		{
+			int2 tap = center + int2(x, y);
+			if (any(float2(tap) < view.viewport.xy) || any(float2(tap) >= view.viewport.xy + view.viewport.zw))
+				continue;
+			float seen = lastSurfaces.Load(int3(tap, 0)).x;
+			if (seen < 0.0 || seen > expected - tolerance)
+				return false;
+		}
+	return true;
+}
+
+// whether a traced pixel is one of a region newly seen: its point is (EmitterSurfaceNew), and those of at least three
+// of the four traced pixels beside it are (one off the screen or of the sky counts): what a turn brings in at the
+// screen's edge, what comes out from behind a building. not a pixel alone or a row of them: a gap its jittered sample
+// looked through, a sliver beside an edge. those gain little, their light being the filter's over the traced pixels
+// around, which hold one sample each, and cost most: a thread waits for the slowest of its wave, and with them a third
+// of the waves had one (Emitter Shade 0.10 ms to 0.87 in a still view, 1.44 turning). nothing is new in a still view,
+// and every pixel where the view jumped
+bool EmitterNew(ViewData view, ShadowSurface surface, int2 pixel, uint stride, uint current)
+{
+	if (view.previousEyePosition.w <= 0.0)
+		return true;
+	if (EmitterViewStill(view) || (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u || !EmitterSurfaceNew(view, surface, current))
+		return false;
+	uint newCount = 0;
+	for (uint sideIt = 0; sideIt < 4; sideIt++)
+	{
+		int2 beside = pixel + int2(sideIt == 0u ? -1 : (sideIt == 1u ? 1 : 0), sideIt == 2u ? -1 : (sideIt == 3u ? 1 : 0)) * int(stride);
+		ShadowSurface other;
+		if (any(float2(beside) < view.viewport.xy) || any(float2(beside) >= view.viewport.xy + view.viewport.zw) ||
+			!ShadowSurfaceAt(beside, view, other) || EmitterSurfaceNew(view, other, current))
+			newCount++;
+	}
+	return newCount >= 3u;
+}
+
 // the Emitter Sample pass: per traced pixel, its candidates resampled, then, with EmitterData::temporalReuse
 // (SPEEDO_EMITTER_REUSE=1), merged with the reservoir of the traced pixel where its point was last frame (by the view's
 // last view projection, if that traced pixel's point was the same surface, see EmitterTolerance: else it saw something
@@ -715,6 +779,9 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 		reservoir.weight = 0.0;
 	}
 	gEmitterReservoirs[part * tracedCount + index] = EmitterPack(reservoir);
+	// the samples the light is the mean of go with it (the raw image's alpha), which the filter and the frames weigh it
+	// by: one, but a newly seen traced pixel's (see EmitterNew), marked here for the Emitter New pass to take more
+	float sampleCount = data.raw == 0u && data.newSampleCount > 1u && EmitterNew(view, surface, pixel, data.stride, data.frame & 1u) ? kEmitterNewPending : 1.0;
 	// the reference (DEBUG_VIEW_EMITTERS_REFERENCE): the mean of SHADER_TYPES_EMITTER_REFERENCE_SAMPLE_COUNT independent
 	// estimates, each its own candidates resampled and its own shadow ray, nothing reused or filtered
 	if (data.raw == 2u)
@@ -727,7 +794,65 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 		}
 		irradiance /= float(SHADER_TYPES_EMITTER_REFERENCE_SAMPLE_COUNT);
 	}
-	raw[traced] = float4(irradiance / kPi, 1.0);
+	raw[traced] = float4(irradiance / kPi, sampleCount);
+}
+
+// the Emitter New pass, a group per traced pixel: where Emitter Shade marked its point newly seen (see EmitterNew), its
+// light becomes the mean of EmitterData::newSampleCount samples (Emitter Shade's and the rest here; where the view
+// jumped, so that every pixel is new, at most kEmitterJumpSampleCount), each its own candidates
+// (EmitterData::newCandidateCount) and shadow ray, as the reference's, with their count in its alpha. one sample
+// filtered over the traced pixels around is all a newly seen pixel had, and what came into view in a turn was blotches a
+// filter's reach wide until its frames added up (Bistro's facades at night, the user's pose
+// 724.7479,659.6074,-2775.4233,-21.034,93.844 at 02:14, turning 1.5 degrees a frame). a thread per sample
+// (SHADER_TYPES_EMITTER_NEW_THREAD_COUNT of them, in turns where there are more), summed over the group: taken one after
+// another by the pixel's thread of Emitter Shade, the strip a turn brings in (3% of the traced pixels) held that pass
+// for as long as its samples took in a row, while most of the gpu had nothing to do (0.10 ms to 1.45 with 16 samples,
+// 0.71 with 8; a sample's candidates are most of it, each twice its ray, and fewer of them was no better a trade: 32
+// samples of 2 were as noisy as 8 of 8, and took longer)
+groupshared float3 gEmitterNewShared[SHADER_TYPES_EMITTER_NEW_THREAD_COUNT];
+
+[shader("compute")]
+[numthreads(SHADER_TYPES_EMITTER_NEW_THREAD_COUNT, 1, 1)]
+void ComputeEmitterNew(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
+{
+	EmitterData data = gEmitterData[gPushConstants.frameIndex][0];
+	RWTexture2D raw = gRWTextures[SHADER_TYPES_EMITTER_RAW_RW_TEXTURE];
+	int2 traced = int2(groupId.xy);
+	float4 first = float4(0.0, 0.0, 0.0, 1.0);
+	if (all(groupId.xy < EmitterTracedExtent()))
+		first = raw[traced];
+	bool pending = first.a == kEmitterNewPending;
+	float3 sum = 0.0;
+	uint count = 0;
+	if (pending)
+	{
+		int2 pixel = traced * int(data.stride);
+		ViewData view;
+		ShadowSurface surface;
+		float nearest2;
+		if (EmitterSurfaceAt(pixel, view, surface, nearest2))
+		{
+			count = (view.previousEyePosition.w > 0.0 ? data.newSampleCount : min(data.newSampleCount, kEmitterJumpSampleCount)) - 1u;
+			float bias = max(1.5 * surface.metersPerPixel, 1e-4 * distance(surface.position, view.eyePosition.xyz));
+			EmitterRandom random = EmitterRandomAt(uint2(pixel), (data.frame ^ 0x7f4a7c15u) + (thread + 1u) * 0x632be5abu);
+			for (uint sampleIt = thread; sampleIt < count; sampleIt += SHADER_TYPES_EMITTER_NEW_THREAD_COUNT)
+			{
+				bool visible;
+				EmitterReservoir candidates = EmitterCandidates(surface.position, surface.normal, data.newCandidateCount, nearest2, random);
+				sum += EmitterShade(candidates, surface.position, surface.normal, bias, nearest2, data.movingBvh != 0u, true, visible);
+			}
+		}
+	}
+	gEmitterNewShared[thread] = sum;
+	GroupMemoryBarrierWithGroupSync();
+	if (pending && thread == 0u)
+	{
+		float3 total = 0.0;
+		for (uint threadIt = 0; threadIt < SHADER_TYPES_EMITTER_NEW_THREAD_COUNT; threadIt++)
+			total += gEmitterNewShared[threadIt];
+		float samples = float(1u + count);
+		raw[traced] = float4((first.rgb + total / kPi) / samples, samples);
+	}
 }
 
 // a pass of the emitters' filter (Emitter X and Y), over the traced pixels: a traced pixel's light (or the rows' result)
@@ -751,8 +876,9 @@ float4 EmitterFilter(int2 traced, int2 step, uint source)
 	float2 low = view.viewport.xy;
 	float2 high = view.viewport.xy + view.viewport.zw;
 	int reach = max(int(data.filterReach) / stride, 1);
-	float4 total = 0.0;
+	float3 total = 0.0;
 	float weights = 0.0;
+	float samples = 0.0;
 	for (int offset = -reach; offset <= reach; offset++)
 	{
 		int2 at = traced + step * offset;
@@ -770,10 +896,13 @@ float4 EmitterFilter(int2 traced, int2 step, uint source)
 		float plane = abs(dot(position - center.position, center.normal)) / (2.0 * float(stride) * center.metersPerPixel);
 		float facing = saturate(dot(normal, center.normal) * rsqrt(max(dot(normal, normal), 1e-8)));
 		float w = exp(-plane) * pow(facing, 8.0) * (float(reach + 1) - abs(float(offset)));
-		total += w * value;
+		// each by the samples it is the mean of (its alpha: a newly seen traced pixel's is of more, see
+		// ComputeEmitterShade), and the result's the mean of theirs
+		total += w * value.a * value.rgb;
 		weights += w;
+		samples += w * value.a;
 	}
-	return weights > 0.0 ? total / weights : kGiNearUnknown;
+	return samples > 0.0 ? float4(total / samples, samples / weights) : kGiNearUnknown;
 }
 
 [shader("compute")]
@@ -820,6 +949,7 @@ float4 EmitterUpsample(int2 pixel, float3 position, float3 normal, float3 eye, u
 	float2 f = at - float2(base);
 	float3 total = 0.0;
 	float weights = 0.0;
+	float samples = 0.0;
 	for (int corner = 0; corner < 4; corner++)
 	{
 		int2 offset = int2(corner & 1, corner >> 1);
@@ -834,13 +964,16 @@ float4 EmitterUpsample(int2 pixel, float3 position, float3 normal, float3 eye, u
 		float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y) * similar;
 		total += w * value.rgb;
 		weights += w;
+		samples += w * value.a;
 	}
 	if (weights < 1e-4)
 	{
 		total = 0.0;
 		weights = 0.0;
+		samples = 0.0;
 		float3 alikeTotal = 0.0;
 		float alikeWeights = 0.0;
+		float alikeSamples = 0.0;
 		int2 nearest = int2(round(at));
 		for (int y = -1; y <= 1; y++)
 			for (int x = -1; x <= 1; x++)
@@ -856,16 +989,20 @@ float4 EmitterUpsample(int2 pixel, float3 position, float3 normal, float3 eye, u
 				float w = exp(-abs(dot(seen.xyz - position, normal)) / scale) * pow(facing, 8.0);
 				total += w * value.rgb;
 				weights += w;
+				samples += w * value.a;
 				alikeTotal += (facing + 0.01) * value.rgb;
 				alikeWeights += facing + 0.01;
+				alikeSamples += (facing + 0.01) * value.a;
 			}
 		if (weights <= 1e-6)
 		{
 			total = alikeTotal;
 			weights = alikeWeights;
+			samples = alikeSamples;
 		}
 	}
-	return weights > 0.0 ? float4(total / weights, 1.0) : kGiNearUnknown;
+	// with the samples the traced pixels' light is the mean of (their alpha, see ComputeEmitterShade), by the same weights
+	return weights > 0.0 ? float4(total / weights, samples / weights) : kGiNearUnknown;
 }
 
 // the Emitter Temporal pass: per pixel of the pre-pass's depth, the frame's filtered light upsampled from the traced
@@ -934,7 +1071,7 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		if (weights > 1e-3)
 		{
 			float3 kept = total.rgb / weights;
-			float count = min(total.a / weights + 1.0, 1.0 / least);
+			float count = min(total.a / weights + now.a, 1.0 / least);
 			// and a frame far brighter than what a settled history holds taken as at most a few times that (see
 			// kFireflyRise): a point its candidates favour (unshadowed, near) but which seldom reaches it, an emissive
 			// window's interior beside its curtain, is the whole unshadowed light the once in tens of frames its ray gets
@@ -943,7 +1080,7 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 			// light those rare frames carry, which this leaves out, and the whole frame within 0.1% of it (at 4 times: 19% there,
 			// 1% over the frame)
 			float3 sample = count > kEmitterFireflyFrameCount && data.raw == 0u ? HistoryFireflyClamp(now.rgb, kept, view.exposure) : now.rgb;
-			result = float4(lerp(kept, sample, max(1.0 / count, least)), count);
+			result = float4(lerp(kept, sample, saturate(max(now.a / count, least))), count);
 		}
 	}
 	history[pixel] = result;

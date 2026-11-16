@@ -473,6 +473,7 @@ std::vector<ShaderLayout> SceneShaderLayouts(const std::filesystem::path& shader
 			{"ComputeStarburst", SLANG_STAGE_COMPUTE},
 			{"ComputeFlareSize", SLANG_STAGE_COMPUTE}, // see the Flare Track pass
 			{"ComputeStreakScan", SLANG_STAGE_COMPUTE}, // see the Streak Scan pass
+			{"ComputeEmitterNew", SLANG_STAGE_COMPUTE}, // see the Emitter New pass
 		},
 		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 		.debugInfoLevel = kShaderDebugInfoLevel,
