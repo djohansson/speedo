@@ -1163,6 +1163,71 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   dim red at the others, by leak). So the finer level is the truer, and what the levels need in order to agree is
   to measure the same thing: the light arriving at the surface itself, per side it faces, averaged over the voxel's
   footprint, whatever the voxel's size (the plan's step 1).
+- **The cache anchored at the surface** (step 1; `GiCacheAnchored`, `GiData::cacheAnchor`, `SPEEDO_GI_CACHE_ANCHOR=0`
+  for the cache as it was, to compare; only where the rays trace the triangles, which is how the surface is found). An
+  entry is the light arriving at the surface itself, in the surface's voxels alone:
+  - Its rays start on the surface (`GiCacheAnchor`): a ray from the voxel's open side (its center half a voxel out
+    along its normal, no further than halfway to a surface facing back) toward a point of the voxel's footprint a
+    voxel under it, jittered by the entry's sequence, finds the triangle, and the entry's ray leaves a sixty-fourth of
+    the last level's voxel off it (`GiData::cacheAnchorBias`, 4 mm in Sponza, the same at every level); what it finds
+    is seen from the open side, so beside a wall it is the wall, not the floor inside it; a back found is a ray that
+    started in something. The footprint's mean, so a coarse voxel's entry is that of the finer ones in it.
+  - The voxels both of a triangle's faces wrote hold entries too, where their normal is a drawn side's (the resolve
+    gave those none: they stand for the hidden side as well): a slanted surface's voxels are all such (the two passes'
+    layers overlap), and without them Sponza's vaults and arches had no light of their own and bounced none (the
+    corridor a fifth darker, a dark smear on the vault).
+  - The air voxels beside a surface's take its light in the filter's last pass (the 3x3x3 whose open side they are
+    on), since the lookups now read half a voxel off the surface along its normal (`GiSurfaceBias`: the surface's own
+    voxel and the 7 around), and a voxel's bounce is its own entry (the light a voxel and a half out where it has
+    none).
+  - A double sided triangle's rays behind it started on its other side at first, so that a thin sheet's voxel held
+    each side's light in the faces toward it: the faces along the sheet then held both sides', and the floor beside
+    the curtains read the atrium's sky a voxel or two out. Dropped: a voxel stands for the side its normal says.
+  - The filter takes one pass at the last level and one more per finer level (3, 2, 1), so that it reaches about as
+    far in the world at each: with 3 at every level it reached 1.6 m at Sponza's last, and the light under the
+    curtains spread over half the corridor's floor there (levels 0 against 2: 9.8 of 255, 31.8 over the floor's strip;
+    3.7 and 9.4 with the passes by level).
+  - Every block that holds a surface's voxels has a page, read or not, and keeps it (`cacheKeepFrameCount` unset):
+    what no lookup reads traces a ray every 8 frames, unfiltered. With pages only for what was read, what bounced off
+    everything the camera hadn't looked at was the probes' light, another light than the cache's.
+  - A voxel new to its clip starts from the coarser clip's voxel of the same surface (its own center moved along its
+    normal by half the difference of the voxels' sizes, where that clip's shell is) as 256 samples
+    (`kGiCacheAnchoredSeedCount`: the same light over a wider footprint, and as quiet as the coarser entry), and
+    traces 4 rays a frame for its first 256 (`kGiCacheYoungRayCount`), settled or not: at the settled rate, a ray every
+    other frame, a walking camera reached it before it had 30.
+- **The cache's rays' hits take the lights' light at the hit** (step 2; `GiHitLit`, `GiHitIrradiance`,
+  `GiData::cacheLit`, `SPEEDO_GI_CACHE_LIT=0` to compare). What a ray's hit reflects was its voxel's radiance, in the
+  finest clip holding the hit: a voxel takes the lights' light by a ray from its center, a voxel out along its normal,
+  so a coarse voxel at the curtains or the columns, half in the atrium's sun, lit the rays that met the corridor's side
+  of it. The corridor's light so depended on where the finer clips were, which is what the walking frame showed: with
+  every hit lit by the last level's voxels instead (an experiment), the walking frame's difference from the settled
+  frame of its pose fell from 3 to 5 of 255 over the walls to about 1. Now the lights' part of the voxel's radiance
+  (`gGiDirect` less the emitters' kept light and the emission) is replaced by the voxel's albedo times the lights'
+  irradiance at the hit: one light of the hit's cell of the last clip's light grid, chosen by what each gives
+  unshadowed, and a shadow ray from the hit. The rest stays the voxel's (its bounce, the emitters' light, the
+  emission), as do a moving voxel and a single sided triangle's back. On ShadowScene, open, where the voxels' light is
+  as good, the two agree (0.12 of 255, of a mean of 55; the anchored cache against the cache as it was 0.45). The first version lit all of the hit there (the material's color from its
+  texture, the bounced light by the lookup a pixel makes, `GiSampleAt`): the resolve this runs in is writing the
+  volumes, five images a voxel, and salle_de_bain's walls came out pink and yellow.
+- **What they give, and what they don't** (Sponza's corridor, RTX 4070 Ti SUPER, D3D12, 1080p; Vulkan the same within
+  noise). The light itself changed, which is the user's to judge: the corridor's walls take about half the indirect
+  light they did (the indirect diffuse view at the user's pose 12 of 255 to 4 or 5 over the walls; lit, at the
+  columns' pose `7.7949,0.8419,-3.7077,0.531,-91.763`, 15 to 11.5), the leak having lit them more than what comes
+  through the arches does, and the floor along the curtains is lit by the sky under their hems (17 to 25) at every
+  level. The levels, one settled state through each (as step 0's table): 1.56, 2.58 and 2.78, 7.4 over the floor's
+  strip (1.85, 2.68, 3.73 and 9.9), of a mean of 7.2 where it was 9.7: the last level's band along the curtains is
+  still the widest, its voxels 27 cm. The walk (2000 frames held, then 5 cm a frame; each moving frame against a
+  capture settled at its pose for as many frames, since a settled image still darkens by 0.5 of 255 between frames
+  2700 and 5000, before and now), at 31, 47 and 63 frames: 1.18, 1.68 and 1.76 where it was 1.99, 2.41 and 2.50; over
+  the walls 0.3 to 1.2 where it was 0.5 to 3.7. But of a darker image (its mean 6.8 where it was 10.3), so about a
+  quarter of the light either way: what is left is beside the curtains (the band, wider in the coarser levels the
+  walk comes from) and the young entries' noise, not the leak. As shaded, with auto exposure: 2.77 to 2.04. The
+  regression set against the cache as it was: salle_de_bain 0.15 of 220, CornellBox-Sphere 0.07, Bistro's street 0.5
+  of 66 (4 in an eighth). The indirect lighting's pass takes 1.07 ms still and 1.27 walking as it was, 1.31 and 1.62
+  anchored, 1.38 and 1.74 with the hits lit (a frame 3.83 to 4.11 ms, walking 4.22 to 4.68): the search ray and the
+  shadow ray, against fewer entries (no air voxels'). Not measured on Metal, where the rays are the BVH's.
+  Not built: the samples of a finer entry added to the coarser ones' (the seed and the idle rays stand in), and the
+  probes are as they were (they light the air, what moves, and a voxel until its entry has samples).
 - **A neural radiance cache in plain compute is affordable, and learns too slowly for this** (`tools/neuralbench.cpp`,
   `neuralbench.slang`: the gate of the plan to try one; the user asked for Slang's neural features to be looked at, and
   for hardware such as tensor cores to stay an opt in beside a portable default that is practically useful). A

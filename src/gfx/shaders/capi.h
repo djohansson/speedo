@@ -1631,9 +1631,14 @@ struct GiData
 	// the finest level the lookups take, + 1 (SPEEDO_GI_LOOKUP_LEVEL, to judge how the levels agree: the same frame shaded
 	// through each level's light, see GiClipWeight); 0: every level, as shaded
 	alignas(4) UINT1(lookupLevel);
-	alignas(4) UINT1(padding0); // std430's tail, to the struct's 16 byte alignment, explicit (see the top of the file)
-	alignas(4) UINT1(padding1);
-	alignas(4) UINT1(padding2);
+	// whether the surface cache's entries are the light arriving at the surface itself (see GiCacheAnchor;
+	// SPEEDO_GI_CACHE_ANCHOR=0 for a voxel's light at the voxel, as it was), and how far off the surface their rays start
+	// (world space, the same at every level)
+	alignas(4) UINT1(cacheAnchor);
+	alignas(4) FLOAT1(cacheAnchorBias);
+	// whether what an anchored entry's ray meets is lit at the hit itself (see GiHitLit; SPEEDO_GI_CACHE_LIT=0 for by its
+	// voxel's radiance, as the probes' rays' hits are)
+	alignas(4) UINT1(cacheLit);
 };
 
 struct PushConstants

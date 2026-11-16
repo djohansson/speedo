@@ -1323,6 +1323,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiDirect, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiKept, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead)); // the lit hits' (GiKeptAtHit)
 			builder.Use(myGiRays, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiProbeDepth, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
@@ -2469,6 +2470,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheShow = std::string_view(show) == "1";
 	if (const char* lookup = std::getenv("SPEEDO_GI_LOOKUP_LEVEL"); lookup != nullptr && *lookup != '\0')
 		myGiLookupLevel = std::min<uint32_t>(static_cast<uint32_t>(std::strtoul(lookup, nullptr, 10)), SHADER_TYPES_GI_LEVEL_COUNT - 1) + 1;
+	if (const char* anchor = std::getenv("SPEEDO_GI_CACHE_ANCHOR"); anchor != nullptr)
+		myGiCacheAnchor = std::string_view(anchor) != "0";
+	if (const char* lit = std::getenv("SPEEDO_GI_CACHE_LIT"); lit != nullptr)
+		myGiCacheLit = std::string_view(lit) != "0";
 	// the clipmap's levels (SPEEDO_GI_CLIP_COUNT, 3 by default: the scene's, and two of half and a quarter of its voxels
 	// around the camera, each of split screen's views its own)
 	if (const char* clipCount = std::getenv("SPEEDO_GI_CLIP_COUNT"); clipCount != nullptr && *clipCount != '\0')
@@ -2760,12 +2765,12 @@ Renderer::~Renderer()
 						d(c[0]), d(c[1]), d(c[17]), d(c[18]), d(c[19]), d(c[20]), d(c[27]), d(c[2]), d(c[3]), d(c[4]), d(c[21]), d(c[5]), d(c[6]), d(c[7]),
 						d(c[26]), d(c[25]), d(c[28]), d(c[22]), d(c[23]), d(c[24]), d(c[8]), d(c[9]), d(c[10]));
 					std::println(
-						"    its light (luminance) along +x {:.4f} -x {:.4f} +y {:.4f} -y {:.4f} +z {:.4f} -z {:.4f}", d(c[11]), d(c[12]), d(c[13]), d(c[14]), d(c[15]), d(c[16]));
+						"    its light (luminance) along +x {:.3g} -x {:.3g} +y {:.3g} -y {:.3g} +z {:.3g} -z {:.3g}", d(c[11]), d(c[12]), d(c[13]), d(c[14]), d(c[15]), d(c[16]));
 					for (int rayIt = 0; rayIt < std::min(8, static_cast<int>(c[27])); rayIt++)
 					{
 						const float* r = &c[30 + rayIt * 6];
 						std::println(
-							"    ray {}: direction ({:+.2f}, {:+.2f}, {:+.2f}), distance {:.3f} (-1: met nothing), light {:.4f}, a surface's back {:.0f}",
+							"    ray {}: direction ({:+.2f}, {:+.2f}, {:+.2f}), distance {:.3f} (-1: met nothing), light {:.3g}, a surface's back {:.0f}",
 							rayIt, d(r[0]), d(r[1]), d(r[2]), d(r[3]), d(r[4]), d(r[5]));
 					}
 				}
@@ -5187,13 +5192,24 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.cacheSettled = myGiTimeBased && myGiLightsFollowFrames == 0 && clock.updatesSinceCacheReset >= settledFrameCount ? 1U : 0U;
 		clip.cacheShow = myGiCacheShow ? 1U : 0U;
 		clip.lookupLevel = myGiLookupLevel;
-		clip.cacheFilterPassCount = myGiCacheFilterPassCount;
+		// (a sixty-fourth of the last level's voxel off the surface, whatever the entry's level: 3.6 mm in Sponza)
+		clip.cacheAnchor = myGiCacheAnchor ? 1U : 0U;
+		clip.cacheLit = myGiCacheLit ? 1U : 0U;
+		clip.cacheAnchorBias = myGiClipmap.clips.back().data.volumeOrigin[3] / 64.0F;
+		// the filter's passes: anchored (GiData::cacheAnchor), one for the last level and one more per level finer, so that it
+		// reaches about as far in the world at every level (each pass doubles its reach in voxels, each level halves the
+		// voxel): with every level's 3 it reached 7 voxels, 0.4 m at Sponza's finest level and 1.6 m at its last, where the
+		// light under the curtains spread over half the corridor's floor
+		uint32_t levelsCoarser = static_cast<uint32_t>(myGiClipmap.clips.back().data.level) - clip.level;
+		bool anchored = myGiCacheAnchor && myGiTraceBvh; // as GiCacheAnchored
+		clip.cacheFilterPassCount = anchored ? std::min(1 + levelsCoarser, myGiCacheFilterPassCount) : myGiCacheFilterPassCount;
 		// the cache's tables (see GiData::cacheTableFirst): the clip's blocks from its first flag's
 		uint32_t blockFirst = clip.flagFirst / SHADER_TYPES_GI_FLAG_WORD_COUNT;
 		clip.cacheTableFirst = 2 * (clock.probeHalf * myGiCacheBlockCount + blockFirst);
 		clip.cacheTablePreviousFirst = 2 * ((1 - clock.probeHalf) * myGiCacheBlockCount + blockFirst);
 		clip.cacheRecordTableFirst = 4 * myGiCacheBlockCount + blockFirst;
-		clip.cacheKeepFrameCount = myGiCacheKeepFrameCount;
+		// (anchored, a block that holds a surface's voxels keeps its page whether a lookup reads it or not: see ComputeGiResolve)
+		clip.cacheKeepFrameCount = anchored ? ~0U : myGiCacheKeepFrameCount;
 		clip.cachePageCapacity = myGiCachePageCapacity;
 		clip.cacheRecordCapacity = myGiCacheRecordCapacity;
 		clip.cacheBlockCount = myGiCacheBlockCount;

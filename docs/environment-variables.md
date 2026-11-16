@@ -160,7 +160,7 @@ On macOS ray queries are opt in (`SPEEDO_RAY_QUERY=1`, see [the gpu and drivers]
 | `SPEEDO_GI_CACHE_FILTER_PASSES` | 1 to 4. Default: 3. | The filter's passes along surfaces. |
 | `SPEEDO_GI_CACHE_SIGMA` | 0 or more. Default: 8. | How many deviations of the noise a neighbour's light may differ by and still be averaged in. |
 | `SPEEDO_GI_CACHE_SETTLED_FRAMES` | Updates. Default: twice `SPEEDO_GI_CACHE_SAMPLES`. | After this many updates the cache is settled, and its voxels trace every other frame. |
-| `SPEEDO_GI_CACHE_KEEP_FRAMES` | Frames. Default: 1024. | How long a block of voxels keeps its cache page after a lookup last read it. |
+| `SPEEDO_GI_CACHE_KEEP_FRAMES` | Frames. Default: 1024. | How long a block of voxels keeps its cache page after a lookup last read it. Not with `SPEEDO_GI_CACHE_ANCHOR` on, where every block of surface voxels keeps its page. |
 | `SPEEDO_GI_CACHE_EVERYWHERE` | Exactly `1` on. Default: off. | Traces and filters every voxel near a surface, not only those around what the view reads: for comparisons. |
 | `SPEEDO_GI_NEAR` | `0` off. Default: on. | Pose. The near field: near other surfaces, short rays from the pixels light them instead of the voxels, so that contacts darken smoothly. Needs triangles. View > Indirect Lighting Near Field. |
 | `SPEEDO_GI_NEAR_REACH` | Voxels, 0 to 64 (0 off). Default: 8. | How far the near field's rays go. |
@@ -174,6 +174,8 @@ On macOS ray queries are opt in (`SPEEDO_RAY_QUERY=1`, see [the gpu and drivers]
 | `SPEEDO_GI_REFERENCE_RAYS` | Rays per pixel, 16 to 4096. Default: 256. | Diagnostic. The Surface Reference debug view's rays; lower it where a frame of it times the gpu out. |
 | `SPEEDO_GI_CACHE_SHOW` | Exactly `1` on. Default: off. | Diagnostic. The voxels show the surface cache's light alone where it has some. |
 | `SPEEDO_GI_LOOKUP_LEVEL` | A level, 0 (the finest) to 3. Default: off. | Diagnostic. The shading takes no light from the levels finer than it (the last level alone at the level count less 1): the same frame through each level's light, to judge how they agree. |
+| `SPEEDO_GI_CACHE_ANCHOR` | `0` off. Default: on. | To compare. Off, a surface cache entry is a voxel's light at the voxel (its center, or a voxel out along its open side), every voxel within 3 of a surface holding one, kept while lookups read it; on, the light arriving at the surface itself, in the surface's voxels alone, kept everywhere (see the indirect lighting note). Only where the rays trace the triangles. |
+| `SPEEDO_GI_CACHE_LIT` | `0` off. Default: on. | To compare. Off, what a surface cache ray meets is lit by its voxel's radiance, as a probe's ray's; on, the lights' part of that is taken at the hit itself, by a shadow ray. Only with `SPEEDO_GI_CACHE_ANCHOR` on. |
 | `SPEEDO_GI_NEAR_SHOW` | 0 to 4. Default: 0. | Diagnostic. Shows the near field: 1 the rays' light, 2 the share of rays without a contact, 3 the light of rays that met something, 4 of those that didn't. |
 | `SPEEDO_GI_DUMP` | `x,y,z` (a world position) or `pixel:x,y`. Default: off. | Diagnostic. At exit, prints each clip's probe nearest the point (its rays, light and resolve); every clip then updates every frame. |
 | `SPEEDO_GI_EYE_PATH` | Points `x,y,z[,lx,ly,lz]` separated by `;` or new lines, or `@<file>`. Default: the camera. | Diagnostic. Centers the clips on these points, one a frame, then the last: the clips' movement under a still camera, or a replay of `SPEEDO_GI_EYE_LOG`. |

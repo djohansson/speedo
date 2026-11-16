@@ -715,7 +715,144 @@ struct GiRayHit
 	bool backface;
 };
 
-bool GiTraceBvh(GiData walk, float3 origin, float3 direction, float far, float emissionReach, out GiRayHit result, bool count = true)
+// the lights' irradiance at a point a ray met (normal: toward the ray's side), by one light of its cell of the last
+// clip's light grid (see gi::BinLights), chosen by what each would give unshadowed (random: 0 to 1) and shadowed by a ray
+// from the point: with one light, the sun, exactly its light there
+float3 GiHitIrradiance(GiData gi, float3 position, float3 normal, float random)
+{
+	uint frameIndex = gPushConstants.frameIndex;
+	uint lastClip = gi.clipCount - 1u;
+	float4 volumeOrigin = gGi[frameIndex][lastClip].volumeOrigin;
+	float3 size = float3(gGi[frameIndex][lastClip].volumeSize.xyz);
+	uint lightCellFirst = gGi[frameIndex][lastClip].lightCellFirst;
+	float3 at = (position - volumeOrigin.xyz) / (volumeOrigin.w * size) * float(SHADER_TYPES_GI_LIGHT_GRID);
+	uint3 cell = uint3(clamp(at, 0.0, float(SHADER_TYPES_GI_LIGHT_GRID - 1)));
+	uint2 range = gGiLightCells[frameIndex][lightCellFirst + (cell.z * SHADER_TYPES_GI_LIGHT_GRID + cell.y) * SHADER_TYPES_GI_LIGHT_GRID + cell.x];
+	float total = 0.0;
+	float chosenWeight = 0.0;
+	float3 chosen = 0.0;
+	float3 chosenToLight = 0.0;
+	float chosenDistance = 0.0;
+	for (uint lightIt = range.x; lightIt < range.x + range.y; lightIt++)
+	{
+		LightData light = gLights[gGiLightIndices[frameIndex][lightIt]];
+		float3 toLight;
+		float distance = 1.0e30;
+		float attenuation = 1.0;
+		if (light.type == LIGHT_TYPE_DIRECTIONAL)
+			toLight = -light.direction.xyz;
+		else
+		{
+			float3 offset = light.positionRange.xyz - position;
+			float distance2 = max(dot(offset, offset), 1e-8);
+			distance = sqrt(distance2);
+			toLight = offset / distance;
+			attenuation = 1.0 / distance2;
+			if (light.positionRange.w > 0.0)
+			{
+				float ratio = distance / light.positionRange.w;
+				float window = saturate(1.0 - ratio * ratio * ratio * ratio);
+				attenuation *= window * window;
+			}
+			if (light.type == LIGHT_TYPE_SPOT)
+			{
+				float cone = saturate(dot(light.direction.xyz, -toLight) * light.spotScale + light.spotOffset);
+				attenuation *= cone * cone;
+			}
+		}
+		float nDotL = dot(normal, toLight);
+		if (attenuation * nDotL <= 0.0)
+			continue;
+		float3 unshadowed = light.intensity.rgb * attenuation * LightFog(light, position, toLight) * nDotL;
+		float weight = dot(unshadowed, float3(0.2126, 0.7152, 0.0722));
+		if (weight <= 0.0)
+			continue;
+		// one of them, each by its weight's share: the random number is used again, stretched over the side it fell on
+		total += weight;
+		float share = weight / total;
+		if (random < share)
+		{
+			chosen = unshadowed;
+			chosenWeight = weight;
+			chosenToLight = toLight;
+			chosenDistance = distance;
+			random /= share;
+		}
+		else
+			random = (random - share) / max(1.0 - share, 1e-6);
+	}
+	if (chosenWeight <= 0.0)
+		return 0.0;
+	float bias = gi.cacheAnchorBias;
+	return chosen * (total / chosenWeight) * GiVisibility(gi, position + normal * bias, chosenToLight, chosenDistance - bias, true);
+}
+
+// the radiance a ray took off the triangle it hit, its lights' light taken at the hit itself (GiData::cacheLit: the
+// anchored cache's rays): what its voxel reflects (GiHitRadiance's: the finest clip's holding the point, its emission
+// taken out) with the part the lights give it (gGiDirect less the emitters' kept light and the emission) replaced by its
+// albedo times their light at the point (GiHitIrradiance: a shadow ray from the hit); and the triangle's emission (out),
+// as GiHitRadiance's. a voxel takes the lights' light by a ray from its center, a voxel out along its normal, so a
+// coarse voxel at Sponza's curtains or columns, half in the atrium's sun, lit the rays that met the corridor's side of
+// them, more the coarser the level there: the corridor's light changed with where the finer clips were, and a walking
+// frame differed from the settled frame of its pose by 3 to 5 of 255 over the walls (1 to 1.5 since), which the leak
+// lit twice as bright as the sun's light at the hits does. a voxel that moves (not the static one at its place: its
+// light isn't kept apart) and a single sided triangle's back as they were, by the voxel alone. not the volumes' light at
+// the hit (GiSampleAt), which would be the cache's and the probes' there without the voxel's albedo: the resolve this
+// runs in is writing the volumes, five images a voxel, and reads of them here came out in pink, yellow and blue
+// (salle_de_bain's walls)
+float3 GiHitLit(GiData walk, float3 position, BvhHit hit, float random, out float3 emission)
+{
+	bool back = !hit.frontFace && (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) == 0u;
+	uint clipCount = walk.clipCount;
+	uint clipIt = walk.clip;
+	for (; clipIt + 1 < clipCount; clipIt++)
+	{
+		GiClipView view = GiClipViewAt(clipIt);
+		if (all(abs(position - view.fadeCenter.xyz) < view.fadeExtent.xyz))
+			break;
+	}
+	GiClipView clip = GiClipViewAt(clipIt);
+	uint3 size = clip.volumeSize.xyz;
+	float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+	const float kOffsets[3] = {0.5, 0.0, 1.0};
+	for (uint offsetIt = 0; offsetIt < 3 && !back; offsetIt++)
+	{
+		int3 at = int3(floor(coordinate + hit.normal * kOffsets[offsetIt]));
+		if (!GiInside(at, size))
+			continue;
+		uint index = clip.voxelFirst + GiVoxelIndex(uint3(at), size);
+		float4 radiance = GiUnpackRgba16(gGiRadiance[index]);
+		if (radiance.a <= 0.0)
+			continue;
+		GiVoxel voxel = gGiVoxels[index];
+		GiVoxel kept = gGiStaticVoxels[index];
+		if (kept.albedo != voxel.albedo || kept.normal != voxel.normal)
+			break;
+		float3 voxelEmission = float3(GiUnpackHalf2(voxel.emissionRG), GiUnpackHalf2(voxel.emissionB).x);
+		float3 lights = max(GiUnpackRgba16(gGiDirect[index]).rgb - GiUnpackRgba16(gGiKept[index]).rgb - voxelEmission, 0.0);
+		float3 reflected = max(radiance.rgb - voxelEmission - lights, 0.0) +
+						   GiUnpackRgba8(voxel.albedo).rgb / 3.14159265 * GiHitIrradiance(walk, position, hit.normal, random);
+		emission = 0.0;
+		if (EmittersLight())
+			return reflected;
+		MaterialData material = gMaterialData[hit.flags >> BVH_TRIANGLE_MATERIAL_SHIFT];
+		emission = material.emissive.rgb;
+		if (any(emission > 0.0) && (material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
+		{
+			float2 weights = hit.barycentrics;
+			float4 texCoord01 = gVertexBuffer[gIndexBuffer[hit.firstIndex]].texCoord01 * (1.0 - weights.x - weights.y) +
+								gVertexBuffer[gIndexBuffer[hit.firstIndex + 1]].texCoord01 * weights.x +
+								gVertexBuffer[gIndexBuffer[hit.firstIndex + 2]].texCoord01 * weights.y;
+			TextureView view = gTextureViews[material.emissiveView];
+			emission *= EmissiveTexel(SampleViewLevel(view, ViewTexCoord(view, texCoord01), BVH_ALPHA_LEVEL).rgb);
+		}
+		return reflected + emission;
+	}
+	return GiHitRadiance(walk.clip, position, hit, emission);
+}
+
+// (lit: 0 to 1, a random number, for the hit's lights' light taken at the hit itself, GiHitLit; negative, by its voxel's radiance)
+bool GiTraceBvh(GiData walk, float3 origin, float3 direction, float far, float emissionReach, out GiRayHit result, bool count = true, float lit = -1.0)
 {
 	result.radiance = float4(0.0, 0.0, 0.0, 1.0);
 	result.distance = far;
@@ -727,7 +864,7 @@ bool GiTraceBvh(GiData walk, float3 origin, float3 direction, float far, float e
 		return true;
 	result.distance = hit.t;
 	float3 emission;
-	float3 radiance = GiHitRadiance(walk.clip, origin + direction * hit.t, hit, emission);
+	float3 radiance = lit >= 0.0 ? GiHitLit(walk, origin + direction * hit.t, hit, lit, emission) : GiHitRadiance(walk.clip, origin + direction * hit.t, hit, emission);
 	if (hit.t < emissionReach)
 		radiance = max(radiance - emission * (1.0 - (hit.t * hit.t) / (emissionReach * emissionReach)), 0.0);
 	result.radiance = float4(radiance, 0.0);
@@ -1376,7 +1513,12 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 	{
 		float3 position = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
 		float3 normal = GiVoxelNormal(voxel.normal);
-		GiSample sample = GiSampleClip(GiClipViewAt(gi.clip), position, normal, normal * min(1.5, 0.5 * open / gi.volumeOrigin.w));
+		// (anchored, the voxel's own light, which is the surface's: see GiCacheAnchored)
+		float3 bias = GiCacheAnchored(gi) && gi.cacheRayCount != 0u ? float3(0.0) : normal * min(1.5, 0.5 * open / gi.volumeOrigin.w);
+		GiSample sample = GiSampleClip(GiClipViewAt(gi.clip), position, normal, bias);
+		// (where the voxel holds none, the light out along its normal, as without the cache)
+		if (!sample.valid)
+			sample = GiSampleClip(GiClipViewAt(gi.clip), position, normal, normal * min(1.5, 0.5 * open / gi.volumeOrigin.w));
 		float3 bounce = sample.valid ? GiEvaluate(sample, normal) : -1.0;
 		if (!any(isnan(bounce)) && !any(isinf(bounce)))
 			radiance += albedo.rgb * max(bounce, 0.0);
@@ -2484,6 +2626,11 @@ static const float kGiCacheVariancePrior = 4.0;
 static const float kGiCacheFilterCount = 64.0;
 // how many samples a voxel new to its clip takes the coarser clip's entry as (see GiCacheUpdate)
 static const uint kGiCacheSeedCount = 8u;
+// and anchored (GiCacheAnchored), where the coarser clip's entry is the same light over a wider footprint: enough that the
+// voxel shows it rather than its probes', and as quietly as the coarser entry is, until its own rays sharpen it
+static const uint kGiCacheAnchoredSeedCount = 256u;
+// the rays of its own under which an anchored entry is new to its clip (see GiCacheUpdate)
+static const uint kGiCacheYoungRayCount = 256u;
 // how often a voxel no lookup reads traces a ray (see GiCacheUpdate), and how many frames after a lookup read its block
 // it still counts as read (see ComputeGiResolve)
 static const uint kGiCacheIdleFrameCount = 8u;
@@ -2760,6 +2907,58 @@ float3 GiCacheOrigin(GiData gi, uint3 at, float3 away)
 	return center + away * min(gi.volumeOrigin.w, 0.5 * open);
 }
 
+// whether the cache's entries are the light arriving at the surface itself (GiData::cacheAnchor; the rays trace the
+// triangles, which is how the surface is found): a surface's voxel alone holds one, of rays that start on the surface
+// (GiCacheAnchor), the same thing measured whatever the voxel's size, where a voxel's light at the voxel (its center, or
+// a voxel out along its open side) is measured as far off the surface as the level's voxels are big: Sponza's levels
+// disagreed by 3.7 of 255, 10 along the curtains, where the light changes with the height over the floor (see the note)
+bool GiCacheAnchored(GiData gi)
+{
+	return gi.cacheAnchor != 0u && GiTracesBvh(gi);
+}
+
+// where an anchored entry's ray starts (origin; false: nowhere, no sample, inside where what was found
+// is a surface's back): on the surface under the voxel, a sixty-fourth of the last level's voxel off it
+// (GiData::cacheAnchorBias), found by a ray from the voxel's open side (apex: its center out along its normal, facing,
+// by half a voxel, no further than halfway to a surface facing back at it, open) back toward the surface, aimed at a
+// point of the voxel's footprint a voxel under the apex (jittered by the entry's sequence, so that the entry's light is
+// the footprint's mean, a coarse voxel's the mean of the finer ones' in it). from the apex, which is in the open, so that
+// what is found is seen from there: beside a wall, the wall rather than the floor inside it. on the side the voxel
+// stands for, a double sided triangle's too (its rays behind it meet the surface itself): with those starting on the
+// side they leave toward, so that a thin sheet's voxel held each side's light in the faces toward that side (a curtain's
+// two sides in one coarse voxel), the faces along the sheet held both sides', and the floor beside Sponza's curtains
+// read the sky's light of the atrium's side a voxel or two out (the last level's band along them twice as wide, in
+// blocks)
+bool GiCacheAnchor(GiData gi, float3 voxelCenter, float3 facing, float open, int3 world, uint sequence, out float3 origin, out bool inside)
+{
+	inside = false;
+	origin = voxelCenter;
+	float voxel = gi.volumeOrigin.w;
+	float3 apex = voxelCenter + facing * min(0.5 * voxel, 0.5 * open);
+	uint hash = (uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u) + sequence * 0x9E3779B9u;
+	hash ^= hash >> 16;
+	hash *= 0x7feb352du;
+	hash ^= hash >> 15;
+	hash *= 0x846ca68bu;
+	hash ^= hash >> 16;
+	float2 jitter = float2(hash & 0xFFFFu, hash >> 16) / 65536.0 - 0.5;
+	float3 t;
+	float3 b;
+	ShadowBasis(facing, t, b);
+	float3 toward = normalize(t * jitter.x + b * jitter.y - facing);
+	BvhHit found = GiTraceTriangles(gi, apex, toward, 2.5 * voxel, false, true, false);
+	if (!BvhHitSomething(found))
+		return false;
+	bool twoSided = (found.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) != 0u;
+	if (!found.frontFace && !twoSided)
+	{
+		inside = true;
+		return false;
+	}
+	origin = apex + toward * found.t + found.normal * gi.cacheAnchorBias;
+	return true;
+}
+
 // a voxel's entry carried over from the last frame (in place, in its block's page: page, the page + 1; none in a page
 // new to the block, fresh, nor after a reset or a change of the lights) and cacheRayCount more rays from center (the
 // voxel's, as the resolve moved it; a surface's voxel's, surface, from out along its open side, normal: see
@@ -2786,7 +2985,11 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			GiData coarser = GiClip(gi.coarser);
 			uint3 coarserSize = GiLevelSize(coarser, 0);
 			uint3 coarserBlocks = GiLevelSize(coarser, SHADER_TYPES_GI_FLAG_LEVEL);
-			int3 voxel = int3(floor(GiVoxelCoordinate(coarser, center, 0)));
+			// (anchored, the coarser clip's voxel of the same surface: half a voxel of its own off the surface, see
+			// ComputeGiVoxelize, where this one's center is half of this clip's off it)
+			bool anchoredSeed = surface && GiCacheAnchored(gi);
+			float3 seedPoint = anchoredSeed ? gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w + normal * (0.5 * (coarser.volumeOrigin.w - gi.volumeOrigin.w)) : center;
+			int3 voxel = int3(floor(GiVoxelCoordinate(coarser, seedPoint, 0)));
 			int3 seed = voxel + coarser.scroll.xyz;
 			if (GiInside(voxel, coarserSize) && GiInside(seed, coarserSize))
 			{
@@ -2798,7 +3001,7 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 				if (GiCacheValid(seeded))
 				{
 					entry = seeded;
-					entry.count = min(seeded.count, kGiCacheSeedCount);
+					entry.count = min(seeded.count, anchoredSeed ? kGiCacheAnchoredSeedCount : kGiCacheSeedCount);
 					entry.inside = 0u;
 					entry.sequence = 0u;
 				}
@@ -2819,6 +3022,7 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	// a voxel no lookup reads (its block not active, see ComputeGiResolve) traces a ray every kGiCacheIdleFrameCount
 	// frames (staggered by its place), so that it isn't cold when one does
 	uint rayCount = gi.cacheRayCount;
+	bool anchoredEntry = surface && GiCacheAnchored(gi);
 	if (!active)
 	{
 		uint hash = uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u;
@@ -2826,6 +3030,11 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	}
 	// and once settled (GiData::cacheSettled), where nothing moves, every other frame (staggered by its place): its mean is
 	// of the same samples, over twice the frames, of a light that doesn't change
+	// an anchored entry new to its clip (fewer rays of its own than kGiCacheYoungRayCount) traces 4 a frame, settled or
+	// not: walking, a voxel of the finest clip is in view within a second of scrolling in, and at a ray every other frame
+	// (the settled rate) it showed the coarser clip's light, wider, for as long as it took to get there
+	else if (anchoredEntry && entry.sequence < kGiCacheYoungRayCount)
+		rayCount = max(rayCount, 4u);
 	else if (gi.cacheSettled != 0u && !moving)
 	{
 		uint hash = uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u;
@@ -2839,7 +3048,11 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	uint dumpFirst = GI_STATISTIC_COUNT + gi.clip * GI_DUMP_FLOAT_COUNT + GI_DUMP_CACHE_FIRST;
 	if (rayCount != 0u)
 	{
-		float3 origin = surface ? GiCacheOrigin(gi, at, normal) : center;
+		// anchored (GiCacheAnchored): each ray from the surface under the voxel (GiCacheAnchor), normal the voxel's own
+		bool anchored = surface && GiCacheAnchored(gi);
+		float3 voxelCenter = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
+		float open = GiUnpackRgba16(gGiDirect[gi.voxelFirst + GiVoxelIndex(at, size)]).a * gi.volumeOrigin.w;
+		float3 origin = anchored ? voxelCenter : (surface ? GiCacheOrigin(gi, at, normal) : center);
 		GiData last = GiClip(gi.clipCount - 1);
 		float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
 		GiData walk = GiClip(GiFinestClipHolding(origin, gi.clip));
@@ -2858,9 +3071,28 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			// its side's density: half the rays over the sphere added little to the faces the shading reads, and their mean
 			// was as noisy as of half as many
 			float estimate = GiCacheEstimate(direction, normal);
+			if (anchored)
+			{
+				bool insideSurface;
+				if (!GiCacheAnchor(gi, voxelCenter, normal, open, world, entry.sequence, origin, insideSurface))
+				{
+					if (insideSurface)
+						entry.inside += uint(round(float(kGiCacheInsideScale) * estimate));
+					continue;
+				}
+			}
 			float4 traced;
 			GiRayHit hit;
-			bool bvh = GiTraceBvh(walk, origin, direction, far, gi.volumeOrigin.w, hit);
+			float lit = -1.0;
+			if (anchored && gi.cacheLit != 0u)
+			{
+				uint litHash = (uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u) + entry.sequence * 0x85EBCA6Bu;
+				litHash ^= litHash >> 16;
+				litHash *= 0x7feb352du;
+				litHash ^= litHash >> 15;
+				lit = float(litHash & 0xFFFFFFu) / 16777216.0;
+			}
+			bool bvh = GiTraceBvh(walk, origin, direction, far, gi.volumeOrigin.w, hit, true, lit);
 			if (dumped && rayIt < 8u)
 			{
 				float3 shown = bvh ? hit.radiance.rgb + hit.radiance.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6) : 0.0;
@@ -3050,6 +3282,9 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 	uint3 at = block * 4u + uint3(groupIndex & 3u, (groupIndex >> 2) & 3u, groupIndex >> 4);
 	if (any(at >= size))
 		return;
+	// (the clip's own count: the coarser levels take fewer, see Renderer)
+	if (pass > gi.cacheFilterPassCount)
+		return;
 	bool last = pass >= gi.cacheFilterPassCount;
 	// a block no lookup read lately (see ComputeGiResolve) only takes its own light, in the last pass
 	bool active = (blockFlags & SHADER_TYPES_GI_FLAG_CACHE_ACTIVE) != 0u;
@@ -3103,21 +3338,52 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 	}
 	uint source = (pass - 1u) % 2u;
 	GiCacheTap self = GiCacheReadTap(gi, source, at, blocks);
-	if (self.confidence <= 0.0)
-	{
-		if (!last)
-			GiCacheStoreTap(target, self);
-		return;
-	}
-
-	int step = 1 << (pass - 1u);
-	float light = GiCacheLight(self.faces, self.normal);
 	float3 filtered[SHADER_TYPES_GI_IRRADIANCE_COUNT];
 	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
 		filtered[faceIt] = 0.0;
 	float weights = 0.0;
 	float variance = 0.0;
-	int reach = active ? 1 : 0;
+	// a voxel with no light of its own. anchored (GiCacheAnchored), an air voxel's light in the last pass is that of the
+	// surfaces' voxels around it (the 3x3x3) whose open side it is on, each by how far out along it and how near, with
+	// their confidence: the lookups read the surface's voxel and those around it (see GiSampleSurface), the air ones
+	// beside a surface among them, which hold no entry
+	bool spread = false;
+	if (self.confidence <= 0.0)
+	{
+		if (!last)
+			GiCacheStoreTap(target, self);
+		if (!last || !GiCacheAnchored(gi) || (gGiVoxels[gi.voxelFirst + GiVoxelIndex(at, size)].albedo >> 24) != 0u)
+			return;
+		float confidence = 0.0;
+		for (int z = -1; z <= 1; z++)
+			for (int y = -1; y <= 1; y++)
+				for (int x = -1; x <= 1; x++)
+				{
+					int3 offset = int3(x, y, z);
+					int3 neighbour = int3(at) + offset;
+					if ((x == 0 && y == 0 && z == 0) || !GiInside(neighbour, size))
+						continue;
+					GiCacheTap tap = GiCacheReadTap(gi, source, uint3(neighbour), blocks);
+					if (tap.confidence <= 0.0)
+						continue;
+					float along = -dot(float3(offset), tap.normal);
+					if (along <= 0.0)
+						continue;
+					float weight = along / dot(float3(offset), float3(offset));
+					for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+						filtered[faceIt] += weight * tap.faces[faceIt];
+					confidence += weight * tap.confidence;
+					weights += weight;
+				}
+		if (weights <= 0.0)
+			return;
+		self.confidence = confidence / weights;
+		spread = true;
+	}
+
+	int step = 1 << (pass - 1u);
+	float light = GiCacheLight(self.faces, self.normal);
+	int reach = active && !spread ? 1 : (spread ? -1 : 0);
 	for (int z = -reach; z <= reach; z++)
 		for (int y = -reach; y <= reach; y++)
 			for (int x = -reach; x <= reach; x++)
@@ -3385,7 +3651,13 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 		bool read = gi.cacheEverywhere != 0u;
 		for (uint aroundIt = 0; aroundIt < 27u; aroundIt++)
 			read = read || gGiSharedCacheSeen[aroundIt] != 0u;
-		bool fresh = cachePage == 0u && cacheWanted != 0u && read;
+		// anchored (GiCacheAnchored), every block that holds a surface's voxels has its page, read or not (and keeps it:
+		// Renderer sets no cacheKeepFrameCount): what no lookup reads traces a ray now and then (kGiCacheIdleFrameCount) and
+		// is what the rays that meet it take its bounced light from. with pages for what was read alone, that light was
+		// the probes' wherever the camera hadn't looked, another light than the cache's, so what a place held depended on
+		// where the camera had been
+		bool everywhere = GiCacheAnchored(gi);
+		bool fresh = cachePage == 0u && cacheWanted != 0u && (read || everywhere);
 		if (fresh)
 			cachePage = GiCachePopPage();
 		fresh = fresh && cachePage != 0u;
@@ -3393,7 +3665,7 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 		uint word = GiCacheTableWord(gi.cacheTableFirst, blockIndex);
 		gGiCacheBlocks[word] = cachePage;
 		gGiCacheBlocks[word + 1u] = read ? gi.frameStamp : cacheLastRead;
-		if (cachePage != 0u || (cacheWanted != 0u && read))
+		if (cachePage != 0u || (cacheWanted != 0u && (read || everywhere)))
 		{
 			InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CACHE_BLOCKS], 1u);
 			InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CLIP_FIRST + 2u * gi.clip + 1u], 1u);
@@ -3434,6 +3706,22 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 			gGiVolumeImages[volumeIt][texel] = 0.0;
 		if (GiTracesBvh(gi))
 			gGiVisibility[gi.visibilityFirst + GiVoxelIndex(at, size)] = 0u;
+		// anchored (GiCacheAnchored), such a voxel whose normal is a drawn side's holds that side's entry all the same, the
+		// cache's light alone: its rays start on the surface that side of it, wherever the voxel's center is (GiCacheAnchor:
+		// from in something they are no samples), so nothing of the space behind is in it. a slanted surface's voxels are
+		// written by both of its faces' passes (their layers overlap, see GiVoxelizeRasterize), as are those of anything
+		// thinner than a voxel: without their entries, Sponza's vaults and arches held no light of their own, a lookup on them
+		// read the voxels beside them, and a ray that met them took no bounced light (the corridor a fifth darker)
+		bool drawn = (voxel.normal & kGiVoxelNormalDrawn) != 0u;
+		if (GiCacheAnchored(gi) && gi.cacheRayCount != 0u && drawn)
+		{
+			uint word = GiCacheTableWord(gi.cacheTableFirst, blockIndex);
+			if ((gGiCacheBlocks[word] & kGiCacheWanted) == 0u)
+				InterlockedOr(gGiCacheBlocks[word], kGiCacheWanted);
+			if (page != 0u)
+				GiCacheUpdate(gi, at, size, blockIndex, page, gGiSharedCacheFresh != 0u, center, GiVoxelNormal(voxel.normal), true, active);
+			return;
+		}
 		if (page != 0u)
 			GiCacheClear(GiCacheEntryIndex(page, at));
 		return;
@@ -3684,7 +3972,10 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	// within 3 of (the lookups land a voxel or two off a surface, see GiSampleSurface); the others keep nothing
 	// a voxel that holds an entry marks its block as wanting a page (see GiCacheKeeps): a block within the flags' reach
 	// of a surface but none of whose voxels hold one gives its page back next frame, and one without gets one then
-	bool cacheEntry = awayLength > 0.0 || (voxel.albedo >> 24) != 0u;
+	// anchored (GiCacheAnchored), a surface's voxels alone: the air voxels beside them take their light (see
+	// ComputeGiCacheFilter)
+	bool occupied = (voxel.albedo >> 24) != 0u;
+	bool cacheEntry = GiCacheAnchored(gi) ? occupied : (awayLength > 0.0 || occupied);
 	if (gi.cacheRayCount != 0u && cacheEntry)
 	{
 		uint word = GiCacheTableWord(gi.cacheTableFirst, blockIndex);
@@ -3694,7 +3985,7 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	if (page != 0u)
 	{
 		if (cacheEntry)
-			GiCacheUpdate(gi, at, size, blockIndex, page, gGiSharedCacheFresh != 0u, center, away, (voxel.albedo >> 24) != 0u, active);
+			GiCacheUpdate(gi, at, size, blockIndex, page, gGiSharedCacheFresh != 0u, center, GiCacheAnchored(gi) ? GiVoxelNormal(voxel.normal) : away, occupied, active);
 		else
 			GiCacheClear(GiCacheEntryIndex(page, at));
 	}
@@ -3815,13 +4106,25 @@ GiSample GiSampleAt(float3 position, float3 normal, float3 bias)
 	return result;
 }
 
+// a surface's lookup's offset off it, in the clip's voxels (see GiSampleSurface). where the cache's entries are the light
+// at the surface (GiCacheAnchored, the cache on): half a voxel along the normal, which is in the surface's own voxel (the
+// voxelizer's, half a voxel off a face on its side), so the lookup reads it and the 7 around it nearest: the surface's
+// others, the air ones beside it, which hold the surface's light (see ComputeGiCacheFilter), and those behind it, which
+// hold none or the other side's (in its other faces)
+float3 GiSurfaceBias(float3 normal, float3 view)
+{
+	uint frameIndex = gPushConstants.frameIndex;
+	bool anchored = gGi[frameIndex][0].cacheAnchor != 0u && gGi[frameIndex][0].trace == GI_TRACE_BVH && gGi[frameIndex][0].cacheRayCount != 0u;
+	return anchored ? normal * 0.5 : normal * 0.75 + view * 1.5;
+}
+
 // a surface's lookup (the shading's): off it 0.75 voxels along its normal and 1.5 toward the eye (along the line of
 // sight, which is clear: at a concave edge the normal alone leads into the other surface's voxels, whose probes are the
 // other surface's), and twice as far where that finds no probes (retry; not where the near field's light stands in, see
 // GiNearIrradiance)
 GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry = true)
 {
-	float3 bias = normal * 0.75 + view * 1.5;
+	float3 bias = GiSurfaceBias(normal, view);
 	GiSample sample = GiSampleAt(position, normal, bias);
 	if (retry && !sample.valid && sample.inside)
 		sample = GiSampleAt(position, normal, bias * 2.0);
@@ -3835,7 +4138,7 @@ void GiMarkSeen(float3 position, float3 normal, float3 view)
 {
 	if (gGi[gPushConstants.frameIndex][0].enabled == 0 || gGi[gPushConstants.frameIndex][0].cacheRayCount == 0u)
 		return;
-	float3 bias = normal * 0.75 + view * 1.5;
+	float3 bias = GiSurfaceBias(normal, view);
 	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
 	float remaining = 1.0;
 	for (uint clipIt = 0; clipIt < clipCount && remaining > 0.0; clipIt++)
