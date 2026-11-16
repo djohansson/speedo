@@ -1228,6 +1228,18 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   shadow ray, against fewer entries (no air voxels'). Not measured on Metal, where the rays are the BVH's.
   Not built: the samples of a finer entry added to the coarser ones' (the seed and the idle rays stand in), and the
   probes are as they were (they light the air, what moves, and a voxel until its entry has samples).
+- **While the lights change, the cache's memory is by their pace** (`myGiLightsFollowSampleCount`; the user's report
+  after trying the two steps, 2026-11-17: standing in Sponza's darkest corridor with the time advancing 60 times real
+  time, large noise patterns changing over the darkest parts). Following lights that change gradually, a voxel's mean
+  was of 32 samples at most, whatever the pace, and with the hits' light taken at the hit, sharper than a voxel's, 32
+  are few where the light is a few rays through the arches: frames a second apart differed by 0.75 of 255, 0.7 to 0.9
+  over walls of 4.6 to 6.4 (a seventh), in patches half a metre wide (0.61 before the two steps, 0.3 to 0.6 over walls
+  of 9 to 12). Now as many samples as the lights take frames to turn 2 degrees or to dim by a tenth, by each change and
+  the frames since the last (the sun is drawn again every 0.05 degrees: 480 samples at 60 times, 48 at 600), at least
+  32, which is also what a change after the lights stood still takes; a voxel no lookup reads, a ray every 8 frames,
+  an eighth of that (`GiData::cacheIdleSampleCount`: the same frames). Frames a second apart: 0.16 (0.08 to 0.15 over
+  the walls, 2 to 3%); two seconds apart 0.22 (0.94). It still follows: after an hour at 60 times, the frame against a
+  settled one at the hour reached is 0.87 (the cache as it was, 1.03), and 6 minutes of the sun are 0.06 of 255 there.
 - **A neural radiance cache in plain compute is affordable, and learns too slowly for this** (`tools/neuralbench.cpp`,
   `neuralbench.slang`: the gate of the plan to try one; the user asked for Slang's neural features to be looked at, and
   for hardware such as tensor cores to stay an opt in beside a portable default that is practically useful). A

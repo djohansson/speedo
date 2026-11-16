@@ -3016,7 +3016,7 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	// the open side as stored, so that the samples are of the light the filter reads along it
 	entry.normal = GiCacheUnpackNormal(GiCachePackNormal(normal));
 	bool moving = gi.moving != 0u && gGiFlags[GiFlagIndex(gi, blockIndex) + 1u] == gi.frameStamp;
-	uint cap = min(moving ? min(gi.cacheSampleCount, 32u) : gi.cacheSampleCount, 0xFFFFu);
+	uint cap = min(moving ? min(gi.cacheSampleCount, 32u) : (active ? gi.cacheSampleCount : gi.cacheIdleSampleCount), 0xFFFFu);
 	entry.count = min(entry.count, cap);
 	int3 world = int3(round(gi.volumeOrigin.xyz / gi.volumeOrigin.w)) + int3(at);
 	// a voxel no lookup reads (its block not active, see ComputeGiResolve) traces a ray every kGiCacheIdleFrameCount

@@ -1639,6 +1639,12 @@ struct GiData
 	// whether what an anchored entry's ray meets is lit at the hit itself (see GiHitLit; SPEEDO_GI_CACHE_LIT=0 for by its
 	// voxel's radiance, as the probes' rays' hits are)
 	alignas(4) UINT1(cacheLit);
+	// the most samples the mean of a voxel no lookup reads is of (it traces a ray every kGiCacheIdleFrameCount frames):
+	// cacheSampleCount, but while the cache follows lights that change, as many as span the frames cacheSampleCount does
+	alignas(4) UINT1(cacheIdleSampleCount);
+	alignas(4) UINT1(padding0); // std430's tail, to the struct's 16 byte alignment, explicit (see the top of the file)
+	alignas(4) UINT1(padding1);
+	alignas(4) UINT1(padding2);
 };
 
 struct PushConstants

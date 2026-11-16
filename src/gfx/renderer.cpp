@@ -4793,6 +4793,37 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 									   glm::dot(glm::make_vec3(now.direction), glm::make_vec3(last.direction)) >= core::Cos(glm::radians(kTurnDegrees)) &&
 									   ratio <= kDimRatio && ratio >= 1.0F / kDimRatio;
 							});
+	// how many samples the cache's means are of while it follows the lights: as many frames as the lights take to turn
+	// kFollowTurnDegrees or to dim by kFollowDimRatio, by this change and the frames since the last one (the sun is drawn
+	// again every 0.05 degrees, 12 frames at 60 times real time: 480 samples there, 48 at 600 times), at least 32, which is
+	// what a change after the lights stood still takes (its pace isn't known). it was 32 whatever the pace: once the rays'
+	// hits took the sun's light at the hit (GiHitLit), sharper than a voxel's, Sponza's corridor at 60 times real time
+	// changed by a seventh of its light from one second to the next, in patches half a metre wide (a twentieth before)
+	if (myGiLightsGradual)
+	{
+		constexpr float kFollowTurnDegrees = 2.0F;
+		constexpr float kFollowDimRatio = 1.1F;
+		float turn = 0.0F;
+		float dim = 0.0F;
+		for (size_t lightIt = 0; lightIt < frame.lights.size(); lightIt++)
+		{
+			const auto& now = frame.lights[lightIt];
+			const auto& last = myGiLights[lightIt];
+			auto luminance = [](const LightData& light)
+			{ return (0.2126F * light.intensity[0]) + (0.7152F * light.intensity[1]) + (0.0722F * light.intensity[2]); };
+			// (the angle by the cross product: the dot product of directions this close is 1 to a float's last digits)
+			turn = std::max(turn, glm::degrees(glm::length(glm::cross(glm::make_vec3(now.direction), glm::make_vec3(last.direction)))));
+			dim = std::max(dim, std::abs(core::Log2((luminance(now) + 1e-6F) / (luminance(last) + 1e-6F))));
+		}
+		float frames = static_cast<float>(myGiLightsStillFrames + 1);
+		float window = 65535.0F;
+		if (turn > 0.0F)
+			window = std::min(window, kFollowTurnDegrees * frames / turn);
+		if (dim > 0.0F)
+			window = std::min(window, core::Log2(kFollowDimRatio) * frames / dim);
+		myGiLightsFollowSampleCount = myGiLightsFollowFrames > 0 ? std::max(static_cast<uint32_t>(window), 32U) : 32U;
+	}
+	myGiLightsStillFrames = myGiLightsChanged ? 0 : myGiLightsStillFrames + 1;
 	if (myGiLightsGradual)
 		myGiLightsFollowFrames = kGiLightsFollowFrameCount;
 	else if (myGiLightsChanged)
@@ -5186,7 +5217,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// the surface cache (FrameInputs::giSurfaceCache), dropped when the lights change (their light is in it)
 		clip.cacheRayCount = frame.giSurfaceCache ? cacheRayCount : 0U;
 		// following lights that change gradually (see myGiLightsGradual) as where something moves
-		clip.cacheSampleCount = myGiLightsFollowFrames > 0 ? std::min(cacheSampleCount, 32U) : cacheSampleCount;
+		clip.cacheSampleCount = myGiLightsFollowFrames > 0 ? std::min(cacheSampleCount, myGiLightsFollowSampleCount) : cacheSampleCount;
+		// (kGiCacheIdleFrameCount: a voxel no lookup reads traces a ray every 8 frames)
+		clip.cacheIdleSampleCount = myGiLightsFollowFrames > 0 ? std::max(clip.cacheSampleCount / 8, 32U) : clip.cacheSampleCount;
 		clip.cacheReset = clock.updated && clock.cacheReset ? 1U : 0U;
 		uint32_t settledFrameCount = myGiCacheSettledFrameCount > 0 ? myGiCacheSettledFrameCount : 2 * myGiCacheSampleCount;
 		clip.cacheSettled = myGiTimeBased && myGiLightsFollowFrames == 0 && clock.updatesSinceCacheReset >= settledFrameCount ? 1U : 0U;

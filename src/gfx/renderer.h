@@ -734,6 +734,10 @@ private:
 	// kGiLightsFollowFrameCount)
 	bool myGiLightsGradual = false;
 	uint32_t myGiLightsFollowFrames = 0;
+	// while the cache follows them: the most samples a voxel's mean is of (see InternalPlanGi), and the frames since the
+	// lights last changed
+	uint32_t myGiLightsFollowSampleCount = 32;
+	uint32_t myGiLightsStillFrames = 0;
 	// whether the emitters started or stopped lighting this frame (the static voxels' kept part of their light is then made
 	// again, see GiData::lightsOnly)
 	bool myGiEmittersToggled = false;
