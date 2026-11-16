@@ -2467,6 +2467,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheKeepFrameCount = static_cast<uint32_t>(std::strtoul(keep, nullptr, 10));
 	if (const char* show = std::getenv("SPEEDO_GI_CACHE_SHOW"); show != nullptr)
 		myGiCacheShow = std::string_view(show) == "1";
+	if (const char* lookup = std::getenv("SPEEDO_GI_LOOKUP_LEVEL"); lookup != nullptr && *lookup != '\0')
+		myGiLookupLevel = std::min<uint32_t>(static_cast<uint32_t>(std::strtoul(lookup, nullptr, 10)), SHADER_TYPES_GI_LEVEL_COUNT - 1) + 1;
 	// the clipmap's levels (SPEEDO_GI_CLIP_COUNT, 3 by default: the scene's, and two of half and a quarter of its voxels
 	// around the camera, each of split screen's views its own)
 	if (const char* clipCount = std::getenv("SPEEDO_GI_CLIP_COUNT"); clipCount != nullptr && *clipCount != '\0')
@@ -5184,6 +5186,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		uint32_t settledFrameCount = myGiCacheSettledFrameCount > 0 ? myGiCacheSettledFrameCount : 2 * myGiCacheSampleCount;
 		clip.cacheSettled = myGiTimeBased && myGiLightsFollowFrames == 0 && clock.updatesSinceCacheReset >= settledFrameCount ? 1U : 0U;
 		clip.cacheShow = myGiCacheShow ? 1U : 0U;
+		clip.lookupLevel = myGiLookupLevel;
 		clip.cacheFilterPassCount = myGiCacheFilterPassCount;
 		// the cache's tables (see GiData::cacheTableFirst): the clip's blocks from its first flag's
 		uint32_t blockFirst = clip.flagFirst / SHADER_TYPES_GI_FLAG_WORD_COUNT;

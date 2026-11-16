@@ -1135,6 +1135,34 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   seeding a new cache entry with more of the coarser level's samples (`kGiCacheSeedCount` 8 to 64 and 512) changed
   nothing. What would remove it is light kept once per place, wherever the camera is, at several resolutions made of
   the same samples.
+- **What disagrees is where each level measures its light, not what its rays meet** (step 0 of the plan to remove it;
+  `SPEEDO_GI_LOOKUP_LEVEL=<n>`, `GiData::lookupLevel`: the shading takes no light from the levels finer than n, so one
+  settled state is seen through each level's light, the clips, their rays and the bounce the same; the near field
+  off, 2600 frames at the user's pose, the mean difference of 255 between the lookups from level 0, 1 and 2, and the
+  most in an eighth of the width, the floor along the curtains):
+
+  | | 0 against 1 | 1 against 2 | 0 against 2 | the floor's strip, 0 against 2 |
+  |---|---|---|---|---|
+  | as shaded (the near field on) | 1.64 | 2.23 | 3.39 | 8.6 |
+  | the near field off | 1.85 | 2.68 | 3.73 | 9.9 |
+  | the rays' hits lit by the last level's voxels, whatever the ray's | 1.64 | 2.94 | 3.92 | 11.4 |
+  | no bounce (`SPEEDO_GI_BOUNCE=0`) | 0.79 | 2.07 | 2.07 | 6.3 |
+  | the probes alone (`SPEEDO_GI_CACHE=0`) | 2.09 | 5.71 | 5.85 | 11.1 |
+  | the surface cache alone (`SPEEDO_GI_CACHE_SHOW=1`) | 1.84 | 2.72 | 3.73 | 10.0 |
+
+  So not the near field, and not the light at the rays' hits (which level's voxels a hit reads changes nothing): the
+  probes of each level, and the cache's entries of each level, gather differently. Two things, both of the voxel's
+  size. A level's light is measured off the surface by its own voxels: an entry's rays start at its voxel's center (an
+  air voxel's, up to 3 voxels off a surface) or a voxel out along the open side (a surface's), and a lookup reads 0.75
+  to 2.25 voxels off the surface: 4 to 13 cm at Sponza's finest level, 17 to 52 at its last, where the light changes
+  with the height over the floor (the sky under the curtains): the band of sky light along the curtains is the wider
+  the coarser the level. And a coarse voxel at a thin sheet holds both of its sides:
+  the corridor's side of the curtains is lit from the atrium at levels 1 and 2 (the last level's probe nearest a
+  point on it stands on the atrium's side, 0.003 to 0.009, where the finest level's entry beside it, 648 samples,
+  holds what its rays meet in the corridor, voxels of 0.00002 to 0.00003: the curtain is near black at level 0 and
+  dim red at the others, by leak). So the finer level is the truer, and what the levels need in order to agree is
+  to measure the same thing: the light arriving at the surface itself, per side it faces, averaged over the voxel's
+  footprint, whatever the voxel's size (the plan's step 1).
 - **A neural radiance cache in plain compute is affordable, and learns too slowly for this** (`tools/neuralbench.cpp`,
   `neuralbench.slang`: the gate of the plan to try one; the user asked for Slang's neural features to be looked at, and
   for hardware such as tensor cores to stay an opt in beside a portable default that is practically useful). A

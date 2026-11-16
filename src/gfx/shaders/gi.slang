@@ -207,6 +207,10 @@ GiClipView GiClipViewAt(uint clip)
 // clamped to the last clip's edges, the box needn't be inside it)
 float GiClipWeight(GiClipView clip, float3 position)
 {
+	// the levels finer than the one asked for light nothing (GiData::lookupLevel: a diagnostic)
+	uint lookupLevel = gGi[gPushConstants.frameIndex][0].lookupLevel;
+	if (lookupLevel != 0u && clip.level + 1u < lookupLevel)
+		return 0.0;
 	float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
 	float3 size = float3(clip.volumeSize.xyz);
 	float edge = min(min(coordinate.x, coordinate.y), min(coordinate.z, min(min(size.x - coordinate.x, size.y - coordinate.y), size.z - coordinate.z)));
