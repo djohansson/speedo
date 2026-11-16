@@ -257,6 +257,26 @@ the mean where any), and the indirect lighting's clips (voxel counts and sizes, 
 what moves). `SPEEDO_GPU_TIMINGS=1`'s exit summary has the frustum and triangle counts too. The cpu culling path
 (`SPEEDO_GPU_CULLING=0`) has no gpu statistics.
 
+`DebugViewIsData` is a mask of the views with its bit taken by a shift within the word, not a `switch`: the lost frames on
+D3D12 (the user's report, 2026-11-15: the sky and the ui flickering while flying Bistro with the ui up, the whole window
+showing a frame from a few frames back, then freezing; pose `SPEEDO_CAMERA=-1438.0128,278.4583,-267.8915,-10.585,88.481`,
+`SPEEDO_TIME_OF_DAY=13.612`, `SPEEDO_UNITS=cm`, 1920x1080, an RTX 4070 Ti SUPER). DXC compiles a `switch` whose cases
+return constants into a mask of its own, `lshr i32 <mask>, debugView - 1`, with the range check not before the shift but
+anded with its result: for `DEBUG_VIEW_NONE`, every ordinary frame's, a shift by 0xffffffff, which has no defined value
+in LLVM's IR and which DXIL's specification says nothing of. NVIDIA's driver then, in some frames, ran neither side of the
+branches on that flag: the threads of `ComputeMain` and `ComputeSharpen` (the two kernels that write the swapchain's
+image, the only two with the pattern) stored nothing past it, the image kept what it held 3 frames before (its last turn),
+and the present showed that. Which frames went by the frame's slot and the upscaler's parity (every 4th frame, every
+2nd, or all of them, for seconds; nothing lost under the debug layer, headless, or on Vulkan, whose code comes from
+SPIR-V), and oftener the further the cpu recorded ahead of the gpu, which is why it read as a race in the backend for a
+night (the queue, the command pools, the descriptor heaps, the fences and the barriers were each ruled out; a frame lost
+and one drawn record the same commands, tables and push constants). Found by markers stored from inside the kernel (a
+block of pixels per step, colored by the frame's slot): those before the flag's first branch were this frame's, those
+after the last turn's. Measured: 100 frames captured along a flight, the frames whose image is the same as 3 before
+counted: with the switch most runs lost from 24 to 97 of them, with the mask 0 in 22 runs (upscaling on and off, the ui
+up, fifo and mailbox). A `switch` of constants in a shader is the pattern to look for (`switch.downshift` in
+`<profile>/.slang.intermediate/*.dxil-asm`): none is left.
+
 ## GPU timings and shader tiers
 
 Gpu work is timed by one path: each queue's `rhi::GpuProfiler` (`rhi/gpuprofiler.h`, `Queue::GetProfiler`; only with

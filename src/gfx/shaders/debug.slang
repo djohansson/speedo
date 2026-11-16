@@ -8,34 +8,45 @@ uint DebugView()
 }
 
 // whether a debug view shows values rather than light: ComputeMain shows them as they are (clamped, then the srgb curve:
-// a base color looks as it does in a texture), without exposure or tonemapping
+// a base color looks as it does in a texture), without exposure or tonemapping. by a mask of the views (32 to a word),
+// its bit taken with a shift within the word, not by a switch: DXC makes a switch of constants a mask of its own, shifted
+// by the view less its first case without the range check before it (lshr i32 mask, debugView - 1: by 0xffffffff for
+// DEBUG_VIEW_NONE, every frame's; a shift past the width has no defined value in LLVM, and DXIL's specification gives it
+// none), and the range check anded with what comes of it. NVIDIA's driver (RTX 4070 Ti SUPER, 2026-11) then ran neither
+// side of the branches on the result in some frames: ComputeMain and ComputeSharpen wrote nothing, and the window showed
+// the image's last frame instead (the flicker on D3D12 while flying, the user's report of 2026-11-15; see
+// docs/notes/rendering.md)
+#define DEBUG_VIEW_DATA_WORD(view, word) ((((view) >> 5u) == (word)) ? (1u << ((view) & 31u)) : 0u)
+uint DebugViewDataWord(uint word)
+{
+	uint data = 0u;
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_BASE_COLOR, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_NORMAL, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_GEOMETRY_NORMAL, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_ROUGHNESS, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_METALLIC, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_OCCLUSION, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_MATERIAL, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_TEXCOORD, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_SHADOWS, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_LIGHT_COUNT, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_GI_VISIBILITY, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_GI_VOXEL_ALBEDO, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_GI_CLIP, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_GI_VOXEL_WORLD_ALBEDO, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_GI_PROBE_STATE, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_TRACED_SHADOW, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_TRACED_SHADOW_RAW, word);
+	data |= DEBUG_VIEW_DATA_WORD(DEBUG_VIEW_TRACED_SHADOW_REFERENCE, word);
+	return data;
+}
+
 bool DebugViewIsData(uint debugView)
 {
-	switch (debugView)
-	{
-	case DEBUG_VIEW_BASE_COLOR:
-	case DEBUG_VIEW_NORMAL:
-	case DEBUG_VIEW_GEOMETRY_NORMAL:
-	case DEBUG_VIEW_ROUGHNESS:
-	case DEBUG_VIEW_METALLIC:
-	case DEBUG_VIEW_OCCLUSION:
-	case DEBUG_VIEW_MATERIAL:
-	case DEBUG_VIEW_TEXCOORD:
-	case DEBUG_VIEW_SHADOWS:
-	case DEBUG_VIEW_LIGHT_COUNT:
-	case DEBUG_VIEW_GI_VISIBILITY:
-	case DEBUG_VIEW_GI_VOXEL_ALBEDO:
-	case DEBUG_VIEW_GI_CLIP:
-	case DEBUG_VIEW_GI_VOXEL_WORLD_ALBEDO:
-	case DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL:
-	case DEBUG_VIEW_GI_PROBE_STATE:
-	case DEBUG_VIEW_TRACED_SHADOW:
-	case DEBUG_VIEW_TRACED_SHADOW_RAW:
-	case DEBUG_VIEW_TRACED_SHADOW_REFERENCE:
-		return true;
-	default:
-		return false;
-	}
+	uint word = debugView >> 5u;
+	uint data = word == 0u ? DebugViewDataWord(0u) : word == 1u ? DebugViewDataWord(1u) : 0u;
+	return (data & (1u << (debugView & 31u))) != 0u;
 }
 
 // the indirect lighting's debug view (GiData::debug's numbering: 1 and up), or 0
