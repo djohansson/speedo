@@ -1074,3 +1074,65 @@ rays, 1.7 a candidate, 4.4 the filter. Not yet: the emitters' specular (a glossy
 a textured emitter's power by its texture (DamagedHelmet's triangles all candidates by the factor), and the light on blended
 surfaces.
 
+
+## The levels disagree, and what a neural cache would cost
+
+Two reports of the user's (2026-11-16) are of light where it is newly needed: what comes into view in a fast turn in a
+dark scene (the emitters' light, see "Emissive surfaces as lights"), and dark patches on the floor of Sponza's lower
+corridor that travel with the camera walking forward (the user's pose `3.9845,1.0230,-3.4321,-2.892,-91.017` at 10.5,
+`SPEEDO_AUTO_EXPOSURE=0`, the indirect diffuse view at exposure 7), which the user took for the clipmap's structure.
+
+- **Sponza's patches are the levels disagreeing.** Walking 5 cm a frame from `6.984,1.0230,-3.485,-2.892,-91.017`
+  through that pose, after a hold of 2000 frames (the surface cache's sample count is capped at half the frames since
+  the start: a hold of 240 measures its warm-up, not the walk, and with that the cache off seemed to remove the patch),
+  a walking frame is 2.0 to 5.7 of 255 from the settled frame of the same pose (a dark blob on the floor beside the
+  curtains, the walls too bright 4.8 m in), with the surface cache or without (2.2 and 5.2): the probes' too. And the
+  settled frames of one view with 1, 2 and 3 levels (`SPEEDO_GI_CLIP_COUNT`) are 4.7 and 4.1 apart on average, up to 12
+  in a strip, not in order (2 levels' walls the brightest), the walking frame like the 2 levels': the finer level's
+  light isn't there yet where the camera arrives, and what stands in for it is another answer, not a blurrier one. Each
+  level lights its own voxels with its own rays, so a place's light depends on which level the camera's distance gives
+  it. A fade by how far the finer level has converged would smooth the hand-over, not remove it, and wasn't built;
+  seeding a new cache entry with more of the coarser level's samples (`kGiCacheSeedCount` 8 to 64 and 512) changed
+  nothing. What would remove it is light kept once per place, wherever the camera is, at several resolutions made of
+  the same samples.
+- **A neural radiance cache in plain compute is affordable, and learns too slowly for this** (`tools/neuralbench.cpp`,
+  `neuralbench.slang`: the gate of the plan to try one; the user asked for Slang's neural features to be looked at, and
+  for hardware such as tensor cores to stay an opt in beside a portable default that is practically useful). A
+  multiresolution hash grid of learned features (8 levels of 2^17 entries of 2, 16 to 2048 cells a side) decoded by a
+  small network, trained by Adam on a made up scene's noisy estimates (walls an eighth apart, surfaces of a colour each,
+  a shadow's edge, four small bright lights; each estimate the radiance times a uniform 0 to 2; the error at 16384 places
+  no step sampled, the difference's share of the light), 16384 samples a step, on an RTX 4070 Ti SUPER, Vulkan's times
+  (D3D12's 10 to 35% more; Metal's not measured):
+
+  | | 129600 queries | 2073600 queries | a step | error after 1, 16, 64, 256, 1024 steps |
+  |---|---|---|---|---|
+  | the grid alone (the features' weighted sum) | 0.13 ms | 2.1 ms | 0.12 ms | 90, 63, 45, 26, 15% |
+  | 2 layers of 32 | 0.12 | 1.8 | 0.14 | 99, 68, 35, 16, 9.7% |
+  | 2 layers of 64 | 0.30 | 4.9 | 0.23 | 98, 55, 31, 15, 9.6% |
+  | 4 layers of 64 | 0.71 | 11.3 | 0.42 | 98, 54, 36, 15, 9.7% |
+  | 2 of 32 over 12 levels of 2^19 | 0.16 | 2.6 | 0.63 | 97, 59, 31, 16, 8.9% |
+  | cells of running means, 4 levels (16 to 128 a side) | 0.012 | 0.18 | 0.010 | 38, 20, 13, 9.6, 7.6% |
+
+  The cost is no obstacle: every sixteenth pixel queried and four steps a frame is under a millisecond for the small
+  network. A step's time is its samples' pass (their answers, gradients back through the layers, and the grid's
+  gradients added with integer atomics, fixed point, the one kind every backend has: 0.09 ms of 2 of 32's 0.14), then the
+  weights' gradients as a matrix product of the samples' gradients and inputs, a thread per 4 by 4 weights and chunk of
+  256 samples (0.025), not per sample atomics on every weight. But the size of the network hardly changes how fast it
+  learns, nor do the rates (the grid's 0.01 to 0.1, the weights' 0.003 to 0.03: 26 to 35% after 64 steps) or four
+  times the samples a step (30% after 64, 7.6% after 1024, at 0.52 ms a step): it takes tens of steps whatever it is
+  given, as Mueller et al. 2021 say of theirs (usable after 8 frames of 4 steps, right after 64). Cells of running
+  means given the same samples (each sample added to its cell at every level, a query the finest level's cell that
+  holds 16) are at the network's 64 steps after 4, at its 256 after 64, and ahead of it still at 1024, for a tenth of
+  the time: a mean is as good as its samples from the first, and its coarser levels are the same samples' means, so
+  they agree. The made up scene flatters neither much: its cells are dense and stop at 128 a side, where a real scene
+  needs them hashed and finer, and the network's answers are smooth where a cell's are flat.
+- **Slang's neural module** (`slang/neural.slang`, 2026.22, experimental: "do not use in production"): its layers'
+  portable vectors (`InlineVector`) sum the weights' gradients with an atomic add per sample and weight (a compare and
+  exchange loop on floats on HLSL), which is the pattern the benchmark's matrix product avoids, and its accelerated ones
+  (`WaveTangledVector`) are cooperative matrices, on CUDA, Metal and SPIR-V (`VK_KHR_cooperative_matrix`), none on
+  D3D12 (cooperative vectors left shader model 6.9 for 6.10); `CoopVec` is NVIDIA's Vulkan extension. So an opt in for
+  such hardware would be per backend, behind an rhi capability, and nothing to build on yet.
+
+So the replacement for the levels' light, if one is made, is world-anchored cells of means at several resolutions (as
+the hashed radiance caches keep theirs), not a network: the network stays an option for what cells can't hold (a glossy
+lobe's radiance by direction), where its tens of steps are affordable.

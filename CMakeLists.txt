@@ -824,6 +824,23 @@ target_link_libraries(
 )
 add_dependencies(rhitest shadercompiler)
 
+# what a neural radiance cache costs in plain compute on each backend the build has (see src/tools/neuralbench.cpp,
+# docs/notes/indirect-lighting.md)
+add_executable(neuralbench ${SPEEDO_SOURCE_DIR}/tools/neuralbench.cpp)
+target_compile_features(
+	neuralbench
+	PUBLIC
+		cxx_std_26
+)
+target_link_libraries(
+	neuralbench
+	PRIVATE
+		${SPEEDO_MIMALLOC}
+		gfx
+		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
+)
+add_dependencies(neuralbench shadercompiler)
+
 ###############################################################################
 
 # compares ways of reading files (std streams, stdio, core's memory mapped files), warm and cold, and times the
