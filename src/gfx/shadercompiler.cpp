@@ -16,6 +16,12 @@
 
 #include <xxhash.h>
 
+#if defined(_WIN32)
+#	include <windows.h>
+
+#	include <directx-dxc/dxcapi.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cstdlib>
@@ -41,6 +47,52 @@ namespace gfx::shadercompiler
 
 namespace
 {
+
+// DXIL whose value NVIDIA's driver may not compute (docs/notes/rendering.md, "Debug views": the frames lost on D3D12,
+// 2026-11-15): DXC compiles a switch whose cases give constants into a table in an integer, shifted down by the case
+// (%switch.downshift = lshr <table>, %switch.tableidx), and may move the shift out from behind the range check: past the
+// integer's width for a value outside the cases, which has no defined result in LLVM's IR nor in DXIL's specification,
+// and the driver then ran neither side of the branches on it. an error naming the entry point, by its disassembly (DXC's,
+// which slang has loaded: the names of the values are in the binary), so that such a switch never ships: written as a
+// mask with the shift within the word instead (DebugViewIsData), nothing is left to move. empty where the code has none
+// (or isn't DXIL's platform's: DXC's disassembler is asked for on Windows, where the D3D12 backend is)
+std::string CheckDxilSwitchTables([[maybe_unused]] std::span<const std::byte> code, [[maybe_unused]] std::string_view entryPoint)
+{
+#if defined(_WIN32)
+	HMODULE library = GetModuleHandleW(L"dxcompiler.dll");
+	auto* create = library != nullptr ? reinterpret_cast<DxcCreateInstanceProc>(reinterpret_cast<void*>(GetProcAddress(library, "DxcCreateInstance"))) : nullptr;
+	if (create == nullptr)
+		return std::format("{}: DXC isn't loaded to check its DXIL (dxcompiler.dll)", entryPoint);
+	IDxcCompiler3* compiler = nullptr;
+	if (FAILED(create(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler))))
+		return std::format("{}: DXC gave no compiler to check its DXIL", entryPoint);
+	const DxcBuffer buffer{.Ptr = code.data(), .Size = code.size(), .Encoding = DXC_CP_ACP};
+	IDxcResult* result = nullptr;
+	std::string error;
+	if (SUCCEEDED(compiler->Disassemble(&buffer, IID_PPV_ARGS(&result))) && result != nullptr)
+	{
+		IDxcBlobUtf8* text = nullptr;
+		if (SUCCEEDED(result->GetOutput(DXC_OUT_DISASSEMBLY, IID_PPV_ARGS(&text), nullptr)) && text != nullptr)
+		{
+			if (std::string_view(text->GetStringPointer(), text->GetStringLength()).contains("%switch.downshift"))
+				error = std::format(
+					"{}: DXC compiled a switch of constants into a table shifted by the case (%switch.downshift), which may shift past "
+					"its width: write it as a mask with the shift within the word (see DebugViewIsData, debug.slang)",
+					entryPoint);
+			text->Release();
+		}
+		else
+			error = std::format("{}: DXC's disassembly of its DXIL has no text", entryPoint);
+		result->Release();
+	}
+	else
+		error = std::format("{}: DXC failed to disassemble its DXIL", entryPoint);
+	compiler->Release();
+	return error;
+#else
+	return {};
+#endif
+}
 
 // the slang target and profile that produce shaders of format
 std::tuple<SlangCompileTarget, const char*> SlangTarget(rhi::ShaderFormat format)
@@ -960,9 +1012,10 @@ std::string CompileSpecializations(
 				rhi::ShaderBinary code(blob->getBufferSize());
 				std::memcpy(code.data(), blob->getBufferPointer(), blob->getBufferSize());
 				const auto shader = static_cast<uint32_t>(reading[readingIt]);
-				if (value == 0)
+				error = CheckDxilSwitchTables(std::as_bytes(std::span(code)), request.entryPoints[reading[readingIt]].name);
+				if (error.empty() && value == 0)
 					std::get<0>(shaderSet.shaders[shader]) = std::move(code);
-				else
+				else if (error.empty())
 					shaderSet.specializations.push_back({.shader = shader, .value = value, .code = std::move(code)});
 			}
 			if (blob != nullptr)
@@ -1058,6 +1111,13 @@ Response Compile(const Request& request)
 		shaderSet.shaders.emplace_back(blob->getBufferSize(), entryPoints[entryPointIt]);
 		std::memcpy(std::get<0>(shaderSet.shaders.back()).data(), blob->getBufferPointer(), blob->getBufferSize());
 		blob->release();
+		if (request.format == rhi::ShaderFormat::kDxil)
+			if (auto error = CheckDxilSwitchTables(std::as_bytes(std::span(std::get<0>(shaderSet.shaders.back()))), std::get<0>(entryPoints[entryPointIt])); !error.empty())
+			{
+				spDestroyCompileRequest(slangRequest);
+				response.diagnostics += error;
+				return response;
+			}
 	}
 
 	slang::ShaderReflection* shaderReflection = slang::ShaderReflection::get(slangRequest);

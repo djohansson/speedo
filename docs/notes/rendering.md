@@ -274,8 +274,11 @@ and one drawn record the same commands, tables and push constants). Found by mar
 block of pixels per step, colored by the frame's slot): those before the flag's first branch were this frame's, those
 after the last turn's. Measured: 100 frames captured along a flight, the frames whose image is the same as 3 before
 counted: with the switch most runs lost from 24 to 97 of them, with the mask 0 in 22 runs (upscaling on and off, the ui
-up, fifo and mailbox). A `switch` of constants in a shader is the pattern to look for (`switch.downshift` in
-`<profile>/.slang.intermediate/*.dxil-asm`): none is left.
+up, fifo and mailbox). A `switch` of constants in a shader is the pattern (`%switch.downshift` in its DXIL's
+disassembly, as in `<profile>/.slang.intermediate/*.dxil-asm`): none is left, and the shader compiler refuses one
+(`CheckDxilSwitchTables`, `gfx/shadercompiler.cpp`: each entry point's DXIL disassembled by DXC and searched, an error
+naming the entry point; the old `switch` put back failed `ComputeMain`'s compile so, and a cold compile of every shader
+takes 165 s with the check as without).
 
 ## GPU timings and shader tiers
 
