@@ -131,6 +131,14 @@ uint GiVoxelFacings(float3 normal, bool drawn)
 	return facings << (drawn ? kGiVoxelDrawnShift : kGiVoxelUndrawnShift);
 }
 
+// the axis and sign of one of a voxel's facings (GiVoxelFacings's bits, 0 to 5)
+float3 GiFacingAxis(uint facing)
+{
+	float3 axis = 0.0;
+	axis[facing >> 1] = (facing & 1u) != 0u ? -1.0 : 1.0;
+	return axis;
+}
+
 // a voxel's normal (GiVoxel::normal): octahedral, x in bits 8 to 18 and y in bits 19 to 28, the axis it is most along
 // in bits 29 and 30 (z over y over x), then whether a drawn side wrote it (bit 31, see ComputeGiVoxelize); and in the
 // low 8 bits where that side's surface is (GiVoxelPlane), so that the atomic maximum the voxelizer keeps is one side's
@@ -165,6 +173,10 @@ float GiVoxelPlane(uint bits)
 {
 	return float(bits & 0xFFu) / 255.0 * 2.0 - 1.5;
 }
+
+// how far inside the other side of something thinner than a voxel a point is to be, in voxels, for that side's voxels
+// to be left out of its lookup (GiFarSides): the planes are kept to 1/128 of a voxel (GiVoxelPlane)
+static const float kGiFarSideMargin = 1.0 / 32.0;
 
 // a voxel between the two sides of something thinner than a voxel (a shelf's board, a panel, a pane): in front of a
 // drawn side, and behind the front of a surface that faces the other way (a side never drawn wrote it with a normal the
@@ -685,11 +697,112 @@ float GiVisibility(GiData gi, float3 origin, float3 direction, float distance, b
 	return GiOccluderDistance(gi, origin, direction, distance) < distance ? 0.0 : 1.0;
 }
 
+// a lit voxel's radiance's fourth component (gGiRadiance: 1 a lit voxel, 0 none) where the voxel's entry of the surface
+// cache is inside something (GiKeptInside, which ComputeGiLight copies here: what a ray met reads the radiance, the
+// kept light apart would be a read more a hit, in a buffer the near field's pass doesn't use)
+static const float kGiRadianceInside = 0.5;
+
+// how far off a voxel's surface (GiVoxelPlane), in voxels, a ray's hit may be for a voxel beside the hit's own to stand
+// for it (GiHitVoxel)
+static const float kGiHitBesideReach = 0.25;
+
+// the lit voxel of a clip that stands for the triangle a ray met (coordinate: where, in the clip's voxels; normal: the
+// triangle's, toward the ray's side; false: none; its index in the buffers, its radiance and itself out): the voxel half
+// a voxel off the surface on the ray's side, which stands for the surface as seen and lit from there (see
+// ComputeGiVoxelize), else the voxel the point is in or the next one out (a voxel's samples needn't land where the hit
+// is, at a thin or curved surface). but not one that holds the light of the other side of what the ray met, while there
+// is another: one whose entry of the surface cache is inside something (kGiRadianceInside: its own point and its rays
+// are behind a surface), or one that only sides never drawn wrote, with another normal than the triangle's (it is
+// behind a single sided surface, and holds the light there). where one of the three is refused, the six beside the
+// first are looked at (across its nearer faces first): one that is the triangle's own (a drawn side's, of the
+// triangle's normal, the hit within kGiHitBesideReach of its surface, GiVoxelPlane: a wall's voxel beside a thing
+// smaller than a voxel isn't), else the first that isn't refused, and only then the refused one.
+// salle_de_bain's wall is a sheet, behind which the window's light, a plane as big as the wall, lights the back of
+// things 15 to 25 times as bright as the room; its shelves are boxes that reach 2.6 cm through the sheet. a ray that
+// met the foot of a shelf's side, the last 10 cm of it before the wall (what is left of the voxel under the wall's
+// own), took the light of the voxel there, which is the shelf's back's, or of the one beside it, the wall's back's (9
+// where the room's is 0.6). the wall's voxels along the shelf, an eighth of whose rays meet the side that low (some
+// start on it, in the wall's voxel's footprint, and leave into it), held up to twice their light, each by what those
+// voxels happened to hold: light blobs up the wall beside the shelves, along the recess's edges, under the ceiling and
+// in the niche under the window (the user's report, 2026-11-17).
+// tried: every voxel refused whose normal is more than 60 degrees off the triangle's and whose surface the hit is
+// behind, and the voxels beside looked at wherever the first's normal was another (the same picture, and the same
+// time: not kept, the fewer refused the better where things are smaller than a voxel)
+bool GiHitVoxel(GiClipView clip, float3 coordinate, float3 normal, out uint index, out float4 radiance, out GiVoxel voxel)
+{
+	uint3 size = clip.volumeSize.xyz;
+	index = 0u;
+	radiance = 0.0;
+	voxel = (GiVoxel)0;
+	// the first refused, and the first beside that isn't (but isn't the triangle's own)
+	uint refused = ~0u;
+	uint other = ~0u;
+	float3 point = coordinate + normal * 0.5;
+	int3 first = int3(floor(point));
+	float3 within = point - float3(first) - 0.5;
+	float3 nearness = abs(within);
+	for (uint candidateIt = 0; candidateIt < 9; candidateIt++)
+	{
+		int3 at;
+		bool beside = candidateIt >= 3u;
+		if (!beside)
+		{
+			const float kOffsets[3] = {0.5, 0.0, 1.0};
+			at = int3(floor(coordinate + normal * kOffsets[candidateIt]));
+		}
+		else
+		{
+			if (refused == ~0u)
+				break;
+			if (candidateIt == 6u)
+				nearness = abs(within);
+			uint axis = nearness.x >= nearness.y && nearness.x >= nearness.z ? 0u : (nearness.y >= nearness.z ? 1u : 2u);
+			int3 step = int3(0, 0, 0);
+			step[axis] = (within[axis] >= 0.0) == (candidateIt < 6u) ? 1 : -1;
+			nearness[axis] = -1.0;
+			at = first + step;
+		}
+		if (!GiInside(at, size))
+			continue;
+		uint candidate = clip.voxelFirst + GiVoxelIndex(uint3(at), size);
+		float4 found = GiUnpackRgba16(gGiRadiance[candidate]);
+		if (found.a <= 0.0)
+			continue;
+		GiVoxel met = gGiVoxels[candidate];
+		bool drawn = (met.normal & kGiVoxelNormalDrawn) != 0u;
+		float3 facing = GiVoxelNormal(met.normal);
+		bool same = dot(normal, facing) >= 0.5;
+		if (found.a < 0.75 || (!drawn && !same))
+		{
+			if (refused == ~0u)
+				refused = candidate;
+			continue;
+		}
+		if (beside && !(drawn && same && abs(dot(coordinate - (float3(at) + 0.5), facing) - GiVoxelPlane(met.normal)) < kGiHitBesideReach))
+		{
+			if (other == ~0u)
+				other = candidate;
+			continue;
+		}
+		index = candidate;
+		radiance = found;
+		voxel = met;
+		return true;
+	}
+	index = other != ~0u ? other : refused;
+	if (index == ~0u)
+	{
+		index = 0u;
+		return false;
+	}
+	radiance = GiUnpackRgba16(gGiRadiance[index]);
+	voxel = gGiVoxels[index];
+	return true;
+}
+
 // the radiance where a ray met a triangle (position; normal: the triangle's, toward the side the ray came from), and the
-// emission in it (out): the voxel half a voxel off the surface on that side, which stands for the surface as seen and lit
-// from there (see ComputeGiVoxelize), else the voxel the point is in or the next one out (a voxel's samples needn't
-// land where the hit is, at a thin or curved surface); 0 if all are empty. in the finest clip from firstClip whose box
-// around the eye holds the point (the last holds everything), as the voxel walk reads a clip until it leaves that box
+// emission in it (out): its voxel's (GiHitVoxel); 0 if it has none. in the finest clip from firstClip whose box around
+// the eye holds the point (the last holds everything), as the voxel walk reads a clip until it leaves that box
 float3 GiRadianceAtHit(uint firstClip, float3 position, float3 normal, out float3 emission)
 {
 	emission = 0.0;
@@ -702,24 +815,13 @@ float3 GiRadianceAtHit(uint firstClip, float3 position, float3 normal, out float
 			break;
 	}
 	GiClipView clip = GiClipViewAt(clipIt);
-	uint3 size = clip.volumeSize.xyz;
-	float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
-	const float kOffsets[3] = {0.5, 0.0, 1.0};
-	for (uint offsetIt = 0; offsetIt < 3; offsetIt++)
-	{
-		int3 voxel = int3(floor(coordinate + normal * kOffsets[offsetIt]));
-		if (!GiInside(voxel, size))
-			continue;
-		uint index = GiVoxelIndex(uint3(voxel), size);
-		float4 found = GiUnpackRgba16(gGiRadiance[clip.voxelFirst + index]);
-		if (found.a > 0.0)
-		{
-			GiVoxel met = gGiVoxels[clip.voxelFirst + index];
-			emission = float3(GiUnpackHalf2(met.emissionRG), GiUnpackHalf2(met.emissionB).x);
-			return found.rgb;
-		}
-	}
-	return 0.0;
+	uint index;
+	float4 found;
+	GiVoxel met;
+	if (!GiHitVoxel(clip, (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w, normal, index, found, met))
+		return 0.0;
+	emission = float3(GiUnpackHalf2(met.emissionRG), GiUnpackHalf2(met.emissionB).x);
+	return found.rgb;
 }
 
 // the radiance a ray took off the triangle it hit: the light its voxel reflects (GiRadianceAtHit, less the emission in
@@ -863,19 +965,14 @@ float3 GiHitLit(GiData walk, float3 position, BvhHit hit, float random, out floa
 			break;
 	}
 	GiClipView clip = GiClipViewAt(clipIt);
-	uint3 size = clip.volumeSize.xyz;
-	float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
-	const float kOffsets[3] = {0.5, 0.0, 1.0};
-	for (uint offsetIt = 0; offsetIt < 3 && !back; offsetIt++)
+	uint index;
+	float4 radiance;
+	GiVoxel voxel;
+	// (once: the voxel that stands for the hit, see GiHitVoxel)
+	for (uint onceIt = 0; onceIt < 1 && !back; onceIt++)
 	{
-		int3 at = int3(floor(coordinate + hit.normal * kOffsets[offsetIt]));
-		if (!GiInside(at, size))
-			continue;
-		uint index = clip.voxelFirst + GiVoxelIndex(uint3(at), size);
-		float4 radiance = GiUnpackRgba16(gGiRadiance[index]);
-		if (radiance.a <= 0.0)
-			continue;
-		GiVoxel voxel = gGiVoxels[index];
+		if (!GiHitVoxel(clip, (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w, hit.normal, index, radiance, voxel))
+			break;
 		GiVoxel kept = gGiStaticVoxels[index];
 		if (kept.albedo != voxel.albedo || kept.normal != voxel.normal)
 			break;
@@ -1423,6 +1520,20 @@ uint2 GiPackKept(float3 light, float3 toward, float open)
 		way.x | (way.y << 8) | (way.z << 16) | (uint(round(saturate(open / kGiOpenReach) * 255.0)) << 24));
 }
 
+// what a voxel keeps whose entry of the surface cache is inside something (more of its rays than kGiInsideShare start
+// behind a surface, see GiCacheUpdate): no emitters' light, and a way no direction packs to, which marks it
+// (GiKeptInside) for what a ray met in it to take another voxel's light (GiHitVoxel). its light is of where its own
+// point and its entry's rays are, behind that surface, not of what is seen in it from the front
+uint2 GiPackKeptInside(float open)
+{
+	return uint2(0u, 0xFFFFFFu | (uint(round(saturate(open / kGiOpenReach) * 255.0)) << 24));
+}
+
+bool GiKeptInside(uint2 kept)
+{
+	return (kept.y & 0xFFFFFFu) == 0xFFFFFFu;
+}
+
 float GiKeptOpen(uint2 kept)
 {
 	return float(kept.y >> 24) / 255.0 * kGiOpenReach;
@@ -1645,6 +1756,7 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 	// (not traced a frame: what moves is rarely in a slot thinner than a voxel)
 	float open = still ? direct.a * gi.volumeOrigin.w : kGiOpenReach * gi.volumeOrigin.w;
 	float3 radiance;
+	bool inside = false;
 	// the kept light, unless a moving block lies between the voxel and a light that lights it (its shadow)
 	if (still && !(gi.moving != 0u && GiMovingShadows(gi, at, voxel)))
 	{
@@ -1655,8 +1767,11 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 		// rays, which read the voxels they meet, drew light splotches along the edges beside salle_de_bain's window (the
 		// user's report, 2026-11-17)
 		radiance = direct.rgb;
+		uint2 keptLight = gGiKept[index];
 		if (EmittersLight())
-			radiance += albedo.rgb / 3.14159265 * GiKeptIrradiance(gGiKept[index], GiVoxelNormal(voxel.normal));
+			radiance += albedo.rgb / 3.14159265 * GiKeptIrradiance(keptLight, GiVoxelNormal(voxel.normal));
+		// (and whether its entry of the surface cache is inside something, with the radiance: see kGiRadianceInside)
+		inside = GiKeptInside(keptLight);
 	}
 	else
 		radiance = GiDirectRadiance(gi, at, voxel, albedo, true, open, true);
@@ -1677,7 +1792,7 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 		if (!any(isnan(bounce)) && !any(isinf(bounce)))
 			radiance += albedo.rgb * max(bounce, 0.0);
 	}
-	gGiRadiance[gi.voxelFirst + threadId.x] = GiPackRgba16(float4(radiance, 1.0));
+	gGiRadiance[gi.voxelFirst + threadId.x] = GiPackRgba16(float4(radiance, inside ? kGiRadianceInside : 1.0));
 }
 
 // the flags (gGiFlags, see SHADER_TYPES_GI_FLAG_LEVEL): per block of voxels, after the voxels are lit (which stamps the
@@ -2796,6 +2911,8 @@ static const uint kGiCacheIdleFrameCount = 8u;
 // an entry's samples of the emitters' light (see GiCacheUpdate): one every so many of its rays, of so many candidates
 static const uint kGiCacheEmitterRayCount = 8u;
 static const uint kGiCacheEmitterCandidateCount = 2u;
+// how much of the emitters' light a voxel keeps is that of the voxels beside it on its surface (see GiCacheUpdate)
+static const float kGiKeptNeighbourShare = 0.8;
 static const uint kGiCacheSeenFrameCount = 2u;
 static const float3 kGiCacheLuminance = float3(0.2126, 0.7152, 0.0722);
 
@@ -3361,10 +3478,50 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	GiCacheStore(index, entry);
 	// what the voxel keeps of the emitters' light is the entry's from its first sample of it, written when it takes one
 	// (see ComputeGiLight; the rays of this update that meet the voxel read either, the entry's of this frame or the last)
-	if (emitterSampled)
+	// (and none, marked, where the entry is inside something: see GiPackKeptInside)
+	bool insideEntry = anchoredEntry && rayCount != 0u && inside > kGiInsideShare * (float(entry.count) + inside);
+	if (emitterSampled || insideEntry)
 	{
 		uint voxelIndex = gi.voxelFirst + GiVoxelIndex(at, size);
-		gGiKept[voxelIndex] = GiPackKept(entry.emitterLight, entry.emitterToward, GiUnpackRgba16(gGiDirect[voxelIndex]).a);
+		float open = GiUnpackRgba16(gGiDirect[voxelIndex]).a;
+		// what is kept is the entry's with what the voxels beside it on the same surface keep (the six across its faces
+		// whose normals agree, GiCacheAgreement; not those inside something), kGiKeptNeighbourShare of it theirs: each
+		// time one is written it takes the others' as they are, so the estimates spread a voxel or two along the surface.
+		// a sample is all or nothing of a light that may be mostly hidden (from salle_de_bain's shelves' sides, a few
+		// percent of the plane behind the window), and a voxel's own hundred samples left it half off or twice what it
+		// should be, each voxel differently: blobs in the light the sides bounce to the wall beside them (the user's
+		// report, 2026-11-17). tried with it: an entry's first 64 samples one a ray (Bistro's indirect lighting 0.18 ms a
+		// frame more, settled: not kept)
+		float3 light = entry.emitterLight;
+		float3 way = entry.emitterToward * dot(light, kGiCacheLuminance);
+		float3 othersLight = 0.0;
+		float3 othersWay = 0.0;
+		float others = 0.0;
+		for (uint neighbourIt = 0; neighbourIt < 6u && !insideEntry; neighbourIt++)
+		{
+			int3 step = int3(0, 0, 0);
+			step[neighbourIt >> 1] = (neighbourIt & 1u) != 0u ? 1 : -1;
+			int3 neighbour = int3(at) + step;
+			if (!GiInside(neighbour, size))
+				continue;
+			uint neighbourIndex = gi.voxelFirst + GiVoxelIndex(uint3(neighbour), size);
+			GiVoxel beside = gGiVoxels[neighbourIndex];
+			uint2 theirs = gGiKept[neighbourIndex];
+			if ((beside.albedo >> 24) == 0u || GiKeptInside(theirs))
+				continue;
+			float agreement = GiCacheAgreement(GiVoxelNormal(beside.normal), normal);
+			float3 theirLight = GiKeptLight(theirs);
+			othersLight += agreement * theirLight;
+			othersWay += agreement * GiKeptToward(theirs) * dot(theirLight, kGiCacheLuminance);
+			others += agreement;
+		}
+		if (others > 0.0)
+		{
+			float share = kGiKeptNeighbourShare * min(others, 1.0);
+			light = lerp(light, othersLight / others, share);
+			way = lerp(way, othersWay / others, share);
+		}
+		gGiKept[voxelIndex] = insideEntry ? GiPackKeptInside(open) : GiPackKept(light, way / max(dot(light, kGiCacheLuminance), 1e-30), open);
 	}
 	if (dumped)
 	{
@@ -3612,6 +3769,17 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 
 	int step = 1 << (pass - 1u);
 	float light = GiCacheLight(self.faces, self.normal);
+	// the ways the drawn sides that wrote the voxel face: it is in front of a surface facing each, and a voxel behind it
+	// that way (its place, and its open side not that way too: one along the same slanted or curved surface is) is on
+	// the surface's other side, whatever its open side. the end of salle_de_bain's niche under the window is a single
+	// sheet, past which the niche's back wall's voxels go on as those in front of the window's light, the same way up
+	// and a voxel's height apart, 8 times as bright and noisy enough to pass for the wall's noise: the wall's last voxel
+	// took a share of them and showed twice its light (a bright corner, the user's report, 2026-11-17)
+	uint drawnFacings = gi.cacheThin != 0u && GiCacheAnchored(gi) && !spread
+						   ? (gGiVoxels[gi.voxelFirst + GiVoxelIndex(at, size)].emissionB >> kGiVoxelDrawnShift) & 0x3Fu : 0u;
+	// (not the ways its own open side is: what is behind it that way and of another surface has another open side,
+	// GiCacheAgreement. so none for most voxels, a flat surface's, and the taps aren't looked at)
+	drawnFacings &= ~(GiVoxelFacings(self.normal, false) >> kGiVoxelUndrawnShift);
 	int reach = active && !spread ? 1 : (spread ? -1 : 0);
 	for (int z = -reach; z <= reach; z++)
 		for (int y = -reach; y <= reach; y++)
@@ -3623,6 +3791,14 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 					continue;
 				GiCacheTap tap = (x == 0 && y == 0 && z == 0) ? self : GiCacheReadTap(gi, source, uint3(neighbour), blocks);
 				if (tap.confidence <= 0.0)
+					continue;
+				bool behind = false;
+				for (uint facingIt = 0; facingIt < 6u && drawnFacings != 0u; facingIt++)
+				{
+					float3 axis = GiFacingAxis(facingIt);
+					behind = behind || ((drawnFacings & (1u << facingIt)) != 0u && dot(float3(offset), axis) < 0.0 && dot(tap.normal, axis) < 0.5);
+				}
+				if (behind)
 					continue;
 				float kernel = (x == 0 ? 0.5 : 0.25) * (y == 0 ? 0.5 : 0.25) * (z == 0 ? 0.5 : 0.25);
 				float plane = dot(float3(offset), self.normal);
@@ -3692,7 +3868,17 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 			if (!GiInside(neighbour, size))
 				continue;
 			GiCacheTap other = GiCacheReadTap(gi, source, uint3(neighbour), blocks);
-			if (other.confidence <= 0.0 || dot(other.normal, facing) > -0.5)
+			// (where the other side's voxel holds no light of its own, its entry inside something, there is none to
+			// compare: marked. the back of salle_de_bain's shelves, behind the wall, is lit 25 times as bright as the room,
+			// the voxel across it is inside the shelf's board, and the foot of the board's side read the back's: a bright
+			// line up the side where it meets the wall, the user's report, 2026-11-17)
+			if (other.confidence <= 0.0)
+			{
+				GiVoxel across = gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(neighbour), size)];
+				sided = (across.albedo >> 24) != 0u && dot(GiVoxelNormal(across.normal), facing) < -0.5;
+				continue;
+			}
+			if (dot(other.normal, facing) > -0.5)
 				continue;
 			float difference = 0.0;
 			float sum = 0.0;
@@ -3705,6 +3891,31 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 			}
 			sided = difference > kGiFarSideDifference * sum;
 		}
+	}
+	// and one behind a single sided surface (a side never drawn wrote it: it is behind the front of a surface whose back
+	// faces that way), where the voxel in front of that surface holds another light: the lookups in front leave it out
+	// (GiFarSides)
+	uint undrawnFacings = gi.cacheThin != 0u && GiCacheAnchored(gi) && !spread && !sided ? (shown.emissionB >> kGiVoxelUndrawnShift) & 0x3Fu : 0u;
+	for (uint facingIt = 0; facingIt < 6u && !sided; facingIt++)
+	{
+		if ((undrawnFacings & (1u << facingIt)) == 0u)
+			continue;
+		int3 neighbour = int3(at) - int3(GiFacingAxis(facingIt));
+		if (!GiInside(neighbour, size))
+			continue;
+		GiCacheTap other = GiCacheReadTap(gi, source, uint3(neighbour), blocks);
+		if (other.confidence <= 0.0)
+			continue;
+		float difference = 0.0;
+		float sum = 0.0;
+		for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+		{
+			float own = dot(filtered[faceIt], kGiCacheLuminance);
+			float others = dot(other.faces[faceIt], kGiCacheLuminance);
+			difference += abs(own - others);
+			sum += own + others;
+		}
+		sided = difference > kGiFarSideDifference * sum;
 	}
 	gGiVolumeImages[0][texel] = float4(sh[0].r, sh[1].r, sh[2].r, sh[3].r);
 	gGiVolumeImages[1][texel] = float4(sh[0].g, sh[1].g, sh[2].g, sh[3].g);
@@ -4309,9 +4520,9 @@ GiSample GiSampleClipAt(GiClipView gi, float3 coordinate)
 	return result;
 }
 
-// how far inside the other side of something thinner than a voxel a point is to be, in voxels, for that side's voxels
-// to be left out of its lookup (GiFarSides): the planes are kept to 1/128 of a voxel (GiVoxelPlane)
-static const float kGiFarSideMargin = 1.0 / 32.0;
+// how far back from a voxel's center the way a side never drawn that wrote it faces, in voxels, a lookup's point is
+// taken to be in front of that side's surface (GiFarSides)
+static const float kGiBehindReach = 0.5;
 // how far the two sides' light is to differ (the faces' differences over their sums) for their voxels to be marked for
 // the lookups (see ComputeGiCacheFilter)
 static const float kGiFarSideDifference = 0.15;
@@ -4339,9 +4550,17 @@ uint GiFarSides(GiClipView gi, float3 coordinate)
 		if (share.x * share.y * share.z <= 0.0 || !GiInside(at, size))
 			continue;
 		GiVoxel voxel = gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(at), size)];
+		float3 offset = coordinate - (float3(at) + 0.5);
+		// (one behind a single sided surface, by the ways the sides never drawn that wrote it face: the surface is within a
+		// voxel of its center that way back, so a point more than kGiBehindReach of a voxel back is taken to be in front
+		// of it. the voxels past the end of salle_de_bain's niche, see ComputeGiCacheFilter)
+		uint undrawn = (voxel.emissionB >> kGiVoxelUndrawnShift) & 0x3Fu;
+		for (uint facingIt = 0; facingIt < 6u; facingIt++)
+			if ((undrawn & (1u << facingIt)) != 0u && dot(offset, GiFacingAxis(facingIt)) < -kGiBehindReach)
+				far |= 1u << cornerIt;
 		if (!GiVoxelSided(voxel, sheets))
 			continue;
-		if (dot(coordinate - (float3(at) + 0.5), GiVoxelNormal(voxel.normal)) - GiVoxelPlane(voxel.normal) < -kGiFarSideMargin)
+		if (dot(offset, GiVoxelNormal(voxel.normal)) - GiVoxelPlane(voxel.normal) < -kGiFarSideMargin)
 			far |= 1u << cornerIt;
 	}
 	return far;

@@ -1288,6 +1288,50 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   1.85). Costs, with the two above (RTX 4070 Ti SUPER, D3D12, 1080p, a frame): Bistro 6.28 to 6.59 ms, at night 5.1
   to 5.73, Sponza 4.30 to 4.53, salle_de_bain 3.36 to 3.50; the indirect lighting's pass 1.85 to 2.10, 1.67 to 1.98,
   1.41 to 1.52, 1.10 to 1.24, the rest the lookups' (Main Visibility and Reflection Trace).
+- **What is behind a single sided surface stays behind it** (`GiHitVoxel`, `kGiRadianceInside`, `GiPackKeptInside`,
+  `GiFacingAxis`, `kGiBehindReach`, `kGiKeptNeighbourShare`; the user's report after the three above, 2026-11-17, pose
+  `-0.9714,12.3124,-0.0642,-17.043,0.568` at 10.5 h: light blobs up the wall beside salle_de_bain's shelves, along the
+  recess, under the ceiling and in the niche under the window, then a bright line up the left shelf's side where it
+  meets the wall and a bright corner at the niche's right end). The model's wall is a sheet (z -21.322), its light a
+  plane as big as the wall 1.9 behind it (the window is a hole in the sheet), the shelves boxes that reach 2.6 cm
+  through the sheet (their backs at -21.348, drawn), the niche's back wall 0.3 in front of the light and its end a
+  single sheet: behind the wall everything is lit 8 to 25 times as bright as the room, within a last level's voxel
+  (0.41) of what the room shows. Four ways that light came through, each closed:
+  what a ray met took the light of the voxel half a voxel off the hit on the ray's side, whatever that voxel stood
+  for: the foot of a shelf's side (its last 10 cm before the wall are in the voxel under the wall's own) took the
+  shelf's back's, or the wall's back's (9 where the room's is 0.6), and the wall's voxels along the shelf, an eighth
+  of whose rays meet the side that low, held 0.5 to 1.23 where they hold 0.69 to 0.75 now. `GiHitVoxel` refuses a
+  voxel whose entry of the surface cache is inside something (more of its rays than `kGiInsideShare` start behind a
+  surface: the entry marks what the voxel keeps, `GiPackKeptInside`, and `ComputeGiLight` carries the mark in the
+  radiance's fourth component, `kGiRadianceInside`, which the hit reads anyway) and one that only sides never drawn
+  wrote with another normal than the triangle's, then looks at the six voxels beside for the triangle's own (a drawn
+  side's, the triangle's normal, the hit within a quarter voxel of its plane), else takes the first not refused;
+  the emitters' light a voxel keeps is shared with the voxels beside it on its surface (`kGiKeptNeighbourShare`, 0.8
+  theirs, each time the entry writes it): from the shelves' sides a few percent of the light's plane is seen, a
+  sample is all or nothing of it, and a voxel's hundred samples left each half off or twice over;
+  the filter's taps leave out a voxel behind a surface the voxel is in front of (by the ways the drawn sides that
+  wrote it face, less its own open side's; the tap's open side not that way): the niche's back wall's last voxel took
+  a share of the voxels past the niche's end, which face the same way a voxel's height apart (its light 0.79 for
+  0.40);
+  and the lookups leave out a voxel behind a single sided surface they are in front of (`GiFarSides`: a side never
+  drawn wrote it, the point more than `kGiBehindReach` of a voxel back that way), where the filter marked it (the
+  voxel in front holds another light); a thin thing's far side is marked too where the voxel across holds no light
+  of its own (the shelf's back's voxel, across the inside of its board: the line up the shelf's side).
+  Tried: the kept light sampled at every ray of 8 candidates (the same blobs: the leak, not the noise, was most of
+  them); an entry's rays started on the voxel's own surface alone (its normal within 60 degrees: the same picture
+  with and without, not kept); every voxel refused whose normal is another and whose surface the hit is behind, and
+  the voxels beside looked at for every such hit (the same picture and time, not kept); an entry's first 64 samples
+  of the emitters' light one a ray (Bistro's indirect lighting 0.18 ms more, settled: not kept). Without the near
+  field (`SPEEDO_GI_NEAR=0`) thin dark lines show inside the shelves' niches where every voxel a lookup reads is
+  left out; the near field covers them.
+  Measured (RTX 4070 Ti SUPER, 1080p): at a fixed exposure the room is 10 of 255 darker at the pose (the light that
+  leaked lit it), with auto exposure the same to 0.4 at the two other poses (1 to 2 over an eighth of the image);
+  Sponza's columns and corridor 0.04 and 0.09, CornellBox-Sphere 0.01, Bistro's street 0.16 (0.6 over an eighth), at
+  night 0.01 (D3D12). A
+  frame on Vulkan, each run beside one of the shaders before: Bistro 6.10 to 6.45 ms, at night 5.29 to 5.57, Sponza
+  4.14 to 4.26 (the indirect lighting's pass 2.01 to 2.18, 1.89 to 2.04, 1.47 to 1.52; Reflection Trace 0.66 to 0.78,
+  0.49 to 0.56, 0.27 to 0.31; Main Visibility 0.45 to 0.50, 0.46 to 0.49, 0.43 to 0.45): not found which of the
+  parts the lookups' share is (without the marks of the single sided surfaces Bistro's two passes took 0.02 less).
 - **A neural radiance cache in plain compute is affordable, and learns too slowly for this** (`tools/neuralbench.cpp`,
   `neuralbench.slang`: the gate of the plan to try one; the user asked for Slang's neural features to be looked at, and
   for hardware such as tensor cores to stay an opt in beside a portable default that is practically useful). A

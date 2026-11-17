@@ -327,6 +327,10 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   ready, reading the cache). The Loading window shows "Compiling shaders" above the loads waiting: the entry points of the
   layouts done, or the time taken over the last cold compile's (`.slang.intermediate/compile-seconds`, else 30 s),
   whichever is further, at most 95% until ready, since slang reports no progress.
+  A cold start after a shader edit is quicker on Vulkan: on the RTX 4070 Ti SUPER's machine (2026-11-17, one edit to
+  `gi.slang`, salle_de_bain autoloaded, 300 frames) 69 s on Vulkan (the compile 52 s) and 175 s on D3D12, 3 s on
+  either once cached; so shader work iterates on Vulkan (`SPEEDO_GRAPHICS_API=vulkan`) and is checked on D3D12
+  before a commit (the user's call). Where D3D12's extra time goes hasn't been measured.
   Slang is used by one thread at a time: it isn't thread safe, even across global sessions, which share state. The
   compile was parallel at first (the layouts at once, and the main layout's 78 entry points in 4 groups, each a session
   and compile request of its own: the cold first load 17.5 s rather than 28.8, its resident peak 2.0 GB rather than 0.85),
