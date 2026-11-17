@@ -787,6 +787,7 @@ private:
 	uint32_t myGiLookupLevel = 0; // SPEEDO_GI_LOOKUP_LEVEL + 1: see GiData::lookupLevel
 	bool myGiCacheAnchor = true; // SPEEDO_GI_CACHE_ANCHOR=0 for off: see GiData::cacheAnchor
 	bool myGiCacheLit = true; // SPEEDO_GI_CACHE_LIT=0 for off: see GiData::cacheLit
+	uint32_t myGiCacheThin = 2; // SPEEDO_GI_CACHE_THIN: see GiData::cacheThin
 	bool myGiSurfaceCacheOn = false; // this frame (FrameInputs::giSurfaceCache), for the GI pass's filter
 	bool myGiTraceBvh = false; // this frame: the rays trace the BVHs (GI_TRACE_BVH, see ComputeGiResolveTraced)
 	// the near field (see GiData::nearReach): its rays' reach in voxels (SPEEDO_GI_NEAR_REACH), the power of the share that

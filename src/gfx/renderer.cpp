@@ -157,9 +157,11 @@ constexpr float kVisibilityTieredShare = 0.125F;
 constexpr uint64_t kVisibilityRecountFrameCount = 16;
 // diagnostic: the ray query replay's (see gfx/rayquerywatch.h), after the others, where the shaders have the watch
 constexpr uint8_t kRayQueryReplayEntryPoint = 53;
-// the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
+// the bytes of a page of the cache (a block's 64 entries of 4 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
-constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
+constexpr uint64_t kGiCachePageSize = 64 * 4 * 4 * sizeof(uint32_t);
+// (a page of a filter pass's records: 3 words of 4 a voxel, see GiCacheStoreTap)
+constexpr uint64_t kGiCacheRecordPageSize = 64 * 3 * 4 * sizeof(uint32_t);
 constexpr uint32_t kGiCachePageStep = 1024;
 // the frames after a reset of the indirect lighting before its voxels take the probes' light (see InternalPlanGi)
 constexpr uint32_t kGiBounceDelayFrameCount = 32;
@@ -597,7 +599,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			 std::tuple{&myGiProbeDepthBuffer, "GI Probe Depth", sizeof(uint32_t)},
 			 std::tuple{&myGiFlagBuffer, "GI Flags", sizeof(uint32_t)},
 			 std::tuple{&myGiVisibilityBuffer, "GI Visibility", sizeof(uint32_t)},
-			 std::tuple{&myGiCacheBuffer, "GI Cache", 3 * 4 * sizeof(uint32_t)},
+			 std::tuple{&myGiCacheBuffer, "GI Cache", 4 * 4 * sizeof(uint32_t)},
 			 std::tuple{&myGiCacheRecordBuffer, "GI Cache Records", 3 * 4 * sizeof(uint32_t)},
 			 std::tuple{&myGiCacheTableBuffer, "GI Cache Tables", sizeof(uint32_t)},
 			 std::tuple{&myGiCacheFreeBuffer, "GI Cache Free", 2 * sizeof(uint32_t)}})
@@ -1204,6 +1206,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{
 			builder.Use(myGiStaticVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			// (what the voxels kept, carried with them through the frame's radiance: see ComputeGiShift)
+			builder.Use(myGiKept, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this, giKernel, clips](FrameGraph::PassContext& context)
 		{
@@ -1254,7 +1259,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this](FrameGraph::PassBuilder& builder)
 		{
 			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
-			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			// (read: what the voxels kept, carried by GI Shift)
+			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiDirect, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 			builder.Use(myGiKept, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
@@ -1323,7 +1329,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiDirect, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
-			builder.Use(myGiKept, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead)); // the lit hits' (GiKeptAtHit)
+			// (the emitters' light the voxels keep: the frame's lighting takes it from the surface cache's entries, see
+			// ComputeGiLight, and the rays' hits read it, GiHitLit)
+			builder.Use(myGiKept, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiRays, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiProbeDepth, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
@@ -2474,6 +2482,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheAnchor = std::string_view(anchor) != "0";
 	if (const char* lit = std::getenv("SPEEDO_GI_CACHE_LIT"); lit != nullptr)
 		myGiCacheLit = std::string_view(lit) != "0";
+	if (const char* thin = std::getenv("SPEEDO_GI_CACHE_THIN"); thin != nullptr)
+		myGiCacheThin = static_cast<uint32_t>(std::clamp(std::atoi(thin), 0, 2));
 	// the clipmap's levels (SPEEDO_GI_CLIP_COUNT, 3 by default: the scene's, and two of half and a quarter of its voxels
 	// around the camera, each of split screen's views its own)
 	if (const char* clipCount = std::getenv("SPEEDO_GI_CLIP_COUNT"); clipCount != nullptr && *clipCount != '\0')
@@ -2737,9 +2747,9 @@ Renderer::~Renderer()
 				static_cast<double>(values[16 + 256 + 43]), static_cast<double>(values[16 + 256 + 44]), static_cast<double>(values[16 + 256 + 45]), static_cast<double>(values[16 + 256 + 46]),
 				static_cast<double>(values[16 + 256 + 47]), static_cast<double>(values[16 + 256 + 48]), static_cast<double>(values[16 + 256 + 49]), static_cast<double>(values[16 + 256 + 50]));
 			{
-				std::string line = "  from the point along -z, per voxel (occupied, red along +x, weight):";
+				std::string line = "  from the point along -z, per voxel (what wrote it: 1 and 2 a back and a front side, 4 a double sided one, from 8 the ways the undrawn sides face, from 200 the drawn ones'; red along +x, weight):";
 				for (int stepIt = 0; stepIt < 16; stepIt++)
-					line += std::format(" {}:{}/{:.3f}/{:.2f}", stepIt, values[16 + 256 + 51 + stepIt * 3] != 0.0F ? "x" : ".", static_cast<double>(values[16 + 256 + 52 + stepIt * 3]), static_cast<double>(values[16 + 256 + 53 + stepIt * 3]));
+					line += std::format(" {}:{:x}/{:.3f}/{:.2f}", stepIt, static_cast<uint32_t>(values[16 + 256 + 51 + stepIt * 3]), static_cast<double>(values[16 + 256 + 52 + stepIt * 3]), static_cast<double>(values[16 + 256 + 53 + stepIt * 3]));
 				std::println("{}", line);
 			}
 			for (int cornerIt = 0; cornerIt < 8; cornerIt++)
@@ -2761,9 +2771,9 @@ Renderer::~Renderer()
 				else
 				{
 					std::println(
-						"  the surface cache entry at the point's voxel: samples {:.0f}, inside {:.0f} (valid {:.0f}), surface {:.0f}, fresh {:.0f}, active {:.0f}, {:.0f} rays from ({:.3f}, {:.3f}, {:.3f}) walking clip {:.0f}; the voxel at ({:.3f}, {:.3f}, {:.3f}): occupied {:.0f}, faces {:.0f}, double sided {:.0f}, normal ({:.2f}, {:.2f}, {:.2f}), open side ({:.2f}, {:.2f}, {:.2f})",
+						"  the surface cache entry at the point's voxel: samples {:.0f}, inside {:.0f} (valid {:.0f}), surface {:.0f}, fresh {:.0f}, active {:.0f}, {:.0f} rays from ({:.3f}, {:.3f}, {:.3f}) walking clip {:.0f}; the voxel at ({:.3f}, {:.3f}, {:.3f}): occupied {:.0f}, written by {:x}, double sided {:.0f}, normal ({:.2f}, {:.2f}, {:.2f}), open side ({:.2f}, {:.2f}, {:.2f})",
 						d(c[0]), d(c[1]), d(c[17]), d(c[18]), d(c[19]), d(c[20]), d(c[27]), d(c[2]), d(c[3]), d(c[4]), d(c[21]), d(c[5]), d(c[6]), d(c[7]),
-						d(c[26]), d(c[25]), d(c[28]), d(c[22]), d(c[23]), d(c[24]), d(c[8]), d(c[9]), d(c[10]));
+						d(c[26]), static_cast<uint32_t>(c[25]), d(c[28]), d(c[22]), d(c[23]), d(c[24]), d(c[8]), d(c[9]), d(c[10]));
 					std::println(
 						"    its light (luminance) along +x {:.3g} -x {:.3g} +y {:.3g} -y {:.3g} +z {:.3g} -z {:.3g}", d(c[11]), d(c[12]), d(c[13]), d(c[14]), d(c[15]), d(c[16]));
 					for (int rayIt = 0; rayIt < std::min(8, static_cast<int>(c[27])); rayIt++)
@@ -4964,7 +4974,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		{
 			if (myGiCachePageCapacity != 0)
 			{
-				replace(myGiCacheBuffer, "GI Cache", "gGiCache", 3 * 4 * sizeof(uint32_t));
+				replace(myGiCacheBuffer, "GI Cache", "gGiCache", 4 * 4 * sizeof(uint32_t));
 				replace(myGiCacheRecordBuffer, "GI Cache Records", "gGiCacheRecords", 3 * 4 * sizeof(uint32_t));
 				replace(myGiCacheTableBuffer, "GI Cache Tables", "gGiCacheBlocks", sizeof(uint32_t));
 				replace(myGiCacheFreeBuffer, "GI Cache Free", "gGiCacheFree", 2 * sizeof(uint32_t));
@@ -4981,7 +4991,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			myGiCacheBlocksCounted = 0;
 			myGiCacheActiveBlocksCounted = 0;
 			replace(myGiCacheBuffer, "GI Cache", "gGiCache", myGiCachePageCapacity * kGiCachePageSize);
-			replace(myGiCacheRecordBuffer, "GI Cache Records", "gGiCacheRecords", 2 * myGiCacheRecordCapacity * kGiCachePageSize);
+			replace(myGiCacheRecordBuffer, "GI Cache Records", "gGiCacheRecords", 2 * myGiCacheRecordCapacity * kGiCacheRecordPageSize);
 			// a frame's page table and the last frame's (two words a block), then the records'
 			replace(myGiCacheTableBuffer, "GI Cache Tables", "gGiCacheBlocks", 5 * static_cast<uint64_t>(blockCount) * sizeof(uint32_t));
 			replace(myGiCacheFreeBuffer, "GI Cache Free", "gGiCacheFree", (2 + static_cast<uint64_t>(myGiCachePageCapacity)) * sizeof(uint32_t));
@@ -5009,7 +5019,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			if (myGiCacheActiveBlocksCounted > myGiCacheRecordCapacity)
 			{
 				myGiCacheRecordCapacity = capacityFor(myGiCacheActiveBlocksCounted);
-				replace(myGiCacheRecordBuffer, "GI Cache Records", "gGiCacheRecords", 2 * myGiCacheRecordCapacity * kGiCachePageSize);
+				replace(myGiCacheRecordBuffer, "GI Cache Records", "gGiCacheRecords", 2 * myGiCacheRecordCapacity * kGiCacheRecordPageSize);
 			}
 		}
 		myGiCachePrepareThreadCount = std::max(myGiCacheInit ? 5 * myGiCacheBlockCount : 0U, myGiCachePageCapacity);
@@ -5228,6 +5238,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// (a sixty-fourth of the last level's voxel off the surface, whatever the entry's level: 3.6 mm in Sponza)
 		clip.cacheAnchor = myGiCacheAnchor ? 1U : 0U;
 		clip.cacheLit = myGiCacheLit ? 1U : 0U;
+		clip.cacheThin = myGiCacheThin;
 		clip.cacheAnchorBias = myGiClipmap.clips.back().data.volumeOrigin[3] / 64.0F;
 		// the filter's passes: anchored (GiData::cacheAnchor), one for the last level and one more per level finer, so that it
 		// reaches about as far in the world at every level (each pass doubles its reach in voxels, each level halves the
@@ -5268,6 +5279,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// the lights alone changed (since the clip was last updated): the part of the static voxels' light they don't change
 		// is kept (gGiKept)
 		clip.lightsOnly = clock.updated && clock.relight && !clock.emittersToggled && !myGiReset && !myGiClipJobs[clipIt].voxelize ? 1 : 0;
+		clip.keptCarried = myGiClipJobs[clipIt].voxelize && !clock.emittersToggled && !myGiReset ? 1 : 0;
 		clip.relightPhase = clock.relightPhase;
 		clip.relightPhaseCount = clock.relightPhaseCount;
 		if (clock.updated)

@@ -1089,7 +1089,9 @@ takes a voxel's emission out), and what the emitters give arrives through these:
 - **The voxels** (`EmitterVoxelIrradiance`, in `GiDirectRadiance`): `SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT` (4) resampled
   points of `SPEEDO_EMITTER_VOXEL_CANDIDATE_COUNT` (8) candidates each, shadowed as the punctual lights' are, in the static
   voxels' kept light (made again when emitters start or stop lighting) and the moving ones' each frame. An animated
-  emission is the frame's at the pixels, and the kept light's until the next voxelizing.
+  emission is the frame's at the pixels, and the kept light's until the next voxelizing. Where the surface cache is
+  anchored, a static voxel's kept light is its entry's from the entry's first sample on (see "The emitters' light
+  the voxels keep is their cache entries'").
 - **Debug views**: Emissive Light (white), its rays (unfiltered) and a reference (`DEBUG_VIEW_EMITTERS_REFERENCE`, 64
   independent estimates a traced pixel, accumulated while the camera is still: compare at stride 2, and only converged:
   the tonemapper compresses a noisy reference: a single frame of EmissiveStrengthTest's was 2% darker than 40 frames').
@@ -1240,6 +1242,52 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   an eighth of that (`GiData::cacheIdleSampleCount`: the same frames). Frames a second apart: 0.16 (0.08 to 0.15 over
   the walls, 2 to 3%); two seconds apart 0.22 (0.94). It still follows: after an hour at 60 times, the frame against a
   settled one at the hour reached is 0.87 (the cache as it was, 1.03), and 6 minutes of the sun are 0.06 of 255 there.
+- **A thin thing's two sides, apart** (`GiFarSides`, `GiSampleClipWithout`, `GiVoxelSided`, `GiData::cacheThin`,
+  `SPEEDO_GI_CACHE_THIN`; the user's report after the two steps, 2026-11-17: long bright lines up the edges of
+  salle_de_bain's shelves, frontal pose `-0.8,17.0,-6.5,0,1.2`, where the last level lights them, voxels of 0.41 for
+  boards of 0.2). A voxel holds one side's light, a lookup reads the 8 around its point whatever is between them,
+  and where a board is thinner than a voxel the 8 are of both its sides: the side of a panel set a third of a voxel
+  into a niche read the voxel in front of the panel's hidden face (0.68 along the side's normal, the niche 0.2 to
+  0.3). The cache as it was gave such voxels no light (it lit both sides by the air voxels' own entries, the lookups
+  1.5 voxels toward the eye); anchored, they hold their side's entry, which a slanted surface's must. Now the
+  voxelizer keeps which way the sides that wrote a voxel face (`GiVoxelFacings`, the drawn ones' and the undrawn
+  ones': a voxel in front of a drawn side and behind the front of a surface facing the other way is between a thin
+  thing's sides, `GiVoxelBetweenSides`; a double sided triangle's is a sheet's) and where the drawn side's surface is
+  (`GiVoxelPlane`, with the normal, so the atomic maximum keeps one side's both); the cache's filter marks such a
+  voxel in the volumes' spare channel where the other side's entry holds another light (15% of the faces' sums; all
+  of them marked, Bistro's main pass and reflections took 0.4 ms for looking); and a lookup that reads a marked
+  voxel loads its 8 voxels and leaves out those whose surface its point is behind, blending the others by hand.
+  Tried: such voxels showing nothing, the air voxels beside them showing their light (the lines gone, but a
+  surface standing on the board read nothing within a voxel of it, black without the near field, and Bistro's
+  panes, all of whose voxels are such, came out in blocks); the lookup moved off the far side's voxels by their
+  share (blocks again in the clutter of Bistro's window frames, where it jumped a voxel sideways); what is left out
+  decided by the view vector (wrong for what is seen past a board's edge, the floor under a table). Level 2 (the
+  default) counts double sided sheets, 1 single sided boards alone.
+- **A corner's voxel keeps the same surface's normal in the corner mirrored** (`GiPackVoxelNormal`: the axis the
+  normal is most along first, z over y over x, whatever its sign). By the octahedral bits alone +z was kept over -y
+  and -x, and +y and +x over +z, so the voxels along the edges of salle_de_bain's window's recess (shallower than a
+  last level's voxel) stood for the wall along its top and right and for the recess's faces along its bottom and
+  left, whose entries differ by two to three times (the wall's sees the recess's lit faces a fraction of a voxel
+  off): the recess glowed on two of its four sides (the user's report, 2026-11-17, of a capture without the near
+  field). Sponza's levels agree better for it, with the far sides left out: 1.44, 1.66 and 2.17 of 255 (1.56, 2.58,
+  2.78), the band under the curtains narrower at the last level, and the image 2 of 255 darker there.
+- **The emitters' light the voxels keep is their cache entries'** (`GiPackKept`, `GiCacheUpdate`,
+  `EmitterLightSamples`, `ComputeGiShift`, `GiData::keptCarried`; the user's report, 2026-11-17: light splotches
+  along the edges beside salle_de_bain's window). A static voxel kept the radiance its own normal reflects of the
+  emitters, of 4 samples from a point of its own at its voxelizing, the same until the next: the near field's rays,
+  which read the voxels they meet, drew each voxel's sample noise as a splotch. Now it keeps what arrives and the way
+  it arrives from (a shared exponent color, the samples' mean direction), which a ray's hit takes by its own normal
+  (`GiKeptIrradiance`, in `GiHitLit`); the voxel's entry of the surface cache takes a sample every
+  `kGiCacheEmitterRayCount` (8) of its rays, of `kGiCacheEmitterCandidateCount` (2) candidates, where the ray starts
+  (on the surface, over the voxel's footprint), keeps their mean as it keeps its rays' (a fourth group of words an
+  entry), and writes it as the voxel's kept light; and what a voxel kept goes with it when its clip scrolls (through
+  the frame's radiance, which the static lighting makes anew), so a scroll samples only what scrolled in. Tried: the
+  emitters sampled at every hit (the rejected 36f0ecca: 2 candidates a hit were noise, and the nearer-than-a-voxel
+  clamp at the hit's distance lit Bistro's shutters); the kept light facing-independent at the voxelizing alone (the
+  same 4 samples, the same splotches); a sample every ray of 8 candidates (Bistro's indirect lighting 3.5 ms for
+  1.85). Costs, with the two above (RTX 4070 Ti SUPER, D3D12, 1080p, a frame): Bistro 6.28 to 6.59 ms, at night 5.1
+  to 5.73, Sponza 4.30 to 4.53, salle_de_bain 3.36 to 3.50; the indirect lighting's pass 1.85 to 2.10, 1.67 to 1.98,
+  1.41 to 1.52, 1.10 to 1.24, the rest the lookups' (Main Visibility and Reflection Trace).
 - **A neural radiance cache in plain compute is affordable, and learns too slowly for this** (`tools/neuralbench.cpp`,
   `neuralbench.slang`: the gate of the plan to try one; the user asked for Slang's neural features to be looked at, and
   for hardware such as tensor cores to stay an opt in beside a portable default that is practically useful). A

@@ -1430,9 +1430,11 @@ struct CullView
 struct GiVoxel
 {
 	alignas(4) UINT1(albedo); // rgba8: the diffuse albedo, linear, and 255 in a where something is
-	alignas(4) UINT1(normal); // two snorm16: the normal, octahedral
+	alignas(4) UINT1(normal); // the normal, octahedral, with where its side's surface is (see GiPackVoxelNormal)
 	alignas(4) UINT1(emissionRG); // half2
-	alignas(4) UINT1(emissionB); // half; bits 16 and 17 which faces of a triangle wrote it (both: a thin wall's voxel)
+	// half; bits 16 and 17 which faces of a triangle wrote it (both: a thin wall's voxel), bit 18 whether a double sided
+	// one did, bits 19 to 30 which way the sides that wrote it face (see GiVoxelFacings)
+	alignas(4) UINT1(emissionB);
 };
 
 struct GiData
@@ -1642,9 +1644,13 @@ struct GiData
 	// the most samples the mean of a voxel no lookup reads is of (it traces a ray every kGiCacheIdleFrameCount frames):
 	// cacheSampleCount, but while the cache follows lights that change, as many as span the frames cacheSampleCount does
 	alignas(4) UINT1(cacheIdleSampleCount);
+	// whether a voxel between the two sides of something thinner than a voxel shows no light of the cache's, the air
+	// voxels on its open side showing its entry's (SPEEDO_GI_CACHE_THIN, see GiVoxelBetweenSides)
+	alignas(4) UINT1(cacheThin);
+	// whether the voxels' kept light (gGiKept) was carried with them when the clip moved (ComputeGiShift, into gGiRadiance),
+	// for ComputeGiLightStatic to keep: a voxelizing that isn't a reset's, nor after the emitters changed
+	alignas(4) UINT1(keptCarried);
 	alignas(4) UINT1(padding0); // std430's tail, to the struct's 16 byte alignment, explicit (see the top of the file)
-	alignas(4) UINT1(padding1);
-	alignas(4) UINT1(padding2);
 };
 
 struct PushConstants

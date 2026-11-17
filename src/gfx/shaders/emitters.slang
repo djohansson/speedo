@@ -146,10 +146,10 @@ float EmitterImportance(EmitterNode node, float3 position, float3 normal)
 	float cosEmitted = EmitterCosineLess(sinOutside, cosOutside, sinBox, cosBox);
 	if (cosEmitted <= 0.0)
 		return 0.0;
-	// and the surface's own: toward the box
+	// and the surface's own: toward the box (a point's, normal 0: whichever way, see EmitterVoxelLight)
 	float cosIncident = -dot(normal, toSurface);
 	float sinIncident = sqrt(max(1.0 - cosIncident * cosIncident, 0.0));
-	float cosReceived = EmitterCosineLess(sinIncident, cosIncident, sinBox, cosBox);
+	float cosReceived = dot(normal, normal) > 0.5 ? EmitterCosineLess(sinIncident, cosIncident, sinBox, cosBox) : 1.0;
 	if (cosReceived <= 0.0)
 		return 0.0;
 	return node.low.w * cosEmitted * cosReceived / max(distance2, radius2);
@@ -203,7 +203,8 @@ float EmitterGeometry(float3 position, float3 normal, EmitterPoint point, float 
 	float distance2 = dot(offset, offset);
 	distance = sqrt(distance2);
 	toPoint = offset / max(distance, 1e-30);
-	float cosine = dot(normal, toPoint);
+	// (a point's, normal 0: what arrives whichever way, see EmitterVoxelLight)
+	float cosine = dot(normal, normal) > 0.5 ? dot(normal, toPoint) : 1.0;
 	float emitted = -dot(point.normal, toPoint);
 	if (point.doubleSided)
 		emitted = abs(emitted);
@@ -379,6 +380,54 @@ float3 EmitterVoxelIrradiance(GiData gi, float3 position, float3 normal, bool mo
 		irradiance += point.emission * geometry * reservoir.weight * GiVisibility(gi, position, toPoint, reach, moving);
 	}
 	return data.voxelSampleCount > 0u ? irradiance / float(data.voxelSampleCount) : 0.0;
+}
+
+// the light the emitters give a voxel as what a surface of any normal there takes of it (see GiKeptIrradiance): what
+// arrives (the return: each sample's emission by what it gives a surface facing it), and the way it arrives from
+// (toward: the samples' directions' mean by their light, shorter than 1 the wider they are apart). normal: the voxel's,
+// its samples those in front of it as EmitterVoxelIrradiance's; or 0, from all around, for a voxel that holds surfaces
+// facing several ways (a corner's)
+float3 EmitterVoxelLight(GiData gi, float3 position, float3 normal, bool moving, uint2 seed, out float3 toward)
+{
+	EmitterData data = gEmitterData[gPushConstants.frameIndex][0];
+	return EmitterLightSamples(gi, position, normal, moving, seed, moving ? data.frame : 0u, data.voxelSampleCount, data.voxelCandidateCount, toward);
+}
+
+// (count samples, their numbers seed's and turn's: the voxels' at their voxelizing, EmitterVoxelLight, and one at a time
+// at a surface for the surface cache's entries, which keep their mean: see GiCacheUpdate)
+float3 EmitterLightSamples(GiData gi, float3 position, float3 normal, bool moving, uint2 seed, uint turn, uint count, uint candidateCount, out float3 toward)
+{
+	EmitterData data = gEmitterData[gPushConstants.frameIndex][0];
+	float voxel = gi.volumeOrigin.w;
+	float nearest2 = voxel * voxel;
+	bool bvh = GiTracesBvh(gi);
+	bool sided = dot(normal, normal) > 0.5;
+	EmitterRandom random = EmitterRandomAt(seed, turn);
+	float3 light = 0.0;
+	toward = 0.0;
+	for (uint sampleIt = 0; sampleIt < count; sampleIt++)
+	{
+		EmitterReservoir reservoir = EmitterCandidates(position, normal, candidateCount, nearest2, random);
+		if (reservoir.triangle == ~0u)
+			continue;
+		EmitterPoint point = EmitterPointAt(reservoir.triangle, reservoir.barycentrics);
+		float3 toPoint;
+		float distance;
+		float geometry = EmitterGeometry(position, normal, point, nearest2, toPoint, distance);
+		float reach = bvh ? distance * 0.999 : distance - 1.5 * voxel;
+		if (geometry <= 0.0 || reach <= 0.0)
+			continue;
+		// (a sided sample's geometry holds the voxel's cosine: out of it, what a surface facing the emitter would take)
+		float facing = sided ? max(dot(normal, toPoint), 1e-3) : 1.0;
+		float3 sample = point.emission * (geometry / facing * reservoir.weight * GiVisibility(gi, position, toPoint, reach, moving));
+		light += sample;
+		toward += toPoint * EmitterLuminance(sample);
+	}
+	if (count == 0u)
+		return 0.0;
+	light /= float(count);
+	toward /= max(EmitterLuminance(light) * float(count), 1e-30);
+	return light;
 }
 
 // the traced pixels: every EmitterData::stride-th pixel each way of the frame (the main depth's), each a texel of the
