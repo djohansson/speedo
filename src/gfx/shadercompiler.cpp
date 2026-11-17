@@ -1,5 +1,6 @@
-// the shader compiler library (see gfx/shadercompiler.h): slang and all the code that calls it, which the client loads
-// only when it must compile a shader (gfx::ShaderLoader). it uses core's headers (assertions, containers) but none of its
+// the shader compiler library (see gfx/shadercompiler.h): slang and all the code that calls it, which the shader compiler's
+// worker processes link (tools/shadercompileworker.cpp, see gfx::ShaderLoader), and the client loads only to compile in
+// its own process (SPEEDO_SHADER_WORKER_COUNT=0). it uses core's headers (assertions, containers) but none of its
 // compiled code, which would be a second copy of core's globals beside the client's
 #include <gfx/shadercompiler.h>
 
@@ -29,6 +30,7 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <print>
@@ -658,7 +660,12 @@ std::optional<std::pair<SlangParameterCategory, uint32_t>> D3DRegister(slang::Va
 // specialization constant's values compiled each (CompileSpecializations). every buffer's data laid out as the reflection
 // target lays it out (CompareUniformLayout). an error for a resource outside a parameter block, which has no set of its own
 std::string AssignRegisters(
-	const Request& request, SlangCompileRequest* slangRequest, int codeTargetIndex, slang::ShaderReflection* reflection, rhi::ShaderSet& shaderSet)
+	const Request& request,
+	SlangCompileRequest* slangRequest,
+	int codeTargetIndex,
+	slang::ShaderReflection* reflection,
+	rhi::ShaderSet& shaderSet,
+	bool specializations = true)
 {
 	slang::IComponentType* program = nullptr;
 	if (SLANG_FAILED(spCompileRequest_getProgram(slangRequest, &program)) || program == nullptr)
@@ -782,8 +789,9 @@ std::string AssignRegisters(
 				CompareUniformLayout(reflectedData, codeData, std::string(name), mismatches);
 		}
 	}
-	// the specialization constant's values compiled each (DXIL has no specialization constants: CompileSpecializations)
-	if (error.empty())
+	// the specialization constant's values compiled each (DXIL has no specialization constants: CompileSpecializations;
+	// a worker's code jobs instead, see Code)
+	if (error.empty() && specializations)
 		error = CompileSpecializations(request, slangRequest, codeTargetIndex, codeLayout, shaderSet);
 	program->release();
 	if (error.empty() && !mismatches.empty())
@@ -1053,117 +1061,86 @@ std::string CompileSpecializations(
 	return error;
 }
 
-// for SPEEDO_SHADER_TIMINGS (step 0 of docs/shader-compile-plan.md), before the compile itself: the request's front end
-// alone (parsed and checked, no code), then each entry point linked with the module on its own, its hash
-// (getEntryPointHash: of what it depends on, for a cache per entry point) and its code generated, each timed. printed:
-// the front end's time, the entry points' codegen's sum and the slowest, and each one's hash (to compare from run to run)
-void MeasureEntryPoints(const Request& request)
+// the resources a compiled or checked request's program uses (rhi's layouts, the slots or registers of a format that has
+// them: see AssignSlots, AssignRegisters; and with specializations, DXIL's, see CompileSpecializations), the files it
+// included, and each compute entry point's launch parameters, into response, whose shaderSet has the entry points (in the
+// request's order, with or without their code). an error, or empty
+std::string Reflect(const Request& request, SlangCompileRequest* slangRequest, int codeTargetIndex, bool specializations, Response& response)
 {
-	PhaseTimer timer;
-	SlangCompileRequest* slangRequest = spCreateCompileRequest(gSession);
-	auto [targetIndex, error] = ConfigureRequest(slangRequest, request, std::nullopt, true);
-	int translationUnitIndex = spAddTranslationUnit(slangRequest, static_cast<SlangSourceLanguage>(request.sourceLanguage), nullptr);
-	spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, request.file.c_str());
-	spSetCompileFlags(slangRequest, SLANG_COMPILE_FLAG_NO_CODEGEN);
-	if (!error.empty() || SLANG_FAILED(spCompile(slangRequest)))
+	int dependencyCount = spGetDependencyFileCount(slangRequest);
+	for (int dependencyIt = 0; dependencyIt < dependencyCount; dependencyIt++)
+		response.dependencies.emplace_back(spGetDependencyFilePath(slangRequest, dependencyIt));
+
+	auto& shaderSet = response.shaderSet;
+	slang::ShaderReflection* shaderReflection = slang::ShaderReflection::get(slangRequest);
+
+	std::vector<uint32_t> genericParameterIndices(shaderReflection->getTypeParameterCount());
+	uint32_t parameterBlockCounter = 0;
+	for (auto parameterIndex = 0; std::cmp_less(parameterIndex, shaderReflection->getParameterCount()); parameterIndex++)
 	{
-		std::println("shader timings: {}: the front end alone failed: {}", request.file, error);
-		spDestroyCompileRequest(slangRequest);
-		return;
-	}
-	timer.Mark("front-end");
-	slang::IModule* module = nullptr;
-	if (SLANG_FAILED(spCompileRequest_getModule(slangRequest, translationUnitIndex, &module)) || module == nullptr)
-	{
-		spDestroyCompileRequest(slangRequest);
-		return;
-	}
-	slang::ISession* session = module->getSession();
-	struct Measured
-	{
-		std::string name;
-		double seconds = 0.0;
-		std::string hash;
-	};
-	std::vector<Measured> measured;
-	double findSeconds = 0.0;
-	double linkSeconds = 0.0;
-	double hashSeconds = 0.0;
-	double codeSeconds = 0.0;
-	for (const auto& [name, stage] : request.entryPoints)
-	{
-		auto start = std::chrono::steady_clock::now();
-		slang::IEntryPoint* entryPoint = nullptr;
-		if (SLANG_FAILED(module->findAndCheckEntryPoint(name.c_str(), static_cast<SlangStage>(stage), &entryPoint, nullptr)) || entryPoint == nullptr)
-			continue;
-		auto found = std::chrono::steady_clock::now();
-		std::array<slang::IComponentType*, 2> components{module, entryPoint};
-		slang::IComponentType* composite = nullptr;
-		slang::IComponentType* linked = nullptr;
-		if (SLANG_SUCCEEDED(session->createCompositeComponentType(components.data(), static_cast<SlangInt>(components.size()), &composite, nullptr)) &&
-			SLANG_SUCCEEDED(composite->link(&linked, nullptr)))
+		auto* parameter = shaderReflection->getParameterByIndex(parameterIndex);
+		auto* typeLayout = parameter->getTypeLayout();
+		if (parameter->getType()->getKind() == slang::TypeReflection::Kind::ParameterBlock)
 		{
-			auto linkedAt = std::chrono::steady_clock::now();
-			ISlangBlob* hash = nullptr;
-			linked->getEntryPointHash(0, targetIndex, &hash);
-			auto hashed = std::chrono::steady_clock::now();
-			ISlangBlob* code = nullptr;
-			(void)linked->getEntryPointCode(0, targetIndex, &code, nullptr);
-			auto coded = std::chrono::steady_clock::now();
-			std::string hex;
-			if (hash != nullptr)
-			{
-				const auto* bytes = static_cast<const uint8_t*>(hash->getBufferPointer());
-				for (size_t byteIt = 0; byteIt < std::min<size_t>(hash->getBufferSize(), 6); byteIt++)
-					hex += std::format("{:02x}", bytes[byteIt]);
-				hash->release();
-			}
-			if (code != nullptr)
-				code->release();
-			findSeconds += std::chrono::duration<double>(found - start).count();
-			linkSeconds += std::chrono::duration<double>(linkedAt - found).count();
-			hashSeconds += std::chrono::duration<double>(hashed - linkedAt).count();
-			codeSeconds += std::chrono::duration<double>(coded - hashed).count();
-			measured.push_back({.name = name, .seconds = std::chrono::duration<double>(coded - start).count(), .hash = hex});
+			auto parameterBlockIndex = ++parameterBlockCounter;
+			auto* elementTypeLayout = typeLayout->getElementTypeLayout();
+			if (elementTypeLayout && elementTypeLayout->getKind() == slang::TypeReflection::Kind::GenericTypeParameter)
+				genericParameterIndices[elementTypeLayout->getGenericParamIndex()] = parameterBlockIndex;
 		}
-		if (linked != nullptr)
-			linked->release();
-		if (composite != nullptr)
-			composite->release();
-		entryPoint->release();
 	}
-	timer.Mark("entry-points");
-	std::println(
-		"shader timings: {} measured: front end{}, per entry point: find {:.2f} link {:.2f} hash {:.2f} code {:.2f} ({} of {})",
-		request.file,
-		timer.phases,
-		findSeconds,
-		linkSeconds,
-		hashSeconds,
-		codeSeconds,
-		measured.size(),
-		request.entryPoints.size());
-	auto slowest = measured;
-	std::ranges::sort(slowest, [](const Measured& a, const Measured& b) { return a.seconds > b.seconds; });
-	std::string line;
-	for (size_t it = 0; it < std::min<size_t>(slowest.size(), 12); it++)
-		line += std::format(" {} {:.2f}", slowest[it].name, slowest[it].seconds);
-	std::println("shader timings: slowest:{}", line);
-	std::string hashes;
-	for (const auto& entry : measured)
-		hashes += std::format(" {}={}", entry.name, entry.hash);
-	std::println("shader timings: hashes:{}", hashes);
-	spDestroyCompileRequest(slangRequest);
+
+	for (auto parameterIndex = 0; std::cmp_less(parameterIndex, shaderReflection->getParameterCount()); parameterIndex++)
+		CreateLayoutBindings(shaderReflection->getParameterByIndex(parameterIndex), genericParameterIndices, shaderSet.layouts);
+
+	// the buffers' data laid out the same on every backend (see CheckPackedLayout): an error otherwise, whatever the
+	// format compiled for, so that a struct only Metal would misread fails Vulkan's build too
+	{
+		std::vector<std::string> mismatches;
+		for (unsigned parameterIt = 0; parameterIt < shaderReflection->getParameterCount(); parameterIt++)
+		{
+			auto* parameter = shaderReflection->getParameterByIndex(parameterIt);
+			CheckPackedBuffers(parameter->getTypeLayout(), parameter->getName(), mismatches);
+		}
+		if (!mismatches.empty())
+		{
+			std::string error =
+				std::format("{}: buffers whose data std430 lays out otherwise than Metal's packed layout (pad them explicitly, see capi.h):", request.file);
+			for (const auto& mismatch : mismatches)
+				error += std::format("\n  {}", mismatch);
+			return error;
+		}
+	}
+
+	// a format whose code binds each set and the push constants at a slot of its own (see rhi::kNoShaderSlot): each one's,
+	// from the code target's layout, whose parameters are the reflection target's in the same order
+	// (DXIL's registers, a set's space and a binding's register, and its buffers' layouts checked: AssignRegisters)
+	if (request.format != rhi::ShaderFormat::kSpirv16)
+		if (auto error = request.format == rhi::ShaderFormat::kDxil
+							 ? AssignRegisters(request, slangRequest, codeTargetIndex, shaderReflection, shaderSet, specializations)
+							 : AssignSlots(slangRequest, codeTargetIndex, shaderReflection, shaderSet.layouts);
+			!error.empty())
+			return error;
+
+	for (uint32_t entryPointIt = 0; entryPointIt < shaderReflection->getEntryPointCount(); entryPointIt++)
+	{
+		slang::EntryPointReflection* entryPointReflection = shaderReflection->getEntryPointByIndex(entryPointIt);
+		if (entryPointReflection->getStage() != SLANG_STAGE_COMPUTE)
+			continue;
+		auto& launchParameters = std::get<2>(std::get<1>(shaderSet.shaders[entryPointIt])).emplace();
+		entryPointReflection->getComputeThreadGroupSize(launchParameters.threadGroupSize.size(), launchParameters.threadGroupSize.data());
+		entryPointReflection->getComputeWaveSize(&launchParameters.waveSize);
+	}
+	return {};
 }
 
+// the whole layout in this process (Action::kCompile: the client's own, SPEEDO_SHADER_WORKER_COUNT=0): one request, every
+// entry point's code at once, the specializations after
 Response Compile(const Request& request)
 {
-	if (gSession == nullptr)
-		gSession = spCreateSession();
-	if (Timings() && request.entryPoints.size() > 8)
-		MeasureEntryPoints(request);
 	Response response;
 	PhaseTimer timer;
+	if (gSession == nullptr)
+		gSession = spCreateSession();
 
 	SlangCompileRequest* slangRequest = spCreateCompileRequest(gSession);
 
@@ -1199,21 +1176,21 @@ Response Compile(const Request& request)
 	int translationUnitIndex = spAddTranslationUnit(slangRequest, static_cast<SlangSourceLanguage>(request.sourceLanguage), nullptr);
 	spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, request.file.c_str());
 
-	std::vector<rhi::EntryPoint> entryPoints;
+	auto& shaderSet = response.shaderSet;
 	for (const auto& [entryPoint, stage] : request.entryPoints)
 	{
 		if (spAddEntryPoint(slangRequest, translationUnitIndex, entryPoint.c_str(), static_cast<SlangStage>(stage)) !=
-			static_cast<int>(entryPoints.size()))
+			static_cast<int>(shaderSet.shaders.size()))
 		{
 			spDestroyCompileRequest(slangRequest);
 			response.diagnostics = std::format("failed to add the entry point {}", entryPoint);
 			return response;
 		}
-		entryPoints.emplace_back(entryPoint, GetStage(static_cast<SlangStage>(stage)), std::nullopt);
+		shaderSet.shaders.emplace_back(rhi::ShaderBinary{}, rhi::EntryPoint{entryPoint, GetStage(static_cast<SlangStage>(stage)), std::nullopt});
 	}
 
 	const SlangResult compileResult = spCompile(slangRequest);
-	timer.Mark(std::format("compile ({} entry points, {} targets)", entryPoints.size(), request.format == rhi::ShaderFormat::kSpirv16 ? 1 : 2));
+	timer.Mark(std::format("compile ({} entry points, {} targets)", request.entryPoints.size(), request.format == rhi::ShaderFormat::kSpirv16 ? 1 : 2));
 	if (const auto* diagnostics = spGetDiagnosticOutput(slangRequest))
 		response.diagnostics = diagnostics;
 	if (SLANG_FAILED(compileResult))
@@ -1222,104 +1199,274 @@ Response Compile(const Request& request)
 		return response;
 	}
 
-	int dependencyCount = spGetDependencyFileCount(slangRequest);
-	for (int dependencyIt = 0; dependencyIt < dependencyCount; dependencyIt++)
-		response.dependencies.emplace_back(spGetDependencyFilePath(slangRequest, dependencyIt));
-
-	auto& shaderSet = response.shaderSet;
-	for (size_t entryPointIt = 0; entryPointIt < entryPoints.size(); entryPointIt++)
+	for (size_t entryPointIt = 0; entryPointIt < request.entryPoints.size(); entryPointIt++)
 	{
 		ISlangBlob* blob = nullptr;
 		if (SLANG_FAILED(spGetEntryPointCodeBlob(slangRequest, static_cast<int>(entryPointIt), codeTargetIndex, &blob)))
 		{
 			spDestroyCompileRequest(slangRequest);
-			response.diagnostics += std::format("failed to get the code of the entry point {}", std::get<0>(entryPoints[entryPointIt]));
+			response.diagnostics += std::format("failed to get the code of the entry point {}", request.entryPoints[entryPointIt].name);
 			return response;
 		}
-		shaderSet.shaders.emplace_back(blob->getBufferSize(), entryPoints[entryPointIt]);
-		std::memcpy(std::get<0>(shaderSet.shaders.back()).data(), blob->getBufferPointer(), blob->getBufferSize());
+		auto& code = std::get<0>(shaderSet.shaders[entryPointIt]);
+		code.resize(blob->getBufferSize());
+		std::memcpy(code.data(), blob->getBufferPointer(), blob->getBufferSize());
 		blob->release();
 		if (request.format == rhi::ShaderFormat::kDxil)
-			if (auto error = CheckDxilSwitchTables(std::as_bytes(std::span(std::get<0>(shaderSet.shaders.back()))), std::get<0>(entryPoints[entryPointIt])); !error.empty())
+			if (auto error = CheckDxilSwitchTables(std::as_bytes(std::span(code)), request.entryPoints[entryPointIt].name); !error.empty())
 			{
 				spDestroyCompileRequest(slangRequest);
 				response.diagnostics += error;
 				return response;
 			}
 	}
-
 	timer.Mark("code");
-	slang::ShaderReflection* shaderReflection = slang::ShaderReflection::get(slangRequest);
 
-	std::vector<uint32_t> genericParameterIndices(shaderReflection->getTypeParameterCount());
-	uint32_t parameterBlockCounter = 0;
-	for (auto parameterIndex = 0; std::cmp_less(parameterIndex, shaderReflection->getParameterCount()); parameterIndex++)
+	if (auto error = Reflect(request, slangRequest, codeTargetIndex, true, response); !error.empty())
 	{
-		auto* parameter = shaderReflection->getParameterByIndex(parameterIndex);
-		auto* typeLayout = parameter->getTypeLayout();
-		if (parameter->getType()->getKind() == slang::TypeReflection::Kind::ParameterBlock)
-		{
-			auto parameterBlockIndex = ++parameterBlockCounter;
-			auto* elementTypeLayout = typeLayout->getElementTypeLayout();
-			if (elementTypeLayout && elementTypeLayout->getKind() == slang::TypeReflection::Kind::GenericTypeParameter)
-				genericParameterIndices[elementTypeLayout->getGenericParamIndex()] = parameterBlockIndex;
-		}
+		spDestroyCompileRequest(slangRequest);
+		response.diagnostics += error;
+		return response;
 	}
-
-	for (auto parameterIndex = 0; std::cmp_less(parameterIndex, shaderReflection->getParameterCount()); parameterIndex++)
-		CreateLayoutBindings(shaderReflection->getParameterByIndex(parameterIndex), genericParameterIndices, shaderSet.layouts);
-
-	// the buffers' data laid out the same on every backend (see CheckPackedLayout): an error otherwise, whatever the
-	// format compiled for, so that a struct only Metal would misread fails Vulkan's build too
-	{
-		std::vector<std::string> mismatches;
-		for (unsigned parameterIt = 0; parameterIt < shaderReflection->getParameterCount(); parameterIt++)
-		{
-			auto* parameter = shaderReflection->getParameterByIndex(parameterIt);
-			CheckPackedBuffers(parameter->getTypeLayout(), parameter->getName(), mismatches);
-		}
-		if (!mismatches.empty())
-		{
-			spDestroyCompileRequest(slangRequest);
-			response.diagnostics += std::format(
-				"{}: buffers whose data std430 lays out otherwise than Metal's packed layout (pad them explicitly, see capi.h):",
-				request.file);
-			for (const auto& mismatch : mismatches)
-				response.diagnostics += std::format("\n  {}", mismatch);
-			return response;
-		}
-	}
-
-	timer.Mark("reflection");
-	// a format whose code binds each set and the push constants at a slot of its own (see rhi::kNoShaderSlot): each one's,
-	// from the code target's layout, whose parameters are the reflection target's in the same order
-	// (DXIL's registers, a set's space and a binding's register, and its buffers' layouts checked: AssignRegisters)
-	if (request.format != rhi::ShaderFormat::kSpirv16)
-		if (auto error = request.format == rhi::ShaderFormat::kDxil
-							 ? AssignRegisters(request, slangRequest, codeTargetIndex, shaderReflection, shaderSet)
-							 : AssignSlots(slangRequest, codeTargetIndex, shaderReflection, shaderSet.layouts);
-			!error.empty())
-		{
-			spDestroyCompileRequest(slangRequest);
-			response.diagnostics += error;
-			return response;
-		}
-
-	for (uint32_t entryPointIt = 0; entryPointIt < shaderReflection->getEntryPointCount(); entryPointIt++)
-	{
-		slang::EntryPointReflection* entryPointReflection = shaderReflection->getEntryPointByIndex(entryPointIt);
-		if (entryPointReflection->getStage() != SLANG_STAGE_COMPUTE)
-			continue;
-		auto& launchParameters = std::get<2>(std::get<1>(shaderSet.shaders[entryPointIt])).emplace();
-		entryPointReflection->getComputeThreadGroupSize(launchParameters.threadGroupSize.size(), launchParameters.threadGroupSize.data());
-		entryPointReflection->getComputeWaveSize(&launchParameters.waveSize);
-	}
-
-	timer.Mark(request.format == rhi::ShaderFormat::kDxil ? "registers and specializations" : "slots");
+	timer.Mark(request.format == rhi::ShaderFormat::kDxil ? "reflection, registers and specializations" : "reflection");
 	spDestroyCompileRequest(slangRequest);
 	timer.Mark("teardown");
 	if (Timings())
-		std::println("shader timings: {} ({} entry points, format {}):{}", request.file, entryPoints.size(), std::to_underlying(request.format), timer.phases);
+		std::println("shader timings: {} ({} entry points, format {}):{}", request.file, request.entryPoints.size(), std::to_underlying(request.format), timer.phases);
+	response.ok = true;
+	return response;
+}
+
+// a worker's front end of a request (Keys, Code): parsed and checked, no code (SLANG_COMPILE_FLAG_NO_CODEGEN), its
+// targets as ConfigureRequest sets them, HLSL's after them where keyed, its module (the request's), and the entry points
+// added where reflected (the reflection's entry points are the request's). linked: the specialization constant a
+// link-time one (DXIL's code jobs that specialize it, see CompileSpecializations)
+struct FrontEnd
+{
+	SlangCompileRequest* request = nullptr;
+	slang::IModule* module = nullptr;
+	int codeTarget = -1;
+	int hlslTarget = -1;
+	std::string error;
+
+	FrontEnd() = default;
+	FrontEnd(const FrontEnd&) = delete;
+	FrontEnd& operator=(const FrontEnd&) = delete;
+	~FrontEnd()
+	{
+		if (request != nullptr)
+			spDestroyCompileRequest(request);
+	}
+};
+
+std::unique_ptr<FrontEnd> MakeFrontEnd(const Request& request, bool reflectionTarget, bool linked, bool hlsl, bool entryPoints)
+{
+	auto frontEnd = std::make_unique<FrontEnd>();
+	if (gSession == nullptr)
+		gSession = spCreateSession();
+	frontEnd->request = spCreateCompileRequest(gSession);
+	auto [codeTarget, error] = ConfigureRequest(frontEnd->request, request, std::nullopt, reflectionTarget, linked);
+	frontEnd->codeTarget = codeTarget;
+	if (!error.empty())
+	{
+		frontEnd->error = error;
+		return frontEnd;
+	}
+	if (hlsl)
+		frontEnd->hlslTarget = spAddCodeGenTarget(frontEnd->request, SLANG_HLSL);
+	int translationUnitIndex = spAddTranslationUnit(frontEnd->request, static_cast<SlangSourceLanguage>(request.sourceLanguage), nullptr);
+	spAddTranslationUnitSourceFile(frontEnd->request, translationUnitIndex, request.file.c_str());
+	if (entryPoints)
+		for (const auto& [name, stage] : request.entryPoints)
+			spAddEntryPoint(frontEnd->request, translationUnitIndex, name.c_str(), static_cast<SlangStage>(stage));
+	spSetCompileFlags(frontEnd->request, SLANG_COMPILE_FLAG_NO_CODEGEN);
+	const SlangResult result = spCompile(frontEnd->request);
+	if (SLANG_FAILED(result))
+	{
+		const char* diagnostics = spGetDiagnosticOutput(frontEnd->request);
+		frontEnd->error = diagnostics != nullptr ? diagnostics : "the front end failed";
+		return frontEnd;
+	}
+	if (SLANG_FAILED(spCompileRequest_getModule(frontEnd->request, translationUnitIndex, &frontEnd->module)) || frontEnd->module == nullptr)
+		frontEnd->error = "no module of the request";
+	return frontEnd;
+}
+
+// an entry point of a front end's module linked into a program on its own (with the specialization constant's module,
+// where given), its code for a target (an error in diagnostics where it failed)
+std::optional<rhi::ShaderBinary> LinkedCode(
+	FrontEnd& frontEnd, const EntryPoint& entryPoint, slang::IModule* constants, int target, std::string& diagnostics, slang::ShaderReflection** layout = nullptr)
+{
+	slang::ISession* session = frontEnd.module->getSession();
+	slang::IEntryPoint* found = nullptr;
+	ISlangBlob* messages = nullptr;
+	auto message = [&messages]
+	{
+		std::string text = messages != nullptr ? static_cast<const char*>(messages->getBufferPointer()) : "";
+		if (messages != nullptr)
+			messages->release();
+		messages = nullptr;
+		return text;
+	};
+	if (SLANG_FAILED(frontEnd.module->findAndCheckEntryPoint(entryPoint.name.c_str(), static_cast<SlangStage>(entryPoint.stage), &found, &messages)) ||
+		found == nullptr)
+	{
+		diagnostics += std::format("no entry point {}: {}", entryPoint.name, message());
+		return std::nullopt;
+	}
+	(void)message();
+	std::vector<slang::IComponentType*> components{frontEnd.module};
+	if (constants != nullptr)
+		components.push_back(constants);
+	components.push_back(found);
+	slang::IComponentType* composite = nullptr;
+	slang::IComponentType* linked = nullptr;
+	ISlangBlob* blob = nullptr;
+	std::optional<rhi::ShaderBinary> code;
+	if (SLANG_FAILED(session->createCompositeComponentType(components.data(), static_cast<SlangInt>(components.size()), &composite, &messages)) ||
+		SLANG_FAILED(composite->link(&linked, &messages)) || SLANG_FAILED(linked->getEntryPointCode(0, target, &blob, &messages)) || blob == nullptr)
+		diagnostics += std::format("{}: {}", entryPoint.name, message());
+	else
+	{
+		code.emplace(blob->getBufferSize());
+		std::memcpy(code->data(), blob->getBufferPointer(), blob->getBufferSize());
+		if (layout != nullptr)
+			*layout = linked->getLayout(target);
+	}
+	(void)message();
+	if (blob != nullptr)
+		blob->release();
+	// (the layout, where asked for, is the linked program's: released with it, so read before)
+	if (layout != nullptr && code && *layout != nullptr && (*layout)->getGlobalConstantBufferSize() > 0)
+		diagnostics += std::format("{}: global uniforms besides the specialization constant, which DXIL can't bind", entryPoint.name);
+	if (linked != nullptr)
+		linked->release();
+	if (composite != nullptr)
+		composite->release();
+	found->release();
+	return code;
+}
+
+// a share of a layout's entry points keyed (Action::kKeys, a worker's: see EntryKey), and with reflect its resources and
+// included files (the entry points without code): the front end with the reflection's targets and HLSL's, then each
+// entry point linked on its own and its HLSL source made and hashed
+Response Keys(const Request& request)
+{
+	Response response;
+	PhaseTimer timer;
+	auto frontEnd = MakeFrontEnd(request, true, false, true, request.reflect);
+	if (!frontEnd->error.empty())
+	{
+		response.diagnostics = frontEnd->error;
+		return response;
+	}
+	timer.Mark("front-end");
+	if (request.reflect)
+	{
+		for (const auto& [name, stage] : request.entryPoints)
+			response.shaderSet.shaders.emplace_back(rhi::ShaderBinary{}, rhi::EntryPoint{name, GetStage(static_cast<SlangStage>(stage)), std::nullopt});
+		if (auto error = Reflect(request, frontEnd->request, frontEnd->codeTarget, false, response); !error.empty())
+		{
+			response.diagnostics = error;
+			return response;
+		}
+		timer.Mark("reflection");
+	}
+	for (uint32_t entryPointIt : request.keyEntryPoints)
+	{
+		if (entryPointIt >= request.entryPoints.size())
+		{
+			response.diagnostics = std::format("no entry point {} to key", entryPointIt);
+			return response;
+		}
+		auto source = LinkedCode(*frontEnd, request.entryPoints[entryPointIt], nullptr, frontEnd->hlslTarget, response.diagnostics);
+		if (!source)
+			return response;
+		std::string_view text(source->data(), source->size());
+		auto hash = XXH3_128bits(text.data(), text.size());
+		// (the constant by its name: slang keeps a global's name in its HLSL, suffixed)
+		response.keys.push_back(
+			{.entryPoint = entryPointIt,
+			 .low = hash.low64,
+			 .high = hash.high64,
+			 .readsSpecialization = text.contains("kSkippedLayers"),
+			 .sourceSize = static_cast<uint32_t>(text.size())});
+	}
+	timer.Mark(std::format("keys ({})", request.keyEntryPoints.size()));
+	response.timings = timer.phases;
+	response.ok = true;
+	return response;
+}
+
+// code jobs (Action::kCode, a worker's): each entry point linked on its own and its code made, the plain front end's (the
+// specialization constant a specialization constant, or for DXIL, a global uniform no unspecialized job's entry point
+// reads), or for a specialized job the linked one's with the constant's module of its value (see CompileSpecializations)
+Response Code(const Request& request)
+{
+	Response response;
+	PhaseTimer timer;
+	std::unique_ptr<FrontEnd> plain;
+	std::unique_ptr<FrontEnd> linked;
+	core::UnorderedMap<uint32_t, slang::IModule*> constants;
+	for (const auto& job : request.jobs)
+	{
+		if (job.entryPoint >= request.entryPoints.size())
+		{
+			response.diagnostics = std::format("no entry point {} to compile", job.entryPoint);
+			return response;
+		}
+		auto start = std::chrono::steady_clock::now();
+		auto& frontEnd = job.specialized ? linked : plain;
+		if (!frontEnd)
+		{
+			if (!response.codes.empty())
+				timer.Mark(std::format("code ({} jobs)", response.codes.size()));
+			frontEnd = MakeFrontEnd(request, false, job.specialized, false, false);
+			if (!frontEnd->error.empty())
+			{
+				response.diagnostics = frontEnd->error;
+				return response;
+			}
+			timer.Mark(job.specialized ? "front-end (linked)" : "front-end");
+			start = std::chrono::steady_clock::now();
+		}
+		slang::IModule* constant = nullptr;
+		if (job.specialized)
+		{
+			auto constantIt = constants.find(job.value);
+			if (constantIt == constants.end())
+			{
+				const auto name = std::format("speedo_specialization_{}", job.value);
+				const auto source = std::format("export static const uint kSkippedLayers = {}u;\n", job.value);
+				ISlangBlob* messages = nullptr;
+				constant = frontEnd->module->getSession()->loadModuleFromSourceString(name.c_str(), (name + ".slang").c_str(), source.c_str(), &messages);
+				if (messages != nullptr)
+					messages->release();
+				if (constant == nullptr)
+				{
+					response.diagnostics = std::format("specialization {}: its constant's module", job.value);
+					return response;
+				}
+				constants.emplace(job.value, constant);
+			}
+			else
+				constant = constantIt->second;
+		}
+		slang::ShaderReflection* layout = nullptr;
+		auto code = LinkedCode(*frontEnd, request.entryPoints[job.entryPoint], constant, frontEnd->codeTarget, response.diagnostics, job.specialized ? &layout : nullptr);
+		if (!code || !response.diagnostics.empty())
+			return response;
+		if (request.format == rhi::ShaderFormat::kDxil)
+			if (auto error = CheckDxilSwitchTables(std::as_bytes(std::span(*code)), request.entryPoints[job.entryPoint].name); !error.empty())
+			{
+				response.diagnostics = error;
+				return response;
+			}
+		response.codes.push_back(std::move(*code));
+		response.jobSeconds.push_back(std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count());
+	}
+	timer.Mark(std::format("code ({} jobs)", request.jobs.size()));
+	response.timings = timer.phases;
 	response.ok = true;
 	return response;
 }
@@ -1339,7 +1486,7 @@ SPEEDO_SHADERCOMPILER_EXPORT int SpeedoShaderCompile(
 	if (zpp::bits::failure(zpp::bits::in(std::span<const std::byte>(requestBytes, requestSize))(request)))
 		return 1;
 
-	Response response = Compile(request);
+	Response response = request.action == Action::kKeys ? Keys(request) : request.action == Action::kCode ? Code(request) : Compile(request);
 
 	std::vector<std::byte> data;
 	if (zpp::bits::failure(zpp::bits::out(data)(response)))

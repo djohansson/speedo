@@ -183,6 +183,7 @@ endif()
 
 set(CORE_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/core/application.cpp
+	${SPEEDO_SOURCE_DIR}/core/childprocess.cpp
 	${SPEEDO_SOURCE_DIR}/core/dynamiclibrary.cpp
 	${SPEEDO_SOURCE_DIR}/core/eventhandlers.cpp
 	${SPEEDO_SOURCE_DIR}/core/file.cpp
@@ -369,6 +370,7 @@ function(speedo_gfx_library target apiNamespace)
 		PRIVATE
 			SPEEDO_SLANG_VERSION="${slang_VERSION}"
 			SPEEDO_SHADERCOMPILER_FILE="$<TARGET_FILE_NAME:shadercompiler>"
+			SPEEDO_SHADERCOMPILEWORKER_FILE="$<TARGET_FILE_NAME:shadercompileworker>"
 	)
 	target_link_libraries(
 		${target}
@@ -409,6 +411,19 @@ target_link_libraries(
 		cpptrace::cpptrace # core/assert.h's
 		xxHash::xxhash
 )
+
+# the shader compiler's worker process (tools/shadercompileworker.cpp): a compile request through the library beside it,
+# in a process of its own, so that a layout compiles in several at once (slang isn't thread safe: see gfx::ShaderLoader)
+add_executable(shadercompileworker ${SPEEDO_SOURCE_DIR}/tools/shadercompileworker.cpp)
+target_compile_features(shadercompileworker PRIVATE cxx_std_26)
+target_compile_definitions(shadercompileworker PRIVATE SPEEDO_SHADERCOMPILER_FILE="$<TARGET_FILE_NAME:shadercompiler>")
+target_link_libraries(
+	shadercompileworker
+	PRIVATE
+		${SPEEDO_MIMALLOC}
+		core
+)
+add_dependencies(shadercompileworker shadercompiler)
 
 ###############################################################################
 
@@ -695,7 +710,7 @@ target_link_libraries(
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
 # the shader compiler beside it, which it loads (not links) to compile its shaders in a checkout
-add_dependencies(client shadercompiler)
+add_dependencies(client shadercompiler shadercompileworker)
 # on Windows the release client (the packages') is a windowed program, which opens no console window (the user's ask,
 # 2026-11-08: the installed client's console popped up behind its window), still entered at main through the CRT's
 # mainCRTStartup rather than a WinMain; started from a terminal it writes to that one (AttachParentConsole). debug and
@@ -805,7 +820,7 @@ target_link_libraries(
 		gfx
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
-add_dependencies(shaderprecompile shadercompiler)
+add_dependencies(shaderprecompile shadercompiler shadercompileworker)
 
 # a compute dispatch through rhi on each backend the build has, checked (see src/tools/rhitest.cpp,
 # docs/backends-plan.md): the Metal backend's test while it grows beside Vulkan's
@@ -822,7 +837,7 @@ target_link_libraries(
 		gfx
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
-add_dependencies(rhitest shadercompiler)
+add_dependencies(rhitest shadercompiler shadercompileworker)
 
 # what a neural radiance cache costs in plain compute on each backend the build has (see src/tools/neuralbench.cpp,
 # docs/notes/indirect-lighting.md)
@@ -839,7 +854,7 @@ target_link_libraries(
 		gfx
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
-add_dependencies(neuralbench shadercompiler)
+add_dependencies(neuralbench shadercompiler shadercompileworker)
 
 ###############################################################################
 
@@ -912,7 +927,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	foreach(lang C CXX)
 		string(REPLACE "/MANIFEST:EMBED" "/MANIFEST:NO" CMAKE_${lang}_LINK_EXECUTABLE "${CMAKE_${lang}_LINK_EXECUTABLE}")
 	endforeach()
-	foreach(target server client assettest filebench taskbench convergence imagecompare)
+	foreach(target server client assettest filebench taskbench convergence imagecompare shadercompileworker)
 		target_sources(${target} PRIVATE ${SPEEDO_SOURCE_DIR}/windows.rc)
 	endforeach()
 	# the resource compiler's includes aren't tracked: without this, a changed manifest (or icon) wasn't embedded

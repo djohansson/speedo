@@ -32,9 +32,9 @@ namespace gfx::shadercompiler
 	return kLog;
 }
 
-// whether a compile's times are printed (SPEEDO_SHADER_TIMINGS=1): each layout's phases (slang's compile, the reflection,
-// DXIL's registers and specializations), a large layout measured first entry point by entry point (its front end, each
-// one's code: see MeasureEntryPoints), and the scene's layouts each (see docs/shader-compile-plan.md, step 0)
+// whether a compile's times are printed (SPEEDO_SHADER_TIMINGS=1): each layout's rounds in the workers (the keys, the code
+// jobs compiled and each worker's phases) or its phases in this process, and the scene's layouts each (see
+// docs/shader-compile-plan.md)
 [[nodiscard]] inline bool Timings()
 {
 	static const bool kTimings = []
@@ -59,9 +59,44 @@ struct EntryPoint
 	int32_t stage = 0; // SlangStage
 };
 
+// what a request asks for: the whole layout compiled in this process at once (kCompile: the shaders, their resources),
+// or a share of it in a worker process (see gfx::ShaderLoader, docs/shader-compile-plan.md): each entry point's key and
+// whether it reads the specialization constant (kKeys: Response::keys; with reflect, the resources too), or the code of
+// some (kCode: Response::codes, one a job)
+enum class Action : uint8_t
+{
+	kCompile,
+	kKeys,
+	kCode,
+};
+
+// a code job: an entry point's code (its index in Request::entryPoints), and, for a format without specialization
+// constants (DXIL), with the constant a value (specialized: an entry point that reads it, its value 0 included)
+struct CodeJob
+{
+	uint32_t entryPoint = 0;
+	bool specialized = false;
+	uint32_t value = 0;
+};
+
+// an entry point's key: a hash of its HLSL source as slang makes it from the linked program (everything it reaches, the
+// definitions applied, its lines where there is debug information), which changes when what it compiles from does and
+// not otherwise (slang's own entry point hash covers every file the module includes: one translation unit, so any edit
+// changed all of them). whether that source reads the specialization constant, and its size (an estimate of the code's
+// cost, where no compile of it has been timed)
+struct EntryKey
+{
+	uint32_t entryPoint = 0;
+	uint64_t low = 0;
+	uint64_t high = 0;
+	bool readsSpecialization = false;
+	uint32_t sourceSize = 0;
+};
+
 // a slang file and how to compile it (see ShaderLoader::SlangConfiguration): slang's enums as their integers
 struct Request
 {
+	Action action = Action::kCompile;
 	rhi::ShaderFormat format{}; // the backend's (a copy of gfx's gfx::kShaderFormat), the binaries' format
 	std::string file;
 	std::vector<std::string> includePaths;
@@ -76,6 +111,11 @@ struct Request
 	// the values the shaders' specialization constant 0 takes, compiled each for a format without specialization
 	// constants (DXIL: rhi::ShaderSet::specializations); 0 always is
 	std::vector<uint32_t> specializations;
+	// kKeys: the entry points to key (indices into entryPoints), and whether to reflect the resources as well
+	std::vector<uint32_t> keyEntryPoints;
+	bool reflect = false;
+	// kCode: the jobs
+	std::vector<CodeJob> jobs;
 };
 
 // the compiled shaders and their resources, the files the source included (which the cache keeps, so that editing one
@@ -84,8 +124,12 @@ struct Response
 {
 	bool ok = false;
 	std::string diagnostics;
-	rhi::ShaderSet shaderSet;
-	std::vector<std::string> dependencies;
+	rhi::ShaderSet shaderSet; // kCompile's; kKeys' with reflect: the resources, the entry points without code
+	std::vector<std::string> dependencies; // kCompile's, and kKeys' with reflect
+	std::vector<EntryKey> keys; // kKeys': one a key entry point
+	std::vector<rhi::ShaderBinary> codes; // kCode's: one a job
+	std::vector<float> jobSeconds; // kCode's: each job's time
+	std::string timings; // the phases' times (see Timings)
 };
 
 // the library's entry points (extern "C"): Compile takes a serialized Request and gives a serialized Response in memory
@@ -94,5 +138,9 @@ using CompileFn = int (*)(const std::byte* request, size_t requestSize, std::byt
 using FreeFn = void (*)(std::byte* response);
 inline constexpr const char* kCompileSymbol = "SpeedoShaderCompile";
 inline constexpr const char* kFreeSymbol = "SpeedoShaderCompileFree";
+
+// the worker process (tools/shadercompileworker.cpp, beside the client): `<worker> <request file> <response file>`, a
+// serialized Request in, a serialized Response out; exit code 0 when the response is written (its ok says whether the
+// compile did)
 
 } // namespace gfx::shadercompiler

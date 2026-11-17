@@ -330,7 +330,16 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   A cold start after a shader edit is quicker on Vulkan: on the RTX 4070 Ti SUPER's machine (2026-11-17, one edit to
   `gi.slang`, salle_de_bain autoloaded, 300 frames) 69 s on Vulkan (the compile 52 s) and 175 s on D3D12, 3 s on
   either once cached; so shader work iterates on Vulkan (`SPEEDO_GRAPHICS_API=vulkan`) and is checked on D3D12
-  before a commit (the user's call). Where D3D12's extra time goes hasn't been measured.
+  before a commit (the user's call). D3D12's extra time was its SPIR-V target, kept for the reflection, and its
+  specializations compiled in turn (docs/shader-compile-plan.md, step 0).
+  Since 2026-11-18 a layout compiles in worker processes (`shadercompileworker`, `SPEEDO_SHADER_WORKER_COUNT`, default
+  half the threads, at most 8): round one keys each entry point by the hash of its HLSL source as slang makes it from a
+  program of that entry point alone (and one worker reflects the resources), round two compiles the entry points the
+  cache doesn't hold (and DXIL's specializations) in the workers at once, divided by what each took the last time; the
+  cache, `shader-cache` beside the executable, is shared by every profile of the build. A cold start 38.8 s on Vulkan
+  and 31.8 on D3D12 (70 and 213 before), a constant changed in `gi.slang` 13.7 s, a fresh profile with the cache warm
+  21.9 and 8.1 s. The client then loads no slang (`SPEEDO_SHADER_WORKER_COUNT=0` compiles in its process as before).
+  SPIR-V's binaries are byte identical to the one compile's; DXIL's aren't (see the plan).
   Slang is used by one thread at a time: it isn't thread safe, even across global sessions, which share state. The
   compile was parallel at first (the layouts at once, and the main layout's 78 entry points in 4 groups, each a session
   and compile request of its own: the cold first load 17.5 s rather than 28.8, its resident peak 2.0 GB rather than 0.85),

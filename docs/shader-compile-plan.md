@@ -1,7 +1,7 @@
 # Faster shader compiles: the plan
 
 Status: written 2026-11-17; started 2026-11-17 (the user's call: before the plan's step 3 on the probes, since the
-compiles slow down all other work). Step 0 done. Each step has a gate, and each is measured before and after on the
+compiles slow down all other work). Steps 0 to 4 done, 5 dropped by its gate, 6 to do. Each step has a gate, and each is measured before and after on the
 same machine, interleaving the runs compared (CLAUDE.md, "Workflow").
 
 ## Why
@@ -71,67 +71,66 @@ information 15.6, so neither the optimization nor the debug information is what 
   makes from the linked program in a tenth of the code's time, holds everything the entry point reaches, with the
   preprocessor's definitions applied.
 
-### 1. Compile only the entry points an edit changed
+### 1 to 4. Entry points keyed, cached and compiled in worker processes
 
-Slang computes a hash per entry point of everything it depends on, with the target's settings
-(`IComponentType::getEntryPointHash`, meant for shader caches). Run the front end once, hash every entry point, and
-generate code only for those whose hash isn't in the cache; the set is assembled from cached and new binaries.
-Reflection still comes from the whole program. An edit to `gi.slang` then recompiles the entry points that reach the
-indirect lighting, not the tonemapper's or the ui's.
+**Done (2026-11-18)**, as one change: the steps share the protocol and the cache. A layout compiles in two rounds of
+worker processes (`shadercompileworker`, beside the client: the shader compiler library behind a small executable,
+`<request file> <response file>`; `core::ChildProcess` starts them, CreateProcessW or posix_spawn, and waits):
 
-- To verify first: that the hash is stable from run to run and changes only with what the entry point uses (a comment
-  edit in an unrelated part keeps it), and that the hash call itself doesn't generate code.
-- Applies to the specializations too: a DXIL specialization is cached by its entry point's hash and its value.
+- **Round one, the keys** (`shadercompiler::Action::kKeys`): each worker a share of the entry points (at least 4 each:
+  a front end costs half a second), the first one the reflection too (the resources, slots or registers, the included
+  files). A worker runs the front end alone (no code), then links each entry point on its own and has slang make its
+  HLSL source, whose hash is the entry point's key (`EntryKey`): slang's own entry point hash covers every file the
+  module includes, so a comment in `gi.slang` changed all 79 (step 0); the HLSL source holds everything the entry point
+  reaches, with the definitions applied and, with debug information, its lines. Whether that source names
+  `kSkippedLayers` says whether the entry point reads the specialization constant, which DXIL compiles per value.
+- **The cache**: each job's code (an entry point's, or for DXIL a specialization's) in `shader-cache` beside the
+  executable, named by a hash of its key, its specialization and the configuration (slang's version, the format, the
+  definitions, the levels; not the entry point list, so adding an entry point keeps the others), written beside and
+  renamed into place (another process never reads half of one). Shared by every profile of the build (step 4); the
+  profile's whole-layout cache (`core::file::LoadAsset`) stays in front of it, and an install's precompiled sets in
+  front of that.
+- **Round two, the code** (`Action::kCode`): the jobs the cache doesn't hold, divided between the workers by what each
+  took the last time (`costs-<format>` in the cache; else by its source's size), longest first to the least loaded; a
+  worker makes a front end (a second one, with the constant a link-time one, for DXIL's specialized jobs) and links
+  each entry point on its own for its code, as `CompileSpecializations` did for the specializations.
+- `SPEEDO_SHADER_WORKER_COUNT` (default half the machine's threads, at most 8): `0` compiles in the client's own process
+  as before (the library loaded there, one request for the layout, no entry point cache); otherwise the client loads no
+  slang at all.
+- The compile task waits for the workers holding its thread, as the compile in its process held it for longer (the
+  plan asked for a wait that doesn't; the executor has no means to wait on a process, and the thread is idle meanwhile).
 
-Gate: an edit to one part recompiles a fraction of the entry points (reported in the log), the binaries are byte
-identical to a full compile's, repeatable captures are identical, and the cold start after a `gi.slang` edit is
-measured on both apis.
+Measured (RTX 4070 Ti SUPER's machine, 32 threads, salle_de_bain autoloaded, 300 frames, headless):
 
-### 2. Compile in parallel, in processes
+| | before | after |
+|---|---|---|
+| Vulkan, a fresh profile, the cache empty | 70 s (the main layout 51.4) | 38.8 s (16.2) |
+| D3D12, the same | 213 s (207) | 31.8 s (23.6) |
+| Vulkan, a fresh profile, the cache warm (another profile compiled it) | 70 s | 21.9 s (the keys 2.6 s; the pipelines 10 s: a fresh profile's pipeline cache is empty) |
+| D3D12, the same | 175 to 213 s | 8.1 s |
+| Vulkan, the same profile, a constant in `gi.slang` changed | about 69 s | 13.7 s: 3 entry points compiled (4.6 s after 2.6 of keys), their pipelines 3 s |
+| Vulkan, the same profile, a comment line added to `gi.slang` | about 69 s | 30.1 s: the 8 entry points whose lines after it moved (their debug information names lines), the four heaviest at 9 s each at once, their pipelines 9 s |
+| Vulkan, the same profile, nothing changed | 3 s | 2.5 s |
 
-Slang can't run on several threads, but it can run in several processes. A `shadercompile` tool (the shader compiler
-library behind a small executable) takes a request and writes its result, so `ShaderLoader` hands groups of entry
-points to N workers at once and merges what they return. Each worker parses the module once, so memory grows with N:
-choose N by the machine's cores and memory (2.0 GB for 4 groups in process; to measure per process).
+The workers against their count (Vulkan, the cache empty, each run divided by the sources' sizes): 1: 77.8 s (the main
+layout 55.7), peak 0.84 GB; 2: 53.9 (31.7), 1.5 GB; 4: 41.6 (19.4), 3.0 GB; 8: 38.8 (16.2), 4.8 GB; 12: 41.1 (16.1),
+6.3 GB. Past 8 the slowest entry point bounds it (FragmentMain about 9 s with the others running).
 
-- Rules this must keep (CLAUDE.md, "Code"): the work is tasks on the executor, and a task doesn't block its thread
-  waiting: a process's end has to be waited for without holding a thread (core has no process api yet: one is needed,
-  on Windows, macOS and Linux, in `core`, and the waiting done by the executor's own means).
-- An install compiles nothing (the precompiled shaders), so this is a checkout's alone; `tools/shaderprecompile` can
-  use the same workers.
-- With step 1, only the changed entry points are split over the workers.
+The binaries: SPIR-V's byte identical to the compile in one process (every set `shaderprecompile` writes: the main
+layout's 95 MB with and without ray queries), and a repeatable capture the same to the noise between two runs (0.40 of
+255 mean, as between runs of one). DXIL's differ from the first entry point on (DXC compiles each entry point's HLSL as
+slang makes it from a program of that entry point alone), and so does the frame: on D3D12 the old compile's frame was
+5.9 of 255 from the new one's, 10.8 from Vulkan's, and the new one's 4.7 from Vulkan's; the old one's showed a pattern
+over the window that neither the new one nor Vulkan's has. Not explained further.
 
-Gate: the same binaries as one process's, no crash in the quick tier's clients over several runs (the in-process
-version crashed 2 in 59), the cold start measured with 1, 2, 4 and 8 workers, and the peak memory recorded.
+What a comment costs is the debug information's: an entry point's source names its lines, so an edit that moves lines
+recompiles what is after it (correctly: its debug information would be wrong otherwise). Without debug information
+(release) it wouldn't.
 
-### 3. Find and cut D3D12's extra time
+### 5. A faster configuration for iterating
 
-By step 0's numbers. The likely parts:
-
-- **The SPIR-V target compiled only to find which entry points read the specialization constant** (it decorates
-  `SpecId 0`). Slang's own metadata for that wasn't available for a compile request's program; with step 1's component
-  api (a linked program per entry point) it may be (`IMetadata::isParameterLocationUsed`), and the SPIR-V target goes.
-- **The specializations compiled eagerly**, every value for every entry point that reads the constant. They could be
-  compiled when a pipeline first asks for one, in the background, as the pipelines are made now.
-- **DXC's own time**: its optimization and validation settings, to measure.
-
-Gate: D3D12's cold start within a stated margin of Vulkan's, the quick tier passing on both.
-
-### 4. One shader cache per checkout, shared by its profiles
-
-Keep the compiled sets (and step 1's entry points) in the build directory, keyed by content as now, and let every
-profile of that build read and write it: the scratch profiles of captures and tests, and the user's, compile a version
-once. The profile's cache stays for installs.
-
-Gate: a second profile's first start after an edit is warm.
-
-### 5. A faster configuration for iterating (optional, by step 0's numbers)
-
-A switch (an environment variable) for a lower optimization level and less debug information while iterating, if
-step 0 shows those cost much. It changes the code that runs, so it is off by default, never used for measurements
-or captures that are compared, and the quick tier runs without it.
-
-Gate: the time saved is worth having a second configuration; otherwise dropped.
+**Dropped (2026-11-18)**, by its gate: neither costs. Through `shaderprecompile` (SPIR-V, the layout without ray queries)
+the code took 15.0 s optimized and 15.0 unoptimized, 15.6 with full debug information; with ray queries 31.0 and 31.8.
 
 ### 6. Reload shaders while the client runs (later)
 
