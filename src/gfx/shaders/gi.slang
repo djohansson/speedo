@@ -139,6 +139,28 @@ float3 GiFacingAxis(uint facing)
 	return axis;
 }
 
+// the ways the drawn sides that wrote a voxel face, but those its own normal is (GiVoxelFacings's bits): the voxel is in
+// front of a surface facing each (see GiVoxelAcross)
+uint GiVoxelOtherFacings(GiVoxel voxel, float3 normal)
+{
+	return ((voxel.emissionB >> kGiVoxelDrawnShift) & 0x3Fu) & ~(GiVoxelFacings(normal, false) >> kGiVoxelUndrawnShift);
+}
+
+// whether a voxel at offset (in voxels) from one is across a surface that one is in front of: behind it the way one of
+// the one's other drawn sides faces (facings: GiVoxelOtherFacings), with a normal not that way too (a voxel along the
+// same slanted or curved surface has one). what the two hold isn't one surface's, whatever their normals: the cache's
+// filter doesn't average them, nor do they share the emitters' light they keep (see ComputeGiCacheFilter)
+bool GiVoxelAcross(uint facings, float3 offset, float3 theirNormal)
+{
+	bool across = false;
+	for (uint facingIt = 0; facingIt < 6u && facings != 0u; facingIt++)
+	{
+		float3 axis = GiFacingAxis(facingIt);
+		across = across || ((facings & (1u << facingIt)) != 0u && dot(offset, axis) < 0.0 && dot(theirNormal, axis) < 0.5);
+	}
+	return across;
+}
+
 // a voxel's normal (GiVoxel::normal): octahedral, x in bits 8 to 18 and y in bits 19 to 28, the axis it is most along
 // in bits 29 and 30 (z over y over x), then whether a drawn side wrote it (bit 31, see ComputeGiVoxelize); and in the
 // low 8 bits where that side's surface is (GiVoxelPlane), so that the atomic maximum the voxelizer keeps is one side's
@@ -1486,6 +1508,25 @@ float GiLightPush(GiData gi, float open)
 	return min(gi.volumeOrigin.w, 0.5 * open);
 }
 
+// whether a drawn side's voxel's own point (where its shadow rays start: its center pushed along its normal,
+// GiLightPush) has none of its surface behind it: a ray from there back along the normal, as far as the surface can
+// be (the push and a voxel and a half, GiVoxelPlane's range), meets no front. a triangle's voxels reach half a voxel
+// past its edges, and one past an edge that another surface ends at is on that surface's other side: its light is
+// that side's. it keeps none, marked as one whose entry is inside something (GiPackKeptInside), for what a ray met in
+// it to take another's (GiHitVoxel): the voxel under the plane of salle_de_bain's niche's top, past the niche's end
+// (a single sheet), is lit by the window's plane behind the wall (it kept 94, the niche's 0), and the rays from the
+// niche's back wall that met the top just inside the end took it (16 where the niche's voxels reflect 0.3)
+bool GiLightPointApart(GiData gi, uint3 at, GiVoxel voxel, float open)
+{
+	if (!GiTracesBvh(gi) || (voxel.normal & kGiVoxelNormalDrawn) == 0u)
+		return false;
+	float3 normal = GiVoxelNormal(voxel.normal);
+	float push = GiLightPush(gi, open);
+	float3 position = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w + normal * push;
+	BvhHit hit = GiTraceTriangles(gi, position, -normal, push + 1.5 * gi.volumeOrigin.w, false, false, false);
+	return !(BvhHitSomething(hit) && (hit.frontFace || (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) != 0u));
+}
+
 // the emissive surfaces' light off a voxel where they are lights (see EmitterVoxelIrradiance): its albedo over pi times
 // it, from where its shadow rays start (GiLightPush), by numbers of the voxel's own
 float3 GiEmitterRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool moving, float open)
@@ -1668,13 +1709,17 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 		else
 		{
 			open = GiOpenAlong(gi, gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w, GiVoxelNormal(voxel.normal));
-			kept = GiEmitterKept(gi, at, voxel, open);
+			// (none where its own point isn't in front of its surface, GiLightPointApart; where the cache is anchored, whose
+			// hits look for another voxel then)
+			bool apart = gi.cacheThin != 0u && GiCacheAnchored(gi) && GiLightPointApart(gi, at, voxel, open);
+			kept = apart ? GiPackKeptInside(open / gi.volumeOrigin.w) : GiEmitterKept(gi, at, voxel, open);
 			// (as kept, so that every update lights the voxel from the same)
 			open = GiKeptOpen(kept) * gi.volumeOrigin.w;
 		}
 		// (without the emitters' light: the frame's lighting adds it, as kept or as the voxel's cache entry has it since,
 		// see ComputeGiLight)
-		radiance = GiDirectRadiance(gi, at, voxel, albedo, false, open, false);
+		// (and no light of the lights where it is marked: its own point is behind a surface, see GiPackKeptInside)
+		radiance = GiKeptInside(kept) ? 0.0 : GiDirectRadiance(gi, at, voxel, albedo, false, open, false);
 	}
 	if (gi.lightsOnly == 0u)
 		gGiKept[gi.voxelFirst + voxelIndex] = kept;
@@ -3491,7 +3536,14 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 		// percent of the plane behind the window), and a voxel's own hundred samples left it half off or twice what it
 		// should be, each voxel differently: blobs in the light the sides bounce to the wall beside them (the user's
 		// report, 2026-11-17). tried with it: an entry's first 64 samples one a ray (Bistro's indirect lighting 0.18 ms a
-		// frame more, settled: not kept)
+		// frame more, settled: not kept). not those across a surface the voxel is in front of (GiVoxelAcross), nor behind
+		// its own: the voxel past the end of salle_de_bain's niche, under the same top and facing the same way, keeps the
+		// light of the window's plane behind the wall, and the niche's corner voxel took it across the end's sheet (29
+		// where it is 0), then its neighbours from it: the niche's back corner twice as bright as its wall (the user's
+		// report, 2026-11-17)
+		GiVoxel own = gGiVoxels[voxelIndex];
+		uint otherFacings = GiVoxelOtherFacings(own, normal);
+		float ownPlane = (own.normal & kGiVoxelNormalDrawn) != 0u ? GiVoxelPlane(own.normal) : -0.5;
 		float3 light = entry.emitterLight;
 		float3 way = entry.emitterToward * dot(light, kGiCacheLuminance);
 		float3 othersLight = 0.0;
@@ -3508,6 +3560,8 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			GiVoxel beside = gGiVoxels[neighbourIndex];
 			uint2 theirs = gGiKept[neighbourIndex];
 			if ((beside.albedo >> 24) == 0u || GiKeptInside(theirs))
+				continue;
+			if (dot(float3(step), normal) < ownPlane - kGiFilterBehind || GiVoxelAcross(otherFacings, float3(step), GiVoxelNormal(beside.normal)))
 				continue;
 			float agreement = GiCacheAgreement(GiVoxelNormal(beside.normal), normal);
 			float3 theirLight = GiKeptLight(theirs);
@@ -3775,11 +3829,18 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 	// sheet, past which the niche's back wall's voxels go on as those in front of the window's light, the same way up
 	// and a voxel's height apart, 8 times as bright and noisy enough to pass for the wall's noise: the wall's last voxel
 	// took a share of them and showed twice its light (a bright corner, the user's report, 2026-11-17)
-	uint drawnFacings = gi.cacheThin != 0u && GiCacheAnchored(gi) && !spread
-						   ? (gGiVoxels[gi.voxelFirst + GiVoxelIndex(at, size)].emissionB >> kGiVoxelDrawnShift) & 0x3Fu : 0u;
+	bool sides = gi.cacheThin != 0u && GiCacheAnchored(gi) && !spread;
+	GiVoxel own = gGiVoxels[gi.voxelFirst + GiVoxelIndex(at, size)];
+	uint drawnFacings = sides ? GiVoxelOtherFacings(own, self.normal) : 0u;
+	// and where the voxel's own surface is, along its open side from its center (GiVoxelPlane, a drawn side's; half a
+	// voxel back otherwise): a tap further back than kGiFilterBehind of a voxel behind it is on the surface's other
+	// side, whatever its open side. the gaussian along the open side alone gives a tap two voxels back 0.14, and the
+	// pass that steps two voxels took the voxels in front of the window's light, 0.3 behind salle_de_bain's niche's back
+	// wall and the same way up (21 to the wall's 0.42), where the level's voxels are 0.2: a bright patch on the wall
+	// that came with the finer levels as the camera neared (the user's report, 2026-11-17)
+	float ownPlane = sides && (own.normal & kGiVoxelNormalDrawn) != 0u ? GiVoxelPlane(own.normal) : -0.5;
 	// (not the ways its own open side is: what is behind it that way and of another surface has another open side,
 	// GiCacheAgreement. so none for most voxels, a flat surface's, and the taps aren't looked at)
-	drawnFacings &= ~(GiVoxelFacings(self.normal, false) >> kGiVoxelUndrawnShift);
 	int reach = active && !spread ? 1 : (spread ? -1 : 0);
 	for (int z = -reach; z <= reach; z++)
 		for (int y = -reach; y <= reach; y++)
@@ -3792,13 +3853,7 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 				GiCacheTap tap = (x == 0 && y == 0 && z == 0) ? self : GiCacheReadTap(gi, source, uint3(neighbour), blocks);
 				if (tap.confidence <= 0.0)
 					continue;
-				bool behind = false;
-				for (uint facingIt = 0; facingIt < 6u && drawnFacings != 0u; facingIt++)
-				{
-					float3 axis = GiFacingAxis(facingIt);
-					behind = behind || ((drawnFacings & (1u << facingIt)) != 0u && dot(float3(offset), axis) < 0.0 && dot(tap.normal, axis) < 0.5);
-				}
-				if (behind)
+				if (sides && (dot(float3(offset), self.normal) < ownPlane - kGiFilterBehind || GiVoxelAcross(drawnFacings, float3(offset), tap.normal)))
 					continue;
 				float kernel = (x == 0 ? 0.5 : 0.25) * (y == 0 ? 0.5 : 0.25) * (z == 0 ? 0.5 : 0.25);
 				float plane = dot(float3(offset), self.normal);
@@ -4523,6 +4578,9 @@ GiSample GiSampleClipAt(GiClipView gi, float3 coordinate)
 // how far back from a voxel's center the way a side never drawn that wrote it faces, in voxels, a lookup's point is
 // taken to be in front of that side's surface (GiFarSides)
 static const float kGiBehindReach = 0.5;
+// how far behind a voxel's own surface, in voxels, a tap of the cache's filter is on the surface's other side (see
+// ComputeGiCacheFilter)
+static const float kGiFilterBehind = 0.25;
 // how far the two sides' light is to differ (the faces' differences over their sums) for their voxels to be marked for
 // the lookups (see ComputeGiCacheFilter)
 static const float kGiFarSideDifference = 0.15;

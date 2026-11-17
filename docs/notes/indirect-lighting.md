@@ -1312,7 +1312,25 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   the filter's taps leave out a voxel behind a surface the voxel is in front of (by the ways the drawn sides that
   wrote it face, less its own open side's; the tap's open side not that way): the niche's back wall's last voxel took
   a share of the voxels past the niche's end, which face the same way a voxel's height apart (its light 0.79 for
-  0.40);
+  0.40); and a tap further back than a quarter voxel behind the voxel's own surface (`kGiFilterBehind`, by the
+  voxel's plane), whatever its open side: the gaussian along the open side gives a tap two voxels back 0.14, and the
+  pass that steps two voxels took the voxels in front of the light's plane, 0.3 behind the niche's back wall and the
+  same way up (21 to the wall's 0.42), where the level's voxels are 0.2. The last level's one pass doesn't step that
+  far, so the patch came with the finer levels as the camera neared (the user's report after the first fixes,
+  2026-11-17, poses `-2.8617,10.4162,-13.6560,-2.513,1.407`, a bright patch on the niche's back wall and a bright
+  corner behind the statues, and `-3.5675,15.3023,-5.2263,-5.696,0.256`, lighter patches on the window frame's lower
+  bar);
+  the emitters' light the voxels share (above) isn't shared across a surface either (`GiVoxelAcross`, the filter's
+  rule, and not from behind the voxel's own): the voxel past the niche's end, under the plane of its top and facing
+  the same way, keeps the light of the window's plane (94), and the niche's corner voxel took it across the end's
+  sheet (29 where it is 0), its neighbours from it: the corner behind the statues, the middle level's wall there 0.82
+  for 0.37;
+  and a drawn side's voxel whose own point has none of its surface behind it (`GiLightPointApart`: a triangle's
+  voxels reach half a voxel past its edges, that one past the niche's end) keeps no light and is marked as an inside
+  entry's, so that what a ray met in it takes another's: 2 of the corner voxel's 48 rays met the top just inside the
+  end and took 16 (the corner 0.56 with the sharing cut alone, 0.23 to 0.29 along it with this). Tried for the
+  corner: every hit on a corner's other face looking for that face's own voxel beside (it found that same voxel past
+  the end: the corner 1.8);
   and the lookups leave out a voxel behind a single sided surface they are in front of (`GiFarSides`: a side never
   drawn wrote it, the point more than `kGiBehindReach` of a voxel back that way), where the filter marked it (the
   voxel in front holds another light); a thin thing's far side is marked too where the voxel across holds no light
@@ -1332,6 +1350,9 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   4.14 to 4.26 (the indirect lighting's pass 2.01 to 2.18, 1.89 to 2.04, 1.47 to 1.52; Reflection Trace 0.66 to 0.78,
   0.49 to 0.56, 0.27 to 0.31; Main Visibility 0.45 to 0.50, 0.46 to 0.49, 0.43 to 0.45): not found which of the
   parts the lookups' share is (without the marks of the single sided surfaces Bistro's two passes took 0.02 less).
+  The filter's cut behind the voxel's own surface, the sharing's and the marked voxels together (the second report's
+  fixes): salle_de_bain 0.5 of 255 darker at a fixed exposure, the rest of the regression set within 0.03 (Vulkan);
+  Bistro's frame the same (6.36 and 6.34 ms), Sponza's 4.25 to 4.32.
 - **A neural radiance cache in plain compute is affordable, and learns too slowly for this** (`tools/neuralbench.cpp`,
   `neuralbench.slang`: the gate of the plan to try one; the user asked for Slang's neural features to be looked at, and
   for hardware such as tensor cores to stay an opt in beside a portable default that is practically useful). A
