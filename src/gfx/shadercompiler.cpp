@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -799,6 +800,20 @@ std::string AssignRegisters(
 std::mutex gMutex;
 SlangSession* gSession = nullptr;
 
+// the phases of a compile, for SPEEDO_SHADER_TIMINGS (see Timings): each Mark the seconds since the one before
+struct PhaseTimer
+{
+	std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+	std::string phases;
+
+	void Mark(std::string_view phase)
+	{
+		auto now = std::chrono::steady_clock::now();
+		phases += std::format(" {} {:.2f}", phase, std::chrono::duration<double>(now - last).count());
+		last = now;
+	}
+};
+
 // the specialization constant 0 (slang's [vk::constant_id(0)], kSkippedLayers in bindings.slang) as a literal, for a
 // format without specialization constants (DXIL): the shaders declare it a static const of this definition where it is
 // defined, so that the compiler folds it as Vulkan's driver does a specialization
@@ -941,6 +956,7 @@ std::string CompileSpecializations(
 	// defining it, linked with the module and the entry points that read it, whose DXIL the linked program gives. a
 	// request per value with the constant defined, as before, parsed the whole module each (12 values' requests, about
 	// 13 s each: every layout precompiled as DXIL took 228 s, 121 without the specializations)
+	PhaseTimer timer;
 	SlangCompileRequest* slangRequest = spCreateCompileRequest(gSession);
 	auto [targetIndex, error] = ConfigureRequest(slangRequest, request, std::nullopt, false, true);
 	int translationUnitIndex = spAddTranslationUnit(slangRequest, static_cast<SlangSourceLanguage>(request.sourceLanguage), nullptr);
@@ -949,6 +965,7 @@ std::string CompileSpecializations(
 	spSetCompileFlags(slangRequest, SLANG_COMPILE_FLAG_NO_CODEGEN);
 	if (error.empty() && SLANG_FAILED(spCompile(slangRequest)))
 		error = std::format("specializations: {}", spGetDiagnosticOutput(slangRequest) != nullptr ? spGetDiagnosticOutput(slangRequest) : "");
+	timer.Mark("front-end");
 	slang::IModule* module = nullptr;
 	if (error.empty() && (SLANG_FAILED(spCompileRequest_getModule(slangRequest, translationUnitIndex, &module)) || module == nullptr))
 		error = "specializations: no module of the request";
@@ -1026,6 +1043,9 @@ std::string CompileSpecializations(
 				composite->release();
 		}
 	}
+	timer.Mark(std::format("linked-code ({} entry points x {} values)", reading.size(), values.size()));
+	if (Timings())
+		std::println("shader timings: {} specializations:{}", request.file, timer.phases);
 	for (auto* entryPoint : entryPoints)
 		if (entryPoint != nullptr)
 			entryPoint->release();
@@ -1033,11 +1053,117 @@ std::string CompileSpecializations(
 	return error;
 }
 
+// for SPEEDO_SHADER_TIMINGS (step 0 of docs/shader-compile-plan.md), before the compile itself: the request's front end
+// alone (parsed and checked, no code), then each entry point linked with the module on its own, its hash
+// (getEntryPointHash: of what it depends on, for a cache per entry point) and its code generated, each timed. printed:
+// the front end's time, the entry points' codegen's sum and the slowest, and each one's hash (to compare from run to run)
+void MeasureEntryPoints(const Request& request)
+{
+	PhaseTimer timer;
+	SlangCompileRequest* slangRequest = spCreateCompileRequest(gSession);
+	auto [targetIndex, error] = ConfigureRequest(slangRequest, request, std::nullopt, true);
+	int translationUnitIndex = spAddTranslationUnit(slangRequest, static_cast<SlangSourceLanguage>(request.sourceLanguage), nullptr);
+	spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, request.file.c_str());
+	spSetCompileFlags(slangRequest, SLANG_COMPILE_FLAG_NO_CODEGEN);
+	if (!error.empty() || SLANG_FAILED(spCompile(slangRequest)))
+	{
+		std::println("shader timings: {}: the front end alone failed: {}", request.file, error);
+		spDestroyCompileRequest(slangRequest);
+		return;
+	}
+	timer.Mark("front-end");
+	slang::IModule* module = nullptr;
+	if (SLANG_FAILED(spCompileRequest_getModule(slangRequest, translationUnitIndex, &module)) || module == nullptr)
+	{
+		spDestroyCompileRequest(slangRequest);
+		return;
+	}
+	slang::ISession* session = module->getSession();
+	struct Measured
+	{
+		std::string name;
+		double seconds = 0.0;
+		std::string hash;
+	};
+	std::vector<Measured> measured;
+	double findSeconds = 0.0;
+	double linkSeconds = 0.0;
+	double hashSeconds = 0.0;
+	double codeSeconds = 0.0;
+	for (const auto& [name, stage] : request.entryPoints)
+	{
+		auto start = std::chrono::steady_clock::now();
+		slang::IEntryPoint* entryPoint = nullptr;
+		if (SLANG_FAILED(module->findAndCheckEntryPoint(name.c_str(), static_cast<SlangStage>(stage), &entryPoint, nullptr)) || entryPoint == nullptr)
+			continue;
+		auto found = std::chrono::steady_clock::now();
+		std::array<slang::IComponentType*, 2> components{module, entryPoint};
+		slang::IComponentType* composite = nullptr;
+		slang::IComponentType* linked = nullptr;
+		if (SLANG_SUCCEEDED(session->createCompositeComponentType(components.data(), static_cast<SlangInt>(components.size()), &composite, nullptr)) &&
+			SLANG_SUCCEEDED(composite->link(&linked, nullptr)))
+		{
+			auto linkedAt = std::chrono::steady_clock::now();
+			ISlangBlob* hash = nullptr;
+			linked->getEntryPointHash(0, targetIndex, &hash);
+			auto hashed = std::chrono::steady_clock::now();
+			ISlangBlob* code = nullptr;
+			(void)linked->getEntryPointCode(0, targetIndex, &code, nullptr);
+			auto coded = std::chrono::steady_clock::now();
+			std::string hex;
+			if (hash != nullptr)
+			{
+				const auto* bytes = static_cast<const uint8_t*>(hash->getBufferPointer());
+				for (size_t byteIt = 0; byteIt < std::min<size_t>(hash->getBufferSize(), 6); byteIt++)
+					hex += std::format("{:02x}", bytes[byteIt]);
+				hash->release();
+			}
+			if (code != nullptr)
+				code->release();
+			findSeconds += std::chrono::duration<double>(found - start).count();
+			linkSeconds += std::chrono::duration<double>(linkedAt - found).count();
+			hashSeconds += std::chrono::duration<double>(hashed - linkedAt).count();
+			codeSeconds += std::chrono::duration<double>(coded - hashed).count();
+			measured.push_back({.name = name, .seconds = std::chrono::duration<double>(coded - start).count(), .hash = hex});
+		}
+		if (linked != nullptr)
+			linked->release();
+		if (composite != nullptr)
+			composite->release();
+		entryPoint->release();
+	}
+	timer.Mark("entry-points");
+	std::println(
+		"shader timings: {} measured: front end{}, per entry point: find {:.2f} link {:.2f} hash {:.2f} code {:.2f} ({} of {})",
+		request.file,
+		timer.phases,
+		findSeconds,
+		linkSeconds,
+		hashSeconds,
+		codeSeconds,
+		measured.size(),
+		request.entryPoints.size());
+	auto slowest = measured;
+	std::ranges::sort(slowest, [](const Measured& a, const Measured& b) { return a.seconds > b.seconds; });
+	std::string line;
+	for (size_t it = 0; it < std::min<size_t>(slowest.size(), 12); it++)
+		line += std::format(" {} {:.2f}", slowest[it].name, slowest[it].seconds);
+	std::println("shader timings: slowest:{}", line);
+	std::string hashes;
+	for (const auto& entry : measured)
+		hashes += std::format(" {}={}", entry.name, entry.hash);
+	std::println("shader timings: hashes:{}", hashes);
+	spDestroyCompileRequest(slangRequest);
+}
+
 Response Compile(const Request& request)
 {
-	Response response;
 	if (gSession == nullptr)
 		gSession = spCreateSession();
+	if (Timings() && request.entryPoints.size() > 8)
+		MeasureEntryPoints(request);
+	Response response;
+	PhaseTimer timer;
 
 	SlangCompileRequest* slangRequest = spCreateCompileRequest(gSession);
 
@@ -1068,6 +1194,7 @@ Response Compile(const Request& request)
 		response.diagnostics = setupError;
 		return response;
 	}
+	timer.Mark("setup");
 
 	int translationUnitIndex = spAddTranslationUnit(slangRequest, static_cast<SlangSourceLanguage>(request.sourceLanguage), nullptr);
 	spAddTranslationUnitSourceFile(slangRequest, translationUnitIndex, request.file.c_str());
@@ -1086,6 +1213,7 @@ Response Compile(const Request& request)
 	}
 
 	const SlangResult compileResult = spCompile(slangRequest);
+	timer.Mark(std::format("compile ({} entry points, {} targets)", entryPoints.size(), request.format == rhi::ShaderFormat::kSpirv16 ? 1 : 2));
 	if (const auto* diagnostics = spGetDiagnosticOutput(slangRequest))
 		response.diagnostics = diagnostics;
 	if (SLANG_FAILED(compileResult))
@@ -1120,6 +1248,7 @@ Response Compile(const Request& request)
 			}
 	}
 
+	timer.Mark("code");
 	slang::ShaderReflection* shaderReflection = slang::ShaderReflection::get(slangRequest);
 
 	std::vector<uint32_t> genericParameterIndices(shaderReflection->getTypeParameterCount());
@@ -1161,6 +1290,7 @@ Response Compile(const Request& request)
 		}
 	}
 
+	timer.Mark("reflection");
 	// a format whose code binds each set and the push constants at a slot of its own (see rhi::kNoShaderSlot): each one's,
 	// from the code target's layout, whose parameters are the reflection target's in the same order
 	// (DXIL's registers, a set's space and a binding's register, and its buffers' layouts checked: AssignRegisters)
@@ -1185,7 +1315,11 @@ Response Compile(const Request& request)
 		entryPointReflection->getComputeWaveSize(&launchParameters.waveSize);
 	}
 
+	timer.Mark(request.format == rhi::ShaderFormat::kDxil ? "registers and specializations" : "slots");
 	spDestroyCompileRequest(slangRequest);
+	timer.Mark("teardown");
+	if (Timings())
+		std::println("shader timings: {} ({} entry points, format {}):{}", request.file, entryPoints.size(), std::to_underlying(request.format), timer.phases);
 	response.ok = true;
 	return response;
 }

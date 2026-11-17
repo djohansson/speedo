@@ -20,6 +20,7 @@
 #include <gfx/rayquerywatch.h>
 #include <gfx/renderer.h>
 #include <gfx/renderoutput.h>
+#include <gfx/shadercompiler.h>
 #include <gfx/shaderlayouts.h>
 #include <gfx/shaderloader.h>
 #include <gfx/shaders/capi.h>
@@ -2938,6 +2939,10 @@ struct Scene::Impl
 					auto start = std::chrono::steady_clock::now();
 					(void)loader.Load(all[compileIt]->file, all[compileIt]->config);
 					progress.seconds.store(std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count(), std::memory_order_relaxed);
+					if (shadercompiler::Timings())
+						std::println(
+							"shader timings: layout {} of {} ({}, {} entry points) loaded in {:.2f} s", compileIt + 1, all.size(), all[compileIt]->file.filename().string(),
+							all[compileIt]->config.entryPoints.size(), progress.seconds.load(std::memory_order_relaxed));
 					progress.done.store(true, std::memory_order_release);
 				}
 			});

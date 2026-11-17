@@ -1,7 +1,8 @@
 # Faster shader compiles: the plan
 
-Status: written 2026-11-17, not started (the user's call: store it for later). Each step has a gate, and each is measured
-before and after on the same machine, interleaving the runs compared (CLAUDE.md, "Workflow").
+Status: written 2026-11-17; started 2026-11-17 (the user's call: before the plan's step 3 on the probes, since the
+compiles slow down all other work). Step 0 done. Each step has a gate, and each is measured before and after on the
+same machine, interleaving the runs compared (CLAUDE.md, "Workflow").
 
 ## Why
 
@@ -36,6 +37,39 @@ load and settle around them. Run once per api.
 
 Gate: a table of the phases for Vulkan and D3D12 that adds up to the measured cold start, and the D3D12 difference
 attributed. The order of the steps below may change with it.
+
+**Done (2026-11-17).** `SPEEDO_SHADER_TIMINGS=1` prints each compile's phases and each scene layout's load, and for a
+layout of more than 8 entry points first measures it through slang's component api (its front end alone, then each
+entry point linked with the module, hashed and its code generated, timed; `MeasureEntryPoints`: it compiles everything
+twice, for measuring only). Slang's own `-report-perf-benchmark` printed nothing (it writes to a writer the compiler
+doesn't set). A cold start (a fresh profile, salle_de_bain autoloaded, 300 frames, headless, RTX 4070 Ti SUPER):
+
+| | Vulkan | D3D12 |
+|---|---|---|
+| the whole start | 70 s | 213 s (175 s with an edit, its pipeline cache warm) |
+| the main layout (79 entry points) | 51.4 s: one `spCompile` | 207 s: `spCompile` 87.3 s (SPIR-V and DXIL), the specializations 82.2 s |
+| its front end alone (parse, check) | 0.67 s | 0.67 s |
+| its entry points' code, one at a time | 48.5 s (sum) | 35.9 s (DXIL alone, sum) |
+| the slowest entry points' code | FragmentMain 8.1, ComputeMainVisibility 7.9, FragmentTransparent 7.9, FragmentScatter 6.3, ComputeGiResolve 3.3, ComputeGiResolveTraced 3.2, ComputeReflectionTrace 1.7 s | 6.7, 6.5, 5.8, 3.3, 2.2, 2.1, 1.6 s |
+| the other three layouts | 1.2 s | 1.6 s |
+| the compute pipelines made ahead | 10.3 s (cold driver cache) | 0.45 s (warm) |
+
+So the time is the code generation, entry point by entry point, and the front end is negligible: compiling only what
+changed (step 1) and in parallel (step 2, bounded below by the slowest entry point, about 8 s) are both worth it. On
+D3D12, the SPIR-V target costs as much as Vulkan's whole compile (87.3 against 35.9 for DXIL alone), and the
+specializations (5 entry points by 4 values, each linked and compiled through DXC: about 4 s each) more again: step 3.
+The driver's pipeline creation is the next largest part on a cold driver cache (Vulkan's 10 s; a shader edit makes only
+the changed entry points' pipelines cold).
+
+Measured further through `shaderprecompile` (CPU only, the release build, SPIR-V; the quick tier running meanwhile, so
+slower than a quiet machine): the layout without ray queries 15.0 s of code (unoptimized the same, 15.0; with full debug
+information 15.6, so neither the optimization nor the debug information is what costs), with ray queries (the client's)
+31.0 s, FragmentMain 5.8 s; HLSL source of every entry point 3.6 to 3.9 s (with debug information 4.9).
+- **Slang's entry point hash can't key a cache here** (`getEntryPointHash`): it hashes the files the entry point depends
+  on, and every entry point depends on every part (one translation unit): a comment added to `gi.slang` changed all 79
+  hashes (and none changed from run to run). Step 1 needs a key of its own: each entry point's HLSL source, which slang
+  makes from the linked program in a tenth of the code's time, holds everything the entry point reaches, with the
+  preprocessor's definitions applied.
 
 ### 1. Compile only the entry points an edit changed
 

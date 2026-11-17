@@ -32,6 +32,19 @@ namespace gfx::shadercompiler
 	return kLog;
 }
 
+// whether a compile's times are printed (SPEEDO_SHADER_TIMINGS=1): each layout's phases (slang's compile, the reflection,
+// DXIL's registers and specializations), a large layout measured first entry point by entry point (its front end, each
+// one's code: see MeasureEntryPoints), and the scene's layouts each (see docs/shader-compile-plan.md, step 0)
+[[nodiscard]] inline bool Timings()
+{
+	static const bool kTimings = []
+	{
+		const char* timings = std::getenv("SPEEDO_SHADER_TIMINGS");
+		return timings != nullptr && std::string_view(timings) == "1";
+	}();
+	return kTimings;
+}
+
 // DXC's options for DXIL (slang hands them on): its sinking and global value numbering off, around a bug of WARP's
 // (Microsoft's software adapter, 1.0.18 to 1.0.22 and 1.65535.22-preview, not Windows' own nor 1.0.17): its compiler
 // removes the device at a dispatch of a shader with a resource's load in a loop with two exits, the load's result read
