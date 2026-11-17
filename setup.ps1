@@ -232,6 +232,7 @@ $PlatformSettings = @(
 			WINDOWS_SDK_VERSION = "$env:WINDOWS_SDK_VERSION"
 		}
 		Debugger = 'cppvsdbg'
+		ClientApis = @('vulkan', 'd3d12')
 		LaunchEnvironment = {
 			param($Config)
 			[ordered] @{
@@ -278,6 +279,7 @@ $PlatformSettings = @(
 			CMAKE_OSX_ARCHITECTURES = $env:CMAKE_APPLE_SILICON_PROCESSOR ?? 'arm64'
 		}
 		Debugger = 'lldb'
+		ClientApis = @('metal', 'vulkan')
 		LaunchEnvironment = {
 			param($Config)
 			[ordered] @{
@@ -315,6 +317,7 @@ $PlatformSettings = @(
 			GLIBC_VERSION = "$env:GLIBC_VERSION" # tracked by the linux clang triplets
 		}
 		Debugger = 'lldb'
+		ClientApis = @('vulkan')
 		LaunchEnvironment = {
 			param($Config)
 			[ordered] @{
@@ -335,9 +338,15 @@ $PlatformSettings = @(
 	}
 )
 
+# the client's launch configurations, one per graphics api the platform's client has, each naming its api in its name
+# and setting SPEEDO_GRAPHICS_API (so the one that starts is the one written out, the default's too); the default's
+# first, and in the compounds
+$ClientApis = @('vulkan')
+
 if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $PlatformSettings.Length)
 {
 	$Settings = $PlatformSettings[$PlatformIndex]
+	$ClientApis = $Settings.ClientApis
 
 	foreach ($Config in $Configurations)
 	{
@@ -369,36 +378,24 @@ if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $PlatformSettings.Length)
 
 		foreach ($Target in $Targets)
 		{
-			$LaunchConfiguration = [ordered] @{
-				name = "($(Get-TargetTriplet)) $Config/$Target"
-				type = $Settings.Debugger
-				request = "launch"
-				program = "`${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/$Target$exeSuffix"
-				args = @("-u `${userHome}/.speedo")
-				cwd = "`${workspaceFolder}"
-			}
-			foreach ($Entry in (& $Settings.LaunchOptions $LaunchEnvironment).GetEnumerator()) { $LaunchConfiguration[$Entry.Key] = $Entry.Value }
-
-			$VSCodeLaunchConfiguration.configurations += @($LaunchConfiguration)
-
-			# the client on Metal: every build's client has both backends on macOS, SPEEDO_GRAPHICS_API picking one
-			# (docs/backends-plan.md, step 9)
-			if ($IsMacOS -and $Target -eq 'client')
+			# the client once per graphics api (every build's client has each the platform has, SPEEDO_GRAPHICS_API
+			# picking one: docs/backends-plan.md, step 9), the server once
+			foreach ($Api in ($Target -eq 'client' ? $ClientApis : @($null)))
 			{
-				$MetalEnvironment = [ordered] @{}
-				foreach ($Entry in $LaunchEnvironment.GetEnumerator()) { $MetalEnvironment[$Entry.Key] = $Entry.Value }
-				$MetalEnvironment['SPEEDO_GRAPHICS_API'] = 'metal'
-				$MetalConfiguration = [ordered] @{
-					name = "($(Get-TargetTriplet)) $Config/client (metal)"
+				$TargetEnvironment = [ordered] @{}
+				foreach ($Entry in $LaunchEnvironment.GetEnumerator()) { $TargetEnvironment[$Entry.Key] = $Entry.Value }
+				if ($Api) { $TargetEnvironment['SPEEDO_GRAPHICS_API'] = $Api }
+				$LaunchConfiguration = [ordered] @{
+					name = "($(Get-TargetTriplet)) $Config/$Target$($Api ? " ($Api)" : '')"
 					type = $Settings.Debugger
 					request = "launch"
-					program = "`${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/client$exeSuffix"
+					program = "`${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/$Target$exeSuffix"
 					args = @("-u `${userHome}/.speedo")
 					cwd = "`${workspaceFolder}"
 				}
-				foreach ($Entry in (& $Settings.LaunchOptions $MetalEnvironment).GetEnumerator()) { $MetalConfiguration[$Entry.Key] = $Entry.Value }
+				foreach ($Entry in (& $Settings.LaunchOptions $TargetEnvironment).GetEnumerator()) { $LaunchConfiguration[$Entry.Key] = $Entry.Value }
 
-				$VSCodeLaunchConfiguration.configurations += @($MetalConfiguration)
+				$VSCodeLaunchConfiguration.configurations += @($LaunchConfiguration)
 			}
 		}
 	}
@@ -461,7 +458,7 @@ foreach ($Config in $Configurations)
 		[ordered] @{
 			name = "($(Get-TargetTriplet)) $Config all"
 			configurations = @(
-				"($(Get-TargetTriplet)) $Config/client",
+				"($(Get-TargetTriplet)) $Config/client ($($ClientApis[0]))",
 				"($(Get-TargetTriplet)) $Config/server"
 			) + @(if ($ProfilerApp) { "($(Get-TargetTriplet)) tracy-profiler" })
 			stopAll = $true

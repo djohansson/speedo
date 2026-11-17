@@ -105,7 +105,7 @@ The build puts `client`, the viewer, in the preset's build directory. Run it fro
 
 From a checkout the shaders compile from their sources at startup, through a shader compiler library the client loads only for that; an installed client gets them precompiled, and its package ships neither the compiler nor slang. A first launch compiles them in the background and has the driver create the pipelines, with the progress shown in a Loading window while the interface stays responsive; later launches take them from the profile's caches and start in seconds.
 
-The client runs on the platform's fastest graphics API: D3D12 on Windows, Metal on macOS, Vulkan on Linux (`SPEEDO_GRAPHICS_API=vulkan`, `metal` or `d3d12` picks another; About > About Speedo shows the one running). For Vulkan on macOS, point the loader at KosmicKrisp, which setup restores from the binary cache (with a workaround for a GPU restart in Apple's ray tracing, see [indirect lighting](docs/notes/indirect-lighting.md)):
+The client runs on Vulkan on Windows and Linux and on Metal on macOS (`SPEEDO_GRAPHICS_API=vulkan`, `metal` or `d3d12` picks another; About > About Speedo shows the one running). For Vulkan on macOS, point the loader at KosmicKrisp, which setup restores from the binary cache (with a workaround for a GPU restart in Apple's ray tracing, see [indirect lighting](docs/notes/indirect-lighting.md)):
 
 ```sh
 export VK_DRIVER_FILES=$(ls $PWD/install/*/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json | head -1)
