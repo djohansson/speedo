@@ -238,6 +238,21 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
   clamped to 1/4 and 4, on the bounced part: the wall settled 2 of 255 low (the fast mean is mostly a little under and
   rarely far over, so a clamped ratio averages under 1); their difference averages none. A fast mean of 32 samples was
   half as fast (56.5 at 500, 62.3 at 1000), of 64 slower again.
+  The wall's mottling is the other half (the user: "general noise levels in the dark areas"), and with the bounces
+  no longer waiting on the window, what smooths it costs no convergence:
+  - a longer window doesn't work as the entries are stored: 4096 samples (`SPEEDO_GI_CACHE_SAMPLES`) were 14% smoother
+    by frame 10000 (2.73 against 3.15), then the wall rose without end (66.9 at 12000, 88.3 at 24000, its level 65).
+    The faces are halves: a sample moves a mean of thousands by less than half a step of theirs, so the many small
+    steps down round away and the rare large ones up stay. 1024 is about what halves hold; more wants the faces
+    rounded up or down at random by where the value lies between the steps, or wider.
+  - one more pass of the filter at the coarser levels does (`Renderer`: two for the last level and one more per level
+    finer, at most `SPEEDO_GI_CACHE_FILTER_PASSES`'s 3; it was one for the last): 5.0 to 3.2 at frame 500, as smooth
+    as it used to be settled, and 3.2 to 2.7 settled (two more: 2.8 and 2.7). The reach at the last level is 3 voxels
+    rather than 1 (0.7 m in Sponza, where 7 voxels' 1.6 m spread the light under the curtains over the corridor's
+    floor): Sponza's columns pose, the floor in front of its curtains (`-3.0027,0.2878,2.2588,9.549,338.778`), the
+    bathroom scene's shelves from the front and Bistro at night are as they were by eye and within 0.6 of 255 a strip
+    (1.1 in one of the bathroom's, where a white speck by the window's handle went). The GI pass 0.58 to 0.62 ms in the
+    room, Sponza's 1.96 to 1.99, Bistro's 2.40 to 2.42, at night 2.28 to 2.32.
 - **Moving clips**: a clip that follows the eye moves by whole snaps (`gi::kSnapProbes`, one probe: 8 voxels; clamped
   to whole snaps at the last clip's sides too), so everything a point inside it is lit by stays where it is in the
   world as it snaps: its probes are laid out from its corner (`GiData::probeOrigin`), a whole number of snaps from the

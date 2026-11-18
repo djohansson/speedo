@@ -5291,13 +5291,19 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.probes = myGiProbes | ((probesQuiet ? myGiProbeAirInterval : 1U) << 8);
 		// (a sixty-fourth of the last level's voxel off the surface, whatever the entry's level: 3.6 mm in Sponza)
 		clip.cacheAnchorBias = myGiClipmap.clips.back().data.volumeOrigin[3] / 64.0F;
-		// the filter's passes: anchored (GiCacheAnchored), one for the last level and one more per level finer, so that it
-		// reaches about as far in the world at every level (each pass doubles its reach in voxels, each level halves the
-		// voxel): with every level's 3 it reached 7 voxels, 0.4 m at Sponza's finest level and 1.6 m at its last, where the
-		// light under the curtains spread over half the corridor's floor
+		// the filter's passes: anchored (GiCacheAnchored), two for the last level and one more per level finer, at most
+		// SPEEDO_GI_CACHE_FILTER_PASSES (3: the two finest levels' of three). with every level's 3 it reached 7 voxels, 0.4
+		// m at Sponza's finest level and 1.6 m at its last, where the light under the curtains spread over half the
+		// corridor's floor; with one for the last level and one more per level finer (about as far in the world at every
+		// level: each pass doubles its reach in voxels, each level halves the voxel) it reached a voxel there, less than
+		// the blotches of a dim wall's few samples: MovingInterior's far wall, in its one level, stayed mottled (the mean
+		// |pixel - the 33 pixels' mean around it| 5.0 of 255 at frame 500, 3.2 settled; the user's report, 2026-11-18:
+		// "general noise levels in the dark areas"), 3.2 and 2.7 with two (3 voxels: 0.7 m at Sponza's last level, where
+		// the curtains' light on the floor is as it was, by eye and within 0.5 of 255). the GI pass 0.58 to 0.67 ms there,
+		// Sponza's 1.96 to 1.99, Bistro's 2.40 to 2.42, at night 2.28 to 2.32
 		uint32_t levelsCoarser = static_cast<uint32_t>(myGiClipmap.clips.back().data.level) - clip.level;
 		bool anchored = myGiTraceBvh; // as GiCacheAnchored
-		clip.cacheFilterPassCount = anchored ? std::min(1 + levelsCoarser, myGiCacheFilterPassCount) : myGiCacheFilterPassCount;
+		clip.cacheFilterPassCount = anchored ? std::min(2 + levelsCoarser, myGiCacheFilterPassCount) : myGiCacheFilterPassCount;
 		// the cache's tables (see GiData::cacheTableFirst): the clip's blocks from its first flag's
 		uint32_t blockFirst = clip.flagFirst / SHADER_TYPES_GI_FLAG_WORD_COUNT;
 		clip.cacheTableFirst = 2 * (clock.probeHalf * myGiCacheBlockCount + blockFirst);
