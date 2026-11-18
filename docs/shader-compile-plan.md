@@ -166,7 +166,14 @@ while frames run on the draw thread waits for the graphics queues (the frame bef
 - **Splitting `shaders.slang` into slang modules** (`import`, each part checked and serialized once: `IModule::serialize`,
   `isBinaryModuleUpToDate`), so an edit re-checks its part and what imports it rather than the whole unit. Large (the
   parts use each other's declarations in any order today), and step 1 may make it unnecessary: only if step 0 shows
-  the front end is a large share.
+  the front end is a large share. **Not done (2026-11-18), by that gate**: the front end is 0.67 s of the main layout's
+  51.4 (step 0). Since steps 1 to 4 each worker runs it once a round, at once, so it is about 1.3 s of a changed
+  constant's 13.7 s restart, and a module cache would save less than that (an edit re-checks its module and what
+  imports it, the main part importing all). It would key nothing better than the HLSL source does (slang's entry point
+  hash would still cover every module an entry point imports), nor shorten the code generation (each entry point is
+  still linked and generated whole), nor the debug lines' recompiles (a line moved in a file moves it in a module too).
+  Slang's code precompiled per module (`precompileForTarget`) could, but gives up optimizing across modules and is
+  experimental in slang; not tried.
 - **Slang's version**: newer releases may compile faster; measure when the port is next updated.
 - **Pipeline creation**: the driver's own caches already keep what didn't change; check after step 1 that only the
   changed entry points' pipelines are cold.
