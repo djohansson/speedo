@@ -2185,14 +2185,28 @@ struct Scene::Impl
 					.bounds = model->GetFramedBounds()};
 			}
 
-			// its first animation plays, from the start (SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests)
+			// its first animation plays, from the start (SPEEDO_ANIMATION=<index>: that one, or none: the rest pose;
+			// SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests and for a pose reported, see Copy Pose)
 			{
 				auto animation = myAnimation.Write();
 				auto& state = animation.Get();
 				state.names.clear();
+				state.durations.clear();
 				for (const auto& clip : model->GetDesc().animation.animations)
+				{
 					state.names.push_back(clip.name);
+					state.durations.push_back(clip.duration);
+				}
 				state.selected = state.names.empty() ? std::nullopt : std::optional<size_t>(0);
+				if (const char* index = std::getenv("SPEEDO_ANIMATION"); index != nullptr && *index != '\0' && !state.names.empty())
+				{
+					if (std::string_view(index) == "none")
+						state.selected.reset();
+					else if (auto selected = std::strtoull(index, nullptr, 10); selected < state.names.size())
+						state.selected = selected;
+					else
+						std::println(stderr, "SPEEDO_ANIMATION={}: the model has {} animations", index, state.names.size());
+				}
 				state.playing = true;
 				state.time = 0.0;
 				state.last = std::chrono::steady_clock::now();

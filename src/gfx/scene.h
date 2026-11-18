@@ -223,6 +223,7 @@ public:
 		static constexpr double kCrossfade = 0.3; // seconds a switch of animation fades over
 
 		std::vector<std::string> names;
+		std::vector<float> durations; // each one's, in seconds, which its time wraps to (see sceneanimation.cpp)
 		std::optional<size_t> selected; // nullopt: the rest pose
 		bool playing = true;
 		double time = 0.0; // seconds

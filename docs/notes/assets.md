@@ -103,7 +103,17 @@ binds its device local instance buffer in every slot, and the defaults (`gDefaul
 stand in for what it doesn't have. Skinned bounds are at the rest pose (`RestJoints`,
 `SkinPosition`): bind space can be far off (CesiumMan's root rotation). View > Animation picks the animation (the
 first plays on load), crossfading from the previous one over 0.3 s (`EvaluateNodes` with two `ScenePose`s and a weight:
-local transforms lerped and slerped, then composed), pauses and restarts it, and `SPEEDO_ANIMATION_TIME=<seconds>` freezes it (for screenshots). Animated
+local transforms lerped and slerped, then composed), pauses and restarts it, and `SPEEDO_ANIMATION_TIME=<seconds>` freezes it (for screenshots), `SPEEDO_ANIMATION=<index>` or
+`none` picking which. Copy Pose writes both (the user's ask, 2026-11-18, to report what shows at one moment of
+MovingInterior's): the time the pose is made with, wrapped to the animation's length as `EvaluateNodes` wraps it (the
+same pose, and short to play up to from the start; `Scene::AnimationState::durations`), so that the autoloads show that
+moment held still, and Paste Pose holds it there too (`AutoAnimation` in ui.cpp: applied with the camera once the model is
+in, since the install starts the animation over; a pose naming no time plays). Held still is the moment's picture once it
+has settled: what shows only while things move (a trail, a lag) needs the run played up to that time instead
+(`SPEEDO_REPEATABLE=1`, `SPEEDO_ANIMATION_FRAME_SECONDS=<s>` and the time over it as `SPEEDO_AUTOLOAD_EXIT`'s frames,
+without `SPEEDO_ANIMATION_TIME`). Checked on MovingInterior (`SPEEDO_COPY_POSE_FRAME=300` at 1/64 s a frame: 0.6875 s,
+4.6875 wrapped to its 4 s; that pose's variables and a paste of it into a run of ShadowScene both end paused at 0.6875 s
+with the sphere, the cube and the runner in the same places). Animated
 morph targets (a node with a weights channel) keep their deltas, per vertex a row of a `MorphDelta` per target transformed
 like the vertex (`gMorphDeltas`, from `PushConstants::morphDeltaBase` for the vertices from `morphFirstVertex`), added in
 the vertex shader before skinning by the frame's weights (`gMorphWeights[frame]` from `morphWeightBase`, a `SceneMorph`

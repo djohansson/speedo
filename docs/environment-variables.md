@@ -45,6 +45,7 @@ This loads Sponza, places the camera in its gallery at half past two, renders he
 | `SPEEDO_CAMERA_TURN` | Degrees per second; negative turns the other way. Default: 0. | Turns every view about the vertical axis without stopping, once a model is in: a moving camera for comparing renders and timings. |
 | `SPEEDO_CAMERA_WALK` | Scene units per second along the view; negative goes back. Default: 0. | Moves every view forward without stopping, as `SPEEDO_CAMERA_TURN` starts; the two combine. |
 | `SPEEDO_PASTE_POSE_FRAME` | A drawn frame's count. Default: never. | At that frame, pastes the clipboard's pose once, as Paste Pose: for testing it. |
+| `SPEEDO_COPY_POSE_FRAME` | A frame's count: of those `SPEEDO_AUTOLOAD_EXIT` counts where it is set, else of all drawn. Default: never. | At that frame, copies the pose once, as Copy Pose (the terminal has it too): for testing it, and for a pose of a moment of a run. |
 
 ## Captures and exiting
 
@@ -62,7 +63,8 @@ This loads Sponza, places the camera in its gallery at half past two, renders he
 | Variable | Values (default) | What it does |
 |---|---|---|
 | `SPEEDO_TIME_FRAME_SECONDS` | Seconds per drawn frame. Default: real time. | Counts each frame as this long, so that runs match frame for frame: the time of day's advance, the motion blur's shutter and the indirect lighting's blending (which keeps it within 1/480 to 0.25 s). |
-| `SPEEDO_ANIMATION_TIME` | Seconds. Default: animations play from 0. | Pauses each model's first animation at that time (View > Animation > Play off). |
+| `SPEEDO_ANIMATION` | An animation's index in the model, or `none` for the rest pose. Default: 0, the first. | Which of a model's animations plays (View > Animation). Copy Pose writes it where it isn't the first. |
+| `SPEEDO_ANIMATION_TIME` | Seconds. Default: animations play from 0. | Pauses each model's animation at that time (View > Animation > Play off). Copy Pose writes where the animation is, so that the pose shows the moment it was copied at, held still; Paste Pose holds it there too (a pose without it plays). |
 | `SPEEDO_ANIMATION_FRAME_SECONDS` | Seconds of animation per drawn frame. Default: real time. | Advances animations by a fixed step a frame, so that two runs show moving things in the same place on the same frame (with `SPEEDO_REPEATABLE`, which starts the animation over where the count starts: frame n is n steps in). At exit the client prints where the animation got to (`animation: '<name>' at <seconds> s`). |
 
 ## The camera and lens

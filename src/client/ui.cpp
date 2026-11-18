@@ -798,6 +798,25 @@ void WindowedApplication::InternalCopyPose()
 		if (scenes.Get().ground != ModelGround::kPlane)
 			text += " SPEEDO_GROUND_PLANE=0";
 	}
+	// what moves: which of the model's animations (where not its first) and where it has got to, which
+	// SPEEDO_ANIMATION_TIME holds it at, paused: the frame as it is (the user's ask, 2026-11-18, to report what shows at
+	// one moment of MovingInterior's). the time the pose is made with (a float), wrapped to the animation's length as
+	// the pose wraps it (sceneanimation.cpp: fmod is exact), so that playing up to it from the start is short too
+	{
+		auto animation = scene.GetAnimation().Read();
+		const auto& state = animation.Get();
+		if (!state.names.empty() && !state.selected)
+			text += " SPEEDO_ANIMATION=none";
+		else if (state.selected && *state.selected < state.names.size())
+		{
+			if (*state.selected != 0)
+				text += std::format(" SPEEDO_ANIMATION={}", *state.selected);
+			auto time = std::max(static_cast<float>(state.time), 0.0F);
+			if (float duration = *state.selected < state.durations.size() ? state.durations[*state.selected] : 0.0F; duration > 0.0F)
+				time = std::fmod(time, duration);
+			text += std::format(" SPEEDO_ANIMATION_TIME={}", time);
+		}
+	}
 	{
 		std::string environment = scene.GetEnvironmentPath().Read().Get();
 		if (!environment.empty())
@@ -1748,6 +1767,15 @@ void WindowedApplication::PrepareDraw()
 	// the camera's sensor and focal length the variables or a pasted pose name (see ui::ApplyCameraVariables), applied with
 	// the camera once the model is in
 	static std::optional<ui::AutoLens> gAutoLens;
+	// what moves as a pasted pose has it (SPEEDO_ANIMATION, SPEEDO_ANIMATION_TIME: paused at that time; a pose that names
+	// no time plays), applied with the camera once the model is in (its install starts its animation over; the variables
+	// at startup are the install's own, see Scene)
+	struct AutoAnimation
+	{
+		std::optional<size_t> selected = 0; // none: the rest pose
+		std::optional<double> time;
+	};
+	static std::optional<AutoAnimation> gAutoAnimation;
 	// SPEEDO_LIGHT_SIZES=<light>=<size>[,...]: the model's lights' sizes (as View > Lights sets them: a directional light's
 	// angular radius in degrees, a point or spot light's radius), once it is installed (which clears them)
 	static std::vector<std::pair<size_t, float>> gAutoLightSizes;
@@ -2067,6 +2095,12 @@ void WindowedApplication::PrepareDraw()
 					RequestWindowChange([this, window, screenWidth, screenHeight] { SetWindowSize(window, screenWidth, screenHeight); });
 				}
 			}
+			gAutoAnimation = AutoAnimation{};
+			if (const char* index = pose->Get("SPEEDO_ANIMATION"); index != nullptr && *index != '\0')
+				gAutoAnimation->selected =
+					std::string_view(index) == "none" ? std::nullopt : std::optional<size_t>(std::strtoull(index, nullptr, 10));
+			if (const char* time = pose->Get("SPEEDO_ANIMATION_TIME"); time != nullptr && *time != '\0')
+				gAutoAnimation->time = std::strtod(time, nullptr);
 			const char* camera = pose->Get("SPEEDO_CAMERA");
 			gAutoCamera.reset();
 			gAutoFrame = std::string_view(camera) == "frame";
@@ -2157,11 +2191,28 @@ void WindowedApplication::PrepareDraw()
 		{
 			rhi.drawCalls.enqueue([this, lens = *gAutoLens](QueueTimelineContextData& /*graphics*/) { lens.Apply(*myViews); });
 		}
+		// and what moves where a pasted pose has it, held there (each of these frames, as the camera: the install starts
+		// the animation over)
+		if (gAutoAnimation)
+		{
+			auto animation = App().GetScene().GetAnimation().Write();
+			auto& state = animation.Get();
+			if (!state.names.empty())
+			{
+				state.selected = gAutoAnimation->selected ? std::optional<size_t>(std::min(*gAutoAnimation->selected, state.names.size() - 1)) : std::nullopt;
+				state.previous.reset();
+				state.fade = gfx::Scene::AnimationState::kCrossfade;
+				state.playing = !gAutoAnimation->time;
+				if (gAutoAnimation->time)
+					state.time = *gAutoAnimation->time;
+			}
+		}
 		if (--gAutoCameraRepeats == 0)
 		{
 			gAutoCamera.reset();
 			gAutoFrame = false;
 			gAutoLens.reset();
+			gAutoAnimation.reset();
 		}
 	}
 	if (!gAutoPath.empty() && !gAutoPathFollowed && !gAutoCamera && !gAutoFrame && autoLoadsReady && modelInstalled)
@@ -2403,8 +2454,20 @@ void WindowedApplication::PrepareDraw()
 		core::Application::Get()->RequestExit();
 	// the pose and the settings as the variables that reproduce them, to the clipboard (and the terminal): View > Camera
 	// > Copy Pose, for reporting what a view shows (a capture of it: px/cap.sh's variables, see CLAUDE.md)
-	if (Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C, ImGuiInputFlags_RouteGlobal))
+	// (SPEEDO_COPY_POSE_FRAME=<n> copies once n frames are drawn, for tests: the terminal has it. of the frames
+	// SPEEDO_AUTOLOAD_EXIT counts where it is set, the model in, else of all: the first 500 of a run drew no model yet)
+	static uint64_t gCopyPoseFrame = []
+	{
+		const char* frame = std::getenv("SPEEDO_COPY_POSE_FRAME");
+		return frame != nullptr ? std::strtoull(frame, nullptr, 10) : 0;
+	}();
+	bool copyPoseFrame = gCopyPoseFrame != 0 && (gAutoLoadExitFrames ? gAutoLoadExitStart.has_value() : true) &&
+						 gDrawnFrameCount.load(std::memory_order_relaxed) >= (gAutoLoadExitFrames ? *gAutoLoadExitStart : 0) + gCopyPoseFrame;
+	if (Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C, ImGuiInputFlags_RouteGlobal) || copyPoseFrame)
+	{
+		gCopyPoseFrame = 0;
 		InternalCopyPose();
+	}
 	// and a pose of those from the clipboard, applied: View > Camera > Paste Pose (SPEEDO_PASTE_POSE_FRAME=<n> pastes once
 	// n frames are drawn, for tests)
 	static uint64_t gPastePoseFrame = []
