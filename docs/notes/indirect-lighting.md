@@ -215,6 +215,29 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
   frames but converged slower (7.3 from the reference against 5.2), and counting the warm-up's 4 rays a voxel in the
   window changed nothing at 300 (20.7 either way): both not done. What would: a window that follows the light while it
   still changes (the recent samples' mean against the whole one's, beyond the noise) and grows once it settles.
+  Measured again from a cold start in one run (`SPEEDO_REPEATABLE` with `SPEEDO_CAPTURE_COUNT` and `_STRIDE`, stepped as
+  a 60 Hz session, `temp/gi-disocclusion/curve.ps1`; the reference above was itself still rising), the wall's mean of
+  255 every 500 frames: 55.7, 58.0, 58.9 at 1500, 60.5 at 4000, 62.7 at 12000, its level about 65.5. What sets the pace:
+  - what an entry's rays read at their hits is the voxels' light as shown, entries' means themselves, so each bounce
+    waits a whole window for the one before it, and the window grows with the frames (half the updates, to 1024);
+  - 8 times as long through what no lookup reads, which traces a ray in 8 frames into the same window: with every
+    block read (`SPEEDO_GI_CACHE_EVERYWHERE=1`) 61.7, 63.5, 63.9, and 65.6 at 12000;
+  - a short window is fast and blotchy (64 samples: there by 2000 with every block read, the mean |pixel - the 33
+    pixels' mean around it| 5.2 against 3.1), and 16 samples leave half the light the probes' (71, another level).
+  Fixed by bouncing on a fast mean while showing the whole one (2026-11-18): an entry also keeps the mean of its last
+  `SPEEDO_GI_CACHE_FAST_SAMPLES` samples' light along its open side (16; an eighth of them where its block isn't read; a
+  half in its fourth words' spare bits), and writes how far that is ahead of its whole mean per voxel (`gGiAhead`, a
+  float a voxel, 4 bytes more of about 100), which the cache's rays add to the bounced part of what a hit's voxel
+  reflects (`GiHitLit`; the probes', the near field's and the reflections' rays read the light as shown). The wall:
+  62.7 at 500, 65.9 at 1000, 65.3 at 1500, 65.2 at 12000, as smooth once settled (3.2 either way; 5.0 against 4.5 at
+  frame 500) and as still (a frame from the next by 0.023 of 255 against 0.019). The bathroom scene's frontal pose
+  (`-0.8,17.0,-6.5,0,1.2`, exposure -1), which kept brightening for 14000 frames: 148.3, 153.9, 155.7 and 157.8 at frames
+  300, 1000, 3000 and 9000 before, 150.8, 161.7, 161.9 and 162.0 now. The regression set at 900 frames within 0.7 of 255
+  on average (the bathroom +0.65, the others under 0.15); the GI pass the same within the runs' noise (Sponza 1.93 to
+  1.96 ms, Bistro 2.39 to 2.40, at night 2.27 to 2.28, off and on interleaved). Tried first: the ratio of the two means,
+  clamped to 1/4 and 4, on the bounced part: the wall settled 2 of 255 low (the fast mean is mostly a little under and
+  rarely far over, so a clamped ratio averages under 1); their difference averages none. A fast mean of 32 samples was
+  half as fast (56.5 at 500, 62.3 at 1000), of 64 slower again.
 - **Moving clips**: a clip that follows the eye moves by whole snaps (`gi::kSnapProbes`, one probe: 8 voxels; clamped
   to whole snaps at the last clip's sides too), so everything a point inside it is lit by stays where it is in the
   world as it snaps: its probes are laid out from its corner (`GiData::probeOrigin`), a whole number of snaps from the

@@ -580,6 +580,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myGiRadiance = myGraph.ImportBuffer("GI Radiance");
 	myGiDirect = myGraph.ImportBuffer("GI Direct");
 	myGiKept = myGraph.ImportBuffer("GI Kept");
+	myGiAhead = myGraph.ImportBuffer("GI Ahead");
 	myGiRays = myGraph.ImportBuffer("GI Rays");
 	myGiIrradiance = myGraph.ImportBuffer("GI Irradiance");
 	myGiProbeDepth = myGraph.ImportBuffer("GI Probe Depth");
@@ -598,6 +599,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			 std::tuple{&myGiRadianceBuffer, "GI Radiance", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiDirectBuffer, "GI Direct", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiKeptBuffer, "GI Kept", 2 * sizeof(uint32_t)},
+			 std::tuple{&myGiAheadBuffer, "GI Ahead", sizeof(float)},
 			 std::tuple{&myGiRayBuffer, "GI Rays", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiIrradianceBuffer, "GI Irradiance", SHADER_TYPES_GI_IRRADIANCE_COUNT * 4 * sizeof(float)},
 			 std::tuple{&myGiProbeDepthBuffer, "GI Probe Depth", sizeof(uint32_t)},
@@ -1187,7 +1189,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		"GI Clear",
 		[this](FrameGraph::PassBuilder& builder)
 		{
-			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiDirect, myGiKept, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility, myGiCache})
+			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiDirect, myGiKept, myGiAhead, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility, myGiCache})
 				builder.Use(buffer, ResourceUse::TransferDestination());
 			// the volumes too: the resolve writes only the blocks near a surface, and a lookup's filter reaches into the
 			// ones beside them
@@ -1197,7 +1199,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this](FrameGraph::PassContext& context)
 		{
 			CommandEncoder encoder(context.cmd);
-			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiDirect, myGiKept, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility, myGiCache})
+			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiDirect, myGiKept, myGiAhead, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility, myGiCache})
 				encoder.FillBuffer(context.graph.GetBuffer(buffer), 0, 0, 0);
 			for (auto volume : myGiVolumes)
 				context.graph.GetImage(volume).Clear(context.cmd, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
@@ -1336,6 +1338,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			// (the emitters' light the voxels keep: the frame's lighting takes it from the surface cache's entries, see
 			// ComputeGiLight, and the rays' hits read it, GiHitLit)
 			builder.Use(myGiKept, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			// (the surface cache's entries' lead, which its rays' hits read: GiCacheUpdate)
+			builder.Use(myGiAhead, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiRays, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiProbeDepth, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
@@ -2469,6 +2473,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheRayCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(rays, nullptr, 10)), 1U, 64U);
 	if (const char* samples = std::getenv("SPEEDO_GI_CACHE_SAMPLES"); samples != nullptr && *samples != '\0')
 		myGiCacheSampleCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(samples, nullptr, 10)), 1U, 0xFFFFU);
+	if (const char* fast = std::getenv("SPEEDO_GI_CACHE_FAST_SAMPLES"); fast != nullptr && *fast != '\0')
+		myGiCacheFastSampleCount = std::min<uint32_t>(static_cast<uint32_t>(std::strtoul(fast, nullptr, 10)), 1024U);
 	if (const char* passes = std::getenv("SPEEDO_GI_CACHE_FILTER_PASSES"); passes != nullptr && *passes != '\0')
 		myGiCacheFilterPassCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(passes, nullptr, 10)), 1U, 4U);
 	if (const char* sigma = std::getenv("SPEEDO_GI_CACHE_SIGMA"); sigma != nullptr && *sigma != '\0')
@@ -3165,6 +3171,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			 std::pair{"gGiRadiance", &myGiRadianceBuffer},
 			 std::pair{"gGiDirect", &myGiDirectBuffer},
 			 std::pair{"gGiKept", &myGiKeptBuffer},
+			 std::pair{"gGiAhead", &myGiAheadBuffer},
 			 std::pair{"gGiRays", &myGiRayBuffer},
 			 std::pair{"gGiIrradiance", &myGiIrradianceBuffer},
 			 std::pair{"gGiProbeDepth", &myGiProbeDepthBuffer},
@@ -4184,6 +4191,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myGiRadiance, myGiRadianceBuffer);
 	myGraph.Bind(myGiDirect, myGiDirectBuffer);
 	myGraph.Bind(myGiKept, myGiKeptBuffer);
+	myGraph.Bind(myGiAhead, myGiAheadBuffer);
 	myGraph.Bind(myGiRays, myGiRayBuffer);
 	myGraph.Bind(myGiIrradiance, myGiIrradianceBuffer);
 	myGraph.Bind(myGiProbeDepth, myGiProbeDepthBuffer);
@@ -4936,6 +4944,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			InternalReplaceBuffer(myGiRadianceBuffer, pipeline, "GI Radiance", "gGiRadiance", radianceSize);
 			InternalReplaceBuffer(myGiDirectBuffer, pipeline, "GI Direct", "gGiDirect", radianceSize);
 			InternalReplaceBuffer(myGiKeptBuffer, pipeline, "GI Kept", "gGiKept", radianceSize);
+			InternalReplaceBuffer(myGiAheadBuffer, pipeline, "GI Ahead", "gGiAhead", static_cast<size_t>(total.voxelCount) * sizeof(float));
 			const auto& size = clipmap.clips.front().data.volumeSize;
 			InternalReplaceGiVolumes(
 				pipeline, glm::uvec3(clipmap.clips.back().data.volumeImage[0], clipmap.clips.back().data.volumeImage[1], clipmap.clips.back().data.volumeImage[2]));
@@ -5243,6 +5252,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.frameStamp = clock.frameStamp;
 		clip.restoreStamp = clock.restoreStamp;
 		clip.cacheSeenFrameCount = static_cast<uint32_t>(std::clamp(kGiCacheSeenSeconds / (myGiFrameSeconds * interval), 2.0, 1024.0));
+		clip.cacheFastCount = myGiCacheFastSampleCount;
 		uint32_t clipFirst = clip.probeFirst;
 		clip.probeFirst = clock.probeHalf * probeTotal + clipFirst;
 		clip.probePreviousFirst = (1 - clock.probeHalf) * probeTotal + clipFirst;

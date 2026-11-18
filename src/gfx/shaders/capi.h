@@ -1665,6 +1665,13 @@ struct GiData
 	// something passing hid for a moment is still filtered when it shows again. its voxels trace as read for 2 updates
 	// only (kGiCacheReadFrameCount)
 	alignas(4) UINT1(cacheSeenFrameCount);
+	// the samples of a surface cache entry's fast mean (Renderer: SPEEDO_GI_CACHE_FAST_SAMPLES, 16; 0: none), whose lead
+	// over the whole mean the cache's rays bounce on (gGiAhead, see GiCacheUpdate)
+	alignas(4) UINT1(cacheFastCount);
+	// the struct's 16 byte alignment's tail
+	alignas(4) UINT1(padding0);
+	alignas(4) UINT1(padding1);
+	alignas(4) UINT1(padding2);
 };
 
 struct PushConstants

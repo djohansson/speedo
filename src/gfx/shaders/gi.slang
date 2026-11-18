@@ -1004,7 +1004,11 @@ float3 GiHitLit(GiData walk, float3 position, BvhHit hit, float random, out floa
 		uint2 keptLight = gGiKept[index];
 		float3 emitters = albedo * GiKeptIrradiance(keptLight, GiVoxelNormal(voxel.normal));
 		float3 lights = max(GiUnpackRgba16(gGiDirect[index]).rgb - voxelEmission, 0.0);
-		float3 reflected = max(radiance.rgb - voxelEmission - lights - emitters, 0.0) +
+		// (its bounced light as its entry's last samples have it rather than as shown, see GiCacheUpdate's gGiAhead: by
+		// the voxel's albedo, as ComputeGiLight bounces the volumes' light)
+		float ahead = walk.cacheFastCount != 0u && walk.reset == 0u ? gGiAhead[index] : 0.0;
+		ahead = isnan(ahead) || isinf(ahead) ? 0.0 : ahead;
+		float3 reflected = max(radiance.rgb - voxelEmission - lights - emitters + GiUnpackRgba8(voxel.albedo).rgb * ahead, 0.0) +
 						   albedo * (GiHitIrradiance(walk, position, hit.normal, random) + GiKeptIrradiance(keptLight, hit.normal));
 		emission = 0.0;
 		if (EmittersLight())
@@ -2940,6 +2944,9 @@ struct GiCacheEntry
 	float3 emitterLight;
 	float3 emitterToward;
 	uint emitterCount;
+	// the mean of its last few samples' light along its open side (GiData::cacheFastCount of them, fewer where its block
+	// isn't read: see GiCacheUpdate), for how far that is ahead of the whole mean (gGiAhead)
+	float fast;
 };
 
 // how many samples the probes' light counts as, against a voxel's: its light is the cache's by its samples over them
@@ -2996,6 +3003,7 @@ GiCacheEntry GiCacheEmpty()
 	entry.emitterLight = 0.0;
 	entry.emitterToward = 0.0;
 	entry.emitterCount = 0u;
+	entry.fast = 0.0;
 	return entry;
 }
 
@@ -3054,9 +3062,12 @@ GiCacheEntry GiCacheLoad(uint index)
 	entry.moment = asfloat(words[2].z);
 	entry.inside = words[2].w >> 16;
 	entry.normal = entry.count != 0u ? GiCacheUnpackNormal(words[2].w & 0xFFFFu) : 0.0;
-	// (the emitters' light where they are lights alone: not read elsewhere, and stored as none)
+	// (the fast mean, a half in the fourth words' spare bits; the emitters' light where they are lights alone: not read
+	// elsewhere, and stored as none)
+	uint4 fourth = gGiCache[index * 4u + 3u];
+	entry.fast = f16tof32(fourth.w >> 16);
 	if (EmittersLight())
-		GiCacheUnpackEmitters(gGiCache[index * 4u + 3u], entry.emitterLight, entry.emitterToward, entry.emitterCount);
+		GiCacheUnpackEmitters(fourth, entry.emitterLight, entry.emitterToward, entry.emitterCount);
 	else
 	{
 		entry.emitterLight = 0.0;
@@ -3089,7 +3100,9 @@ void GiCacheStore(uint index, GiCacheEntry entry)
 	gGiCache[index * 4u + 1u] = uint4(packed[4], packed[5], packed[6], packed[7]);
 	gGiCache[index * 4u + 2u] = uint4(packed[8], min(entry.count, 0xFFFFu) | ((entry.sequence & 0xFFFFu) << 16), asuint(entry.moment),
 									  GiCachePackNormal(entry.normal) | (min(entry.inside, 0xFFFFu) << 16));
-	gGiCache[index * 4u + 3u] = GiCachePackEmitters(entry.emitterLight, entry.emitterToward, entry.emitterCount);
+	uint4 fourth = GiCachePackEmitters(entry.emitterLight, entry.emitterToward, entry.emitterCount);
+	fourth.w = (fourth.w & 0xFFFFu) | (f32tof16(entry.fast) << 16);
+	gGiCache[index * 4u + 3u] = fourth;
 }
 
 void GiCacheClear(uint index)
@@ -3530,6 +3543,9 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 				entry.faces[faceIt] += (radiance * basis[faceIt] * (4.0 * estimate) - entry.faces[faceIt]) * weight;
 			float light = GiCacheSample(dot(radiance, kGiCacheLuminance), direction, entry.normal) * estimate;
 			entry.moment += (light * light - entry.moment) * weight;
+			// and the fast mean, of the last cacheFastCount samples (an eighth of them where the block isn't read, which
+			// traces a ray in 8 frames: as many frames' worth), the whole mean's while it holds no more
+			entry.fast += (light - entry.fast) / float(min(entry.count, active ? max(gi.cacheFastCount, 1u) : max(gi.cacheFastCount / kGiCacheIdleFrameCount, 2u)));
 		}
 	}
 	// the samples and the inside rays over one window, the cap's: past it both scaled down together, so that the inside
@@ -3545,6 +3561,23 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 		entry.inside = uint(round(float(entry.inside) * scale));
 	}
 	GiCacheStore(index, entry);
+	// how far the fast mean is ahead of the whole one (gGiAhead, per voxel: 0 where it holds no more samples than the fast
+	// one, is inside something, or after a reset), which the cache's rays that meet the voxel add to the light it
+	// bounces (GiHitLit). an entry's mean is of up to cacheSampleCount samples, and what its rays read at their hits was
+	// the voxels' light as shown, such means themselves: every bounce waited a whole window for the one before it (8
+	// times as long through what no lookup reads, a ray in 8 frames), and the window grows with the frames. the dim far
+	// wall of MovingInterior's room, lit by bounces alone, was 10 of 255 under its level 500 frames after a cold start
+	// at 60 a second, 7 after 1500 and still 3 after 12000 (the user's report, 2026-11-18: "does not converge quickly
+	// enough"); with the fast mean bounced on, 3 under after 500 and there by 1000, as smooth once settled (the mean
+	// |pixel - the 33 pixels' mean around it| 3.2 either way), for the same time. a ratio of the two, clamped, bounced
+	// less than the light there is once settled (the fast mean is mostly a little low and rarely far too high: 2 of 255
+	// under); their difference is none on average
+	if (gi.cacheFastCount != 0u && rayCount != 0u)
+	{
+		float insideRays = float(entry.inside) / float(kGiCacheInsideScale);
+		bool lead = entry.count > gi.cacheFastCount && gi.reset == 0u && gi.cacheReset == 0u && insideRays <= kGiInsideShare * (float(entry.count) + insideRays);
+		gGiAhead[gi.voxelFirst + GiVoxelIndex(at, size)] = lead ? entry.fast - GiCacheLight(entry.faces, entry.normal) : 0.0;
+	}
 	// what the voxel keeps of the emitters' light is the entry's from its first sample of it, written when it takes one
 	// (see ComputeGiLight; the rays of this update that meet the voxel read either, the entry's of this frame or the last)
 	// (and none, marked, where the entry is inside something: see GiPackKeptInside)

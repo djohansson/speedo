@@ -781,6 +781,7 @@ private:
 	FrameGraph::PassId myGiCacheGrowPass;
 	uint32_t myGiCacheRayCount = 1;
 	uint32_t myGiCacheSampleCount = 1024;
+	uint32_t myGiCacheFastSampleCount = 16; // SPEEDO_GI_CACHE_FAST_SAMPLES: see GiData::cacheFastCount
 	uint32_t myGiCacheFilterPassCount = 3;
 	float myGiCacheSigma = 8.0F;
 	// the frames since the cache started over after which it is settled (see GiData::cacheSettled):
@@ -956,6 +957,7 @@ private:
 	Buffer myGiRadianceBuffer; // the voxels' radiance: the frame's, the static voxels' direct, its kept part (GiData::voxelFirst)
 	Buffer myGiDirectBuffer;
 	Buffer myGiKeptBuffer;
+	Buffer myGiAheadBuffer; // a float a voxel: its surface cache entry's fast mean's lead (gGiAhead)
 	Buffer myGiRayBuffer;
 	Buffer myGiIrradianceBuffer;
 	Buffer myGiProbeDepthBuffer;
@@ -979,6 +981,7 @@ private:
 	FrameGraph::BufferId myGiRadiance;
 	FrameGraph::BufferId myGiDirect;
 	FrameGraph::BufferId myGiKept;
+	FrameGraph::BufferId myGiAhead;
 	FrameGraph::BufferId myGiRays;
 	FrameGraph::BufferId myGiIrradiance;
 	FrameGraph::PassId myGiClearPass;
