@@ -637,6 +637,9 @@ private:
 	struct GiClipClock
 	{
 		uint32_t frameStamp = 0; // see GiData::frameStamp
+		// the frame stamps of the last update what moves was voxelized in, and of the one before it (GiData::restoreStamp)
+		uint32_t movingStamp = 0;
+		uint32_t restoreStamp = 0;
 		uint32_t rayPhase = 0; // over two laps of the phases (see GiData::rayPhase)
 		uint32_t probeHalf = 0; // which half of the probes' buffers and the cache's tables is this update's (see GiData::probeFirst)
 		uint32_t updatesSinceCacheReset = 0; // since its surface cache last started over (GiData::cacheReset)

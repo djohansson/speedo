@@ -1728,8 +1728,9 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 	gGiRadiance[gi.voxelFirst + voxelIndex] = uint2(0, 0);
 }
 
-// before what moves is voxelized over the static voxels: the blocks it was voxelized in last frame (see gGiFlags'
-// second word) take the static voxels back, a thread per block (copying the whole clip took 100 MB a frame)
+// before what moves is voxelized over the static voxels: the blocks it was voxelized in the last time (GiData::restoreStamp:
+// last frame, unless it stood still since; see gGiFlags' second word) take the static voxels back, a thread per block
+// (copying the whole clip took 100 MB a frame)
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
 void ComputeGiRestore(uint3 dispatchId: SV_DispatchThreadID)
@@ -1739,7 +1740,7 @@ void ComputeGiRestore(uint3 dispatchId: SV_DispatchThreadID)
 	uint3 blocks = GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL);
 	if (threadId.x >= blocks.x * blocks.y * blocks.z)
 		return;
-	if (gGiFlags[GiFlagIndex(gi, threadId.x) + 1u] + 1u != gi.frameStamp)
+	if (gi.restoreStamp == 0u || gGiFlags[GiFlagIndex(gi, threadId.x) + 1u] != gi.restoreStamp)
 		return;
 	uint3 block = uint3(threadId.x % blocks.x, (threadId.x / blocks.x) % blocks.y, threadId.x / (blocks.x * blocks.y));
 	uint3 size = GiLevelSize(gi, 0);
@@ -2973,6 +2974,11 @@ static const uint kGiCacheEmitterCandidateCount = 2u;
 // how much of the emitters' light a voxel keeps is that of the voxels beside it on its surface (see GiCacheUpdate)
 static const float kGiKeptNeighbourShare = 0.8;
 static const uint kGiCacheSeenFrameCount = 2u;
+// the updates an entry's window stays short (min(cacheSampleCount, 32) samples) after something last moved in its block:
+// what it gathered while it was there (the floor under MovingInterior's runner, shadowed by it) falls out of its mean
+// within as many updates, where with the whole window back at once (1024) the darkened samples weighed on for seconds,
+// a trail behind what moved (the user's report, 2026-11-18)
+static const uint kGiCacheMovedFrameCount = 32u;
 static const float3 kGiCacheLuminance = float3(0.2126, 0.7152, 0.0722);
 
 GiCacheEntry GiCacheEmpty()
@@ -3387,7 +3393,8 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 		entry = GiCacheEmpty();
 	// the open side as stored, so that the samples are of the light the filter reads along it
 	entry.normal = GiCacheUnpackNormal(GiCachePackNormal(normal));
-	bool moving = gi.moving != 0u && gGiFlags[GiFlagIndex(gi, blockIndex) + 1u] == gi.frameStamp;
+	uint movedStamp = gGiFlags[GiFlagIndex(gi, blockIndex) + 1u];
+	bool moving = movedStamp != 0u && gi.frameStamp - movedStamp < kGiCacheMovedFrameCount;
 	uint cap = min(moving ? min(gi.cacheSampleCount, 32u) : (active ? gi.cacheSampleCount : gi.cacheIdleSampleCount), 0xFFFFu);
 	entry.count = min(entry.count, cap);
 	int3 world = int3(round(gi.volumeOrigin.xyz / gi.volumeOrigin.w)) + int3(at);
@@ -3681,6 +3688,19 @@ GiCacheTap GiCacheReadTap(GiData gi, uint half, uint3 at, uint3 blocks)
 	uint flags = gGiFlags[GiFlagIndex(gi, blockIndex)];
 	if ((flags & 1u) == 0u)
 		return GiCacheNoTap();
+	// none of a voxel something moving holds this update (not the static voxel at its place, in a block it was voxelized
+	// in): its entry is its place's, which the moving surface passes through, its samples of what was there before, and
+	// it lit the surface's voxel, the air beside it and its neighbours on the surface with that (the user's report,
+	// 2026-11-18: rings and patches on MovingInterior's sphere, its voxels' layers and their entries' stale light; with
+	// the cache off it was smooth). the voxel shows the probes' light then, as the resolve wrote it
+	if (gi.moving != 0u && gGiFlags[GiFlagIndex(gi, blockIndex) + 1u] == gi.frameStamp)
+	{
+		uint voxelIndex = gi.voxelFirst + GiVoxelIndex(at, GiLevelSize(gi, 0));
+		GiVoxel held = gGiVoxels[voxelIndex];
+		GiVoxel kept = gGiStaticVoxels[voxelIndex];
+		if (held.albedo != kept.albedo || held.normal != kept.normal)
+			return GiCacheNoTap();
+	}
 	if ((flags & SHADER_TYPES_GI_FLAG_CACHE_ACTIVE) == 0u)
 	{
 		uint page = GiCachePageOf(gGiCacheBlocks[GiCacheTableWord(gi.cacheTableFirst, blockIndex)]);
@@ -4832,16 +4852,51 @@ GiSample GiSampleAt(float3 position, float3 normal, float3 bias)
 	return result;
 }
 
+// whether the surface at position is something moving's this frame: in the finest clip that holds it, one of its voxels
+// (half a voxel out along its normal, at it, half a voxel in: which one its layer is in varies over a face, and a test of
+// one drew a seam across MovingInterior's turning cube) isn't the static voxel at its place, in a block voxelized as
+// moving this update (see ComputeGiCacheFilter's taps, which leave such a voxel's entry out)
+bool GiMovingSurface(float3 position, float3 normal)
+{
+	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
+	for (uint clipIt = 0; clipIt < clipCount; clipIt++)
+	{
+		GiData gi = GiClip(clipIt);
+		if (gi.moving == 0u)
+			return false;
+		uint3 size = GiLevelSize(gi, 0);
+		if (!GiInside(int3(floor(GiVoxelCoordinate(gi, position, 0))), size))
+			continue;
+		uint3 blocks = GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL);
+		for (int stepIt = -1; stepIt <= 1; stepIt++)
+		{
+			int3 at = int3(floor(GiVoxelCoordinate(gi, position + normal * (0.5 * float(stepIt) * gi.volumeOrigin.w), 0)));
+			if (!GiInside(at, size) || gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(at) >> SHADER_TYPES_GI_FLAG_LEVEL, blocks)) + 1u] != gi.frameStamp)
+				continue;
+			uint index = gi.voxelFirst + GiVoxelIndex(uint3(at), size);
+			GiVoxel held = gGiVoxels[index];
+			GiVoxel kept = gGiStaticVoxels[index];
+			if (held.albedo != kept.albedo || held.normal != kept.normal)
+				return true;
+		}
+		return false;
+	}
+	return false;
+}
+
 // a surface's lookup's offset off it, in the clip's voxels (see GiSampleSurface). where the cache's entries are the light
 // at the surface (GiCacheAnchored, the cache on): half a voxel along the normal, which is in the surface's own voxel (the
 // voxelizer's, half a voxel off a face on its side), so the lookup reads it and the 7 around it nearest: the surface's
 // others, the air ones beside it, which hold the surface's light (see ComputeGiCacheFilter), and those behind it, which
 // hold none or the other side's (in its other faces)
-float3 GiSurfaceBias(float3 normal, float3 view)
+// but a surface something moving holds this frame (GiMovingSurface): its voxels' light is the probes' alone, resolved at
+// each voxel it passes through, in patches over it, and it is looked up off it as without the cache, where the air's
+// light is smooth (MovingInterior's sphere, 2026-11-18)
+float3 GiSurfaceBias(float3 position, float3 normal, float3 view)
 {
 	uint frameIndex = gPushConstants.frameIndex;
 	bool anchored = gGi[frameIndex][0].trace == GI_TRACE_BVH && gGi[frameIndex][0].cacheRayCount != 0u;
-	return anchored ? normal * 0.5 : normal * 0.75 + view * 1.5;
+	return anchored && !GiMovingSurface(position, normal) ? normal * 0.5 : normal * 0.75 + view * 1.5;
 }
 
 // a surface's lookup (the shading's): off it 0.75 voxels along its normal and 1.5 toward the eye (along the line of
@@ -4850,7 +4905,7 @@ float3 GiSurfaceBias(float3 normal, float3 view)
 // GiNearIrradiance)
 GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry = true)
 {
-	float3 bias = GiSurfaceBias(normal, view);
+	float3 bias = GiSurfaceBias(position, normal, view);
 	GiSample sample = GiSampleAt(position, normal, bias);
 	if (retry && !sample.valid && sample.inside)
 		sample = GiSampleAt(position, normal, bias * 2.0);
@@ -4864,7 +4919,7 @@ void GiMarkSeen(float3 position, float3 normal, float3 view)
 {
 	if (gGi[gPushConstants.frameIndex][0].enabled == 0 || gGi[gPushConstants.frameIndex][0].cacheRayCount == 0u)
 		return;
-	float3 bias = GiSurfaceBias(normal, view);
+	float3 bias = GiSurfaceBias(position, normal, view);
 	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
 	float remaining = 1.0;
 	for (uint clipIt = 0; clipIt < clipCount && remaining > 0.0; clipIt++)

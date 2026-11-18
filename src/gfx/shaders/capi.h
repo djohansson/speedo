@@ -1655,9 +1655,13 @@ struct GiData
 	// lights change: see GiResolve); to compare, 2, every voxel near a surface every frame, as it was, and 0, none (they
 	// don't trace: the voxels hold the surface cache's light alone, the fog the sky's)
 	alignas(4) UINT1(probes);
+	// the frame stamp of the last update what moves was voxelized in, before this one (0: none): the blocks stamped so
+	// take their static voxels back before it is voxelized again (ComputeGiRestore). the update before, while it moves
+	// every frame; while its pose stays as it was (paused, FrameInputs::modelStill) it isn't voxelized again, its voxels
+	// kept, and the first update it moves again restores the blocks of the last it was voxelized in
+	alignas(4) UINT1(restoreStamp);
 	// the struct's 16 byte alignment's tail
 	alignas(4) UINT1(padding0);
-	alignas(4) UINT1(padding1);
 };
 
 struct PushConstants

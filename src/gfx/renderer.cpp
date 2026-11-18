@@ -5113,7 +5113,18 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			addJobs(false, slabs, clipJobs.count, clipJobs.triangleCount);
 		}
 		myGiMovingJobBase = static_cast<uint32_t>(jobs.size() / 4);
-		addJobs(true, {}, myGiMovingJobCount, myGiMovingTriangleCount);
+		// what moves, every frame but one its pose is the last's (paused: FrameInputs::modelStill) and nothing is voxelized
+		// (a clip moved or started over, whose static voxels are made again without it): its voxels are kept as the last
+		// voxelizing left them, and its blocks are moving no longer, so that the light about it settles (the user's ask,
+		// 2026-11-18: MovingInterior paused kept its splotches on the sphere and cube, up to 25 of 255 from frame to frame
+		// at frame 1500, where the room without its animation changed by 7 at most). its moving BVH is placed as before
+		if (frame.modelStill && !voxelize && !myGiReset)
+		{
+			myGiMovingJobCount = 0;
+			myGiMovingTriangleCount = 0;
+		}
+		else
+			addJobs(true, {}, myGiMovingJobCount, myGiMovingTriangleCount);
 		write(InternalReserve(myGiJobs, pipeline, frame.frameIndex, jobs.size() / 4), std::as_bytes(std::span(jobs)));
 		myGraph.SetEnabled(myGiRestorePass, myGiMovingJobCount > 0);
 		myGraph.SetEnabled(myGiVoxelizeMovingPass, myGiMovingJobCount > 0);
@@ -5171,6 +5182,12 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clock.probeHalf ^= 1;
 		clock.rayPhase = (clock.rayPhase + 1) % (2 * myGiRayPhaseCount);
 		clock.frameStamp = (clock.frameStamp % 0xFFFFFF) + 1;
+		// (what moves voxelized this update: the blocks of the last time it was are restored first, see GiData::restoreStamp)
+		clock.restoreStamp = myGiReset ? 0 : clock.movingStamp;
+		if (myGiMovingJobCount > 0)
+			clock.movingStamp = clock.frameStamp;
+		else if (myGiReset)
+			clock.movingStamp = 0;
 		clock.updatesSinceCacheReset = clock.cacheReset || myGiReset ? 0 : clock.updatesSinceCacheReset + 1;
 		// the static voxels lit again for the lights changed since: every voxel at once where a change wasn't gradual, or
 		// the clip is voxelized, the emitters toggled or everything starts over (the whole light is made then, see
@@ -5219,6 +5236,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		uint32_t interval = myGiStagger && clip.level > 0 ? coarseLevelCount : 1U;
 		clip.probeFreeze = myGiProbeFreeze && myGiStillFrameCount >= 2 * myGiRayPhaseCount * interval && !myGiDump ? 1U : 0U;
 		clip.frameStamp = clock.frameStamp;
+		clip.restoreStamp = clock.restoreStamp;
 		uint32_t clipFirst = clip.probeFirst;
 		clip.probeFirst = clock.probeHalf * probeTotal + clipFirst;
 		clip.probePreviousFirst = (1 - clock.probeHalf) * probeTotal + clipFirst;

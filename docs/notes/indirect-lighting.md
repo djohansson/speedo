@@ -134,6 +134,40 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   copied back (GI Restore) and what moves is voxelized over them (GI Voxelize Moving: its jobs after the static ones',
   by `PushConstants::cullJobBase`), placed by `WorldPosition` (`vertex.slang`: morphed, skinned, then by the instance,
   as `VertexMain` does): it occludes, is lit and bounces light, in the frame.
+  A frame what moves stands where it did (the animation paused: `FrameInputs::modelStill`) and no clip is voxelized,
+  neither runs: its voxels stay as the last voxelizing left them and its blocks stop being stamped as moving, so that
+  the light about it settles (the probes freeze, the cache's entries there aren't capped, the resolve isn't every
+  voxel's there); the first update it moves again restores the blocks of the last it was voxelized in
+  (`GiData::restoreStamp`, the clip's `movingStamp` before; it was the frame before's alone). Before (the user's
+  report, 2026-11-18: MovingInterior paused, splotches on the sphere and the cube that kept changing), frame 1500 to
+  1504 of the paused pose changed by up to 25 of 255 (0.18 on average), where the room without its animation changed
+  by 7 (0.14); since, 7 (0.13). Playing, frame 700 is as it was (0.11 of 255 from step 3's capture); resumed after 500
+  frames paused, no voxel is left where it stood (`gi-voxel-world`).
+  What moves isn't lit by the surface cache (the user's report, 2026-11-18: rings, seams and patches over
+  MovingInterior's sphere and turning cube; with the cache off they were smooth): a cache entry is its voxel's, which
+  stays where it is while a moving surface passes through it, its samples of what was there before, the voxels' layers
+  drawn over the sphere as rings. So the filter reads no entry of a voxel something moving holds this update (not the
+  static voxel at its place, in a block voxelized as moving: `GiCacheReadTap`), which keeps it out of the voxel's own
+  light, its neighbours' on the surface and the air's beside it; and a surface that is something moving's
+  (`GiMovingSurface`: in the finest clip holding it, one of the voxels half a voxel out, at it and half a voxel in; one
+  alone drew a seam across the turning cube, its layer in one voxel or the next over a face) is looked up as without the
+  cache (`GiSurfaceBias`: 0.75 voxels out and 1.5 toward the eye), where the air's light is the probes', smooth: its
+  own voxels' probe light, resolved at each voxel it passes through, came out in patches. Tried and dropped: the probes'
+  visibility traced again in moving blocks every update (no change). And an entry's window stays short (32 samples) for
+  `kGiCacheMovedFrameCount` (32) updates after something last moved in its block, not that update alone, so that what
+  it gathered while something stood over it (the floor under the runner) falls out within as many updates where the
+  whole window back at once kept it for seconds; measured at the user's pose against the moment held still, the floor
+  around the runner is within the noise either way (5.15 and 4.82 of 255 with upscaling off), and what trails there
+  most is the probes' (with the cache off a dark silhouette on the far wall where the sphere had been: their light
+  moves a few percent an update).
+- **The dark walls converge slowly, not only noisily** (MovingInterior without its animation, the user's first pose, the
+  far wall against 12000 frames with a window of 16384: SPEEDO_GI_CACHE_SAMPLES): -22 of 255 at frame 300, -11 at
+  1500, -3.5 at 6000, darker all the way. Each bounce reaches the wall through the cache's mean, which a window of half
+  the updates (up to 1024 samples) takes long to follow: a dim interior lit by bounces alone brightens for thousands of
+  frames (as salle_de_bain's front did). A longer window (4096, the user's first choice) smoothed the blotches at 6000
+  frames but converged slower (7.3 from the reference against 5.2), and counting the warm-up's 4 rays a voxel in the
+  window changed nothing at 300 (20.7 either way): both not done. What would: a window that follows the light while it
+  still changes (the recent samples' mean against the whole one's, beyond the noise) and grows once it settles.
 - **Moving clips**: a clip that follows the eye moves by whole snaps (`gi::kSnapProbes`, one probe: 8 voxels; clamped
   to whole snaps at the last clip's sides too), so everything a point inside it is lit by stays where it is in the
   world as it snaps: its probes are laid out from its corner (`GiData::probeOrigin`), a whole number of snaps from the
