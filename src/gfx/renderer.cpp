@@ -1217,6 +1217,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			// (what the voxels kept, carried with them through the frame's radiance: see ComputeGiShift)
 			builder.Use(myGiKept, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			// (and how far their entries' fast means are ahead, through the direct radiance)
+			builder.Use(myGiAhead, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiDirect, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this, giKernel, clips](FrameGraph::PassContext& context)
 		{
@@ -1269,7 +1272,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			// (read: what the voxels kept, carried by GI Shift)
 			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
-			builder.Use(myGiDirect, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			// (read: how far the entries' fast means are ahead, carried by GI Shift, and written back)
+			builder.Use(myGiDirect, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myGiAhead, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 			builder.Use(myGiKept, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
 		[this, giKernel, clips](FrameGraph::PassContext& context)

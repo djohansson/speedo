@@ -1081,6 +1081,10 @@ void ComputeGiShift(uint3 dispatchId: SV_DispatchThreadID)
 	// ComputeGiLightStatic to keep (GiData::keptCarried), through the frame's radiance, which that makes anew: 0 where
 	// the voxel scrolled in, which has none
 	gGiRadiance[gi.voxelFirst + threadId.x] = GiInside(from, size) ? gGiKept[gi.voxelFirst + GiVoxelIndex(uint3(from), size)] : uint2(0u, 0u);
+	// and how far its entry's fast mean is ahead (gGiAhead, see GiCacheUpdate), likewise through the direct radiance,
+	// which ComputeGiLightStatic makes anew: left where it was, a voxel bounced, to the rays that met it (GiHitLit), what
+	// the voxel that had been at its place was ahead by, until its own entry's next ray; one without an entry for good
+	gGiDirect[gi.voxelFirst + threadId.x] = uint2(asuint(GiInside(from, size) ? gGiAhead[gi.voxelFirst + GiVoxelIndex(uint3(from), size)] : 0.0), 0u);
 }
 
 uint GiPackRgba8(float4 v)
@@ -1727,6 +1731,10 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 	}
 	if (gi.lightsOnly == 0u)
 		gGiKept[gi.voxelFirst + voxelIndex] = kept;
+	// (how far the voxel's entry's fast mean is ahead, carried here by ComputeGiShift when the clip moved: every voxel
+	// is lit then, see GiClipClock::relightPhaseCount)
+	if (any(gi.scroll.xyz != 0))
+		gGiAhead[gi.voxelFirst + voxelIndex] = asfloat(gGiDirect[gi.voxelFirst + voxelIndex].x);
 	gGiDirect[gi.voxelFirst + voxelIndex] = GiPackRgba16(float4(radiance, open / gi.volumeOrigin.w));
 	// and the frame's radiance from nothing: the frame's lighting skips the blocks nothing is near, whose voxels must hold 0
 	gGiRadiance[gi.voxelFirst + voxelIndex] = uint2(0, 0);
@@ -1834,10 +1842,35 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 		float3 normal = GiVoxelNormal(voxel.normal);
 		// (anchored, the voxel's own light, which is the surface's: see GiCacheAnchored)
 		float3 bias = GiCacheAnchored(gi) && gi.cacheRayCount != 0u ? float3(0.0) : normal * min(1.5, 0.5 * open / gi.volumeOrigin.w);
-		GiSample sample = GiSampleClip(GiClipViewAt(gi.clip), position, normal, bias);
+		// the volumes hold the light where the last update's resolve wrote it: on the frame the clip scrolls, at its
+		// place before the scroll (this frame's resolve writes them at the new one, after this), and nothing of a voxel
+		// that scrolled in, which takes the coarser clip's (where that was written, likewise; none where that was
+		// voxelized whole). read at the clip's new place, as it was, every voxel bounced for that frame the light of
+		// the point 8 voxels along the scroll from it: walking back from MovingInterior's corner (the user's report,
+		// 2026-11-18: "moving forwards and backwards a couple of times makes bright lines along the edges pop in
+		// sharply"), the middle clip's scroll back gave the far wall's voxels the light 0.45 m beyond the wall for a
+		// frame, which every ray that met them took: the near field for that frame and the 15 its history fades over,
+		// and the cache's entries and the probes for good, a little more each time (see "A clip's scroll and the
+		// bounce" in docs/notes/indirect-lighting.md)
+		GiClipView lit = GiClipViewAt(gi.clip);
+		int3 written = gi.scroll.xyz;
+		bool held = true;
+		if (any(written != 0) && GiScrolledIn(gi, int3(at)))
+		{
+			held = gi.clip + 1u < gi.clipCount;
+			if (held)
+			{
+				lit = GiClipViewAt(gi.clip + 1u);
+				written = gGi[gPushConstants.frameIndex][gi.clip + 1u].scroll.xyz;
+				held = all(abs(written) < int3(lit.volumeSize.xyz));
+			}
+		}
+		lit.volumeOrigin.xyz -= float3(written) * lit.volumeOrigin.w;
+		GiSample sample = GiSampleClip(lit, position, normal, bias);
 		// (where the voxel holds none, the light out along its normal, as without the cache)
 		if (!sample.valid)
-			sample = GiSampleClip(GiClipViewAt(gi.clip), position, normal, normal * min(1.5, 0.5 * open / gi.volumeOrigin.w));
+			sample = GiSampleClip(lit, position, normal, normal * min(1.5, 0.5 * open / gi.volumeOrigin.w));
+		sample.valid = sample.valid && held;
 		float3 bounce = sample.valid ? GiEvaluate(sample, normal) : -1.0;
 		if (!any(isnan(bounce)) && !any(isinf(bounce)))
 			radiance += albedo.rgb * max(bounce, 0.0);

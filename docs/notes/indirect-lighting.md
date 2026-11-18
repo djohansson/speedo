@@ -238,6 +238,43 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
   pixels brighter than both neighbours 630 a million pixels to 0, GI Seen 0.03 ms at 1920x1080, the frame the same
   within the runs' noise (Sponza 4.56 ms, Bistro 6.21). Left there: for about 15 frames after, the wall is faintly
   patchy where the finest clip's entries, begun from the middle clip's coarser ones, take their own samples.
+  - **A clip's scroll and the bounce.** The specks weren't all of it (the user, 2026-11-18, after GI Seen: "It does
+    not look correct... Moving forwards and backwards a couple of times makes bright lines along the edges pop in
+    sharply"). Walking the same 1.2 m to and fro four times (`forward.ps1 -Move 40 -Cycles 4`; each step of the walk is
+    then drawn 8 times, and `visits.ps1` sums what a frame is brighter by than the median of its step's visits, past
+    2 of 255, a million pixels): a band along the wall's edges at the corner lit up 22 frames into every walk back,
+    more each time (1433, 3613, 5787, 9868), fading over 15 frames; with the near field off it stayed instead, a step
+    brighter each time (to 4344); as much with the cache off or the fast mean off, a thirtieth with the bounce off
+    (147), and the last clip's light alone (`SPEEDO_GI_LOOKUP_LEVEL=2`), which never scrolls, brightened with it. The
+    frame was the middle clip's scroll back (`SPEEDO_GI_EYE_LOG`). The voxels' lighting (`ComputeGiLight`) bounces the
+    volumes' light at each voxel, which on the frame its clip scrolls is still the last update's, written at the
+    clip's place before the scroll (the resolve writes it at the new one later in the frame): every voxel of the clip
+    bounced, for that frame, the light of the point 8 voxels along the scroll from it. Walking forward that is a
+    point in the room, much the same; walking back, the far wall's voxels took the light 0.45 m beyond the wall
+    (the finest clip's 0.22 m beyond is still in the wall). One frame of it, but every ray that met those voxels took
+    it: the near field's for that frame, shown through its history's 15, and the cache's entries and the probes for
+    as long as their windows, so that each walk back added to what the last had left. Now the lighting reads the
+    volumes where they were written (the clip's origin less its scroll), and a voxel that scrolled in, which they
+    hold nothing of, takes the coarser clip's light there (where that was written, likewise). The same walk: the
+    frames' mean 1163 to 92, the worst frame 9868 to 609, and the walks back no brighter each time (417, 149, 157,
+    198 after them); the cache off 18696 to 3087 at worst.
+    And `gGiAhead` (how far a voxel's entry's fast mean is ahead, which the cache's rays add to what it bounces) stayed
+    where it was when its clip scrolled, as the bounce's read did: a voxel bounced what the voxel that had been at its
+    index was ahead by until its own entry's next ray, and one without an entry for good. Carried with the voxels now
+    (`ComputeGiShift`, through `gGiDirect`, which `ComputeGiLightStatic` makes anew after reading it), as `gGiKept` is.
+    Whatever is kept per voxel index has to move with a scroll or be read at its place before it: the voxels, their
+    kept light, their visibility bits, the cache's page tables and the seen stamps did; these two didn't.
+    Left: the frame a wall enters a clip whole. A clip is clamped to the last clip's edges, so at the scene's edge it
+    doesn't fade in (`GiClipWeight`): on the first walk forward the middle clip's second scroll (the frame 17 steps
+    in) took the far wall in, all of it at once and at full weight, its entries begun from the last clip's as they
+    are, unfiltered, where the frame before showed the last clip's filtered over four times the reach: the wall goes
+    blotchy in one frame (patches up to 10 of 255 either way, 0.5 m across; its mean 62.3 to 59.8 with the fast mean
+    on, the same with it off) and smooths over the next 15 or so. The same with GI Seen or without, before this fix
+    and after; not there with every block read (`SPEEDO_GI_CACHE_EVERYWHERE=1`). With the cache off the probes do
+    the same there (a layer of probes new to the clip, begun from the last clip's: 66.8 to 63.0), not where the rays
+    walk the voxels (64.9 to 64.0). What it wants: the new entries begun from what the coarser clip showed (its
+    filtered light) rather than from its entries, or shown by how many rays of their own they hold. The volumes can't
+    be read for it in the resolve (the coarser clip's resolve may be writing them, see `GiHitLit`).
 - **The dark walls converge slowly, not only noisily** (MovingInterior without its animation, the user's first pose, the
   far wall against 12000 frames with a window of 16384: SPEEDO_GI_CACHE_SAMPLES): -22 of 255 at frame 300, -11 at
   1500, -3.5 at 6000, darker all the way. Each bounce reaches the wall through the cache's mean, which a window of half
