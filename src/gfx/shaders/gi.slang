@@ -2983,10 +2983,11 @@ static const float kGiKeptNeighbourShare = 0.8;
 // the updates after a lookup read a block (or one around it) that its voxels trace as read (see ComputeGiResolve); the
 // filter runs in it for longer (GiData::cacheSeenFrameCount)
 static const uint kGiCacheReadFrameCount = 2u;
-// the updates an entry's window stays short (min(cacheSampleCount, 32) samples) after something last moved in its block:
-// what it gathered while it was there (the floor under MovingInterior's runner, shadowed by it) falls out of its mean
-// within as many updates, where with the whole window back at once (1024) the darkened samples weighed on for seconds,
-// a trail behind what moved (the user's report, 2026-11-18)
+// the updates after something last moved in an entry's block during which its window may be cut (down to
+// min(cacheSampleCount, 32) samples, as far as its light has changed: see GiCacheUpdate's cap): what it gathered while
+// it was there (the floor under MovingInterior's runner, shadowed by it) falls out of its mean within as many updates,
+// where with the whole window back at once (1024) the darkened samples weighed on for seconds, a trail behind what
+// moved (the user's report, 2026-11-18)
 static const uint kGiCacheMovedFrameCount = 32u;
 static const float3 kGiCacheLuminance = float3(0.2126, 0.7152, 0.0722);
 
@@ -3410,7 +3411,29 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	entry.normal = GiCacheUnpackNormal(GiCachePackNormal(normal));
 	uint movedStamp = gGiFlags[GiFlagIndex(gi, blockIndex) + 1u];
 	bool moving = movedStamp != 0u && gi.frameStamp - movedStamp < kGiCacheMovedFrameCount;
-	uint cap = min(moving ? min(gi.cacheSampleCount, 32u) : (active ? gi.cacheSampleCount : gi.cacheIdleSampleCount), 0xFFFFu);
+	uint cap = min(active ? gi.cacheSampleCount : gi.cacheIdleSampleCount, 0xFFFFu);
+	if (moving)
+	{
+		// where something moved in the block lately, a window cut as far as the entry's light has changed: by how far its
+		// fast mean is from its whole one, in deviations of a fast mean (the samples' variance over the fast mean's
+		// samples, as a running mean keeps them). within 2, none; beyond, the window over the deviations less one,
+		// squared (a quarter at 3, a sixteenth at 5), down to 32 samples. to 32 whatever the samples said, as it was
+		// (and still is without the fast mean, or where the entry holds no more than it), the floor along
+		// MovingInterior's runner's track, which it crosses every half second, was a mean of 32 to 60 samples for good:
+		// spots a tenth brighter or darker that came and went over tens of frames (the user's report, 2026-11-18:
+		// "brightened spots appearing gradually and slowly fading around the small moving green box"; three pixels
+		// there between passes 58 to 70 of 255, 62, 64 and 66 to 67 on every frame since)
+		uint cut = min(gi.cacheSampleCount, 32u);
+		uint fastCount = active ? max(gi.cacheFastCount, 1u) : max(gi.cacheFastCount / kGiCacheIdleFrameCount, 2u);
+		if (gi.cacheFastCount != 0u && entry.count > fastCount)
+		{
+			float whole = GiCacheLight(entry.faces, entry.normal);
+			float deviation = sqrt(max(entry.moment - whole * whole, 0.0) / float(2u * fastCount - 1u));
+			float apart = abs(entry.fast - whole) / max(deviation, 1e-12);
+			cut = apart <= 2.0 ? cap : uint(clamp(float(cap) / ((apart - 1.0) * (apart - 1.0)), float(cut), float(cap)));
+		}
+		cap = min(cap, cut);
+	}
 	entry.count = min(entry.count, cap);
 	int3 world = int3(round(gi.volumeOrigin.xyz / gi.volumeOrigin.w)) + int3(at);
 	// a voxel no lookup reads (its block not active, see ComputeGiResolve) traces a ray every kGiCacheIdleFrameCount

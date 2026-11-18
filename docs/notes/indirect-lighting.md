@@ -210,6 +210,19 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
   (`SPEEDO_GI_PROBE_AIR_INTERVAL=1`, no change), the lookup's offset (along the normal alone, 1.5 or 2.25 voxels: the
   same; the sphere's darker rim is its shading, lit from the room's middle), temporal upscaling (off, the rings were
   there, a pixel wide).
+  And spots that came and went slowly around the runner (the user's report, 2026-11-18, pose
+  `-0.9729,0.7820,-1.4863,9.854,-234.218`: "brightened spots appearing gradually and slowly fading around the small
+  moving green box"): an entry's window was cut to 32 samples for 32 updates after something moved in its block,
+  whatever its samples said, and the runner crosses its track every half second, so the floor along it was a mean of 32
+  to 60 samples for good, a tenth brighter or darker in patches that wandered over tens of frames (three floor pixels
+  between its passes 58 to 70 of 255; with no cut at all 62, 64 and 66 to 67 on every frame). The cut is now as far as
+  the entry's light has changed (`GiCacheUpdate`'s cap): by how far its fast mean (see the dark walls, below) is from
+  its whole one, in deviations of a fast mean; within 2 none, beyond that the window over the deviations less one,
+  squared, down to 32. The same pixels 61, 61 to 62 and 62 to 66. What really changes still follows: the playing frame
+  against the same moment held still, MovingInterior's floor around its cube 3.96 of 255 (about 5 before), and
+  CommercialRefrigerator's door mid swing 0.428 (0.427).
+  Left: a patch of the far wall's lower right shows unfiltered for one frame as the room comes back from behind the
+  sphere at the camera (frame 471 of that loop), before and after these.
 - **The dark walls converge slowly, not only noisily** (MovingInterior without its animation, the user's first pose, the
   far wall against 12000 frames with a window of 16384: SPEEDO_GI_CACHE_SAMPLES): -22 of 255 at frame 300, -11 at
   1500, -3.5 at 6000, darker all the way. Each bounce reaches the wall through the cache's mean, which a window of half
