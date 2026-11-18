@@ -787,8 +787,6 @@ private:
 	uint32_t myGiCacheKeepFrameCount = 1024; // SPEEDO_GI_CACHE_KEEP_FRAMES: see GiData::cacheKeepFrameCount
 	bool myGiCacheShow = false; // SPEEDO_GI_CACHE_SHOW=1: see GiData::cacheShow
 	uint32_t myGiLookupLevel = 0; // SPEEDO_GI_LOOKUP_LEVEL + 1: see GiData::lookupLevel
-	bool myGiCacheAnchor = true; // SPEEDO_GI_CACHE_ANCHOR=0 for off: see GiData::cacheAnchor
-	bool myGiCacheLit = true; // SPEEDO_GI_CACHE_LIT=0 for off: see GiData::cacheLit
 	uint32_t myGiCacheThin = 2; // SPEEDO_GI_CACHE_THIN: see GiData::cacheThin
 	uint32_t myGiProbes = 1; // SPEEDO_GI_PROBES: see GiData::probes
 	uint32_t myGiProbeAirInterval = 8; // SPEEDO_GI_PROBE_AIR_INTERVAL: its upper bits, while the lights are still

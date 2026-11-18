@@ -962,7 +962,7 @@ float3 GiHitIrradiance(GiData gi, float3 position, float3 normal, float random)
 	return chosen * (total / chosenWeight) * GiVisibility(gi, position + normal * bias, chosenToLight, chosenDistance - bias, true);
 }
 
-// the radiance a ray took off the triangle it hit, its lights' light taken at the hit itself (GiData::cacheLit: the
+// the radiance a ray took off the triangle it hit, its lights' light taken at the hit itself (the
 // anchored cache's rays): what its voxel reflects (GiHitRadiance's: the finest clip's holding the point, its emission
 // taken out) with the part the lights give it (gGiDirect less the emitters' kept light and the emission) replaced by its
 // albedo times their light at the point (GiHitIrradiance: a shadow ray from the hit); and the triangle's emission (out),
@@ -3274,14 +3274,15 @@ float3 GiCacheOrigin(GiData gi, uint3 at, float3 away)
 	return center + away * min(gi.volumeOrigin.w, 0.5 * open);
 }
 
-// whether the cache's entries are the light arriving at the surface itself (GiData::cacheAnchor; the rays trace the
-// triangles, which is how the surface is found): a surface's voxel alone holds one, of rays that start on the surface
+// whether the cache's entries are the light arriving at the surface itself: where the rays trace the triangles, which is
+// how the surface is found (always there since 2026-11-18, the switch to compare with gone; where they walk the voxels
+// an entry is a voxel's light at the voxel, as it was): a surface's voxel alone holds one, of rays that start on the surface
 // (GiCacheAnchor), the same thing measured whatever the voxel's size, where a voxel's light at the voxel (its center, or
 // a voxel out along its open side) is measured as far off the surface as the level's voxels are big: Sponza's levels
 // disagreed by 3.7 of 255, 10 along the curtains, where the light changes with the height over the floor (see the note)
 bool GiCacheAnchored(GiData gi)
 {
-	return gi.cacheAnchor != 0u && GiTracesBvh(gi);
+	return GiTracesBvh(gi);
 }
 
 // where an anchored entry's ray starts (origin; false: nowhere, no sample, inside where what was found
@@ -3482,7 +3483,7 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			float4 traced;
 			GiRayHit hit;
 			float lit = -1.0;
-			if (anchored && gi.cacheLit != 0u)
+			if (anchored)
 			{
 				uint litHash = (uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u) + entry.sequence * 0x85EBCA6Bu;
 				litHash ^= litHash >> 16;
@@ -4839,7 +4840,7 @@ GiSample GiSampleAt(float3 position, float3 normal, float3 bias)
 float3 GiSurfaceBias(float3 normal, float3 view)
 {
 	uint frameIndex = gPushConstants.frameIndex;
-	bool anchored = gGi[frameIndex][0].cacheAnchor != 0u && gGi[frameIndex][0].trace == GI_TRACE_BVH && gGi[frameIndex][0].cacheRayCount != 0u;
+	bool anchored = gGi[frameIndex][0].trace == GI_TRACE_BVH && gGi[frameIndex][0].cacheRayCount != 0u;
 	return anchored ? normal * 0.5 : normal * 0.75 + view * 1.5;
 }
 

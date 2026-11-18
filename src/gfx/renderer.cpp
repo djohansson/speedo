@@ -2478,10 +2478,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheShow = std::string_view(show) == "1";
 	if (const char* lookup = std::getenv("SPEEDO_GI_LOOKUP_LEVEL"); lookup != nullptr && *lookup != '\0')
 		myGiLookupLevel = std::min<uint32_t>(static_cast<uint32_t>(std::strtoul(lookup, nullptr, 10)), SHADER_TYPES_GI_LEVEL_COUNT - 1) + 1;
-	if (const char* anchor = std::getenv("SPEEDO_GI_CACHE_ANCHOR"); anchor != nullptr)
-		myGiCacheAnchor = std::string_view(anchor) != "0";
-	if (const char* lit = std::getenv("SPEEDO_GI_CACHE_LIT"); lit != nullptr)
-		myGiCacheLit = std::string_view(lit) != "0";
 	if (const char* thin = std::getenv("SPEEDO_GI_CACHE_THIN"); thin != nullptr)
 		myGiCacheThin = static_cast<uint32_t>(std::clamp(std::atoi(thin), 0, 2));
 	if (const char* probes = std::getenv("SPEEDO_GI_PROBES"); probes != nullptr)
@@ -5253,22 +5249,20 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.cacheSettled = myGiTimeBased && myGiLightsFollowFrames == 0 && clock.updatesSinceCacheReset >= settledFrameCount ? 1U : 0U;
 		clip.cacheShow = myGiCacheShow ? 1U : 0U;
 		clip.lookupLevel = myGiLookupLevel;
-		// (a sixty-fourth of the last level's voxel off the surface, whatever the entry's level: 3.6 mm in Sponza)
-		clip.cacheAnchor = myGiCacheAnchor ? 1U : 0U;
-		clip.cacheLit = myGiCacheLit ? 1U : 0U;
 		clip.cacheThin = myGiCacheThin;
 		// (the air's voxels take the probes' light every so many updates, GiResolve: every one while the lights change,
 		// gradually or just now, when the probes' light does by more than their hysteresis's few percent a frame)
 		constexpr uint32_t kGiProbeQuietUpdateCount = 64;
 		bool probesQuiet = myGiLightsFollowFrames == 0 && clock.updatesSinceCacheReset >= kGiProbeQuietUpdateCount;
 		clip.probes = myGiProbes | ((probesQuiet ? myGiProbeAirInterval : 1U) << 8);
+		// (a sixty-fourth of the last level's voxel off the surface, whatever the entry's level: 3.6 mm in Sponza)
 		clip.cacheAnchorBias = myGiClipmap.clips.back().data.volumeOrigin[3] / 64.0F;
-		// the filter's passes: anchored (GiData::cacheAnchor), one for the last level and one more per level finer, so that it
+		// the filter's passes: anchored (GiCacheAnchored), one for the last level and one more per level finer, so that it
 		// reaches about as far in the world at every level (each pass doubles its reach in voxels, each level halves the
 		// voxel): with every level's 3 it reached 7 voxels, 0.4 m at Sponza's finest level and 1.6 m at its last, where the
 		// light under the curtains spread over half the corridor's floor
 		uint32_t levelsCoarser = static_cast<uint32_t>(myGiClipmap.clips.back().data.level) - clip.level;
-		bool anchored = myGiCacheAnchor && myGiTraceBvh; // as GiCacheAnchored
+		bool anchored = myGiTraceBvh; // as GiCacheAnchored
 		clip.cacheFilterPassCount = anchored ? std::min(1 + levelsCoarser, myGiCacheFilterPassCount) : myGiCacheFilterPassCount;
 		// the cache's tables (see GiData::cacheTableFirst): the clip's blocks from its first flag's
 		uint32_t blockFirst = clip.flagFirst / SHADER_TYPES_GI_FLAG_WORD_COUNT;

@@ -1638,14 +1638,9 @@ struct GiData
 	// the finest level the lookups take, + 1 (SPEEDO_GI_LOOKUP_LEVEL, to judge how the levels agree: the same frame shaded
 	// through each level's light, see GiClipWeight); 0: every level, as shaded
 	alignas(4) UINT1(lookupLevel);
-	// whether the surface cache's entries are the light arriving at the surface itself (see GiCacheAnchor;
-	// SPEEDO_GI_CACHE_ANCHOR=0 for a voxel's light at the voxel, as it was), and how far off the surface their rays start
-	// (world space, the same at every level)
-	alignas(4) UINT1(cacheAnchor);
+	// how far off the surface the rays of the surface cache's entries start, where they are the light arriving at the
+	// surface itself (see GiCacheAnchored, GiCacheAnchor): world space, the same at every level
 	alignas(4) FLOAT1(cacheAnchorBias);
-	// whether what an anchored entry's ray meets is lit at the hit itself (see GiHitLit; SPEEDO_GI_CACHE_LIT=0 for by its
-	// voxel's radiance, as the probes' rays' hits are)
-	alignas(4) UINT1(cacheLit);
 	// the most samples the mean of a voxel no lookup reads is of (it traces a ray every kGiCacheIdleFrameCount frames):
 	// cacheSampleCount, but while the cache follows lights that change, as many as span the frames cacheSampleCount does
 	alignas(4) UINT1(cacheIdleSampleCount);
@@ -1658,9 +1653,11 @@ struct GiData
 	// which voxels the probes are resolved into (SPEEDO_GI_PROBES, the low 8 bits): 1, those whose light they can change
 	// (not the ones whose surface cache entries are settled; the air's every so many frames, the upper bits, 1 while the
 	// lights change: see GiResolve); to compare, 2, every voxel near a surface every frame, as it was, and 0, none (they
-	// don't trace: the voxels hold the surface cache's light alone, the fog the sky's). the last member, the struct's 16
-	// byte alignment's tail
+	// don't trace: the voxels hold the surface cache's light alone, the fog the sky's)
 	alignas(4) UINT1(probes);
+	// the struct's 16 byte alignment's tail
+	alignas(4) UINT1(padding0);
+	alignas(4) UINT1(padding1);
 };
 
 struct PushConstants

@@ -1169,8 +1169,9 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   dim red at the others, by leak). So the finer level is the truer, and what the levels need in order to agree is
   to measure the same thing: the light arriving at the surface itself, per side it faces, averaged over the voxel's
   footprint, whatever the voxel's size (the plan's step 1).
-- **The cache anchored at the surface** (step 1; `GiCacheAnchored`, `GiData::cacheAnchor`, `SPEEDO_GI_CACHE_ANCHOR=0`
-  for the cache as it was, to compare; only where the rays trace the triangles, which is how the surface is found). An
+- **The cache anchored at the surface** (step 1; `GiCacheAnchored`; measured below against the cache
+  as it was, `SPEEDO_GI_CACHE_ANCHOR=0`, `GiData::cacheAnchor`, a switch step 4 removed, see "The old cache path's
+  switches removed"; only where the rays trace the triangles, which is how the surface is found). An
   entry is the light arriving at the surface itself, in the surface's voxels alone:
   - Its rays start on the surface (`GiCacheAnchor`): a ray from the voxel's open side (its center half a voxel out
     along its normal, no further than halfway to a surface facing back) toward a point of the voxel's footprint a
@@ -1202,7 +1203,7 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
     traces 4 rays a frame for its first 256 (`kGiCacheYoungRayCount`), settled or not: at the settled rate, a ray every
     other frame, a walking camera reached it before it had 30.
 - **The cache's rays' hits take the lights' light at the hit** (step 2; `GiHitLit`, `GiHitIrradiance`,
-  `GiData::cacheLit`, `SPEEDO_GI_CACHE_LIT=0` to compare). What a ray's hit reflects was its voxel's radiance, in the
+  the measurements against `GiData::cacheLit`, `SPEEDO_GI_CACHE_LIT=0`, removed in step 4). What a ray's hit reflects was its voxel's radiance, in the
   finest clip holding the hit: a voxel takes the lights' light by a ray from its center, a voxel out along its normal,
   so a coarse voxel at the curtains or the columns, half in the atrium's sun, lit the rays that met the corridor's side
   of it. The corridor's light so depended on where the finer clips were, which is what the walking frame showed: with
@@ -1434,6 +1435,13 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
     2816 frames, 1.12 from every voxel's.
   Seen on the way, as it was before and not looked into: salle_de_bain's frontal frame brightens by 5 of 120 between
   frames 2600 and 14000, with the probes resolved either way (at 600 it is 9 to 12 under).
+- **The old cache path's switches removed** (step 4, the user's go-ahead 2026-11-18): `SPEEDO_GI_CACHE_ANCHOR=0` and
+  `SPEEDO_GI_CACHE_LIT=0`, `GiData::cacheAnchor` and `cacheLit`, kept through steps 1 to 3 to compare against. Where the
+  rays trace the triangles the cache's entries are the light at the surface (`GiCacheAnchored` is `GiTracesBvh`) and
+  their rays' hits take the lights' light at the hit, always. The code of a voxel's light at the voxel is not gone
+  with them: it is what runs where the rays walk the voxels (View > Indirect Lighting > Trace Triangles off,
+  `SPEEDO_GI_TRACE=voxels`, a model without a BVH), which finds no surface to anchor at, with the probes' depth maps
+  and the resolve by them (`ComputeGiResolve`). Removing that is removing the voxel walk, a decision of its own.
 - **A neural radiance cache in plain compute is affordable, and learns too slowly for this** (`tools/neuralbench.cpp`,
   `neuralbench.slang`: the gate of the plan to try one; the user asked for Slang's neural features to be looked at, and
   for hardware such as tensor cores to stay an opt in beside a portable default that is practically useful). A
