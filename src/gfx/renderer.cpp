@@ -125,6 +125,8 @@ constexpr uint8_t kFlareSizeEntryPoint = 69;
 constexpr uint8_t kStreakScanEntryPoint = 70;
 // the emitters' samples for what is newly seen (see ComputeEmitterNew)
 constexpr uint8_t kEmitterNewEntryPoint = 71;
+// the surface cache's blocks the frame's pixels will read, before the resolve (see ComputeGiSeen)
+constexpr uint8_t kGiSeenEntryPoint = 72;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -1178,6 +1180,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			if (clipIt >= myGiClipClocks.size() || myGiClipClocks[clipIt].updated)
 				fn(clipIt, myGiClipmap.clips[clipIt]);
 	};
+	// the pre-pass before the indirect lighting's passes (it was after them): GI Seen reads its depth (see below), and
+	// nothing of theirs is the pre-pass's
+	prepass(false);
+
 	// the buffers made for a clipmap hold whatever their memory held before: zero before anything reads them (the
 	// kernels guard against what isn't finite, but a finite value that is wrong is light; made over Bistro's, the
 	// volumes of the square were cyan and red for a while)
@@ -1324,6 +1330,23 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			encoder.CopyBuffer(myGiCacheGrowPages, context.graph.GetBuffer(myGiCache), myGiCacheGrowFirst * kGiCachePageSize);
 			encoder.CopyBuffer(myGiCacheGrowFree, context.graph.GetBuffer(myGiCacheFree), (2 + static_cast<uint64_t>(myGiCacheGrowFirst)) * sizeof(uint32_t));
 		});
+	// the surface cache's blocks the frame's pixels' lookups will read, stamped from the pre-pass's depth before the GI
+	// pass decides where its filter runs (see ComputeGiSeen)
+	myGiSeenPass = myGraph.AddPass(
+		"GI Seen",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiStaticVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiFlags, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			auto extent = myGraph.GetExtent();
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kGiSeenEntryPoint}, extent.width, extent.height);
+		});
 	myGiPass = myGraph.AddPass(
 		"GI",
 		[this](FrameGraph::PassBuilder& builder)
@@ -1412,8 +1435,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					context.cmd, ComputePipelineVariant{.entryPoint = kRayQueryReplayEntryPoint}, RayQueryReplayRayCount(),
 					RayQueryReplayRepeatCount());
 			});
-
-	prepass(false);
 
 	// occlusion culling: the depth pyramid of what the pre-pass drew first (the draws seen last frame), level by level
 	// (each dispatch reads the one before: barriers between them, within the pass)
@@ -4771,6 +4792,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	};
 	for (auto pass : {myGiClearPass, myGiShiftPass, myGiVoxelizePass, myGiKeepPass, myGiLightStaticPass, myGiRestorePass, myGiVoxelizeMovingPass, myGiCacheGrowPass, myGiPass})
 		myGraph.SetEnabled(pass, enabled);
+	myGraph.SetEnabled(myGiSeenPass, enabled && frame.giSurfaceCache);
 	// the near field (see GiData::nearReach), where the rays trace the model's BVHs
 	bool hasBvh = frame.model != nullptr && frame.model->HasBvh();
 	myGiNearOn = enabled && frame.giNearField && frame.traceTriangles && hasBvh && myGiNearReach > 0.0F;

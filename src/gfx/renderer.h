@@ -993,6 +993,7 @@ private:
 	FrameGraph::PassId myGiShiftPass;
 	FrameGraph::PassId myGiVoxelizePass;
 	FrameGraph::PassId myGiPass;
+	FrameGraph::PassId myGiSeenPass;
 	// the buffers replaced by bigger ones, with the Record that replaced them
 	std::vector<std::pair<uint64_t, Buffer>> myRetiredBuffers;
 	// per frame index, the indirect draws' commands (see RecordDrawList), and the one the frame recording takes from

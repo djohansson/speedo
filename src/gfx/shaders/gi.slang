@@ -4998,8 +4998,9 @@ GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry
 
 // where the surface cache is on, the blocks a surface's lookup reads (GiSampleSurface's point, in each clip that lights
 // it) stamped with the frame in their flags' third word (ComputeMain, a pixel at a time): the cache traces and filters
-// around what was seen (see ComputeGiResolve)
-void GiMarkSeen(float3 position, float3 normal, float3 view)
+// around what was seen (see ComputeGiResolve). early: before the frame's resolve (GI Seen, ComputeGiSeen), which reads
+// a block's stamp at its place before the clip's scroll of this update: stamped there
+void GiMarkSeen(float3 position, float3 normal, float3 view, bool early = false)
 {
 	if (gGi[gPushConstants.frameIndex][0].enabled == 0 || gGi[gPushConstants.frameIndex][0].cacheRayCount == 0u)
 		return;
@@ -5015,6 +5016,8 @@ void GiMarkSeen(float3 position, float3 normal, float3 view)
 		remaining -= remaining * weight;
 		float3 coordinate = (position + bias * clip.volumeOrigin.w - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
 		int3 block = int3(floor(coordinate / float(1u << SHADER_TYPES_GI_FLAG_LEVEL)));
+		if (early)
+			block += gGi[gPushConstants.frameIndex][clipIt].scroll.xyz / int(1u << SHADER_TYPES_GI_FLAG_LEVEL);
 		uint3 blocks = GiLevelVoxels(clip.volumeSize.xyz, SHADER_TYPES_GI_FLAG_LEVEL);
 		if (!GiInside(block, blocks))
 			continue;

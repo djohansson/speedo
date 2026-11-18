@@ -141,6 +141,26 @@ float4 GiNearTrace(GiData gi, float3 position, float3 normal, float3 direction, 
 	return float4(EnvironmentIrradiance(gEnvironment[0], direction), 1.0);
 }
 
+// the surface cache's blocks the frame's pixels' lookups will read, stamped before the indirect lighting's resolve (GI
+// Seen, at every pixel of the pre-pass's depth: GiMarkSeen), so that the filter runs in a block the frame it is first
+// read. the stamps were the main pass's alone, of the frame before: a block read for the first time (the finest clip's
+// voxels the camera walks into, what a turn brings into view) showed its entries unfiltered for a frame, each voxel
+// its own few samples' mean. walking towards MovingInterior's corner, the wall ahead was specked with bright voxels for
+// a frame as the finest clip's lookups reached it (the user's report, 2026-11-18: "unwanted bright artifacts are
+// popping up sharply during a few frames"). what the late pre-pass draws (what the frame before hid) is the main pass's
+// to stamp still
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void ComputeGiSeen(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+	int2 pixel = int2(dispatchThreadId.xy);
+	ViewData view;
+	ShadowSurface surface;
+	if (!ViewAt(pixel, view) || !ShadowSurfaceAt(pixel, view, surface))
+		return;
+	GiMarkSeen(surface.position, surface.normal, normalize(view.eyePosition.xyz - surface.position), true);
+}
+
 // the rays of every stride-th pixel each way (GiData::nearStride: a thread each), a quarter of the pixels at 2, a
 // sixteenth at 4, which the filter gathers over its reach (Bistro's street took 3.4 ms with a ray a pixel)
 [shader("compute")]

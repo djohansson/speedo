@@ -476,6 +476,7 @@ std::vector<ShaderLayout> SceneShaderLayouts(const std::filesystem::path& shader
 			{"ComputeFlareSize", SLANG_STAGE_COMPUTE}, // see the Flare Track pass
 			{"ComputeStreakScan", SLANG_STAGE_COMPUTE}, // see the Streak Scan pass
 			{"ComputeEmitterNew", SLANG_STAGE_COMPUTE}, // see the Emitter New pass
+			{"ComputeGiSeen", SLANG_STAGE_COMPUTE}, // see the GI Seen pass
 		},
 		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 		.debugInfoLevel = kShaderDebugInfoLevel,

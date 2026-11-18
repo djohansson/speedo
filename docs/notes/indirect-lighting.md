@@ -223,6 +223,21 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
   CommercialRefrigerator's door mid swing 0.428 (0.427).
   Left: a patch of the far wall's lower right shows unfiltered for one frame as the room comes back from behind the
   sphere at the camera (frame 471 of that loop), before and after these.
+  And a block read for the very first time (the user's report, 2026-11-18, walking forward from
+  `3.4680,1.2528,0.5256,13.720,-249.950` towards the corner: "unwanted bright artifacts are popping up sharply during a
+  few frames"): the stamps the filter goes by were the main pass's (the composite's, at the frame's end), so the filter
+  ran in a block from the frame after a lookup first read it, and that first frame showed its entries as they were,
+  each voxel its own few samples' mean. Walking at 1.8 m a second (stepped at 60 a second,
+  `temp/gi-disocclusion/forward.ps1`), the wall ahead was specked with bright voxels for one frame, the 51st, when the
+  finest clip's lookups reached it (voxels scrolled in 14 frames before, read only once a spacing inside the clip:
+  `GiClipWeight`); gone with every block read (`SPEEDO_GI_CACHE_EVERYWHERE=1`) and with the cache off, there with the
+  near field off, upscaling off and the fast mean off. Now GI Seen stamps the blocks the frame's pixels will read
+  before the GI pass (`ComputeGiSeen`: `GiMarkSeen` at every pixel of the pre-pass's depth, at the blocks' places
+  before the clips' scroll of the update, where the resolve reads them), for which the pre-pass is recorded before the
+  indirect lighting's passes; the composite's stamps stay, for what the late pre-pass draws. The bright frame's sum of
+  pixels brighter than both neighbours 630 a million pixels to 0, GI Seen 0.03 ms at 1920x1080, the frame the same
+  within the runs' noise (Sponza 4.56 ms, Bistro 6.21). Left there: for about 15 frames after, the wall is faintly
+  patchy where the finest clip's entries, begun from the middle clip's coarser ones, take their own samples.
 - **The dark walls converge slowly, not only noisily** (MovingInterior without its animation, the user's first pose, the
   far wall against 12000 frames with a window of 16384: SPEEDO_GI_CACHE_SAMPLES): -22 of 255 at frame 300, -11 at
   1500, -3.5 at 6000, darker all the way. Each bounce reaches the wall through the cache's mean, which a window of half
