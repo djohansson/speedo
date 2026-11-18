@@ -79,7 +79,7 @@ public:
 		// whether the dominant light merges with a model's light from the same direction (View > Environment,
 		// SPEEDO_MERGE_LIGHTS=0 to start without)
 		std::atomic<bool> mergeLights = true;
-		// whether the lights cast shadows (View > Shadows, SPEEDO_SHADOWS=0 to start without)
+		// whether the lights cast shadows (View > Rendering Features > Shadows, SPEEDO_SHADOWS=0 to start without)
 		std::atomic<bool> shadows = true;
 		// whether the brightest lights' shadows are traced through the model's BVHs (FrameInputs::tracedShadows; View >
 		// Ray Traced Shadows, SPEEDO_TRACED_SHADOWS=0 to start with the atlas's alone)
@@ -87,36 +87,36 @@ public:
 		// and at every pixel rather than where the atlas isn't sure (SPEEDO_TRACED_SHADOWS=all, for comparisons)
 		std::atomic<bool> tracedShadowsEverywhere = false;
 		// whether the smooth surfaces' reflections and the transmissive ones' refractions are traced, where the device has
-		// ray queries (FrameInputs::tracedReflections and tracedRefractions; View > Ray Traced Reflections and Ray Traced
+		// ray queries (FrameInputs::tracedReflections and tracedRefractions; View > Rendering Features > Ray Traced Reflections and Ray Traced
 		// Refractions, SPEEDO_TRACED_REFLECTIONS=0 and SPEEDO_TRACED_REFRACTIONS=0 to start without)
 		std::atomic<bool> tracedReflections = true;
 		std::atomic<bool> tracedRefractions = true;
 		// whether the transmissive surfaces refract the lights' light into caustics, where the device has ray queries
-		// (FrameInputs::caustics; View > Caustics, SPEEDO_CAUSTICS=0 to start without: they tint it as it goes straight through)
+		// (FrameInputs::caustics; View > Rendering Features > Caustics, SPEEDO_CAUSTICS=0 to start without: they tint it as it goes straight through)
 		std::atomic<bool> caustics = true;
-		// whether emissive surfaces light the scene as lights do (FrameInputs::emissiveLights; View > Emissive Lights,
+		// whether emissive surfaces light the scene as lights do (FrameInputs::emissiveLights; View > Rendering Features > Emissive Lights,
 		// SPEEDO_EMISSIVE_LIGHTS=0 to start without: the indirect lighting's rays then take their emission as they meet them)
 		std::atomic<bool> emissiveLights = true;
 		// whether the models loaded from now on get their BVHs (see ModelBvh), which the traced shadows, the emitters' light and the
 		// indirect lighting's rays need (the renderer leaves those out without them): off for a scene that traces no rays
 		// (the file browser's preview)
 		std::atomic<bool> modelBvhs = true;
-		// whether the views skip the draws outside their frustum (View > Culling, SPEEDO_CULLING=0 to start without)
+		// whether the views skip the draws outside their frustum (View > Rendering Features > Culling, SPEEDO_CULLING=0 to start without)
 		std::atomic<bool> culling = true;
-		// whether each fragment loops over only the lights that may reach its cluster (View > Clustered Lights,
+		// whether each fragment loops over only the lights that may reach its cluster (View > Rendering Features > Clustered Lights,
 		// SPEEDO_CLUSTERED_LIGHTS=0 to start without: over all of them)
 		std::atomic<bool> clusteredLights = true;
 		// whether the renderer keeps a copy of each frame's lights and shadow views (Renderer::GetLightCapture), for the
 		// ui's light gizmos (View > Lights)
 		std::atomic<bool> captureLights = false;
-		// the camera's exposure (see gfx/physicalcamera.h): its mode (camera::ExposureMode; View > Auto Exposure is program
-		// against manual, View > Camera > Exposure the priorities; SPEEDO_EXPOSURE_MODE, SPEEDO_AUTO_EXPOSURE=0 for manual;
+		// the camera's exposure (see gfx/physicalcamera.h): its mode (camera::ExposureMode; View > Cameras... > Mode: program
+		// against manual and the priorities; SPEEDO_EXPOSURE_MODE, SPEEDO_AUTO_EXPOSURE=0 for manual;
 		// auto exposure on by default since 2026-10-26, the user's call with the sky's time of day, and a program mode since
 		// 2026-11-05: the camera chooses its aperture, shutter and ISO for the exposure auto exposure asks for, see
 		// camera::Choose) and what is set (the aperture, shutter and ISO: all of them in manual, one of them pinned in a
 		// priority mode, none in program; SPEEDO_APERTURE, SPEEDO_SHUTTER, SPEEDO_ISO; sunny sixteen by default, which
 		// exposes a unit of radiance as white, the renderer's 0 stops: captures compared at a fixed exposure take
-		// SPEEDO_AUTO_EXPOSURE=0 as before); and the final image is scaled by 2^exposureStops more (View > Exposure: an
+		// SPEEDO_AUTO_EXPOSURE=0 as before); and the final image is scaled by 2^exposureStops more (View > Cameras... > Compensation: an
 		// exposure compensation)
 		std::atomic<float> exposureStops = 0.0F;
 		std::atomic<uint8_t> exposureMode = static_cast<uint8_t>(camera::ExposureMode::kProgram);
@@ -125,27 +125,27 @@ public:
 		std::atomic<float> iso = camera::Exposure{}.iso;
 		[[nodiscard]] bool AutoExposure() const noexcept { return exposureMode.load(std::memory_order_relaxed) != static_cast<uint8_t>(camera::ExposureMode::kManual); }
 		// the camera's lens (see gfx/lens.h: an index into lens::Lenses(), 0 the pinhole, which shows the frame as it is;
-		// View > Camera > Lens, SPEEDO_LENS=<key>): a prime pins the focal length (the views', see Views::SetLens) and the
+		// View > Cameras... > Lens, SPEEDO_LENS=<key>): a prime pins the focal length (the views', see Views::SetLens) and the
 		// aperture's range (see GetExposureLimits), and the Lens pass draws what it does to the frame (its vignetting, its
 		// lateral chromatic aberration and its distortion, see LensData; the glare follows)
 		std::atomic<uint32_t> lens = 0;
 		// and whether its glare is drawn (the bloom it veils the frame with, and the ghosts and starbursts of the bright
-		// blobs the frame holds, see lens.slang and flare.slang; View > Camera > Lens Glare, SPEEDO_LENS_GLARE=0 without)
+		// blobs the frame holds, see lens.slang and flare.slang; View > Cameras... > Lens Glare, SPEEDO_LENS_GLARE=0 without)
 		std::atomic<bool> lensGlare = true;
 		// and what it focuses at (the depth of field, see dof.slang; a real lens's, the pinhole's everything), as a system
-		// camera's autofocus modes have it (FocusMode; View > Camera > Focus, SPEEDO_FOCUS=spot|zone|wide|<meters>, which
-		// Copy Pose writes): what is under the view's center spot (SHADER_TYPES_FOCUS_SPOT of the view each way, a single
+		// camera's autofocus modes have it (FocusMode; View > Cameras... > Focus, SPEEDO_FOCUS=spot|zone|wide|<meters>, which
+		// Copy Scene writes): what is under the view's center spot (SHADER_TYPES_FOCUS_SPOT of the view each way, a single
 		// point's), its center zone (SHADER_TYPES_FOCUS_ZONE), the nearest thing anywhere in the view (wide: the nearest
 		// tenth of its pixels, as an auto area picks the nearest subject), or focusDistance, meters (manual); and whether
-		// the autofocus follows continuously (AF-C) or holds what it last acquired (AF-S: View > Camera > Focus > Focus
+		// the autofocus follows continuously (AF-C) or holds what it last acquired (AF-S: View > Cameras... > Focus > Focus
 		// Now acquires again, SPEEDO_FOCUS_CONTINUOUS=0 holds the first)
 		std::atomic<uint8_t> focusMode = static_cast<uint8_t>(FocusMode::kSpot);
 		std::atomic<float> focusDistance = 2.0F;
 		std::atomic<bool> focusContinuous = true;
 		std::atomic<bool> focusAcquire = false; // a request (Focus Now), taken by the draw thread
-		// and whether what moves while its shutter is open smears (the motion blur, see motionblur.slang; View > Camera >
+		// and whether what moves while its shutter is open smears (the motion blur, see motionblur.slang; View > Cameras... >
 		// Motion Blur, SPEEDO_MOTION_BLUR=0 without) and whether its sensor's shot noise at the ISO shows (the grain, see
-		// SharpenLens; View > Camera > Grain, SPEEDO_GRAIN=0 without), each with a real lens, which Copy Pose writes
+		// SharpenLens; View > Cameras... > Grain, SPEEDO_GRAIN=0 without), each with a real lens, which Copy Scene writes
 		std::atomic<bool> motionBlur = true;
 		std::atomic<bool> grain = true;
 		// the tonemapper (TONEMAPPER_*)
@@ -153,28 +153,28 @@ public:
 		// what the views show (DEBUG_VIEW_*: the light, or a debug view of the surfaces or the lighting; View > Debug
 		// View, SPEEDO_DEBUG_VIEW)
 		std::atomic<uint32_t> debugView = DEBUG_VIEW_NONE;
-		// whether the indirect lighting runs (see FrameInputs::indirectLighting; View > Indirect Lighting; on by default
+		// whether the indirect lighting runs (see FrameInputs::indirectLighting; View > Rendering Features > Indirect Lighting; on by default
 		// since 2026-10-22, SPEEDO_GI=0 to start without it)
 		std::atomic<bool> indirectLighting = true;
 		// whether its rays trace the model's triangles (its BVHs, see gfx/bvh.h) or walk the voxels (FrameInputs::traceTriangles;
-		// View > Indirect Lighting Rays; triangles by default, SPEEDO_GI_TRACE=voxels to start with the voxels)
+		// View > Rendering Features > Indirect Lighting... > Rays; triangles by default, SPEEDO_GI_TRACE=voxels to start with the voxels)
 		std::atomic<bool> traceTriangles = true;
-		// the indirect lighting's voxels along the scene's longest axis (FrameInputs::giResolution; View > Indirect Lighting
+		// the indirect lighting's voxels along the scene's longest axis (FrameInputs::giResolution; View > Rendering Features > Indirect Lighting
 		// Resolution, SPEEDO_GI_RESOLUTION to start with another): 128 by default, finer for light through narrow openings
 		std::atomic<uint32_t> giResolution = gi::kDefaultResolution;
-		// whether the surface cache refines the probes' light (FrameInputs::giSurfaceCache; View > Indirect Lighting Surface
+		// whether the surface cache refines the probes' light (FrameInputs::giSurfaceCache; View > Rendering Features > Indirect Lighting... > Surface
 		// Cache; on by default, SPEEDO_GI_CACHE=0 to start without it)
 		std::atomic<bool> giSurfaceCache = true;
-		// whether the shading takes the near field's rays near other surfaces (FrameInputs::giNearField; View > Indirect
-		// Lighting Near Field; on by default, SPEEDO_GI_NEAR=0 to start without it)
+		// whether the shading takes the near field's rays near other surfaces (FrameInputs::giNearField; View > Rendering
+		// Features > Indirect Lighting... > Near Field; on by default, SPEEDO_GI_NEAR=0 to start without it)
 		std::atomic<bool> giNearField = true;
-		// and how near what its rays meet is a contact, in voxels (FrameInputs::giNearContact; View > Indirect Lighting Near
+		// and how near what its rays meet is a contact, in voxels (FrameInputs::giNearContact; View > Rendering Features > Indirect Lighting... > Near
 		// Field Contact, SPEEDO_GI_NEAR_CONTACT to start with another)
 		std::atomic<float> giNearContact = gi::kDefaultNearContact;
 		// and every how many pixels each way its rays are traced (FrameInputs::giNearStride: 2, a quarter of the pixels, or 4, a
-		// sixteenth, gi::kDefaultNearStride; View > Indirect Lighting Near Field Rays, SPEEDO_GI_NEAR_STRIDE to start with another)
+		// sixteenth, gi::kDefaultNearStride; View > Rendering Features > Indirect Lighting... > Near Field Rays, SPEEDO_GI_NEAR_STRIDE to start with another)
 		std::atomic<uint32_t> giNearStride = gi::kDefaultNearStride;
-		// and whether the near field is accumulated over frames (FrameInputs::giNearTemporal; View > Indirect Lighting Near
+		// and whether the near field is accumulated over frames (FrameInputs::giNearTemporal; View > Rendering Features > Indirect Lighting... > Near
 		// Field Over Frames, SPEEDO_GI_NEAR_TEMPORAL=0 to start without)
 		std::atomic<bool> giNearTemporal = true;
 		// temporal upscaling (FrameInputs::upscaling; View > Upscaling, SPEEDO_UPSCALING; balanced by default, kDefaultUpscaling): a
@@ -193,7 +193,7 @@ public:
 		std::atomic<float> latitude = environment::kSkyDefaultLatitude;
 		std::atomic<float> dayOfYear = environment::kSkyDefaultDayOfYear;
 		// and the year, which the moon's place and phase go by (and the stars' a little): this one by default, the user's
-		// call (View > Environment > Year, SPEEDO_YEAR, which Copy Pose always writes)
+		// call (View > Environment > Physical Sky... > Year, SPEEDO_YEAR, which Copy Scene always writes)
 		std::atomic<int> year = environment::CurrentYear();
 		std::atomic<bool> advanceTime = false;
 		std::atomic<float> timeSpeed = 60.0F;
@@ -202,13 +202,13 @@ public:
 		std::atomic<float> visibility = environment::kSkyDefaultVisibility;
 		// the aerial perspective, where the environment is the sky (FrameInputs::aerialPerspective; View > Environment >
 		// Aerial Perspective, SPEEDO_AERIAL_PERSPECTIVE=0 to start without), and its light shafts, the sun's shadows in the air
-		// (View > Environment > Light Shafts, SPEEDO_LIGHT_SHAFTS=0); and the scene's unit in meters (see gfx::SceneUnit;
+		// (View > Environment > Physical Sky... > Light Shafts, SPEEDO_LIGHT_SHAFTS=0); and the scene's unit in meters (see gfx::SceneUnit;
 		// View > Units, SPEEDO_UNITS or SPEEDO_METERS_PER_UNIT), which the air's thickness, the lights' falloff and the
 		// ground plane's checker go by
 		std::atomic<bool> aerialPerspective = true;
 		std::atomic<bool> lightShafts = true;
 		std::atomic<float> metersPerUnit = 1.0F;
-		// the fog near the ground, in the aerial perspective's air (see AerialPerspectiveData::fog; View > Environment > Fog,
+		// the fog near the ground, in the aerial perspective's air (see AerialPerspectiveData::fog; View > Environment > Physical Sky... > Fog,
 		// SPEEDO_FOG=0 to start without), its visibility at the ground (km; Fog Visibility, SPEEDO_FOG_VISIBILITY) and the
 		// scale height its density falls by (m; Fog Height, SPEEDO_FOG_HEIGHT): a clear day's by default
 		std::atomic<bool> fog = true;
@@ -247,12 +247,12 @@ public:
 	};
 
 	// the installed model's file, its scenes and its material variants (a gltf file's, see ModelDesc::scenes and
-	// variants), for View > Scene, Copy Pose and Paste Pose. the draw thread sets it, the ui thread reads it.
+	// variants), for View > Scene, Copy Scene and Paste Scene. the draw thread sets it, the ui thread reads it.
 	struct SceneState
 	{
 		std::string filePath;
 		// the files it was loaded from (one, or several as one, see Model::Load) and how several are arranged: what loads
-		// it again (Copy Pose writes them)
+		// it again (Copy Scene writes them)
 		std::vector<std::string> filePaths;
 		ModelArrangement arrangement = ModelArrangement::kSideBySide;
 		std::vector<std::string> names;

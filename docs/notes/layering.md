@@ -192,6 +192,28 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   type, zip archives extracted into the user profile, folders) are files of their own. What the three share is in
   `client/windowedapplicationdetail.h` (internal): `App()`, the frame statistics, the archive choice, the extensions
   the dialogs filter by and the load functions.
+  The menus (reorganized 2026-11-18, the user's asks): File (Open, Open Recent; Download Test Assets, About Speedo;
+  Exit), Edit (Copy and Paste Scene: a pose is more than the camera) and View under headings by what they are about:
+  Window (Layout, Presentation), Scene (Scene, Animation with its time as a slider, Environment, Units with the move
+  speed in the scene's unit, Cameras..., Lights...), Rendering (Rendering Features: the switches under Shadows, Ray
+  Traced, Light and Performance, and Indirect Lighting...; Tonemapper, Upscaling) and Diagnostics (Debug View,
+  Statistics..., whose window holds Show FPS: in a build without it, View holds it). The menus hold what is picked or
+  switched; what has many settings is a window a menu item opens, as Lights... is: Cameras... (the model's cameras,
+  the sensor, lens, focus, motion blur, grain, focal length and the exposure with its compensation, each list a combo
+  box; the Auto Exposure switch went, its Mode does it), Environment > Physical Sky... (checked while the sky is the
+  environment; every setting of the sky's: its intensity, rotation and backdrop, the sun's, the dominant lights and
+  the air's; it switches a panorama back to the sky; where a panorama is the environment the window offers the sky
+  alone, and the menu shows the panorama's intensity, rotation, backdrop and dominant lights instead, so that the sky's
+  are never in two places) and Rendering Features > Indirect Lighting... (its rays, resolution, surface cache and near
+  field). `SPEEDO_SHOW_CAMERAS=1`, `SPEEDO_SHOW_SKY=1` and `SPEEDO_SHOW_INDIRECT_LIGHTING=1` open them at startup, for
+  screenshots. A checkbox of what can't run now (the traced features without ray queries, the traced shadows and the
+  caustics without shadows, the near field with the voxels' rays, the light shafts and fog without the aerial
+  perspective, a real lens's glare, blur and grain with the pinhole) is greyed out and unchecked, its setting kept
+  (`SmallCheckbox` with `available`: greyed out but checked read as on). Checkboxes are a line of text tall
+  (`SmallCheckbox`: the frame padding 0 about them, where imgui's square stood a third taller than its label). The menu
+  bar is taller than a window's frames (its frame padding 1.75 times), which the menus' items took too: the taller
+  padding is pushed for the bar's own Begin and its top-level menus' labels alone (where their menus open below it
+  goes by it). The FPS overlay is on by default; TPS went.
   The file browser's preview is `client::Preview` (`client/preview.h`): a second, off-screen scene with its own pipeline,
   views and `ImageOutput`, lit by the sky, without the indirect lighting or the models' BVHs (`Scene::Settings::modelBvhs`, `ModelBvh::kNone`:
   no file's read from its cache, no set's built, which took San Miguel's archive seconds that a preview given up went on

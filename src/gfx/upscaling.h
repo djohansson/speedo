@@ -37,7 +37,7 @@ inline constexpr Upscaling kDefaultUpscaling = Upscaling::kBalanced;
 	return 1.0F;
 }
 
-// as SPEEDO_UPSCALING and Copy Pose name it
+// as SPEEDO_UPSCALING and Copy Scene name it
 [[nodiscard]] constexpr std::string_view UpscalingName(Upscaling upscaling) noexcept
 {
 	switch (upscaling)

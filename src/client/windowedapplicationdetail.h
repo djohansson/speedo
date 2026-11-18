@@ -151,6 +151,31 @@ inline void CloseOnEscape(bool& open)
 		open = false;
 }
 
+// a checkbox as tall as a line of text: its square the font's size, where imgui's is a frame's (the font and the frame
+// padding above and below it), which stood a third taller than the text beside it and the menus' items (the user's ask,
+// 2026-11-18, for smaller checkboxes). ui thread
+inline bool SmallCheckbox(const char* label, bool* value)
+{
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, 0.0F));
+	bool changed = ImGui::Checkbox(label, value);
+	ImGui::PopStyleVar();
+	return changed;
+}
+
+// the checkbox of something that runs only while available (another feature on, the device's ray queries, a real lens):
+// while it isn't, greyed out and unchecked, its setting kept for when it is (greyed out but checked read as on: the
+// user's ask, 2026-11-18). true where it was changed. ui thread
+inline bool SmallCheckbox(const char* label, bool* value, bool available)
+{
+	bool shown = available && *value;
+	ImGui::BeginDisabled(!available);
+	bool changed = SmallCheckbox(label, &shown) && available;
+	ImGui::EndDisabled();
+	if (changed)
+		*value = shown;
+	return changed;
+}
+
 // whether the file browser (File > Open..., see WindowedApplication::InternalDrawBrowser) is open. ui thread
 inline bool gShowBrowser = false;
 // what it is open for: files of any kind (File > Open...), or an environment (View > Environment > Open

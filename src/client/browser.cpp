@@ -586,17 +586,17 @@ void WindowedApplication::InternalDrawBrowser()
 		// what is listed: with subfolders, every file below the folder (to step through without entering them), of the kinds
 		// checked
 		auto options = state.options;
-		Checkbox("Include subfolders", &options.recursive);
+		SmallCheckbox("Include subfolders", &options.recursive);
 		SetItemTooltip("Lists the files in every folder below this one, rather than its folders.");
 		SameLine();
 		BeginDisabled(environment);
-		Checkbox("Models", &options.models);
+		SmallCheckbox("Models", &options.models);
 		SameLine();
-		Checkbox("Archives", &options.archives);
+		SmallCheckbox("Archives", &options.archives);
 		SameLine();
-		Checkbox("Images", &options.images);
+		SmallCheckbox("Images", &options.images);
 		SameLine();
-		Checkbox("Panoramas", &options.environments);
+		SmallCheckbox("Panoramas", &options.environments);
 		EndDisabled();
 		if (options != state.options)
 		{
@@ -928,11 +928,11 @@ void WindowedApplication::InternalDrawBrowser()
 					state.selected[entryIt] = state.entries[entryIt].kind == Kind::kModel;
 			SameLine();
 			BeginDisabled(models < 2);
-			Checkbox("Side by side", &state.sideBySide);
+			SmallCheckbox("Side by side", &state.sideBySide);
 			EndDisabled();
 			SetItemTooltip("Several models: side by side, each scaled to the same size (a set of variants), or as authored, each where it is (the parts of one scene).");
 			SameLine();
-			Checkbox("Ground plane", &state.ground);
+			SmallCheckbox("Ground plane", &state.ground);
 			SetItemTooltip("The models opened stand on a plane of light gray squares, for their shadows and caustics to land on.");
 			SameLine();
 			// the unit the models opened are in (see State::unit): as remembered for the file or guessed (a gltf's meters, an

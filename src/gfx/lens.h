@@ -11,7 +11,7 @@
 
 #include <glm/glm.hpp>
 
-// the lens (View > Camera > Lens, SPEEDO_LENS; the user's call, 2026-11-05: lens types whose artifacts arise from the
+// the lens (View > Cameras... > Lens, SPEEDO_LENS; the user's call, 2026-11-05: lens types whose artifacts arise from the
 // lens rather than from sliders): a prescription, its glass surfaces from the front as a patent lists them (a radius, the
 // distance to the next, the glass after it by its index and its Abbe number, its clear radius), one of them the aperture
 // stop, with its blade count and whether its surfaces are coated. from it, by paraxial ray transfer matrices (height and
@@ -61,7 +61,7 @@ struct Prescription
 	float cylinderCoating = 650.0F;
 };
 
-// the lenses offered (View > Camera > Lens), the pinhole first: no surfaces, a focal length of its own on any sensor
+// the lenses offered (View > Cameras... > Lens), the pinhole first: no surfaces, a focal length of its own on any sensor
 [[nodiscard]] const std::vector<Prescription>& Lenses();
 [[nodiscard]] const Prescription& Pinhole();
 [[nodiscard]] std::optional<size_t> LensOf(std::string_view key);

@@ -77,7 +77,7 @@ float TransmittedTracedShare(float roughness, float ior)
 	return TracedShare(roughness * saturate(ior * 2.0 - 2.0));
 }
 
-// whether a fragment traces its refraction (View > Ray Traced Refractions, where the device has ray queries; see
+// whether a fragment traces its refraction (View > Rendering Features > Ray Traced Refractions, where the device has ray queries; see
 // TransmittedLight), and along which direction: the refracted ray into a volume (thickness), the view's through a thin
 // wall (the screen space lookup's place is the surface's own, behind it)
 bool TransmittedTraced(

@@ -21,7 +21,7 @@ Packaged builds are available for macOS (ARM64, M1+), Windows (x64, AVX2) and Li
 
 *The Khronos glTF sample models DragonAttenuation (at the top), ABeautifulGame, Sponza and CarConcept (click one for its full size), under the physical sky at their times of day, with indirect lighting and ray traced shadows, reflections and refractions.*
 
-<!-- made with the profile client from View > Camera > Copy Pose's variables, SPEEDO_YEAR=2026 SPEEDO_GI=1, plus SPEEDO_WINDOW_SIZE=3022x1898 SPEEDO_UI=0 SPEEDO_AUTOLOAD_EXIT=1200 SPEEDO_CAPTURE=<file.bmp>; the letterbox cropped, and scaled to 1600 wide. Models under test-assets/ (resources/): glTF-Sample-Assets/Models/<model>/... (ABeautifulGame/glTF-Binary-KTX-ETC1S-Draco, DragonAttenuation/glTF-Binary, Sponza/glTF, CarConcept/GLB).
+<!-- made with the profile client from Edit > Copy Scene's variables, SPEEDO_YEAR=2026 SPEEDO_GI=1, plus SPEEDO_WINDOW_SIZE=3022x1898 SPEEDO_UI=0 SPEEDO_AUTOLOAD_EXIT=1200 SPEEDO_CAPTURE=<file.bmp>; the letterbox cropped, and scaled to 1600 wide. Models under test-assets/ (resources/): glTF-Sample-Assets/Models/<model>/... (ABeautifulGame/glTF-Binary-KTX-ETC1S-Draco, DragonAttenuation/glTF-Binary, Sponza/glTF, CarConcept/GLB).
 ABeautifulGame: SPEEDO_CAMERA=0.0343,0.1526,0.2572,10.550,-3.884 SPEEDO_TIME_OF_DAY=10.500 SPEEDO_LENS=anamorphic-50
 DragonAttenuation: SPEEDO_CAMERA=1.3303,1.0941,2.5190,3.171,-30.950 SPEEDO_AUTOLOAD_VARIANT=0 SPEEDO_TIME_OF_DAY=19.720 SPEEDO_LENS=anamorphic-50 SPEEDO_FOCUS=wide
 Sponza: SPEEDO_CAMERA=6.1378,4.2769,-2.4115,-18.428,-104.616 SPEEDO_TIME_OF_DAY=14.440 SPEEDO_LENS=ultrawide-16 SPEEDO_FOCUS=wide
@@ -48,7 +48,7 @@ Each release on GitHub has an installer for every platform: a `.dmg` for macOS o
 - **Moving around:** drag with the left mouse button to look around, `W`/`A`/`S`/`D` to move, the scroll wheel for the move speed. `Alt+Enter` toggles fullscreen.
 - **The interface fades away** when it isn't in use: move the mouse to the top of the window to bring the menu bar back.
 - **View** holds the settings: the layout of views, presentation, the environment and time of day, the camera and its lens, the lighting features (each can be turned off to compare), debug views, and the Lights and Statistics windows.
-- **View > Camera > Copy Pose** (`Ctrl/Cmd+Shift+C`) copies the camera and every changed setting as environment variables, which start the client in the same state, or Paste Pose applies to a running one: the way to report what you see.
+- **Edit > Copy Scene** (`Ctrl/Cmd+Shift+C`) copies the camera and every changed setting as environment variables, which start the client in the same state, or Paste Scene applies to a running one: the way to report what you see.
 
 ## Getting started with development
 
@@ -105,7 +105,7 @@ The build puts `client`, the viewer, in the preset's build directory. Run it fro
 
 From a checkout the shaders compile from their sources at startup, through a shader compiler library the client loads only for that; an installed client gets them precompiled, and its package ships neither the compiler nor slang. A first launch compiles them in the background and has the driver create the pipelines, with the progress shown in a Loading window while the interface stays responsive; later launches take them from the profile's caches and start in seconds.
 
-The client runs on Vulkan on Windows and Linux and on Metal on macOS (`SPEEDO_GRAPHICS_API=vulkan`, `metal` or `d3d12` picks another; About > About Speedo shows the one running). For Vulkan on macOS, point the loader at KosmicKrisp, which setup restores from the binary cache (with a workaround for a GPU restart in Apple's ray tracing, see [indirect lighting](docs/notes/indirect-lighting.md)):
+The client runs on Vulkan on Windows and Linux and on Metal on macOS (`SPEEDO_GRAPHICS_API=vulkan`, `metal` or `d3d12` picks another; File > About Speedo... shows the one running). For Vulkan on macOS, point the loader at KosmicKrisp, which setup restores from the binary cache (with a workaround for a GPU restart in Apple's ray tracing, see [indirect lighting](docs/notes/indirect-lighting.md)):
 
 ```sh
 export VK_DRIVER_FILES=$(ls $PWD/install/*/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json | head -1)
@@ -146,7 +146,7 @@ pwsh -Command '$p = & scripts/fetch-test-assets.ps1 -Quick; & scripts/assettest.
 
 CI runs on every push to `master` and on pull requests, on GitHub's hosted runners for macOS, Windows and Linux, which have no GPU. Each job sets up from the shared caches, builds the debug, profile and release configurations, and runs the importer checks; on Windows and Linux it then runs the visual checks, the client headless on lavapipe with Vulkan validation. A push writes what the runners built to the shared caches, and once every job has passed, prunes them. The GPU drivers (KosmicKrisp, the desktop ones) are tested on developers' machines. See [build](docs/notes/build.md) ("CI").
 
-Environment variables start the client in a known state, for bug reports, measurements and screenshots: the model and environment to load, the camera's pose, every View setting, a capture after so many frames and an exit, a window of a given size or none at all, and the renderer's tuning and diagnostics. View > Camera > Copy Pose writes the current view as these variables. [Environment variables](docs/environment-variables.md) lists and describes them all.
+Environment variables start the client in a known state, for bug reports, measurements and screenshots: the model and environment to load, the camera's pose, every View setting, a capture after so many frames and an exit, a window of a given size or none at all, and the renderer's tuning and diagnostics. Edit > Copy Scene writes the current view as these variables. [Environment variables](docs/environment-variables.md) lists and describes them all.
 
 ## Profiling
 

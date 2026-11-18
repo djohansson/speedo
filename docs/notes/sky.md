@@ -4,7 +4,7 @@ A note of CLAUDE.md (its index names each): Earth's atmosphere, the sun, the moo
 
 ## The sky: Earth's atmosphere and the time of day
 
-The default environment (View > Environment > Physical sky; without `SPEEDO_AUTOLOAD_ENVIRONMENT`) is Earth's atmosphere
+The default environment (View > Environment > Physical Sky...; without `SPEEDO_AUTOLOAD_ENVIRONMENT`) is Earth's atmosphere
 lit by the sun, after Hillaire 2020 ("A Scalable and Production Ready Sky and Atmosphere Rendering Technique") and his
 reference implementation: air (Rayleigh), aerosols (Mie, Cornette and Shanks' phase) and ozone, with Bruneton's
 coefficients in km (`SHADER_TYPES_ATMOSPHERE_*` in `capi.h`), in `sky.h`, which `environment.slang` and the main layout
@@ -26,7 +26,7 @@ share. It replaced a stylized gradient whose sun was fixed.
   `assettest` checks), none below the horizon. Where the time of day puts it (`environment::SunDirection`): the
   declination by the day of the year, the hour angle by local solar time (15 degrees an hour from noon), +x east and -z
   north; the defaults Paris (Bistro's), the 21st of June, 10:30: 59 degrees up in the south east, where the fixed sun was.
-  View > Environment (with the sky installed): Time of Day (shown as hours and minutes, typed as hours), Advance Time and
+  View > Environment > Physical Sky... (a window of the sky's settings since 2026-11-18): Time of Day (shown as hours and minutes, typed as hours), Advance Time and
   Time Speed (a multiple of real time, 60 an hour a minute), Latitude, Day of Year and Year (the moon's place and phase go
   by it; this year's by default, `environment::CurrentYear`, the user's call); `SPEEDO_TIME_OF_DAY` (hours or
   hours:minutes), `SPEEDO_TIME_SPEED` (nonzero advances), `SPEEDO_LATITUDE`, `SPEEDO_DAY_OF_YEAR`, `SPEEDO_YEAR`; Copy
@@ -94,7 +94,7 @@ share. It replaced a stylized gradient whose sun was fixed.
   environment (the sun the one dominant light, where and as bright as put), the table against the cpu's transmittance at
   90, 30, 10 and 3 degrees up, the zenith blue at noon, the sky's share of the noon light (5 to 40%), the sun red at 3
   degrees up, and midnight dark.
-- **How clear the air is** (View > Environment > Visibility, `SPEEDO_VISIBILITY=<km>`, which Copy Pose writes): the
+- **How clear the air is** (View > Environment > Physical Sky... > Visibility, `SPEEDO_VISIBILITY=<km>`, which Copy Scene writes): the
   meteorological visibility at the ground (where a dark object against the horizon keeps 2% of its contrast: Koschmieder's
   3.912 over the extinction at 550 nm, the green channel's), which sets the aerosols' density (`environment::SkyAerosols`,
   times Hillaire's: 1 at `kSkyDefaultVisibility`, 217 km, a very clear day; none from `kSkyClearestVisibility`, 288 km,
@@ -104,8 +104,8 @@ share. It replaced a stylized gradient whose sun was fixed.
   aerial perspective. A change draws the sky again (`UpdateSky`, as the sun's moving does), and its lights. Haze spread
   through the whole atmosphere (the aerosols' scale height is 1.2 km) blocks the sun as it thickens: at 1 km the sunlit
   patches on Sponza's floor are gone, lit by gray skylight alone.
-- **Aerial perspective** (View > Environment > Aerial Perspective, on by default where the environment is the sky,
-  `SPEEDO_AERIAL_PERSPECTIVE=0`; Light Shafts, `SPEEDO_LIGHT_SHAFTS=0`; both written by Copy Pose; `aerialperspective.slang`,
+- **Aerial perspective** (View > Environment > Physical Sky... > Aerial Perspective, on by default where the environment is the sky,
+  `SPEEDO_AERIAL_PERSPECTIVE=0`; Light Shafts, `SPEEDO_LIGHT_SHAFTS=0`; both written by Copy Scene; `aerialperspective.slang`,
   `AerialPerspectiveData`): the light the air scatters toward the eye between it and what it sees, and what it lets through
   of that, as Hillaire's aerial perspective volume. Per view a volume over its viewport (`gAerialPerspective`: two RGBA16F 3D
   images, the in-scattering and the transmittance, colored, 160x90 cells by 64 slices, every split view's stacked along z,
@@ -150,8 +150,8 @@ share. It replaced a stylized gradient whose sun was fixed.
   want a denser layer near the ground (TODO.md). Cost by the draw thread's frame time on KosmicKrisp at Sponza (2560x1440,
   GI on, the user's shadow pose): 0.6 to 0.7 ms (30.54 and 31.63 ms against 30.00 and 30.91, interleaved; by the sky's
   term alone, before the probes' light, within the runs' noise).
-- **Fog near the ground** (View > Environment > Fog, on by default, the user's call, 2026-11-05; `SPEEDO_FOG=0`; Fog
-  Visibility and Fog Height, `SPEEDO_FOG_VISIBILITY=<km>` and `SPEEDO_FOG_HEIGHT=<m>`, all written by Copy Pose;
+- **Fog near the ground** (View > Environment > Physical Sky... > Fog, on by default, the user's call, 2026-11-05; `SPEEDO_FOG=0`; Fog
+  Visibility and Fog Height, `SPEEDO_FOG_VISIBILITY=<km>` and `SPEEDO_FOG_HEIGHT=<m>`, all written by Copy Scene;
   `AerialPerspectiveData::fog`, `environment::kFogDefault*`): a layer of haze and droplets on top of the sky's air, densest
   at the ground and falling off exponentially with the height, by its visibility at the ground (Koschmieder's, as the
   sky's) and its scale height: a clear day's by default, 30 km in a layer of 200 m (an optical depth of 0.03 up through

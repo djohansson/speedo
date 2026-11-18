@@ -11,7 +11,7 @@
 #include <optional>
 #include <string_view>
 
-// the physical camera (View > Camera): a sensor and a focal length, which give the field of view, and an aperture, a
+// the physical camera (View > Cameras...): a sensor and a focal length, which give the field of view, and an aperture, a
 // shutter and an ISO, which give the exposure (see Scene::Settings). the renderer's units: a unit of radiance is
 // kUnitLuminance cd/m^2 (the sky's sun gives SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE units for 128000 lux, and a white
 // Lambertian surface under a unit of illuminance radiates a unit over pi), and a sensor saturates at a luminance of
@@ -53,7 +53,7 @@ inline const float kSaturationEv100 = core::Log2(kUnitLuminance / 1.2F); // 15.3
 	return std::sqrt(shutter * core::Exp2(kSaturationEv100 - stops) * iso / 100.0F);
 }
 
-// how the camera exposes (View > Camera > Exposure, SPEEDO_EXPOSURE_MODE): what the user sets, and what the camera
+// how the camera exposes (View > Cameras... > Exposure, SPEEDO_EXPOSURE_MODE): what the user sets, and what the camera
 // chooses to reach the exposure auto exposure asks for (see Choose). program: all three, along a line from sunny
 // sixteen; aperture or shutter priority: the one set, the other along the line, then the ISO; manual: all three set
 // (SPEEDO_AUTO_EXPOSURE=0, as before the camera)
@@ -145,7 +145,7 @@ struct ExposureLimits
 	return chosen;
 }
 
-// the sensor (View > Camera > Sensor, SPEEDO_SENSOR): its size, mm, which with the focal length gives the field of view
+// the sensor (View > Cameras... > Sensor, SPEEDO_SENSOR): its size, mm, which with the focal length gives the field of view
 enum class Sensor : uint8_t
 {
 	kFullFrame,
@@ -189,7 +189,7 @@ struct SensorSize
 	}
 }
 
-// the sensor's name as SPEEDO_SENSOR takes it and Copy Pose writes it
+// the sensor's name as SPEEDO_SENSOR takes it and Copy Scene writes it
 [[nodiscard]] constexpr std::string_view SensorKey(Sensor sensor) noexcept
 {
 	switch (sensor)

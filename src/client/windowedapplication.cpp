@@ -6,14 +6,13 @@ namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 
 std::mutex WindowedApplication::gDrawMutex{};
 core::LoadQueue WindowedApplication::gLoads{};
-// About > About Speedo (SPEEDO_SHOW_ABOUT=1 at startup, for a capture of it)
+// File > About Speedo... (SPEEDO_SHOW_ABOUT=1 at startup, for a capture of it)
 bool WindowedApplication::gShowAbout = []
 {
 	const char* show = std::getenv("SPEEDO_SHOW_ABOUT");
 	return show != nullptr && std::string_view(show) == "1";
 }();
-bool WindowedApplication::gShowFps = false;
-bool WindowedApplication::gShowTps = false;
+bool WindowedApplication::gShowFps = true; // on by default, the user's call (2026-11-18)
 
 namespace windowedapplication
 {

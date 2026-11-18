@@ -81,10 +81,10 @@ private:
 	// the file browser (File > Open...): folders and the files the client loads as tiles, with multi-select, the
 	// selection previewed off-screen (see Preview), and opened side by side or as authored. ui thread, in PrepareDraw
 	void InternalDrawBrowser();
-	// View > Camera > Copy Pose (ctrl/cmd+shift+c): the view as the variables that reproduce it, to the clipboard
-	void InternalCopyPose();
-	// View > Camera > Paste Pose (ctrl/cmd+shift+v): a pose of Copy Pose's from the clipboard, applied (see PrepareDraw)
-	void InternalPastePose();
+	// Edit > Copy Scene (ctrl/cmd+shift+c): the view as the variables that reproduce it, to the clipboard
+	void InternalCopyScene();
+	// Edit > Paste Scene (ctrl/cmd+shift+v): a pose of Copy Scene's from the clipboard, applied (see PrepareDraw)
+	void InternalPasteScene();
 	// opens what the browser or File > Open Recent says (a file by its type, or several models as one, see RecentFile),
 	// and makes it the most recent. ui thread
 	void InternalOpen(const windowedapplication::RecentFile& file);
@@ -205,7 +205,6 @@ private:
 	static core::LoadQueue gLoads; //NOLINT(readability-identifier-naming) asset loads, shown with their progress
 	static bool gShowAbout; //NOLINT(readability-identifier-naming)
 	static bool gShowFps; //NOLINT(readability-identifier-naming)
-	static bool gShowTps; //NOLINT(readability-identifier-naming)
 };
 
 } // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

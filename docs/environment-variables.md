@@ -2,7 +2,7 @@
 
 The client reads these at startup. They start it in a known state for bug reports, measurements, screenshots and tests: what to load, where the camera is, every View setting, a capture and an exit after so many frames, a window of a given size or no window at all, and the renderer's tuning and diagnostics. The scripts and the build read a few of their own, listed at the end.
 
-View > Camera > Copy Pose (`Ctrl/Cmd+Shift+C`) writes the current view as these variables, and Paste Pose (`Ctrl/Cmd+Shift+V`) applies them to a running client: that is the easiest way to get a set of them. For example:
+Edit > Copy Scene (`Ctrl/Cmd+Shift+C`) writes the current view as these variables, and Paste Scene (`Ctrl/Cmd+Shift+V`) applies them to a running client: that is the easiest way to get a set of them. For example:
 
 ```sh
 SPEEDO_AUTOLOAD_MODEL=test-assets/glTF-Sample-Assets/Models/Sponza/glTF/Sponza.gltf SPEEDO_CAMERA=6.14,4.28,-2.41,-18.4,-104.6 SPEEDO_TIME_OF_DAY=14.5 SPEEDO_HEADLESS=1 SPEEDO_UI=0 SPEEDO_WINDOW_SIZE=1280x720 SPEEDO_AUTOLOAD_EXIT=200 SPEEDO_CAPTURE=sponza.bmp ./build/arm64-osx-clang-profile/client
@@ -12,8 +12,8 @@ This loads Sponza, places the camera in its gallery at half past two, renders he
 
 ## How they are read
 
-- **Pose** marks a variable that is part of a pose: Copy Pose writes it (when it differs from the default), and Paste Pose applies it, resetting each pose variable the pasted text leaves out to its default. The View menu can change these while the client runs.
-- Pose variables follow common rules: an empty value counts as unset; names are exact and case-sensitive; a value that isn't understood prints `NAME=value: not understood` and leaves the setting alone; for a switch, `0` turns it off and any other value on; a number is clamped to the range given, and text that isn't a number reads as 0 before clamping.
+- **Scene** marks a variable that is part of the scene's state: Copy Scene writes it (when it differs from the default), and Paste Scene applies it, resetting each scene variable the pasted text leaves out to its default. The View menu can change these while the client runs.
+- Scene variables follow common rules: an empty value counts as unset; names are exact and case-sensitive; a value that isn't understood prints `NAME=value: not understood` and leaves the setting alone; for a switch, `0` turns it off and any other value on; a number is clamped to the range given, and text that isn't a number reads as 0 before clamping.
 - The other variables each parse their own way, as their rows say. Several turn on only with exactly `1`.
 - The renderer's tuning (most of the indirect lighting's, the emissive surfaces', culling) is read once, when the renderer is created, and stays fixed for the run; none of it is in the View menu.
 - Paths: the files to load (`SPEEDO_AUTOLOAD_MODEL`, `_ENVIRONMENT`, `_IMAGE`, `SPEEDO_BROWSE`) are absolute or relative to the resource directory, `resources/` in a checkout (run the client from the repository root) or `-r <dir>`. Output files and folders (`SPEEDO_CAPTURE`, `SPEEDO_CAPTURE_PATH`, `SPEEDO_CAMERA_PATH=@file`, `SPEEDO_TEST_ASSETS`) are relative to the working directory.
@@ -23,29 +23,29 @@ This loads Sponza, places the camera in its gallery at half past two, renders he
 
 | Variable | Values (default) | What it does |
 |---|---|---|
-| `SPEEDO_AUTOLOAD_MODEL` | A model file (`.gltf`, `.glb`, `.obj`), a folder or zip archive of models, or several files separated by `;` (quote it in a shell). Default: none. | Pose. Loads it at startup as File > Open... would. A folder's or archive's models load side by side; a model with material variants gets its default materials. |
-| `SPEEDO_AUTOLOAD_SCENE` | A glTF scene's index, from 0. Default: the file's default scene, else its first. | Pose. Loads that scene of a single autoloaded glTF file, as View > Scene does. |
-| `SPEEDO_AUTOLOAD_VARIANT` | A material variant's index, from 0. Default: the default materials. | Pose. Loads a single autoloaded model with that `KHR_materials_variants` variant's materials. |
-| `SPEEDO_AUTOLOAD_VARIANTS` | `all`, or indices and `default` separated by commas (e.g. `default,0,2`); indices past the file's count are dropped. Default: none. | Pose. Loads a copy of the model per variant, one behind the other by default, as File > Open...'s Variants dialog does. |
-| `SPEEDO_AUTOLOAD_ARRANGEMENT` | `side-by-side`, `as-authored` or `behind-each-other`. Default: side by side for a `;` list, behind each other for variants. | Pose. How several autoloaded files, or the variants' copies, are arranged. A single folder or archive is always side by side. |
-| `SPEEDO_GROUND_PLANE` | `0` off. Default: on. | Pose. Whether the autoloaded model stands on a ground plane (gray squares a meter each), as File > Open...'s Ground plane box. |
-| `SPEEDO_UNITS` | `m`, `cm`, `mm`, `in` or `ft` (or the words: `meters`, `inches`, `feet`, ...), any case. Default: the unit the profile remembers for the file, else a guess (glTF in meters, OBJ by its size). | Pose. The unit the model's coordinates are in, as View > Units; wins over `SPEEDO_METERS_PER_UNIT`. With `SPEEDO_AUTOLOAD_MODEL` the profile remembers it for that file. |
-| `SPEEDO_METERS_PER_UNIT` | Meters per unit, at least 0.000001. Default: as `SPEEDO_UNITS`. | Pose. A unit of any size, as View > Units > Meters per Unit. |
-| `SPEEDO_AUTOLOAD_ENVIRONMENT` | A panorama (`.hdr`). Default: the physical sky. | Pose. Lights the scene with the panorama, as View > Environment > Open Environment... does. |
+| `SPEEDO_AUTOLOAD_MODEL` | A model file (`.gltf`, `.glb`, `.obj`), a folder or zip archive of models, or several files separated by `;` (quote it in a shell). Default: none. | Scene. Loads it at startup as File > Open... would. A folder's or archive's models load side by side; a model with material variants gets its default materials. |
+| `SPEEDO_AUTOLOAD_SCENE` | A glTF scene's index, from 0. Default: the file's default scene, else its first. | Scene. Loads that scene of a single autoloaded glTF file, as View > Scene does. |
+| `SPEEDO_AUTOLOAD_VARIANT` | A material variant's index, from 0. Default: the default materials. | Scene. Loads a single autoloaded model with that `KHR_materials_variants` variant's materials. |
+| `SPEEDO_AUTOLOAD_VARIANTS` | `all`, or indices and `default` separated by commas (e.g. `default,0,2`); indices past the file's count are dropped. Default: none. | Scene. Loads a copy of the model per variant, one behind the other by default, as File > Open...'s Variants dialog does. |
+| `SPEEDO_AUTOLOAD_ARRANGEMENT` | `side-by-side`, `as-authored` or `behind-each-other`. Default: side by side for a `;` list, behind each other for variants. | Scene. How several autoloaded files, or the variants' copies, are arranged. A single folder or archive is always side by side. |
+| `SPEEDO_GROUND_PLANE` | `0` off. Default: on. | Scene. Whether the autoloaded model stands on a ground plane (gray squares a meter each), as File > Open...'s Ground plane box. |
+| `SPEEDO_UNITS` | `m`, `cm`, `mm`, `in` or `ft` (or the words: `meters`, `inches`, `feet`, ...), any case. Default: the unit the profile remembers for the file, else a guess (glTF in meters, OBJ by its size). | Scene. The unit the model's coordinates are in, as View > Units; wins over `SPEEDO_METERS_PER_UNIT`. With `SPEEDO_AUTOLOAD_MODEL` the profile remembers it for that file. |
+| `SPEEDO_METERS_PER_UNIT` | Meters per unit, at least 0.000001. Default: as `SPEEDO_UNITS`. | Scene. A unit of any size, as View > Units > Meters per Unit. |
+| `SPEEDO_AUTOLOAD_ENVIRONMENT` | A panorama (`.hdr`). Default: the physical sky. | Scene. Lights the scene with the panorama, as View > Environment > Open Environment... does. |
 | `SPEEDO_AUTOLOAD_IMAGE` | An image file. Default: none. | Loads the image onto the default material, as opening an image in File > Open... does. |
 
 ## The camera and views
 
 | Variable | Values (default) | What it does |
 |---|---|---|
-| `SPEEDO_CAMERA` | `x,y,z,pitch,yaw` (the eye in world space, in the scene's units; pitch and yaw in degrees), or `frame`. Default: the model framed, or its first camera. | Pose (Paste Pose needs it). Places every view once the autoloads are in; `frame` is View > Camera > Frame model. |
-| `SPEEDO_LAYOUT` | `1x1`, `1x2`, `2x1` or `2x2` (columns x rows). Default: `1x1`. | Pose. The split screen's views, as View > Layout (`Ctrl/Cmd+1` to `4`). |
-| `SPEEDO_CAMERA_VIEWS` | Poses as `SPEEDO_CAMERA`'s, separated by `;`, for views 1 to 3; or `around`. Default: `SPEEDO_CAMERA` places every view. | Pose. Places split screen's other views; the poses apply only with a pose in `SPEEDO_CAMERA`. `around` turns views 1 and on about the scene's center, evenly apart. |
+| `SPEEDO_CAMERA` | `x,y,z,pitch,yaw` (the eye in world space, in the scene's units; pitch and yaw in degrees), or `frame`. Default: the model framed, or its first camera. | Scene (Paste Scene needs it). Places every view once the autoloads are in; `frame` is View > Cameras... > Frame model. |
+| `SPEEDO_LAYOUT` | `1x1`, `1x2`, `2x1` or `2x2` (columns x rows). Default: `1x1`. | Scene. The split screen's views, as View > Layout (`Ctrl/Cmd+1` to `4`). |
+| `SPEEDO_CAMERA_VIEWS` | Poses as `SPEEDO_CAMERA`'s, separated by `;`, for views 1 to 3; or `around`. Default: `SPEEDO_CAMERA` places every view. | Scene. Places split screen's other views; the poses apply only with a pose in `SPEEDO_CAMERA`. `around` turns views 1 and on about the scene's center, evenly apart. |
 | `SPEEDO_CAMERA_PATH` | Poses as `SPEEDO_CAMERA`'s, separated by `;` or new lines, or `@<file>` holding them. Default: none. | Puts the views at one pose per drawn frame, after `SPEEDO_CAMERA`'s placement, then holds the last: a repeatable move. The autoload exit waits for it. |
 | `SPEEDO_CAMERA_TURN` | Degrees per second; negative turns the other way. Default: 0. | Turns every view about the vertical axis without stopping, once a model is in: a moving camera for comparing renders and timings. |
 | `SPEEDO_CAMERA_WALK` | Scene units per second along the view; negative goes back. Default: 0. | Moves every view forward without stopping, as `SPEEDO_CAMERA_TURN` starts; the two combine. |
-| `SPEEDO_PASTE_POSE_FRAME` | A drawn frame's count. Default: never. | At that frame, pastes the clipboard's pose once, as Paste Pose: for testing it. |
-| `SPEEDO_COPY_POSE_FRAME` | A frame's count: of those `SPEEDO_AUTOLOAD_EXIT` counts where it is set, else of all drawn. Default: never. | At that frame, copies the pose once, as Copy Pose (the terminal has it too): for testing it, and for a pose of a moment of a run. |
+| `SPEEDO_PASTE_SCENE_FRAME` | A drawn frame's count. Default: never. | At that frame, pastes the clipboard's pose once, as Paste Scene: for testing it. |
+| `SPEEDO_COPY_SCENE_FRAME` | A frame's count: of those `SPEEDO_AUTOLOAD_EXIT` counts where it is set, else of all drawn. Default: never. | At that frame, copies the pose once, as Copy Scene (the terminal has it too): for testing it, and for a pose of a moment of a run. |
 
 ## Captures and exiting
 
@@ -63,8 +63,8 @@ This loads Sponza, places the camera in its gallery at half past two, renders he
 | Variable | Values (default) | What it does |
 |---|---|---|
 | `SPEEDO_TIME_FRAME_SECONDS` | Seconds per drawn frame. Default: real time. | Counts each frame as this long, so that runs match frame for frame: the time of day's advance, the motion blur's shutter and the indirect lighting's blending (which keeps it within 1/480 to 0.25 s). |
-| `SPEEDO_ANIMATION` | An animation's index in the model, or `none` for the rest pose. Default: 0, the first. | Which of a model's animations plays (View > Animation). Copy Pose writes it where it isn't the first. |
-| `SPEEDO_ANIMATION_TIME` | Seconds. Default: animations play from 0. | Pauses each model's animation at that time (View > Animation > Play off). Copy Pose writes where the animation is, so that the pose shows the moment it was copied at, held still; Paste Pose holds it there too (a pose without it plays). |
+| `SPEEDO_ANIMATION` | An animation's index in the model, or `none` for the rest pose. Default: 0, the first. | Which of a model's animations plays (View > Animation). Copy Scene writes it where it isn't the first. |
+| `SPEEDO_ANIMATION_TIME` | Seconds. Default: animations play from 0. | Pauses each model's animation at that time (View > Animation > Play off). Copy Scene writes where the animation is, so that the pose shows the moment it was copied at, held still; Paste Scene holds it there too (a pose without it plays). |
 | `SPEEDO_ANIMATION_FRAME_SECONDS` | Seconds of animation per drawn frame. Default: real time. | Advances animations by a fixed step a frame, so that two runs show moving things in the same place on the same frame (with `SPEEDO_REPEATABLE`, which starts the animation over where the count starts: frame n is n steps in). At exit the client prints where the animation got to (`animation: '<name>' at <seconds> s`). |
 
 ## The camera and lens
@@ -73,27 +73,27 @@ All of these are part of a pose. Lens glare, focus, motion blur and grain need a
 
 | Variable | Values (default) | What it does |
 |---|---|---|
-| `SPEEDO_LENS` | `pinhole`, `gauss-50`, `wide-28`, `portrait-85`, `vintage-50`, `anamorphic-50`, `anamorphic-40`, `anamorphic-75`, `anamorphic-50-133`, `wide-20`, `ultrawide-16`, `ultrawide-12`, `fast-35`, `tele-135`. Default: `pinhole`. | Pose. The lens, as View > Camera > Lens. Every lens but the pinhole is a prime, designed element by element: it sets the focal length and the apertures, and draws its vignetting, aberration and distortion. |
-| `SPEEDO_SENSOR` | `full-frame`, `aps-c`, `super35`, `1-inch`, `phone`. Default: `full-frame` (36x24 mm). | Pose. The sensor's size, as View > Camera > Sensor. The focal length is kept, so a smaller sensor sees a narrower field. |
-| `SPEEDO_FOCAL_LENGTH` | mm, 1 to 5000 (the field of view kept within 1 to 170 degrees). Default: the field of view as it is (75 degrees vertically). | Pose. The field of view as a focal length on the sensor, as View > Camera > Focal Length. A lens sets its own instead. |
-| `SPEEDO_LENS_GLARE` | `0` off. Default: on. | Pose. The lens's glare: bloom, ghosts, starbursts, and an anamorphic lens's streaks. View > Camera > Lens Glare. |
-| `SPEEDO_FOCUS` | `spot` (or `auto`), `zone`, `wide`, `manual` (at 2 m), or a distance in meters. Default: `spot`. | Pose. What the depth of field focuses on: a spot or a zone at the view's center, the nearest thing in view, or a distance. View > Camera > Focus. |
-| `SPEEDO_FOCUS_CONTINUOUS` | `0` off. Default: on. | Pose. On, the autofocus measures every frame (AF-C); off, it keeps its first focus (AF-S) until Focus Now. |
-| `SPEEDO_MOTION_BLUR` | `0` off. Default: on. | Pose. What moves smears over the shutter's share of the frame. View > Camera > Motion Blur. |
-| `SPEEDO_GRAIN` | `0` off. Default: on. | Pose. The sensor's noise, stronger at higher ISO. View > Camera > Grain. |
+| `SPEEDO_LENS` | `pinhole`, `gauss-50`, `wide-28`, `portrait-85`, `vintage-50`, `anamorphic-50`, `anamorphic-40`, `anamorphic-75`, `anamorphic-50-133`, `wide-20`, `ultrawide-16`, `ultrawide-12`, `fast-35`, `tele-135`. Default: `pinhole`. | Scene. The lens, as View > Cameras... > Lens. Every lens but the pinhole is a prime, designed element by element: it sets the focal length and the apertures, and draws its vignetting, aberration and distortion. |
+| `SPEEDO_SENSOR` | `full-frame`, `aps-c`, `super35`, `1-inch`, `phone`. Default: `full-frame` (36x24 mm). | Scene. The sensor's size, as View > Cameras... > Sensor. The focal length is kept, so a smaller sensor sees a narrower field. |
+| `SPEEDO_FOCAL_LENGTH` | mm, 1 to 5000 (the field of view kept within 1 to 170 degrees). Default: the field of view as it is (75 degrees vertically). | Scene. The field of view as a focal length on the sensor, as View > Cameras... > Focal Length. A lens sets its own instead. |
+| `SPEEDO_LENS_GLARE` | `0` off. Default: on. | Scene. The lens's glare: bloom, ghosts, starbursts, and an anamorphic lens's streaks. View > Cameras... > Lens Glare. |
+| `SPEEDO_FOCUS` | `spot` (or `auto`), `zone`, `wide`, `manual` (at 2 m), or a distance in meters. Default: `spot`. | Scene. What the depth of field focuses on: a spot or a zone at the view's center, the nearest thing in view, or a distance. View > Cameras... > Focus. |
+| `SPEEDO_FOCUS_CONTINUOUS` | `0` off. Default: on. | Scene. On, the autofocus measures every frame (AF-C); off, it keeps its first focus (AF-S) until Focus Now. |
+| `SPEEDO_MOTION_BLUR` | `0` off. Default: on. | Scene. What moves smears over the shutter's share of the frame. View > Cameras... > Motion Blur. |
+| `SPEEDO_GRAIN` | `0` off. Default: on. | Scene. The sensor's noise, stronger at higher ISO. View > Cameras... > Grain. |
 
 ## Exposure and tonemapping
 
 | Variable | Values (default) | What it does |
 |---|---|---|
-| `SPEEDO_EXPOSURE_MODE` | `program` (or `auto`), `aperture`, `shutter`, `manual`. Default: `program`. | Pose. How the camera exposes, as View > Camera > Exposure: program picks the aperture, shutter and ISO from the scene's brightness, priority fixes one of them, manual all three. Wins over `SPEEDO_AUTO_EXPOSURE`. |
-| `SPEEDO_AUTO_EXPOSURE` | `0` manual. Default: program. | Pose. Turns auto exposure off: the exposure then comes from `SPEEDO_APERTURE`, `SPEEDO_SHUTTER` and `SPEEDO_ISO` (f/16, 1/160 s and ISO 100 by default), for comparing renders at one exposure. View > Auto Exposure. |
-| `SPEEDO_APERTURE` | An f-number, 0.7 to 64, then within the lens's range. Default: 16. | Pose. The aperture in manual and aperture priority modes; with a lens, also the depth of field. |
-| `SPEEDO_SHUTTER` | Seconds, or `1/<n>` (e.g. `1/250`); 1/8000 to 30 s. Default: 1/160 s. | Pose. The shutter in manual and shutter priority modes; with a lens, also the motion blur's length. |
-| `SPEEDO_ISO` | 50 to 409600. Default: 100. | Pose. The ISO in manual mode; with a lens, also the grain. |
-| `SPEEDO_EXPOSURE` | Stops (EV). Default: 0. | Pose. Exposure compensation, on top of the camera's exposure, auto or manual. View > Exposure. |
-| `SPEEDO_TONEMAPPER` | `pbr-neutral`, `aces`, `agx`, `reinhard`, `linear`. Default: `pbr-neutral`. | Pose. The tonemapping curve: Khronos PBR Neutral, ACES, AgX, Reinhard, or linear (clamped). View > Tonemapper. |
-| `SPEEDO_UPSCALING` | `off`, `native`, `quality`, `balanced`, `performance`. Default: `balanced`. | Pose. Temporal upscaling, as View > Upscaling: off renders at the output's size without history; native at that size, accumulated over frames (antialiasing alone); the others at 77%, 67% or 50% of it each way, upscaled. |
+| `SPEEDO_EXPOSURE_MODE` | `program` (or `auto`), `aperture`, `shutter`, `manual`. Default: `program`. | Scene. How the camera exposes, as View > Cameras... > Exposure: program picks the aperture, shutter and ISO from the scene's brightness, priority fixes one of them, manual all three. Wins over `SPEEDO_AUTO_EXPOSURE`. |
+| `SPEEDO_AUTO_EXPOSURE` | `0` manual. Default: program. | Scene. Turns auto exposure off: the exposure then comes from `SPEEDO_APERTURE`, `SPEEDO_SHUTTER` and `SPEEDO_ISO` (f/16, 1/160 s and ISO 100 by default), for comparing renders at one exposure. View > Cameras... > Mode. |
+| `SPEEDO_APERTURE` | An f-number, 0.7 to 64, then within the lens's range. Default: 16. | Scene. The aperture in manual and aperture priority modes; with a lens, also the depth of field. |
+| `SPEEDO_SHUTTER` | Seconds, or `1/<n>` (e.g. `1/250`); 1/8000 to 30 s. Default: 1/160 s. | Scene. The shutter in manual and shutter priority modes; with a lens, also the motion blur's length. |
+| `SPEEDO_ISO` | 50 to 409600. Default: 100. | Scene. The ISO in manual mode; with a lens, also the grain. |
+| `SPEEDO_EXPOSURE` | Stops (EV). Default: 0. | Scene. Exposure compensation, on top of the camera's exposure, auto or manual. View > Cameras... > Compensation. |
+| `SPEEDO_TONEMAPPER` | `pbr-neutral`, `aces`, `agx`, `reinhard`, `linear`. Default: `pbr-neutral`. | Scene. The tonemapping curve: Khronos PBR Neutral, ACES, AgX, Reinhard, or linear (clamped). View > Tonemapper. |
+| `SPEEDO_UPSCALING` | `off`, `native`, `quality`, `balanced`, `performance`. Default: `balanced`. | Scene. Temporal upscaling, as View > Upscaling: off renders at the output's size without history; native at that size, accumulated over frames (antialiasing alone); the others at 77%, 67% or 50% of it each way, upscaled. |
 | `SPEEDO_EXPOSURE_LOG` | Exactly `1` on. Default: off. | Diagnostic. Prints the first view's auto exposure metering (the histogram's percentiles, the mean, the target) every frame for the first 120 metered frames, then every 30th. |
 
 ## The environment, sky and time
@@ -102,33 +102,33 @@ All of these are part of a pose. Apart from the environment's intensity and rota
 
 | Variable | Values (default) | What it does |
 |---|---|---|
-| `SPEEDO_ENVIRONMENT_INTENSITY` | A multiplier, 0 or more. Default: 1. | Pose. Scales the environment's light: the sky or panorama, its sun or moon, and the air's light. View > Environment > Intensity. |
-| `SPEEDO_ENVIRONMENT_ROTATION` | Degrees. Default: 0. | Pose. Turns the environment, and its sun, about the vertical axis. View > Environment > Rotation. |
-| `SPEEDO_TIME_OF_DAY` | Hours of local solar time (`18.5`) or `hours:minutes` (`18:30`), 0 to 24. Default: 10.5. | Pose. Places the sun (highest at 12), the moon and the stars. View > Environment > Time of Day. |
-| `SPEEDO_TIME_SPEED` | Times real time; negative runs backwards. Default: time stands still. | Pose. Advances the time of day by itself, this many times real time (60 is an hour a minute). View > Environment > Advance Time and Time Speed. |
-| `SPEEDO_LATITUDE` | Degrees, north positive, -90 to 90. Default: 48.86 (Paris). | Pose. Where on Earth the sky is seen from. View > Environment > Latitude. |
-| `SPEEDO_DAY_OF_YEAR` | 1 (1 January) to 365. Default: 172 (21 June). | Pose. The date: the sun's height for the season, and the moon's place. View > Environment > Day of Year. |
-| `SPEEDO_YEAR` | 1900 to 2200. Default: the current year. | Pose. The year the moon's place and phase are worked out for. View > Environment > Year. |
-| `SPEEDO_VISIBILITY` | km, 1 to 288.5 (the air alone). Default: 217.4 (a very clear day). | Pose. How clear the air is: the sky, the sun's light, the haze and the light shafts follow it. View > Environment > Visibility. Not the visibility buffer. |
-| `SPEEDO_AERIAL_PERSPECTIVE` | `0` off. Default: on. | Pose. The air between the eye and what it sees, so that far things fade into haze; fog and light shafts need it. View > Environment > Aerial Perspective. |
-| `SPEEDO_LIGHT_SHAFTS` | `0` off. Default: on. | Pose. The sun's (at night the moon's) shadows in the air. Needs aerial perspective and shadows. View > Environment > Light Shafts. |
-| `SPEEDO_FOG` | `0` off. Default: on (a clear day's light haze). | Pose. Haze near the ground, thickest at it. Needs aerial perspective. View > Environment > Fog. |
-| `SPEEDO_FOG_VISIBILITY` | km at the ground, 0.05 to 1000. Default: 30. | Pose. How far the fog lets you see at the ground: 30 a clear day, 2 mist, 0.2 fog. View > Environment > Fog Visibility. |
-| `SPEEDO_FOG_HEIGHT` | m, 1 to 5000. Default: 200. | Pose. How high the fog reaches: at this height it is about a third as dense as at the ground. View > Environment > Fog Height. |
+| `SPEEDO_ENVIRONMENT_INTENSITY` | A multiplier, 0 or more. Default: 1. | Scene. Scales the environment's light: the sky or panorama, its sun or moon, and the air's light. View > Environment > Intensity. |
+| `SPEEDO_ENVIRONMENT_ROTATION` | Degrees. Default: 0. | Scene. Turns the environment, and its sun, about the vertical axis. View > Environment > Rotation. |
+| `SPEEDO_TIME_OF_DAY` | Hours of local solar time (`18.5`) or `hours:minutes` (`18:30`), 0 to 24. Default: 10.5. | Scene. Places the sun (highest at 12), the moon and the stars. View > Environment > Physical Sky... > Time of Day. |
+| `SPEEDO_TIME_SPEED` | Times real time; negative runs backwards. Default: time stands still. | Scene. Advances the time of day by itself, this many times real time (60 is an hour a minute). View > Environment > Physical Sky... > Advance Time and Time Speed. |
+| `SPEEDO_LATITUDE` | Degrees, north positive, -90 to 90. Default: 48.86 (Paris). | Scene. Where on Earth the sky is seen from. View > Environment > Physical Sky... > Latitude. |
+| `SPEEDO_DAY_OF_YEAR` | 1 (1 January) to 365. Default: 172 (21 June). | Scene. The date: the sun's height for the season, and the moon's place. View > Environment > Physical Sky... > Day of Year. |
+| `SPEEDO_YEAR` | 1900 to 2200. Default: the current year. | Scene. The year the moon's place and phase are worked out for. View > Environment > Physical Sky... > Year. |
+| `SPEEDO_VISIBILITY` | km, 1 to 288.5 (the air alone). Default: 217.4 (a very clear day). | Scene. How clear the air is: the sky, the sun's light, the haze and the light shafts follow it. View > Environment > Physical Sky... > Visibility. Not the visibility buffer. |
+| `SPEEDO_AERIAL_PERSPECTIVE` | `0` off. Default: on. | Scene. The air between the eye and what it sees, so that far things fade into haze; fog and light shafts need it. View > Environment > Physical Sky... > Aerial Perspective. |
+| `SPEEDO_LIGHT_SHAFTS` | `0` off. Default: on. | Scene. The sun's (at night the moon's) shadows in the air. Needs aerial perspective and shadows. View > Environment > Physical Sky... > Light Shafts. |
+| `SPEEDO_FOG` | `0` off. Default: on (a clear day's light haze). | Scene. Haze near the ground, thickest at it. Needs aerial perspective. View > Environment > Physical Sky... > Fog. |
+| `SPEEDO_FOG_VISIBILITY` | km at the ground, 0.05 to 1000. Default: 30. | Scene. How far the fog lets you see at the ground: 30 a clear day, 2 mist, 0.2 fog. View > Environment > Physical Sky... > Fog Visibility. |
+| `SPEEDO_FOG_HEIGHT` | m, 1 to 5000. Default: 200. | Scene. How high the fog reaches: at this height it is about a third as dense as at the ground. View > Environment > Physical Sky... > Fog Height. |
 
 ## Lighting, shadows and ray tracing
 
 | Variable | Values (default) | What it does |
 |---|---|---|
-| `SPEEDO_SHADOWS` | `0` off. Default: on. | Pose. The lights' shadows from the shadow atlas; off also stops the traced shadows. View > Shadows. |
-| `SPEEDO_TRACED_SHADOWS` | `0` off, `all` traced at every pixel. Default: on, traced where the atlas is unsure. | Pose. Traces the brightest lights' shadows (up to 4) through the BVHs, softened by the lights' sizes; `all` is for comparisons. View > Ray Traced Shadows. |
-| `SPEEDO_TRACED_REFLECTIONS` | `0` off. Default: on, where the device has ray queries. | Pose. Traces what smooth surfaces and clear coats reflect. View > Ray Traced Reflections. |
-| `SPEEDO_TRACED_REFRACTIONS` | `0` off. Default: on, where the device has ray queries. | Pose. Traces what transmissive surfaces show behind them along the refracted ray. View > Ray Traced Refractions. |
-| `SPEEDO_CAUSTICS` | `0` off. Default: on, where the device has ray queries. | Pose. Refracts the lights' light through still transmissive surfaces into caustics; off, it passes straight through, tinted. View > Caustics. |
-| `SPEEDO_EMISSIVE_LIGHTS` | `0` off. Default: on. | Pose. Emissive surfaces light the scene as area lights; off, only the indirect lighting's rays see their light. View > Emissive Lights. |
+| `SPEEDO_SHADOWS` | `0` off. Default: on. | Scene. The lights' shadows from the shadow atlas; off also stops the traced shadows. View > Rendering Features > Shadows. |
+| `SPEEDO_TRACED_SHADOWS` | `0` off, `all` traced at every pixel. Default: on, traced where the atlas is unsure. | Scene. Traces the brightest lights' shadows (up to 4) through the BVHs, softened by the lights' sizes; `all` is for comparisons. View > Rendering Features > Ray Traced Shadows. |
+| `SPEEDO_TRACED_REFLECTIONS` | `0` off. Default: on, where the device has ray queries. | Scene. Traces what smooth surfaces and clear coats reflect. View > Rendering Features > Ray Traced Reflections. |
+| `SPEEDO_TRACED_REFRACTIONS` | `0` off. Default: on, where the device has ray queries. | Scene. Traces what transmissive surfaces show behind them along the refracted ray. View > Rendering Features > Ray Traced Refractions. |
+| `SPEEDO_CAUSTICS` | `0` off. Default: on, where the device has ray queries. | Scene. Refracts the lights' light through still transmissive surfaces into caustics; off, it passes straight through, tinted. View > Rendering Features > Caustics. |
+| `SPEEDO_EMISSIVE_LIGHTS` | `0` off. Default: on. | Scene. Emissive surfaces light the scene as area lights; off, only the indirect lighting's rays see their light. View > Rendering Features > Emissive Lights. |
 | `SPEEDO_LIGHT_SIZES` | `<light>=<size>` pairs separated by commas: the light's index (`#n` in View > Lights...), and a directional light's angular radius in degrees or a point or spot light's radius in scene units. Default: the sun's size for directional lights, 0 for the others. | The model's lights' sizes, which soften their shadows, as the Lights window's Radius. Applied once a model is in. |
 | `SPEEDO_MERGE_LIGHTS` | `0` off. Default: on. | Takes the environment's sun and a model's directional light within 5 degrees of it as one light, the model's. View > Environment > Merge with the model's lights. |
-| `SPEEDO_CLUSTERED_LIGHTS` | `0` off. Default: on. | Each pixel loops over the lights that may reach its cluster rather than all of them. View > Clustered Lights. |
+| `SPEEDO_CLUSTERED_LIGHTS` | `0` off. Default: on. | Each pixel loops over the lights that may reach its cluster rather than all of them. View > Rendering Features > Clustered Lights. |
 | `SPEEDO_SHADOW_CACHE` | `0` off. Default: on. | Keeps the shadow atlas's tiles while their views don't change; off redraws every shadow view every frame. |
 
 On macOS ray queries are opt in (`SPEEDO_RAY_QUERY=1`, see [the gpu and drivers](#the-gpu-and-drivers)): without them the traced reflections, refractions and caustics are off.
@@ -139,9 +139,9 @@ On macOS ray queries are opt in (`SPEEDO_RAY_QUERY=1`, see [the gpu and drivers]
 
 | Variable | Values (default) | What it does |
 |---|---|---|
-| `SPEEDO_GI` | `0` off. Default: on. | Pose (always written). Indirect lighting: irradiance probes over a voxel clipmap. View > Indirect Lighting. |
-| `SPEEDO_GI_RESOLUTION` | Voxels along the scene's longest axis, 8 to 512. Default: 128. | Pose. The last clip's resolution, which the finer clips follow: finer resolves light through narrower openings at a steep cost. View > Indirect Lighting Resolution. |
-| `SPEEDO_GI_TRACE` | `voxels`, or anything else for triangles. Default: triangles. | Pose. What the rays meet: the model's triangles through its BVHs (where it has them), or the voxels. The near field needs triangles. View > Indirect Lighting Rays. |
+| `SPEEDO_GI` | `0` off. Default: on. | Scene (always written). Indirect lighting: irradiance probes over a voxel clipmap. View > Rendering Features > Indirect Lighting. |
+| `SPEEDO_GI_RESOLUTION` | Voxels along the scene's longest axis, 8 to 512. Default: 128. | Scene. The last clip's resolution, which the finer clips follow: finer resolves light through narrower openings at a steep cost. View > Rendering Features > Indirect Lighting... > Resolution. |
+| `SPEEDO_GI_TRACE` | `voxels`, or anything else for triangles. Default: triangles. | Scene. What the rays meet: the model's triangles through its BVHs (where it has them), or the voxels. The near field needs triangles. View > Rendering Features > Indirect Lighting... > Rays. |
 | `SPEEDO_GI_CLIP_COUNT` | 1 to 4. Default: 3. | The clipmap's levels: the last covers the scene, each finer one has voxels half the size and follows the eye (a clip per split screen view). |
 | `SPEEDO_GI_LOOK_AHEAD` | A share of a clip's half size, 0 to 1. Default: 0.5. | How far ahead of the eye, along where it looks, the finer clips are centered. |
 | `SPEEDO_GI_PROBE_SPACING` | Voxels: 8, 16, 24 or 32 (another value fails at startup). Default: 8. | The probes' spacing, in each clip's voxels. |
@@ -156,7 +156,7 @@ On macOS ray queries are opt in (`SPEEDO_RAY_QUERY=1`, see [the gpu and drivers]
 | `SPEEDO_GI_PROBE_FREEZE` | `0` off. Default: on. | Once the scene has been still a while, a settled probe keeps its light rather than tracing, every second cycle. |
 | `SPEEDO_GI_STAGGER` | `0` off. Default: on. | The finest clips update every frame and the coarser levels take turns; off updates every clip every frame. |
 | `SPEEDO_GI_RELIGHT_PHASE_COUNT` | Updates, 1 to 64. Default: 4. | When the lights change gradually (the sun moving), the static voxels are lit again over this many updates. |
-| `SPEEDO_GI_CACHE` | `0` off. Default: on. | Pose. The surface cache: rays from each voxel, accumulated and filtered along surfaces, which resolve light at the voxels' size. View > Indirect Lighting Surface Cache. |
+| `SPEEDO_GI_CACHE` | `0` off. Default: on. | Scene. The surface cache: rays from each voxel, accumulated and filtered along surfaces, which resolve light at the voxels' size. View > Rendering Features > Indirect Lighting... > Surface Cache. |
 | `SPEEDO_GI_CACHE_RAYS` | Rays per voxel an update, 1 to 64. Default: 1. | The cache's rays (at least 4 for its first 256 updates, where the blending is time based). |
 | `SPEEDO_GI_CACHE_SAMPLES` | 1 to 65535. Default: 1024. | The most samples a voxel's average covers. |
 | `SPEEDO_GI_CACHE_FILTER_PASSES` | 1 to 4. Default: 3. | The filter's passes along surfaces. |
@@ -164,15 +164,15 @@ On macOS ray queries are opt in (`SPEEDO_RAY_QUERY=1`, see [the gpu and drivers]
 | `SPEEDO_GI_CACHE_SETTLED_FRAMES` | Updates. Default: twice `SPEEDO_GI_CACHE_SAMPLES`. | After this many updates the cache is settled, and its voxels trace every other frame. |
 | `SPEEDO_GI_CACHE_KEEP_FRAMES` | Frames. Default: 1024. | How long a block of voxels keeps its cache page after a lookup last read it. Not where the rays trace the triangles (the entries the light at the surface), where every block of surface voxels keeps its page. |
 | `SPEEDO_GI_CACHE_EVERYWHERE` | Exactly `1` on. Default: off. | Traces and filters every voxel near a surface, not only those around what the view reads: for comparisons. |
-| `SPEEDO_GI_NEAR` | `0` off. Default: on. | Pose. The near field: near other surfaces, short rays from the pixels light them instead of the voxels, so that contacts darken smoothly. Needs triangles. View > Indirect Lighting Near Field. |
+| `SPEEDO_GI_NEAR` | `0` off. Default: on. | Scene. The near field: near other surfaces, short rays from the pixels light them instead of the voxels, so that contacts darken smoothly. Needs triangles. View > Rendering Features > Indirect Lighting... > Near Field. |
 | `SPEEDO_GI_NEAR_REACH` | Voxels, 0 to 64 (0 off). Default: 8. | How far the near field's rays go. |
-| `SPEEDO_GI_NEAR_CONTACT` | Voxels, 0 to 8 (and within the reach). Default: 2.5. | Pose. How near a hit is a contact, where the rays' light replaces the voxels'. View > Near Field Contact. |
+| `SPEEDO_GI_NEAR_CONTACT` | Voxels, 0 to 8 (and within the reach). Default: 2.5. | Scene. How near a hit is a contact, where the rays' light replaces the voxels'. View > Rendering Features > Indirect Lighting... > Near Field Contact. |
 | `SPEEDO_GI_NEAR_POWER` | 0 to 64. Default: 2. | The voxels' weight against the rays' light, the share of rays that met no contact to this power. |
-| `SPEEDO_GI_NEAR_STRIDE` | `2`, or anything else for 4. Default: 4. | Pose. Traces the near field from every 2nd or 4th pixel each way. View > Near Field Rays. |
-| `SPEEDO_GI_NEAR_TEMPORAL` | `0` off. Default: on. | Pose. Accumulates the near field's rays over frames, reprojected. View > Near Field Over Frames. |
+| `SPEEDO_GI_NEAR_STRIDE` | `2`, or anything else for 4. Default: 4. | Scene. Traces the near field from every 2nd or 4th pixel each way. View > Rendering Features > Indirect Lighting... > Near Field Rays. |
+| `SPEEDO_GI_NEAR_TEMPORAL` | `0` off. Default: on. | Scene. Accumulates the near field's rays over frames, reprojected. View > Rendering Features > Indirect Lighting... > Near Field Over Frames. |
 | `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` | Frames, 1 to 1024. Default: 16. | About how many frames the near field's history holds. |
 | `SPEEDO_GI_NEAR_STILL_FRAME_COUNT` | Frames, 1 to 2048. Default: 256. | A longer history while the view, the model and the lights are still. |
-| `SPEEDO_GI_DEBUG` | 1 to 14. Default: none. | Diagnostic. Starts in that indirect lighting debug view (View > Debug View > Indirect Lighting, in its order); `SPEEDO_DEBUG_VIEW` wins. |
+| `SPEEDO_GI_DEBUG` | 1 to 14. Default: none. | Diagnostic. Starts in that indirect lighting debug view (View > Debug View > Rendering Features > Indirect Lighting, in its order); `SPEEDO_DEBUG_VIEW` wins. |
 | `SPEEDO_GI_REFERENCE_RAYS` | Rays per pixel, 16 to 4096. Default: 256. | Diagnostic. The Surface Reference debug view's rays; lower it where a frame of it times the gpu out. |
 | `SPEEDO_GI_CACHE_SHOW` | Exactly `1` on. Default: off. | Diagnostic. The voxels show the surface cache's light alone where it has some. |
 | `SPEEDO_GI_LOOKUP_LEVEL` | A level, 0 (the finest) to 3. Default: off. | Diagnostic. The shading takes no light from the levels finer than it (the last level alone at the level count less 1): the same frame through each level's light, to judge how they agree. |
@@ -208,11 +208,11 @@ The renderer's tuning of the emissive surfaces' light (`SPEEDO_EMISSIVE_LIGHTS`)
 
 ## Culling and drawing
 
-The renderer's, but for `SPEEDO_CULLING`, which is View > Culling's starting state.
+The renderer's, but for `SPEEDO_CULLING`, which is View > Rendering Features > Culling's starting state.
 
 | Variable | Values (default) | What it does |
 |---|---|---|
-| `SPEEDO_CULLING` | `0` off. Default: on. | Leaves out the draws outside each view's and shadow view's frustum; off also turns off occlusion culling. View > Culling. |
+| `SPEEDO_CULLING` | `0` off. Default: on. | Leaves out the draws outside each view's and shadow view's frustum; off also turns off occlusion culling. View > Rendering Features > Culling. |
 | `SPEEDO_INDIRECT_DRAWS` | `0` off. Default: on. | Records each run of draws with the same state as one indirect draw; off records direct draws, without gpu or occlusion culling. |
 | `SPEEDO_GPU_CULLING` | `0` off. Default: on. | The gpu culls the draws; off leaves the frustum culling to the cpu, without occlusion culling. |
 | `SPEEDO_OCCLUSION_CULLING` | `0` off. Default: on. | Leaves out the main view's draws hidden behind others, against a depth pyramid. Needs gpu culling. |
@@ -242,6 +242,9 @@ The renderer's, but for `SPEEDO_CULLING`, which is View > Culling's starting sta
 | `SPEEDO_UI` | `0` off. Default: on. | `0` draws the frames without the interface, for captures of the scene alone; the interface still runs (the autoloads, the camera, the captures). |
 | `SPEEDO_SHOW_ABOUT` | Exactly `1` on. Default: off. | Opens About Speedo at startup. |
 | `SPEEDO_SHOW_LIGHTS` | Exactly `1` on. Default: off. | Opens View > Lights... at startup. |
+| `SPEEDO_SHOW_CAMERAS` | Exactly `1` on. Default: off. | Opens View > Cameras... at startup. |
+| `SPEEDO_SHOW_SKY` | Exactly `1` on. Default: off. | Opens View > Environment > Physical Sky...'s window at startup (without switching to the sky). |
+| `SPEEDO_SHOW_INDIRECT_LIGHTING` | Exactly `1` on. Default: off. | Opens View > Rendering Features > Indirect Lighting... at startup. |
 | `SPEEDO_SHOW_STATISTICS` | Exactly `1` on. Default: off. | Opens View > Statistics... at startup (debug and profile builds). |
 | `SPEEDO_OPEN_MENUS` | Menu labels separated by `/`, the parents too (e.g. `View/Presentation`). Default: none. | Holds those menus open, for screenshots of them. |
 
@@ -284,7 +287,7 @@ The renderer's, but for `SPEEDO_CULLING`, which is View > Culling's starting sta
 
 | Variable | Values (default) | What it does |
 |---|---|---|
-| `SPEEDO_DEBUG_VIEW` | A debug view's name or number (below). Default: the lit image. | Pose. Shows a surface's values, a part of the light, or the indirect lighting's insides instead of the lit image. View > Debug View. |
+| `SPEEDO_DEBUG_VIEW` | A debug view's name or number (below). Default: the lit image. | Scene. Shows a surface's values, a part of the light, or the indirect lighting's insides instead of the lit image. View > Debug View. |
 | `SPEEDO_GPU_TIMINGS` | Exactly `1` on. Default: off. | At exit, prints the median frame time, each gpu pass's median, the occlusion culling's draws and the indirect lighting's statistics. On KosmicKrisp measure the draw thread's frame time: its timestamps miss compute passes. |
 | `SPEEDO_SKIP_PASSES` | The frame graph's pass names, exact, separated by `;` (e.g. `GI Near;Emitter Shade`; inside the GI pass also its steps `GI Light`, `GI Flags`, `GI Trace`, `GI Probe Update`, `GI Cache Release`, `GI Resolve`, `GI Cache Filter`). Default: none. | Leaves those passes out, to measure what they cost by the frame time. The image is then wrong. |
 | `SPEEDO_LOG_PIPELINES` | Exactly `1` on. Default: off. | Logs every pipeline made and how long it took; without it, only those taking a second or more. |

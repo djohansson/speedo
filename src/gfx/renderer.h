@@ -168,7 +168,7 @@ struct FrameStatistics
 	// drawn in (the counts the gpu's decisions, Renderer::GetCullStatistics, are out of)
 	std::array<uint64_t, CULL_STATISTIC_GROUP_COUNT> testedDraws{};
 	std::array<uint64_t, CULL_STATISTIC_GROUP_COUNT> testedTriangles{};
-	bool culling = false; // whether the views cull at all (View > Culling)
+	bool culling = false; // whether the views cull at all (View > Rendering Features > Culling)
 	bool gpuCulling = false; // else the cpu culls by the frustum, and the gpu's statistics stay as they were
 	bool occlusion = false; // the main views' occlusion culling ran this frame (see Renderer::GetOcclusionModeName)
 	bool shadowOcclusion = false;

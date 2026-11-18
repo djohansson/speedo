@@ -17,7 +17,7 @@ The user's ask, 2026-11-11: write the plan down and start once the lavapipe CI w
 - **assettest**, on the cpu: the importers (each image's decode against a reference decode, mip levels, the materials'
   textures), the BVH ray by ray against brute force triangle tests, the lens prescriptions. The glTF samples'
   `screenshot/` images are imported as images, never compared with.
-- **Tools used by hand**: `SPEEDO_CAPTURE` (the frame an autoload exit ends on, as a bmp), poses (View > Camera > Copy
+- **Tools used by hand**: `SPEEDO_CAPTURE` (the frame an autoload exit ends on, as a bmp), poses (View > Cameras... > Copy
   Pose, `SPEEDO_CAMERA`, `SPEEDO_CAMERA_PATH` with `SPEEDO_CAPTURE_PATH`), the debug views (`SPEEDO_DEBUG_VIEW`, among them
   the references `DEBUG_VIEW_TRACED_SHADOW_REFERENCE` and `DEBUG_VIEW_EMITTERS_REFERENCE`), `src/tools/convergence.cpp`
   (the mean |log2| luminance difference between captures, blurred), and `perfbaseline.ps1`'s convergence captures.

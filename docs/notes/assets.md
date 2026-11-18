@@ -104,14 +104,14 @@ stand in for what it doesn't have. Skinned bounds are at the rest pose (`RestJoi
 `SkinPosition`): bind space can be far off (CesiumMan's root rotation). View > Animation picks the animation (the
 first plays on load), crossfading from the previous one over 0.3 s (`EvaluateNodes` with two `ScenePose`s and a weight:
 local transforms lerped and slerped, then composed), pauses and restarts it, and `SPEEDO_ANIMATION_TIME=<seconds>` freezes it (for screenshots), `SPEEDO_ANIMATION=<index>` or
-`none` picking which. Copy Pose writes both (the user's ask, 2026-11-18, to report what shows at one moment of
+`none` picking which. Copy Scene writes both (the user's ask, 2026-11-18, to report what shows at one moment of
 MovingInterior's): the time the pose is made with, wrapped to the animation's length as `EvaluateNodes` wraps it (the
 same pose, and short to play up to from the start; `Scene::AnimationState::durations`), so that the autoloads show that
-moment held still, and Paste Pose holds it there too (`AutoAnimation` in ui.cpp: applied with the camera once the model is
+moment held still, and Paste Scene holds it there too (`AutoAnimation` in ui.cpp: applied with the camera once the model is
 in, since the install starts the animation over; a pose naming no time plays). Held still is the moment's picture once it
 has settled: what shows only while things move (a trail, a lag) needs the run played up to that time instead
 (`SPEEDO_REPEATABLE=1`, `SPEEDO_ANIMATION_FRAME_SECONDS=<s>` and the time over it as `SPEEDO_AUTOLOAD_EXIT`'s frames,
-without `SPEEDO_ANIMATION_TIME`). Checked on MovingInterior (`SPEEDO_COPY_POSE_FRAME=300` at 1/64 s a frame: 0.6875 s,
+without `SPEEDO_ANIMATION_TIME`). Checked on MovingInterior (`SPEEDO_COPY_SCENE_FRAME=300` at 1/64 s a frame: 0.6875 s,
 4.6875 wrapped to its 4 s; that pose's variables and a paste of it into a run of ShadowScene both end paused at 0.6875 s
 with the sphere, the cube and the runner in the same places). Animated
 morph targets (a node with a weights channel) keep their deltas, per vertex a row of a `MorphDelta` per target transformed
@@ -144,7 +144,7 @@ vertices), so the views frame all of it. `resources/test-models/gltf/AnimatedCam
 and yfov, a light's color and intensity, and an emissive strength. A set of files moves as its files do (see "Archives
 of several models", below). Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
 perspective field of view or orthographic height, near and far; none for a set of files) and the views use the first
-(`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). A camera's roll is
+(`Views::SetScene`); View > Cameras... picks another or frames the model (`Views::UseSceneCamera`). A camera's roll is
 `cameraRotation.z` (applied before pitch and yaw), and its aspect ratio (gltf `aspectRatio`, or `xmag / ymag`)
 letterboxes its view in its grid cell (`Views::InternalLayout`; the draw uses `Views::GetViewports`). The Khronos glTF-Sample-Assets `Models/` are the test set (see below; `assettest` takes
 `.gltf`/`.glb`): there, in the image checks, a 4x4-or-smaller mip only warns about its average (one BC1 block can't hold
@@ -179,11 +179,11 @@ deep for tinybvh's build and the traversal's stack), and tinyobj's own triangula
 `geodesic_dual_classII_20_20.obj` came in with 825000 of its 4.58 M triangles (`objimport-v6`).
 
 Rendering is linear: color textures are loaded with srgb formats (`gfx::image::Usage::kColor`, mips filtered in linear
-space), the main render target is `R16G16B16A16_SFLOAT`, and `ComputeMain` scales it by the exposure (View > Exposure,
+space), the main render target is `R16G16B16A16_SFLOAT`, and `ComputeMain` scales it by the exposure (View > Cameras... > Compensation,
 in stops), tonemaps it (`PushConstants::tonemapper`, View > Tonemapper or `SPEEDO_TONEMAPPER`: Khronos PBR Neutral, the
 default, which leaves colors up to about 0.76 as they are; ACES, Hill's fit; AgX, Wrensch's fit of the base look;
 Reinhard on luminance; linear) and applies the srgb curve when it copies to the swapchain, which stays unorm since it is a
-storage image (and imgui's colors are srgb already). Auto exposure (View > Auto Exposure, on by default since 2026-10-26, the user's call with the sky's time of
+storage image (and imgui's colors are srgb already). Auto exposure (View > Cameras... > Mode: Program, on by default since 2026-10-26, the user's call with the sky's time of
 day; `SPEEDO_AUTO_EXPOSURE=0` without, which captures compared at a fixed exposure need) needs no pass of its own: ComputeMain counts the scene's pixels by their log2 luminance, before exposure,
 into 96 bins of 40 stops (`gExposureHistogram`, `SHADER_TYPES_EXPOSURE_BINS`, from `SHADER_TYPES_EXPOSURE_LOG2_MIN`,
 -28, a starlit ground, to 12; 64 bins from -12 until 2026-11-05, where a moonlit ground at -21 read as -12 and the
@@ -571,7 +571,7 @@ of the dual 20_20 is capped, no ray of the other test scenes. `CheckBvh` reports
 tinybvh's own stack is raised for their builds (`TINYBVH_STACK_SIZE` in `bvh.cpp`: "CombineLeafs, tree too deep" at 128).
 
 **The ground plane** (on by default since 2026-11-04, the user's call: the file browser's "Ground plane", and
-`SPEEDO_GROUND_PLANE=0` for none for the autoloads and Paste Pose, which Copy Pose writes; `ModelGround`, `Model::Load`'s
+`SPEEDO_GROUND_PLANE=0` for none for the autoloads and Paste Scene, which Copy Scene writes; `ModelGround`, `Model::Load`'s
 `ground`): a plane under the model to see its shadows and caustics on,
 added to its staged triangles after its cache entry is read or its set merged (`AddGround` in `model.cpp`; nothing of it
 is cached): a patch around the model's center, 1.25 times its largest dimension from the center to each side (a shadow
@@ -631,7 +631,7 @@ pose `-563.7288,1397.0325,3264.7698,14.237,1.151`, 2026-11-05) and the air goes 
 what is relative to the model (the framing, the move speed, the clipmap, the cascades, the contacts, the emitters'
 importance) doesn't. A file's unit is resolved as its model installs (`ResolveSceneUnit` in `client/ui.cpp`, once per
 scene file): the unit chosen for it (`ChooseSceneUnit`: the file browser's "Units" dropdown next to "Ground plane",
-`SPEEDO_UNITS=<m|cm|mm|in|ft>` or `SPEEDO_METERS_PER_UNIT=<meters>` with the autoloads, a pasted pose's, which Copy Pose
+`SPEEDO_UNITS=<m|cm|mm|in|ft>` or `SPEEDO_METERS_PER_UNIT=<meters>` with the autoloads, a pasted pose's, which Copy Scene
 writes where the unit isn't meters), then remembered for the file; else the file's remembered unit (`RememberedUnit`,
 `<user profile>/units.txt`: meters per unit and the scene's file path a line); else guessed (`gfx::GuessUnit`): a gltf's
 meters, its spec's; an obj's by its size, centimeters over `kCentimeterExtent` (500) units across (the McGuire archive's
@@ -653,9 +653,9 @@ placing them, its skins, joints, instance links, morphs, pointer targets and ani
 and the set's k-th animation plays every file's k-th; a skinned submesh's instances aren't placed (its joints, under the
 placement, place its vertices, which the instance would place again), and the skin vertices are merged as
 well. A set has no lights or cameras, nor what animates them. It used to be drawn at rest: a skinned file in its bind
-space (CesiumMan lying on its back) and nothing moving. Copy Pose writes a set's files for `SPEEDO_AUTOLOAD_MODEL`,
+space (CesiumMan lying on its back) and nothing moving. Copy Scene writes a set's files for `SPEEDO_AUTOLOAD_MODEL`,
 separated by `;` (its name, a folder's and a count, is no file), and `SPEEDO_AUTOLOAD_ARRANGEMENT=as-authored` where
-so, which the autoloads and Paste Pose take. Autoloading a zip or a directory loads all of its models that way, opening a zip offers it next to choosing one,
+so, which the autoloads and Paste Scene take. Autoloading a zip or a directory loads all of its models that way, opening a zip offers it next to choosing one,
 the browser's Open loads several selected models so (or as authored), and `assettest.ps1` runs the client once per such archive (with the archive's first
 image on the default material: sphere.zip's models name materials its mtl file doesn't have), and once per
 subdirectory with several models of a directory it is given, rather than once per file: 38 client runs instead of 145
@@ -672,7 +672,7 @@ the file browser, File > Open Recent or an archive's chooser: `LoadChoice::kAsk`
 anything is loaded (the load posts `gVariantChoice`, as an archive's `gArchiveChoice`; `mesh::VariantNames` reads the
 file's json alone): its variants and its default materials, all the variants ticked by default and the default
 materials not, often one of them (the user's call); one alone opens the file with it, several lay it out to compare.
-The autoloads and Paste Pose never ask (`LoadChoice::kDefault`): `SPEEDO_AUTOLOAD_VARIANT=<index>` opens it with one, and
+The autoloads and Paste Scene never ask (`LoadChoice::kDefault`): `SPEEDO_AUTOLOAD_VARIANT=<index>` opens it with one, and
 `SPEEDO_AUTOLOAD_VARIANTS=all`, or a comma separated list of indices and `default` (`ui::ParseVariants`), lays several out:
 a model file's, several files', or a folder's or a zip archive's models' (`ui::LoadAutoModel`), each file's that list
 names, and a file without any of them once, with its default materials (`ui::LayOutVariants`: a gltf sample model's
@@ -683,7 +683,7 @@ as a set is, one behind the other by default (`ModelArrangement::kBehindEachOthe
 by side's grid, going back from the camera, the files' columns side by side, the user's call; Merge's groups), or side by
 side (the popup's choice, `SPEEDO_AUTOLOAD_ARRANGEMENT=side-by-side`), on the ground plane where the model was. The set
 keeps the first file's scenes and variants (View > Scene lays the same copies out in another scene) and records each
-copy's variant as asked (`Model::GetLayout`, `Scene::SceneState::layout`, as long as its `filePaths`), which Copy Pose
+copy's variant as asked (`Model::GetLayout`, `Scene::SceneState::layout`, as long as its `filePaths`), which Copy Scene
 writes: the files, each once, and the variants of those with any. The views frame a layout whole
 (`FrameBounds`' `whole`: its bounding sphere in the field of view; at 1.4 times its radius, a compact model's framing,
 the nearest copy was cut off). At first View > Variant chose a variant, its Compare... opened the popup over the model

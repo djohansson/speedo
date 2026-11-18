@@ -2186,7 +2186,7 @@ struct Scene::Impl
 			}
 
 			// its first animation plays, from the start (SPEEDO_ANIMATION=<index>: that one, or none: the rest pose;
-			// SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests and for a pose reported, see Copy Pose)
+			// SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests and for a pose reported, see Copy Scene)
 			{
 				auto animation = myAnimation.Write();
 				auto& state = animation.Get();

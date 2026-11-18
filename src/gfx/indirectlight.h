@@ -20,7 +20,7 @@ namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::gi
 // snap of 4, so the finest clips lit nothing there)
 inline constexpr uint32_t kSnapProbes = 1;
 
-// the last clip's voxels along the scene's longest axis (see MakeClipmap): by default, and what View > Indirect Lighting
+// the last clip's voxels along the scene's longest axis (see MakeClipmap): by default, and what View > Rendering Features > Indirect Lighting
 // Resolution offers. finer resolves light through narrower openings (the sky under Sponza's curtains, which 128 drew as
 // spots at the corridor's end that faded as the eye neared them: the coarser clips' probes, 1.8 m apart; the surface
 // cache resolves it at the voxels' size, see ComputeGiCacheFilter) at a steep cost: Sponza's corridor without the cache
@@ -34,7 +34,7 @@ inline constexpr uint32_t kMinResolution = 8;
 inline constexpr uint32_t kMaxResolution = 512;
 
 // the near field (see GiData::nearContact): how near what a pixel's ray meets is a contact, in voxels of the clips that
-// light the point, by default and at most (View > Indirect Lighting Near Field Contact, SPEEDO_GI_NEAR_CONTACT). 1.5 left
+// light the point, by default and at most (View > Rendering Features > Indirect Lighting... > Near Field Contact, SPEEDO_GI_NEAR_CONTACT). 1.5 left
 // the edges of the blocks under CornellBox's spheres faintly; wider takes more of the rays' light along every
 // junction (Sponza's columns between the curtains lit a little more at 2.5)
 inline constexpr float kDefaultNearContact = 2.5F;

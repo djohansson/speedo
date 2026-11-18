@@ -92,16 +92,16 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kSurface, {"material", "Material", DEBUG_VIEW_MATERIAL, "A color per material."}},
 	DebugViewEntry{DebugViewGroup::kSurface, {"texcoord", "Texcoord", DEBUG_VIEW_TEXCOORD, "Texcoord set 0 (u red, v green), repeated."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"emissive", "Emissive", DEBUG_VIEW_EMISSIVE, "The light the surfaces give off."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"direct", "Direct Light", DEBUG_VIEW_DIRECT, "The direct light alone: the punctual lights' (with their shadows) and the emissive surfaces' (View > Emissive Lights)."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"direct", "Direct Light", DEBUG_VIEW_DIRECT, "The direct light alone: the punctual lights' (with their shadows) and the emissive surfaces' (View > Rendering Features > Emissive Lights)."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect", "Ambient Light", DEBUG_VIEW_INDIRECT, "The ambient light alone, diffuse and specular: the indirect lighting's where it covers a point, else the environment's."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-diffuse", "Ambient Diffuse (white)", DEBUG_VIEW_INDIRECT_DIFFUSE, "The ambient irradiance over pi: what a white surface would reflect of it."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-specular", "Ambient Specular", DEBUG_VIEW_INDIRECT_SPECULAR, "The ambient light's specular reflection alone."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"traced-reflections", "Traced Reflections", DEBUG_VIEW_TRACED_REFLECTIONS, "What the surfaces' reflections see where they are traced (View > Ray Traced Reflections), before the specular takes its share of it. Magenta where they aren't: too rough, or nothing traced."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"traced-reflections", "Traced Reflections", DEBUG_VIEW_TRACED_REFLECTIONS, "What the surfaces' reflections see where they are traced (View > Rendering Features > Ray Traced Reflections), before the specular takes its share of it. Magenta where they aren't: too rough, or nothing traced."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"shadows", "Shadows", DEBUG_VIEW_SHADOWS, "The share of the direct light that reaches a point unshadowed: white lit, black shadowed, dark blue where no light faces it."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow", "Traced Shadow", DEBUG_VIEW_TRACED_SHADOW, "The first traced light's shadow (View > Ray Traced Shadows), as the main pass takes it: a ray a pixel through the BVH, filtered over the penumbra's width. Magenta where none is traced."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow", "Traced Shadow", DEBUG_VIEW_TRACED_SHADOW, "The first traced light's shadow (View > Rendering Features > Ray Traced Shadows), as the main pass takes it: a ray a pixel through the BVH, filtered over the penumbra's width. Magenta where none is traced."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-raw", "Traced Shadow (rays)", DEBUG_VIEW_TRACED_SHADOW_RAW, "The first traced light's shadow rays as traced, before the filter: a ray a pixel toward a point of the light's disk, the 16 points over each 4x4 pixels."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-reference", "Traced Shadow (reference)", DEBUG_VIEW_TRACED_SHADOW_REFERENCE, "The first traced light's shadow where the shadow atlas isn't sure, by 256 rays a pixel over the light's disk, unfiltered: what the filtered shadow should look like. Slow."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"emitters", "Emissive Light (white)", DEBUG_VIEW_EMITTERS, "The emissive surfaces' light (View > Emissive Lights) a white surface reflects, as the main pass takes it: sampled at every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE), filtered and accumulated over frames, and upsampled. Magenta where it isn't gathered."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"emitters", "Emissive Light (white)", DEBUG_VIEW_EMITTERS, "The emissive surfaces' light (View > Rendering Features > Emissive Lights) a white surface reflects, as the main pass takes it: sampled at every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE), filtered and accumulated over frames, and upsampled. Magenta where it isn't gathered."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-raw", "Emissive Light (rays)", DEBUG_VIEW_EMITTERS_RAW, "The emissive surfaces' light as the traced pixels' rays gathered it this frame, a point and its shadow ray every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE), before the filter and the frames."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-reference", "Emissive Light (reference)", DEBUG_VIEW_EMITTERS_REFERENCE, "The emissive surfaces' light by 64 independent estimates every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE; accumulated while the camera is still), each its own candidates and shadow ray, nothing reused or filtered: what the filtered light should look like. Slow."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"light-count", "Light Count", DEBUG_VIEW_LIGHT_COUNT, "The lights each pixel loops over (its cluster's): blue 1, cyan to green about 15, red 255 or more."}},
@@ -138,7 +138,7 @@ constexpr std::array<std::pair<std::string_view, uint32_t>, 5> kTonemappers{{
 	{"linear", TONEMAPPER_LINEAR},
 }};
 
-// a pose as Copy Pose writes it (NAME=value ..., a value in quotes where it has spaces, then "# window <width>x<height>",
+// a pose as Copy Scene writes it (NAME=value ..., a value in quotes where it has spaces, then "# window <width>x<height>",
 // the window's framebuffer), or as a shell takes it (with export or env, or the client's path, among the variables)
 struct Pose
 {
@@ -214,8 +214,8 @@ constexpr float kMaxFogVisibility = 1000.0F;
 constexpr float kMinFogHeight = 1.0F;
 constexpr float kMaxFogHeight = 5000.0F;
 
-// the settings a pose names (see InternalCopyPose), as View sets them, from the variables that reproduce them, at startup
-// from the environment and from a pose pasted (Paste Pose): lookup(name) is a variable's value, or null where it isn't
+// the settings a pose names (see InternalCopyScene), as View sets them, from the variables that reproduce them, at startup
+// from the environment and from a pose pasted (Paste Scene): lookup(name) is a variable's value, or null where it isn't
 // set, which leaves its setting as it is, or where resetMissing (a pose names only what isn't the default) sets the default
 template <typename Lookup>
 void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool resetMissing)
@@ -512,11 +512,11 @@ template <typename Lookup>
 	return any ? std::optional(lens) : std::nullopt;
 }
 
-// a pose's text read from the clipboard (on the main thread, see InternalPastePose), for the next PrepareDraw
+// a pose's text read from the clipboard (on the main thread, see InternalPasteScene), for the next PrepareDraw
 static std::mutex gPastedPoseMutex;
 static std::optional<std::string> gPastedPose;
 
-// SPEEDO_AUTOLOAD_MODEL's: a file, folder or zip archive, or several files (separated by ;) loaded as one, as Copy Pose
+// SPEEDO_AUTOLOAD_MODEL's: a file, folder or zip archive, or several files (separated by ;) loaded as one, as Copy Scene
 // writes a set's (its name isn't a file), each absolute or relative to the resource dir
 [[nodiscard]] std::vector<std::string> AutoLoadPaths(std::string_view value, const std::filesystem::path& resourcePath)
 {
@@ -542,7 +542,7 @@ static std::optional<std::string> gPastedPose;
 }
 
 // SPEEDO_AUTOLOAD_VARIANTS' variants (see Scene::LoadVariants), of a file of variantCount: "all" of them, else indices and
-// "default" (the default materials) separated by commas, as Copy Pose writes them (VariantsText)
+// "default" (the default materials) separated by commas, as Copy Scene writes them (VariantsText)
 [[nodiscard]] std::vector<std::optional<uint32_t>> ParseVariants(std::string_view value, size_t variantCount)
 {
 	std::vector<std::optional<uint32_t>> variants;
@@ -716,11 +716,11 @@ static void ResolveSceneUnit()
 
 } // namespace windowedapplication
 
-void WindowedApplication::InternalCopyPose()
+void WindowedApplication::InternalCopyScene()
 {
 	// the first view's camera (what SPEEDO_CAMERA places: the eye, and pitch and yaw in degrees, see Views::Place), the
 	// model (and its scene and variant), the environment, the settings that aren't the defaults (see ui::ApplyPoseSettings)
-	// and the window's size, as the variables px/cap.sh takes (see CLAUDE.md), which Paste Pose applies again
+	// and the window's size, as the variables px/cap.sh takes (see CLAUDE.md), which Paste Scene applies again
 	auto camera = myViews->GetCamera(0);
 	if (!camera)
 		return;
@@ -959,7 +959,7 @@ void WindowedApplication::InternalCopyPose()
 	mainCalls.enqueue([text] { ImGui::SetClipboardText(text.c_str()); });
 }
 
-void WindowedApplication::InternalPastePose()
+void WindowedApplication::InternalPasteScene()
 {
 	// the clipboard is the window system's: read on the main thread, and applied by the next PrepareDraw
 	mainCalls.enqueue(
@@ -983,23 +983,8 @@ void WindowedApplication::PrepareDraw()
 
 	myImGui->BeginFrame();
 
-	// ticks per second: PrepareDraw runs once per tick, measured like the frame rate (see Draw)
-	static float gTicksPerSecond = 0.0F;
-	{
-		using namespace std::chrono_literals;
-		static auto gTpsTime = std::chrono::steady_clock::now();
-		static uint32_t gTpsTickCount = 0;
-		gTpsTickCount++;
-		if (auto now = std::chrono::steady_clock::now(); now - gTpsTime >= 500ms)
-		{
-			gTicksPerSecond = static_cast<float>(gTpsTickCount) / std::chrono::duration<float>(now - gTpsTime).count();
-			gTpsTickCount = 0;
-			gTpsTime = now;
-		}
-	}
-
 	// frame/tick rate overlay in the top right corner, below the menu bar
-	if (gShowFps || gShowTps)
+	if (gShowFps)
 	{
 		constexpr float kFpsOverlayPadding = 10.0F;
 		constexpr float kFpsOverlayBgAlpha = 0.35F;
@@ -1020,8 +1005,6 @@ void WindowedApplication::PrepareDraw()
 				float fps = gFramesPerSecond.load(std::memory_order_relaxed);
 				Text("%.0f FPS (%.2f ms)", fps, fps > 0.0F ? 1000.0F / fps : 0.0F);
 			}
-			if (gShowTps)
-				Text("%.0f TPS (%.2f ms)", gTicksPerSecond, gTicksPerSecond > 0.0F ? 1000.0F / gTicksPerSecond : 0.0F);
 		}
 		End();
 	}
@@ -1051,7 +1034,7 @@ void WindowedApplication::PrepareDraw()
 			PopTextWrapPos();
 			if (debugView->view >= DEBUG_VIEW_GI_FIRST && debugView->view < DEBUG_VIEW_GI_END &&
 				!App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed))
-				TextColored(ImVec4(1.0F, 0.6F, 0.2F, 1.0F), "Indirect lighting is off (View > Indirect Lighting)");
+				TextColored(ImVec4(1.0F, 0.6F, 0.2F, 1.0F), "Indirect lighting is off (View > Rendering Features > Indirect Lighting)");
 			TextDisabled(SHORTCUT_LABEL("0") " to go back to the light, " SHORTCUT_LABEL("[") " and " SHORTCUT_LABEL("]") " to step");
 		}
 		End();
@@ -1083,7 +1066,11 @@ void WindowedApplication::PrepareDraw()
 					nullptr,
 					ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
 						ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs))
-				Text("Move speed: %.3g units/s", gShownMoveSpeed);
+			{
+				// in the scene's unit (View > Units), a custom one's "units"
+				auto unit = gfx::UnitOf(App().GetScene().GetSettings().metersPerUnit.load(std::memory_order_relaxed));
+				Text("Move speed: %.3g %s/s", gShownMoveSpeed, unit ? gfx::UnitSymbol(*unit).data() : "units");
+			}
 			End();
 		}
 	}
@@ -1174,6 +1161,9 @@ void WindowedApplication::PrepareDraw()
 			if (Begin("Statistics", &gShowStatistics, ImGuiWindowFlags_AlwaysAutoResize))
 			{
 				CloseOnEscape(gShowStatistics);
+				// the frame rate's overlay (on by default), switched here rather than in View (the user's ask, 2026-11-18)
+				SmallCheckbox("Show FPS", &gShowFps);
+				SetItemTooltip("The frame rate, in the top right corner.");
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 				if constexpr (gfx::kGraphicsApi == kVk)
 					if (CollapsingHeader("Vulkan Objects"))
@@ -1333,7 +1323,7 @@ void WindowedApplication::PrepareDraw()
 					if (CollapsingHeader("Indirect Lighting", ImGuiTreeNodeFlags_DefaultOpen))
 					{
 						if (!frame.indirectLighting)
-							TextDisabled("Off (View > Indirect Lighting)");
+							TextDisabled("Off (View > Rendering Features > Indirect Lighting)");
 						else
 						{
 							Text(
@@ -1394,9 +1384,9 @@ void WindowedApplication::PrepareDraw()
 		if (Begin("Lights", &gShowLights, ImGuiWindowFlags_AlwaysAutoResize))
 		{
 			CloseOnEscape(gShowLights);
-			Checkbox("Markers", &gLightMarkers);
+			SmallCheckbox("Markers", &gLightMarkers);
 			SameLine();
-			Checkbox("Shadow Frusta", &gShadowFrusta);
+			SmallCheckbox("Shadow Frusta", &gShadowFrusta);
 			SetItemTooltip("Each shadow view's frustum: a directional light's cascades, a point light's cube faces, a spot light's view.");
 			TextDisabled("The model's lights, then the environment's dominant lights (merged ones aren't drawn).");
 			if (Selectable("All", !gSelectedLight))
@@ -1561,6 +1551,494 @@ void WindowedApplication::PrepareDraw()
 		}
 	}
 
+	// the camera (View > Cameras...): the model's cameras or the framing, the pose to copy or paste, and the physical
+	// camera (see gfx/physicalcamera.h): its sensor and lens (gfx/lens.h), the focus (dof.slang), the motion blur and the
+	// grain, the focal length and the exposure. a window rather than a menu's submenus, the user's ask (2026-11-18)
+	static bool gShowCameras = []
+	{
+		const char* show = std::getenv("SPEEDO_SHOW_CAMERAS");
+		return show != nullptr && std::string_view(show) == "1";
+	}();
+	if (gShowCameras)
+	{
+		{
+			const auto* viewport = GetMainViewport();
+			SetNextWindowPos(ImVec2(viewport->WorkPos.x + (GetFontSize() * 1.5F), viewport->WorkPos.y + (GetFontSize() * 1.5F)), ImGuiCond_FirstUseEver);
+		}
+		if (Begin("Cameras", &gShowCameras, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			CloseOnEscape(gShowCameras);
+			PushItemWidth(GetFontSize() * 12.0F);
+			// the installed model's cameras (see Views::SetScene), applied on the draw thread
+			{
+				auto useCamera = [this, &rhi](std::optional<size_t> camera)
+				{
+					rhi.drawCalls.enqueue([this, camera](QueueTimelineContextData& /*graphics*/) { myViews->UseSceneCamera(camera); });
+				};
+				auto current = myViews->GetSceneCamera();
+				auto names = myViews->GetSceneCameraNames();
+				const char* shown = current && *current < names.size() ? names[*current].c_str() : "Frame model";
+				if (BeginCombo("Camera", shown))
+				{
+					if (Selectable("Frame model", !current.has_value()))
+						useCamera(std::nullopt);
+					for (size_t cameraIt = 0; cameraIt < names.size(); cameraIt++)
+					{
+						PushID(static_cast<int>(cameraIt));
+						if (Selectable(names[cameraIt].c_str(), current == cameraIt))
+							useCamera(cameraIt);
+						PopID();
+					}
+					EndCombo();
+				}
+				SetItemTooltip("What the view looks through: the model framed, or one of the model's cameras.");
+			}
+			SeparatorText("Lens");
+			{
+				auto& settings = App().GetScene().GetSettings();
+				auto sensor = ui::SensorOfHeight(myViews->GetSensorHeight());
+				if (BeginCombo("Sensor", sensor ? gfx::camera::SensorName(*sensor).data() : "Custom"))
+				{
+					for (auto preset : gfx::camera::kSensors)
+						if (Selectable(gfx::camera::SensorName(preset).data(), sensor == preset))
+							myViews->SetSensorHeight(gfx::camera::SensorSizeOf(preset).height);
+					EndCombo();
+				}
+				SetItemTooltip("The sensor's size: with the focal length it gives the field of view (a smaller sensor's is narrower, as a lens's is).");
+				// the lens: the pinhole shows the frame as it is at any focal length; a prime pins its own, and the Lens pass
+				// draws its vignetting, aberration and distortion
+				const auto& lenses = gfx::lens::Lenses();
+				auto lensIndex = settings.lens.load(std::memory_order_relaxed);
+				bool prime = lensIndex < lenses.size() && !gfx::lens::IsPinhole(lenses[lensIndex]);
+				if (BeginCombo("Lens", lensIndex < lenses.size() ? lenses[lensIndex].name.c_str() : "?"))
+				{
+					for (size_t lensIt = 0; lensIt < lenses.size(); lensIt++)
+						if (Selectable(lenses[lensIt].name.c_str(), lensIndex == lensIt))
+							settings.lens.store(static_cast<uint32_t>(lensIt), std::memory_order_relaxed);
+					EndCombo();
+				}
+				SetItemTooltip("The lens the camera takes the frame through. The pinhole shows it as it is, at any focal length. A real lens has its own focal length and aperture range, and shows the frame as it does: darker toward the corners (vignetting, most wide open), its red and blue images a little larger or smaller than its green (lateral chromatic aberration) and barrel or pincushion distorted.");
+				bool glare = settings.lensGlare.load(std::memory_order_relaxed);
+				if (SmallCheckbox("Lens Glare", &glare, prime))
+					settings.lensGlare.store(glare, std::memory_order_relaxed);
+				SetItemTooltip("The lens's glare: the light it veils the frame with, and the ghosts and starburst of the bright things in view (the sun, lamps): each pair of its surfaces reflects a ghost onto the sensor, and the aperture's blades diffract a starburst.");
+				// the focus (the depth of field): a system camera's modes
+				auto focusMode = static_cast<gfx::FocusMode>(settings.focusMode.load(std::memory_order_relaxed));
+				static constexpr std::array kFocusModes{
+					std::tuple{"Spot", gfx::FocusMode::kSpot, "A single point: what is under the view's center."},
+					std::tuple{"Zone", gfx::FocusMode::kZone, "A zone around the view's center (a fifth of the view)."},
+					std::tuple{"Wide", gfx::FocusMode::kWide, "The whole view: the nearest thing in it, as an auto area picks the nearest subject."},
+					std::tuple{"Manual", gfx::FocusMode::kManual, "The distance set below."}};
+				const char* focusShown = "?";
+				for (auto [name, mode, tip] : kFocusModes)
+					if (mode == focusMode)
+						focusShown = name;
+				BeginDisabled(!prime);
+				if (BeginCombo("Focus", focusShown))
+				{
+					for (auto [name, wanted, tip] : kFocusModes)
+					{
+						if (Selectable(name, focusMode == wanted))
+						{
+							// manual starts from the focus it had
+							if (wanted == gfx::FocusMode::kManual)
+								settings.focusDistance.store(App().GetScene().GetFocusDistance(), std::memory_order_relaxed);
+							settings.focusMode.store(static_cast<uint8_t>(wanted), std::memory_order_relaxed);
+						}
+						SetItemTooltip("%s", tip);
+					}
+					EndCombo();
+				}
+				SetItemTooltip("What the lens focuses at: a point or a zone at the view's center, the nearest thing in view, or a distance; what is nearer or farther blurs by the aperture (wider open, shallower).");
+				bool continuous = settings.focusContinuous.load(std::memory_order_relaxed);
+				BeginDisabled(focusMode == gfx::FocusMode::kManual);
+				if (SmallCheckbox("Continuous", &continuous, prime && focusMode != gfx::FocusMode::kManual))
+					settings.focusContinuous.store(continuous, std::memory_order_relaxed);
+				SetItemTooltip("Follows what the mode measures every frame (AF-C); off, holds the focus last acquired (AF-S), until Focus Now.");
+				SameLine();
+				BeginDisabled(continuous);
+				if (Button("Focus Now"))
+					settings.focusAcquire.store(true, std::memory_order_relaxed);
+				SetItemTooltip("Acquires the focus once, as a half press of the shutter does.");
+				EndDisabled();
+				EndDisabled();
+				EndDisabled();
+				BeginDisabled(!prime || focusMode != gfx::FocusMode::kManual);
+				float focusDistance = App().GetScene().GetFocusDistance();
+				if (DragFloat("Focus Distance", &focusDistance, 0.01F, 0.01F, 10000.0F, "%.3g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+					settings.focusDistance.store(focusDistance, std::memory_order_relaxed);
+				EndDisabled();
+				SetItemTooltip("The distance the lens focuses at, meters: set by hand with the Manual focus, else what it focuses at now. Drag, or double-click to type.");
+				// the motion blur and the grain (see motionblur.slang, SharpenLens)
+				bool motionBlur = settings.motionBlur.load(std::memory_order_relaxed);
+				bool grain = settings.grain.load(std::memory_order_relaxed);
+				if (SmallCheckbox("Motion Blur", &motionBlur, prime))
+					settings.motionBlur.store(motionBlur, std::memory_order_relaxed);
+				SetItemTooltip("What moves while the shutter is open smears along its way: the shutter's share of a frame's motion (a slower shutter, a longer smear). With a real lens.");
+				if (SmallCheckbox("Grain", &grain, prime))
+					settings.grain.store(grain, std::memory_order_relaxed);
+				SetItemTooltip("The sensor's shot noise at the ISO: the photons a pixel counts, fewer the higher the ISO (a night at ISO 40000 is grainy, a day at ISO 100 isn't). With a real lens.");
+				auto first = myViews->GetCamera(0);
+				bool orthographic = first && first->GetDesc().viewport.type == ViewType::Orthographic;
+				BeginDisabled(orthographic || prime);
+				float focalLength = myViews->GetFocalLength();
+				if (DragFloat("Focal Length", &focalLength, 0.5F, 4.0F, 1200.0F, "%.3g mm", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+					myViews->SetFocalLength(focalLength);
+				EndDisabled();
+				if (prime)
+					SetItemTooltip("The lens's focal length on the sensor: the vertical field of view is %.1f degrees. A prime's is its own: choose the pinhole to change it.", static_cast<double>(glm::degrees(myViews->GetFieldOfView())));
+				else
+					SetItemTooltip("The lens's focal length on the sensor: the vertical field of view is %.1f degrees. Drag, or double-click to type.", static_cast<double>(glm::degrees(myViews->GetFieldOfView())));
+			}
+			SeparatorText("Exposure");
+			{
+				auto& settings = App().GetScene().GetSettings();
+				auto mode = static_cast<gfx::camera::ExposureMode>(settings.exposureMode.load(std::memory_order_relaxed));
+				auto chosen = App().GetScene().GetViewExposure();
+				// a mode change keeps what the camera chose as what is set, so a priority starts from the exposure it had
+				static constexpr std::array kExposureModes{
+					std::pair{"Program", gfx::camera::ExposureMode::kProgram},
+					std::pair{"Aperture Priority", gfx::camera::ExposureMode::kAperturePriority},
+					std::pair{"Shutter Priority", gfx::camera::ExposureMode::kShutterPriority},
+					std::pair{"Manual", gfx::camera::ExposureMode::kManual}};
+				const char* modeShown = "?";
+				for (auto [name, wanted] : kExposureModes)
+					if (wanted == mode)
+						modeShown = name;
+				if (BeginCombo("Mode", modeShown))
+				{
+					for (auto [name, wanted] : kExposureModes)
+						if (Selectable(name, mode == wanted))
+						{
+							settings.aperture.store(chosen.aperture, std::memory_order_relaxed);
+							settings.shutter.store(chosen.shutter, std::memory_order_relaxed);
+							settings.iso.store(chosen.iso, std::memory_order_relaxed);
+							settings.exposureMode.store(static_cast<uint8_t>(wanted), std::memory_order_relaxed);
+						}
+					EndCombo();
+				}
+				SetItemTooltip("Program: the camera chooses its aperture, shutter and ISO for the scene's brightness, along a line from sunny sixteen (narrower and faster where it is brighter, wider and slower where darker, the ISO for the rest). A priority pins one of them. Manual pins all three. A mode other than program keeps the exposure the camera had chosen, to set by hand.");
+				float stops = settings.exposureStops.load(std::memory_order_relaxed);
+				if (DragFloat("Compensation", &stops, 0.05F, -16.0F, 16.0F, "%+.2f EV", ImGuiSliderFlags_AlwaysClamp))
+					settings.exposureStops.store(stops, std::memory_order_relaxed);
+				SetItemTooltip("An exposure compensation: scales the image by 2^EV on top of the camera's exposure. Drag, or double-click to type.");
+				// within the lens's aperture range (see Scene::GetExposureLimits)
+				const auto limits = App().GetScene().GetExposureLimits();
+				bool apertureSet = mode == gfx::camera::ExposureMode::kManual || mode == gfx::camera::ExposureMode::kAperturePriority;
+				bool shutterSet = mode == gfx::camera::ExposureMode::kManual || mode == gfx::camera::ExposureMode::kShutterPriority;
+				bool isoSet = mode == gfx::camera::ExposureMode::kManual;
+				BeginDisabled(!apertureSet);
+				float aperture = apertureSet ? settings.aperture.load(std::memory_order_relaxed) : chosen.aperture;
+				if (DragFloat("Aperture", &aperture, 0.02F, limits.widestAperture, limits.narrowestAperture, "f/%.3g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+					settings.aperture.store(aperture, std::memory_order_relaxed);
+				EndDisabled();
+				SetItemTooltip("The f-number: a stop of exposure per factor of the square root of 2 (wider open, more light). Drag, or double-click to type.");
+				BeginDisabled(!shutterSet);
+				float shutter = shutterSet ? settings.shutter.load(std::memory_order_relaxed) : chosen.shutter;
+				if (DragFloat("Shutter", &shutter, 0.01F, limits.fastestShutter, limits.slowestShutter, "%.5g s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+					settings.shutter.store(shutter, std::memory_order_relaxed);
+				EndDisabled();
+				SetItemTooltip("The shutter's time, seconds: %s. Drag, or double-click to type.", ui::ShutterText(shutter).c_str());
+				BeginDisabled(!isoSet);
+				float iso = isoSet ? settings.iso.load(std::memory_order_relaxed) : chosen.iso;
+				if (DragFloat("ISO", &iso, 1.0F, limits.lowestIso, limits.highestIso, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+					settings.iso.store(iso, std::memory_order_relaxed);
+				EndDisabled();
+				SetItemTooltip("The sensor's sensitivity: a stop per doubling. Drag, or double-click to type.");
+				TextDisabled("EV100 %.2f, %+.2f EV", static_cast<double>(chosen.Ev100()), static_cast<double>(chosen.Stops()));
+			}
+			PopItemWidth();
+		}
+		End();
+	}
+
+	// the environment's settings, the sky's or a panorama's: its light's scale, its rotation and whether it is the backdrop
+	// (environmentLight), and its strongest light sources (environmentLights). in View > Environment for a panorama, in
+	// the Physical Sky window for the sky
+	auto environmentLight = []
+	{
+		float intensity = App().GetScene().GetSettings().environmentIntensity.load(std::memory_order_relaxed);
+		// not rounded to what it shows: at "%.2f" a night's 0.002 came out 0 or 0.01, typed or dragged
+		if (DragFloat("Intensity", &intensity, 0.01F, 0.0F, 100.0F, "%.3g",
+					  ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+			App().GetScene().GetSettings().environmentIntensity.store(intensity, std::memory_order_relaxed);
+		SetItemTooltip("Scales its light (0.002 or so for a night, with the exposure raised 5 stops). Drag, or double-click to type.");
+		float rotation = App().GetScene().GetSettings().environmentRotationDegrees.load(std::memory_order_relaxed);
+		if (DragFloat("Rotation", &rotation, 0.5F, -180.0F, 180.0F, "%.1f deg", ImGuiSliderFlags_WrapAround))
+			App().GetScene().GetSettings().environmentRotationDegrees.store(rotation, std::memory_order_relaxed);
+		SetItemTooltip("Turns it about the vertical axis. Drag, or double-click to type.");
+		bool backdrop = App().GetScene().GetSettings().environmentBackdrop.load(std::memory_order_relaxed);
+		if (SmallCheckbox("Backdrop", &backdrop))
+			App().GetScene().GetSettings().environmentBackdrop.store(backdrop, std::memory_order_relaxed);
+		SetItemTooltip("Draws the environment behind the model, where nothing else is. Off, a plain background; it lights the scene either way.");
+	};
+	auto environmentLights = []
+	{
+		// its strongest light sources, directional lights (with shadows) rather than part of the environment
+		{
+			auto info = App().GetScene().GetEnvironmentLightInfo().Read();
+			if (info.Get().empty())
+				TextDisabled("Dominant lights: none");
+			for (size_t lightIt = 0; lightIt < info.Get().size(); lightIt++)
+			{
+				const auto& light = info.Get()[lightIt];
+				if (light.merged)
+					TextDisabled("Dominant light %zu: %.3g lux, the model's own", lightIt + 1, light.lux);
+				else
+					TextDisabled("Dominant light %zu: %.3g lux (x intensity)", lightIt + 1, light.lux);
+				SetItemTooltip(
+					"One of the environment's strongest light sources, which light the scene as directional "
+					"lights (with shadows). Where the model has a directional light from the same direction, "
+					"the model's is used instead, if merging is on.");
+			}
+		}
+		bool merge = App().GetScene().GetSettings().mergeLights.load(std::memory_order_relaxed);
+		if (SmallCheckbox("Merge with the model's lights", &merge))
+			App().GetScene().GetSettings().mergeLights.store(merge, std::memory_order_relaxed);
+		SetItemTooltip(
+			"Treats a dominant light and a directional light of the model's within 5 degrees of it as one, "
+			"the model's. Off: both light the scene.");
+	};
+
+	// the physical sky's settings (View > Environment > Physical Sky...), all of them (the menu has none while it is the
+	// environment): its light's scale, rotation and backdrop; the sun where the time of day puts it, at a latitude on a
+	// day of the year, the time advancing, and the dominant lights; how clear the air is, the aerial perspective and its
+	// shafts, and the fog near the ground. a window of its own, the user's ask (2026-11-18); where the environment is a
+	// panorama, a button back to the sky alone
+	auto useSky = [&rhi]
+	{
+		(void)gLoads.Enqueue(
+			"Physical sky", [&rhi](std::atomic_uint8_t& progress) { App().GetScene().LoadEnvironment(std::nullopt, progress); });
+	};
+	static bool gShowSky = []
+	{
+		const char* show = std::getenv("SPEEDO_SHOW_SKY");
+		return show != nullptr && std::string_view(show) == "1";
+	}();
+	if (gShowSky)
+	{
+		{
+			const auto* viewport = GetMainViewport();
+			// (by its left edge: one that sizes itself to what it holds has no size the first frame, and anchored at its right
+			// edge it grew off the screen)
+			SetNextWindowPos(
+				ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - (GetFontSize() * 25.0F), viewport->WorkPos.y + (GetFontSize() * 4.0F)), ImGuiCond_FirstUseEver);
+		}
+		if (Begin("Physical Sky", &gShowSky, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			CloseOnEscape(gShowSky);
+			PushItemWidth(GetFontSize() * 12.0F);
+			// (where the environment is a panorama, a way back to the sky alone: its settings are the menu's)
+			bool sky = App().GetScene().IsSkyInstalled();
+			if (!sky)
+			{
+				TextDisabled("The environment is a panorama.");
+				if (Button("Use the Physical Sky"))
+					useSky();
+			}
+			else
+			{
+				auto& settings = App().GetScene().GetSettings();
+				environmentLight();
+				SeparatorText("Sun");
+				float hours = settings.timeOfDay.load(std::memory_order_relaxed);
+				int minutes = static_cast<int>(std::round(hours * 60.0F)) % (24 * 60);
+				// shown as hours and minutes (the format has no conversion: it is the label), typed as hours
+				auto shown = std::format("{:02}:{:02}", minutes / 60, minutes % 60);
+				if (DragFloat("Time of Day", &hours, 0.01F, 0.0F, 24.0F, shown.c_str(), ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+					settings.timeOfDay.store(hours, std::memory_order_relaxed);
+				SetItemTooltip("Local solar time (12:00: the sun highest), which puts the sun. Drag, or double-click to type hours (18.5 for 18:30).");
+				bool advance = settings.advanceTime.load(std::memory_order_relaxed);
+				if (SmallCheckbox("Advance Time", &advance))
+					settings.advanceTime.store(advance, std::memory_order_relaxed);
+				SetItemTooltip("The time of day moves on by itself, Time Speed times as fast as real time.");
+				float speed = settings.timeSpeed.load(std::memory_order_relaxed);
+				if (DragFloat("Time Speed", &speed, 1.0F, 0.1F, 100000.0F, "%.4gx", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+					settings.timeSpeed.store(speed, std::memory_order_relaxed);
+				SetItemTooltip("How many times as fast as real time the time of day advances: 60 is an hour a minute, 3600 an hour a second.");
+				float latitude = settings.latitude.load(std::memory_order_relaxed);
+				if (DragFloat("Latitude", &latitude, 0.1F, -90.0F, 90.0F, "%.2f deg", ImGuiSliderFlags_AlwaysClamp))
+					settings.latitude.store(latitude, std::memory_order_relaxed);
+				SetItemTooltip("Where on Earth, north positive (48.86: Paris).");
+				float day = settings.dayOfYear.load(std::memory_order_relaxed);
+				if (DragFloat("Day of Year", &day, 0.5F, 1.0F, 365.0F, "%.0f", ImGuiSliderFlags_AlwaysClamp))
+					settings.dayOfYear.store(day, std::memory_order_relaxed);
+				SetItemTooltip("1 the 1st of January, 172 the 21st of June (the longest day north of the equator).");
+				int year = settings.year.load(std::memory_order_relaxed);
+				if (DragInt("Year", &year, 0.2F, ui::kMinYear, ui::kMaxYear, "%d", ImGuiSliderFlags_AlwaysClamp))
+					settings.year.store(year, std::memory_order_relaxed);
+				SetItemTooltip("The moon's place and phase go by it (and the stars' a little).");
+				environmentLights();
+				SeparatorText("Air");
+				// how clear the air is (see environment::SkyAerosols), the air between the eye and what it sees (see
+				// AerialPerspectiveData), and the sun's shadows in it
+				float visibility = settings.visibility.load(std::memory_order_relaxed);
+				if (DragFloat("Visibility", &visibility, 0.5F, ui::kMinVisibility, gfx::environment::kSkyClearestVisibility, "%.3g km", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+					settings.visibility.store(visibility, std::memory_order_relaxed);
+				SetItemTooltip(
+					"How clear the air is: how far one sees through it (217 km a very clear day, from 288 km the air alone, "
+					"20 km a hazy day, 2 km mist). The sky, the sun's light, the haze and the light shafts all go by it. "
+					"Drag, or double-click to type.");
+				bool aerial = settings.aerialPerspective.load(std::memory_order_relaxed);
+				if (SmallCheckbox("Aerial Perspective", &aerial))
+					settings.aerialPerspective.store(aerial, std::memory_order_relaxed);
+				SetItemTooltip("The sky's air between the eye and what it sees: far things fade into the haze of the horizon.");
+				bool shafts = settings.lightShafts.load(std::memory_order_relaxed);
+				if (SmallCheckbox("Light Shafts", &shafts, aerial))
+					settings.lightShafts.store(shafts, std::memory_order_relaxed);
+				SetItemTooltip("The sun's shadows in the air: shafts of light where it shines between what casts them. With the aerial perspective.");
+				// the fog near the ground, in the air (see AerialPerspectiveData::fog)
+				bool fog = settings.fog.load(std::memory_order_relaxed);
+				if (SmallCheckbox("Fog", &fog, aerial))
+					settings.fog.store(fog, std::memory_order_relaxed);
+				SetItemTooltip(
+					"A layer of haze near the ground, densest at it: what is far along the ground fades into it, the lights "
+					"shine through it, and the sun in shafts where it is dense. With the aerial perspective.");
+				BeginDisabled(!aerial || !fog);
+				float fogVisibility = settings.fogVisibility.load(std::memory_order_relaxed);
+				if (DragFloat("Fog Visibility", &fogVisibility, 0.5F, ui::kMinFogVisibility, ui::kMaxFogVisibility, "%.3g km", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+					settings.fogVisibility.store(fogVisibility, std::memory_order_relaxed);
+				SetItemTooltip("How far one sees through the fog at the ground: 30 km a clear day, 2 km mist, 0.2 km fog. Drag, or double-click to type.");
+				float fogHeight = settings.fogHeight.load(std::memory_order_relaxed);
+				if (DragFloat("Fog Height", &fogHeight, 1.0F, ui::kMinFogHeight, ui::kMaxFogHeight, "%.3g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+					settings.fogHeight.store(fogHeight, std::memory_order_relaxed);
+				SetItemTooltip("How thick the layer is: this high up it is a third as dense as at the ground (its scale height). Drag, or double-click to type.");
+				EndDisabled();
+			}
+			PopItemWidth();
+		}
+		End();
+	}
+
+	// the indirect lighting's options (View > Rendering Features > Indirect Lighting...): what its rays meet, its surface
+	// cache, its near field and its resolution, out of View's menu (the user's ask, 2026-11-18)
+	static bool gShowIndirectLighting = []
+	{
+		const char* show = std::getenv("SPEEDO_SHOW_INDIRECT_LIGHTING");
+		return show != nullptr && std::string_view(show) == "1";
+	}();
+	if (gShowIndirectLighting)
+	{
+		{
+			const auto* viewport = GetMainViewport();
+			// (beside the Cameras window)
+			SetNextWindowPos(ImVec2(viewport->WorkPos.x + (GetFontSize() * 22.0F), viewport->WorkPos.y + (GetFontSize() * 1.5F)), ImGuiCond_FirstUseEver);
+		}
+		if (Begin("Indirect Lighting", &gShowIndirectLighting, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			CloseOnEscape(gShowIndirectLighting);
+			PushItemWidth(GetFontSize() * 12.0F);
+			if (!App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed))
+				TextDisabled("Off: View > Rendering Features > Indirect Lighting.");
+			{
+				// how the probes' rays (and the voxels' shadow rays) find what they meet: the model's triangles through its
+				// BVHs, or the voxels (see GiData::trace)
+				bool traceTriangles = App().GetScene().GetSettings().traceTriangles.load(std::memory_order_relaxed);
+				if (BeginCombo("Rays", traceTriangles ? "Triangles (BVH)" : "Voxels"))
+				{
+					if (Selectable("Triangles (BVH)", traceTriangles))
+						App().GetScene().GetSettings().traceTriangles.store(true, std::memory_order_relaxed);
+					SetItemTooltip(
+						"The rays meet the model's triangles, through its BVHs (one of what doesn't move, one of what does, "
+						"refit each frame), and take the voxels' light where they hit: no surface a voxel thick, no opening "
+						"narrowed by the voxels, light through alpha masked gaps.");
+					if (Selectable("Voxels", !traceTriangles))
+						App().GetScene().GetSettings().traceTriangles.store(false, std::memory_order_relaxed);
+					SetItemTooltip("The rays walk the voxels (SPEEDO_GI_TRACE=voxels to start with them).");
+					EndCombo();
+				}
+				SetItemTooltip("What the rays meet: the model's triangles, or the voxels.");
+			}
+			{
+				// the last clip's voxels along the scene's longest axis (see gi::kResolutions): changing it voxelizes the
+				// scene again
+				auto current = App().GetScene().GetSettings().giResolution.load(std::memory_order_relaxed);
+				auto shown = std::format("{}{}", current, current == gfx::gi::kDefaultResolution ? " (default)" : "");
+				if (BeginCombo("Resolution", shown.c_str()))
+				{
+					for (auto resolution : gfx::gi::kResolutions)
+					{
+						auto label = std::format("{}{}", resolution, resolution == gfx::gi::kDefaultResolution ? " (default)" : "");
+						if (Selectable(label.c_str(), current == resolution))
+							App().GetScene().GetSettings().giResolution.store(resolution, std::memory_order_relaxed);
+					}
+					EndCombo();
+				}
+				SetItemTooltip(
+					"Voxels along the scene's longest side (SPEEDO_GI_RESOLUTION to start with another). Finer resolves "
+					"light through narrower openings, at a steep cost: each step about doubles the indirect lighting's "
+					"time. Changing it voxelizes the scene again.");
+			}
+			bool surfaceCache = App().GetScene().GetSettings().giSurfaceCache.load(std::memory_order_relaxed);
+			if (SmallCheckbox("Surface Cache", &surfaceCache))
+				App().GetScene().GetSettings().giSurfaceCache.store(surfaceCache, std::memory_order_relaxed);
+			SetItemTooltip(
+				"Refines the probes' light at the voxels the views look up with rays from each voxel itself, one a frame, "
+				"accumulated over time and filtered along the surface: light through narrow openings resolves at the voxels' "
+				"size rather than the probes' spacing. On by default (SPEEDO_GI_CACHE=0 to start without it); its memory grows "
+				"with the resolution (0.3 GB at 384 in Sponza).");
+			// (the near field's rays trace the triangles: with the voxels' rays it doesn't run, see Renderer's myGiNearOn)
+			bool traced = App().GetScene().GetSettings().traceTriangles.load(std::memory_order_relaxed);
+			bool nearField = App().GetScene().GetSettings().giNearField.load(std::memory_order_relaxed);
+			if (SmallCheckbox("Near Field", &nearField, traced))
+				App().GetScene().GetSettings().giNearField.store(nearField, std::memory_order_relaxed);
+			bool nearOn = traced && nearField;
+			SetItemTooltip(
+				"Near other surfaces, takes the light a ray from each pixel gathers within a few voxels (filtered along the "
+				"surface) in place of the voxels' own, which can't hold what is closer than a voxel: contacts darken "
+				"smoothly, without blocks. Where the rays trace the triangles. On by default (SPEEDO_GI_NEAR=0 to start "
+				"without it).");
+			{
+				float contact = App().GetScene().GetSettings().giNearContact.load(std::memory_order_relaxed);
+				BeginDisabled(!nearOn);
+				if (DragFloat("Near Field Contact", &contact, 0.05F, 0.0F, gfx::gi::kMaxNearContact, "%.2f voxels", ImGuiSliderFlags_AlwaysClamp))
+					App().GetScene().GetSettings().giNearContact.store(contact, std::memory_order_relaxed);
+				EndDisabled();
+				SetItemTooltip(
+					"How near another surface a pixel's rays find before its light is theirs rather than the voxels', in voxels "
+					"(SPEEDO_GI_NEAR_CONTACT, %.1f by default). Wider takes the rays' light along more of every junction; "
+					"narrower leaves more of the voxels' own near contacts. Drag, or double-click to type.",
+					static_cast<double>(gfx::gi::kDefaultNearContact));
+			}
+			{
+				// every how many pixels each way the near field's rays are traced (see GiData::nearStride)
+				static constexpr std::array kNearStrides{
+					std::tuple{"Every 2nd pixel", 2U, "A quarter of the pixels trace a ray: finer contacts at thin features, 1.3 to 3.2 ms more a frame at the benchmark poses (SPEEDO_GI_NEAR_STRIDE=2)."},
+					std::tuple{"Every 4th pixel", 4U, "A sixteenth of the pixels trace a ray (the default)."}};
+				uint32_t stride = App().GetScene().GetSettings().giNearStride.load(std::memory_order_relaxed);
+				const char* shown = "?";
+				for (auto [label, value, tooltip] : kNearStrides)
+					if (value == stride)
+						shown = label;
+				BeginDisabled(!nearOn);
+				if (BeginCombo("Near Field Rays", shown))
+				{
+					for (auto [label, value, tooltip] : kNearStrides)
+					{
+						if (Selectable(label, stride == value))
+							App().GetScene().GetSettings().giNearStride.store(value, std::memory_order_relaxed);
+						SetItemTooltip("%s", tooltip);
+					}
+					EndCombo();
+				}
+				EndDisabled();
+				SetItemTooltip("How many of the pixels trace the near field's rays.");
+			}
+			{
+				bool temporal = App().GetScene().GetSettings().giNearTemporal.load(std::memory_order_relaxed);
+				if (SmallCheckbox("Near Field Over Frames", &temporal, nearOn))
+					App().GetScene().GetSettings().giNearTemporal.store(temporal, std::memory_order_relaxed);
+				SetItemTooltip(
+					"Accumulates the near field's rays over frames (their directions turn every frame), reprojected by the "
+					"depth: smooth rather than a grain fixed to the screen, at a lag of a few frames where the light changes. "
+					"On by default (SPEEDO_GI_NEAR_TEMPORAL=0 to start without; SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT, 16, how "
+					"many frames it remembers).");
+			}
+			PopItemWidth();
+		}
+		End();
+	}
+
 	InternalDrawBrowser();
 	// the test assets' download: offered on a first launch, and its progress (see testassets.h)
 	testassets::Draw();
@@ -1648,7 +2126,7 @@ void WindowedApplication::PrepareDraw()
 		{
 			PushID(static_cast<int>(slot));
 			bool chosen = gChosenVariants[slot];
-			if (Checkbox(slot == 0 ? "Default materials" : choice.variants[slot - 1].c_str(), &chosen))
+			if (SmallCheckbox(slot == 0 ? "Default materials" : choice.variants[slot - 1].c_str(), &chosen))
 				gChosenVariants[slot] = chosen;
 			PopID();
 		}
@@ -1753,7 +2231,7 @@ void WindowedApplication::PrepareDraw()
 	static std::optional<uint32_t> gAutoLoadExitFrames;
 	// SPEEDO_CAMERA=<x>,<y>,<z>,<pitch>,<yaw> (world space, degrees): where the views look from once the autoloads are
 	// installed (the model's install frames them first), for measurements and screenshots; SPEEDO_CAMERA=frame frames the
-	// model, as View > Camera > Frame model (a model with cameras starts looking through its first)
+	// model, as View > Cameras... > Frame model (a model with cameras starts looking through its first)
 	static std::optional<std::array<float, 5>> gAutoCamera;
 	// SPEEDO_CAMERA_VIEWS=<x,y,z,pitch,yaw>[;...]: views 1 and on placed apart, after SPEEDO_CAMERA placed them all (view 0 its
 	// pose): split screen's cameras, each where it is, for what follows one view only (the shadows, the indirect lighting)
@@ -2004,15 +2482,15 @@ void WindowedApplication::PrepareDraw()
 			   scenes.Get().ground == model.ground;
 	};
 
-	// a pose pasted (View > Camera > Paste Pose, ctrl/cmd+shift+v): its settings (those it doesn't name back to their
-	// defaults, which Copy Pose leaves out), its model and environment where they aren't the ones installed (no model
+	// a pose pasted (Edit > Paste Scene, ctrl/cmd+shift+v): its settings (those it doesn't name back to their
+	// defaults, which Copy Scene leaves out), its model and environment where they aren't the ones installed (no model
 	// named keeps the installed one), the window's framebuffer at its size (unless fullscreen), and its camera, placed as
 	// SPEEDO_CAMERA's once those are in: a view reported as a pose recreated exactly, to look at and mark
 	if (auto text = [] { std::scoped_lock lock(ui::gPastedPoseMutex); return std::exchange(ui::gPastedPose, std::nullopt); }())
 	{
 		if (auto pose = ui::ParsePose(*text))
 		{
-			std::println("Paste Pose: {}", *text);
+			std::println("Paste Scene: {}", *text);
 			auto& scene = App().GetScene();
 			ui::ApplyPoseSettings(scene.GetSettings(), [&pose](const char* name) { return pose->Get(name); }, true);
 			gAutoLens = ui::ApplyCameraVariables([&pose](const char* name) { return pose->Get(name); }, true);
@@ -2036,7 +2514,7 @@ void WindowedApplication::PrepareDraw()
 					.ground = pose->Get("SPEEDO_GROUND_PLANE") != nullptr && std::string_view(pose->Get("SPEEDO_GROUND_PLANE")) == "0"
 								  ? ModelGround::kNone
 								  : ModelGround::kPlane};
-				// its models' variants laid out, which a pose names by their files (see InternalCopyPose: a folder's or an
+				// its models' variants laid out, which a pose names by their files (see InternalCopyScene: a folder's or an
 				// archive's are loaded again, their names being no file)
 				if (!variants.empty() && std::ranges::all_of(paths, [](const std::string& path) { return mesh::IsModelFile(path); }))
 				{
@@ -2085,7 +2563,7 @@ void WindowedApplication::PrepareDraw()
 				const auto& state = GetWindows().front().GetState();
 				auto [width, height] = *pose->windowSize;
 				if (state.fullscreenEnabled != 0U)
-					std::println("Paste Pose: the window is fullscreen, so not {}x{}", width, height);
+					std::println("Paste Scene: the window is fullscreen, so not {}x{}", width, height);
 				else if (static_cast<uint32_t>(static_cast<float>(state.width) * state.xscale) != width ||
 						 static_cast<uint32_t>(static_cast<float>(state.height) * state.yscale) != height)
 				{
@@ -2108,7 +2586,7 @@ void WindowedApplication::PrepareDraw()
 			{
 				gAutoCamera = parsePose(it);
 				if (!gAutoCamera)
-					std::println(stderr, "Paste Pose: SPEEDO_CAMERA: expected x,y,z,pitch,yaw, got {}", camera);
+					std::println(stderr, "Paste Scene: SPEEDO_CAMERA: expected x,y,z,pitch,yaw, got {}", camera);
 			}
 			// split screen's grid and its other views' cameras, each placed with view 0 (see SPEEDO_CAMERA_VIEWS)
 			gAutoViewCameras.clear();
@@ -2118,16 +2596,16 @@ void WindowedApplication::PrepareDraw()
 				if (auto poses = parseViewPoses(views))
 					gAutoViewCameras = std::move(*poses);
 				else
-					std::println(stderr, "Paste Pose: SPEEDO_CAMERA_VIEWS: expected x,y,z,pitch,yaw[;...], got {}", views);
+					std::println(stderr, "Paste Scene: SPEEDO_CAMERA_VIEWS: expected x,y,z,pitch,yaw[;...], got {}", views);
 			}
 			const char* layout = pose->Get("SPEEDO_LAYOUT");
 			gPastedLayout = layout != nullptr ? parseLayout(layout) : std::array<uint32_t, 2>{1, 1};
 			if (!gPastedLayout)
-				std::println(stderr, "Paste Pose: SPEEDO_LAYOUT: expected 1x1, 1x2, 2x1 or 2x2, got {}", layout);
+				std::println(stderr, "Paste Scene: SPEEDO_LAYOUT: expected 1x1, 1x2, 2x1 or 2x2, got {}", layout);
 			gAutoCameraRepeats = kAutoCameraRepeatCount;
 		}
 		else
-			std::println(stderr, "Paste Pose: the clipboard holds no pose (SPEEDO_CAMERA=... as Copy Pose writes it): {}", *text);
+			std::println(stderr, "Paste Scene: the clipboard holds no scene (SPEEDO_CAMERA=... as Copy Scene writes it): {}", *text);
 	}
 
 	// the scene's unit, as a model installs (see windowedapplication::ResolveSceneUnit)
@@ -2452,13 +2930,13 @@ void WindowedApplication::PrepareDraw()
 	}
 	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal))
 		core::Application::Get()->RequestExit();
-	// the pose and the settings as the variables that reproduce them, to the clipboard (and the terminal): View > Camera
-	// > Copy Pose, for reporting what a view shows (a capture of it: px/cap.sh's variables, see CLAUDE.md)
-	// (SPEEDO_COPY_POSE_FRAME=<n> copies once n frames are drawn, for tests: the terminal has it. of the frames
+	// the pose and the settings as the variables that reproduce them, to the clipboard (and the terminal): View > Cameras...
+	// > Copy Scene, for reporting what a view shows (a capture of it: px/cap.sh's variables, see CLAUDE.md)
+	// (SPEEDO_COPY_SCENE_FRAME=<n> copies once n frames are drawn, for tests: the terminal has it. of the frames
 	// SPEEDO_AUTOLOAD_EXIT counts where it is set, the model in, else of all: the first 500 of a run drew no model yet)
 	static uint64_t gCopyPoseFrame = []
 	{
-		const char* frame = std::getenv("SPEEDO_COPY_POSE_FRAME");
+		const char* frame = std::getenv("SPEEDO_COPY_SCENE_FRAME");
 		return frame != nullptr ? std::strtoull(frame, nullptr, 10) : 0;
 	}();
 	bool copyPoseFrame = gCopyPoseFrame != 0 && (gAutoLoadExitFrames ? gAutoLoadExitStart.has_value() : true) &&
@@ -2466,20 +2944,20 @@ void WindowedApplication::PrepareDraw()
 	if (Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C, ImGuiInputFlags_RouteGlobal) || copyPoseFrame)
 	{
 		gCopyPoseFrame = 0;
-		InternalCopyPose();
+		InternalCopyScene();
 	}
-	// and a pose of those from the clipboard, applied: View > Camera > Paste Pose (SPEEDO_PASTE_POSE_FRAME=<n> pastes once
+	// and a pose of those from the clipboard, applied: Edit > Paste Scene (SPEEDO_PASTE_SCENE_FRAME=<n> pastes once
 	// n frames are drawn, for tests)
 	static uint64_t gPastePoseFrame = []
 	{
-		const char* frame = std::getenv("SPEEDO_PASTE_POSE_FRAME");
+		const char* frame = std::getenv("SPEEDO_PASTE_SCENE_FRAME");
 		return frame != nullptr ? std::strtoull(frame, nullptr, 10) : 0;
 	}();
 	if (Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V, ImGuiInputFlags_RouteGlobal) ||
 		(gPastePoseFrame != 0 && gDrawnFrameCount.load(std::memory_order_relaxed) >= gPastePoseFrame))
 	{
 		gPastePoseFrame = 0;
-		InternalPastePose();
+		InternalPasteScene();
 	}
 	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_1, ImGuiInputFlags_RouteGlobal))
 		setSplitScreenGrid(1, 1);
@@ -2515,10 +2993,23 @@ void WindowedApplication::PrepareDraw()
 	// the menu bar, as macOS's: translucent over its backdrop, which the renderer blurs (a frosted panel, see
 	// ImGuiLayer::TakeFrame), a little taller, without a border, with a faint edge below. its window would draw its own
 	// background under the menu bar's (WindowBg, 85% opaque)
+	// the bar's taller frame padding for the bar and its menus' labels alone (and where their menus open below it), not
+	// the menus' items: their checkboxes and drags came out three quarters again as tall as a window's (the user's ask,
+	// 2026-11-18, for smaller checkboxes)
 	PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0F, 0.0F, 0.0F, 0.0F));
-	PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(GetStyle().FramePadding.x, GetStyle().FramePadding.y * 1.75F));
 	PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0F);
-	if (BeginMainMenuBar())
+	const ImVec2 barPadding(GetStyle().FramePadding.x, GetStyle().FramePadding.y * 1.75F);
+	auto barMenu = [&barPadding](const char* label)
+	{
+		PushStyleVar(ImGuiStyleVar_FramePadding, barPadding);
+		bool open = ui::BeginMenu(label);
+		PopStyleVar();
+		return open;
+	};
+	PushStyleVar(ImGuiStyleVar_FramePadding, barPadding);
+	bool menuBar = BeginMainMenuBar();
+	PopStyleVar();
+	if (menuBar)
 	{
 		gMenuBarHeight = GetWindowHeight();
 		auto* drawList = GetWindowDrawList();
@@ -2532,7 +3023,7 @@ void WindowedApplication::PrepareDraw()
 		// the menus' on/off settings are checkboxes: as menu items, unchecked, they showed no mark and read as headings (the
 		// user couldn't find Advance Time), and a checkbox keeps the menu open to watch what it changes. menu items pick one
 		// of several (a check on the current one) or open a window
-		if (ui::BeginMenu("File"))
+		if (barMenu("File"))
 		{
 			if (MenuItem("Open...", SHORTCUT_LABEL("O"), gShowBrowser && gBrowserPurpose == BrowserPurpose::kFiles))
 			{
@@ -2581,17 +3072,34 @@ void WindowedApplication::PrepareDraw()
 			}
 			if (recentChosen)
 				InternalOpen(*recentChosen);
+			Separator();
 			testassets::DrawMenuItem();
+			// (a menu of its own held it alone)
+			if (MenuItem("About Speedo...", nullptr, gShowAbout))
+				gShowAbout = !gShowAbout;
 			Separator();
 			if (MenuItem("Exit", SHORTCUT_LABEL("Q")))
 				core::Application::Get()->RequestExit();
 
 			ImGui::EndMenu();
 		}
-		if (ui::BeginMenu("View"))
+		// the pose: the view, the model and the settings as the variables that reproduce them, copied and pasted (the user's
+		// ask, 2026-11-18: in Edit, since a pose is more than the camera)
+		if (barMenu("Edit"))
 		{
-			// if (MenuItem("Node Editor..."))
-			// 	showNodeEditor = !showNodeEditor;
+			if (MenuItem("Copy Scene", SHORTCUT_LABEL("Shift+C")))
+				InternalCopyScene();
+			SetItemTooltip("Copies the camera, the model and the settings as the variables that reproduce this view (SPEEDO_CAMERA=..., SPEEDO_AUTOLOAD_MODEL=...), to paste into a report.");
+			if (MenuItem("Paste Scene", SHORTCUT_LABEL("Shift+V")))
+				InternalPasteScene();
+			SetItemTooltip("Applies what Copy Scene copied (SPEEDO_CAMERA=... SPEEDO_AUTOLOAD_MODEL=... # window ...): its settings (those it leaves out back to their defaults), its model and environment if they aren't the ones loaded, the window's size, and the camera once the model is in.");
+			ImGui::EndMenu();
+		}
+		if (barMenu("View"))
+		{
+			// grouped under headings by what they are about (the user's ask, 2026-11-18): the window, the scene (its model,
+			// its environment and units, its cameras and lights), the rendering, and what shows how it runs
+			SeparatorText("Window");
 			if (ui::BeginMenu("Layout"))
 			{
 				for (auto [label, shortcut, width, height] : std::array{
@@ -2610,7 +3118,7 @@ void WindowedApplication::PrepareDraw()
 				// to compare them, e.g. a driver's direct scanout on macOS
 				auto& windowState = GetWindow(GetCurrentWindow()).GetState();
 				SeparatorText("Fullscreen");
-				if (bool fullscreen = windowState.fullscreenEnabled != 0U; Checkbox("Fullscreen", &fullscreen))
+				if (bool fullscreen = windowState.fullscreenEnabled != 0U; SmallCheckbox("Fullscreen", &fullscreen))
 					RequestToggleFullscreen(GetCurrentWindow());
 				SetItemTooltip("In or out of fullscreen (Alt+Enter), as below.");
 				for (auto [label, mode] : std::array{
@@ -2620,9 +3128,11 @@ void WindowedApplication::PrepareDraw()
 						 std::pair{"Native", FULLSCREEN_MODE_NATIVE},
 #endif
 					 })
+				{
 					if (MenuItem(label, nullptr, windowState.fullscreenMode == mode))
 						windowState.fullscreenMode = mode;
-				SetItemTooltip("Exclusive takes the monitor (on macOS, native too: scanned out directly); borderless is a window covering it, which stays composited. Takes effect the next time the window goes fullscreen.");
+					SetItemTooltip("Exclusive takes the monitor (on macOS, native too: scanned out directly); borderless is a window covering it, which stays composited. Takes effect the next time the window goes fullscreen.");
+				}
 				// what the swapchain has, of what the surface supports (none listed until the first frame)
 				auto presentation = UnpackPresentation(myPresentation.load(std::memory_order_relaxed));
 				SeparatorText("Swapchain");
@@ -2653,171 +3163,11 @@ void WindowedApplication::PrepareDraw()
 						request.imageCount = count;
 						myPresentationRequest.store(PackPresentation(request), std::memory_order_relaxed);
 					}
-				}
-				SetItemTooltip("The swapchain is recreated before the next frame.");
-				ImGui::EndMenu();
-			}
-			if (ui::BeginMenu("Environment"))
-			{
-				// what lights the scene (see InstallEnvironment): the sky, or a panorama file
-				std::string current = App().GetScene().GetEnvironmentName().Read().Get();
-				TextDisabled("%s", current.empty() ? "None" : current.c_str());
-				{
-					float intensity = App().GetScene().GetSettings().environmentIntensity.load(std::memory_order_relaxed);
-					// not rounded to what it shows: at "%.2f" a night's 0.002 came out 0 or 0.01, typed or dragged
-					if (DragFloat("Intensity", &intensity, 0.01F, 0.0F, 100.0F, "%.3g",
-								  ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-						App().GetScene().GetSettings().environmentIntensity.store(intensity, std::memory_order_relaxed);
-					SetItemTooltip("Scales its light (0.002 or so for a night, with the exposure raised 5 stops). Drag, or double-click to type.");
-					float rotation = App().GetScene().GetSettings().environmentRotationDegrees.load(std::memory_order_relaxed);
-					if (DragFloat("Rotation", &rotation, 0.5F, -180.0F, 180.0F, "%.1f deg", ImGuiSliderFlags_WrapAround))
-						App().GetScene().GetSettings().environmentRotationDegrees.store(rotation, std::memory_order_relaxed);
-					SetItemTooltip("Turns it about the vertical axis. Drag, or double-click to type.");
-					bool backdrop = App().GetScene().GetSettings().environmentBackdrop.load(std::memory_order_relaxed);
-					if (Checkbox("Backdrop", &backdrop))
-						App().GetScene().GetSettings().environmentBackdrop.store(backdrop, std::memory_order_relaxed);
-					// the sky's sun: where the time of day puts it, at a latitude on a day of the year, and the time advancing
-					if (App().GetScene().IsSkyInstalled())
-					{
-						auto& settings = App().GetScene().GetSettings();
-						Separator();
-						float hours = settings.timeOfDay.load(std::memory_order_relaxed);
-						int minutes = static_cast<int>(std::round(hours * 60.0F)) % (24 * 60);
-						// shown as hours and minutes (the format has no conversion: it is the label), typed as hours
-						auto shown = std::format("{:02}:{:02}", minutes / 60, minutes % 60);
-						if (DragFloat("Time of Day", &hours, 0.01F, 0.0F, 24.0F, shown.c_str(), ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-							settings.timeOfDay.store(hours, std::memory_order_relaxed);
-						SetItemTooltip("Local solar time (12:00: the sun highest), which puts the sun. Drag, or double-click to type hours (18.5 for 18:30).");
-						bool advance = settings.advanceTime.load(std::memory_order_relaxed);
-						if (Checkbox("Advance Time", &advance))
-							settings.advanceTime.store(advance, std::memory_order_relaxed);
-						SetItemTooltip("The time of day moves on by itself, Time Speed times as fast as real time.");
-						float speed = settings.timeSpeed.load(std::memory_order_relaxed);
-						if (DragFloat("Time Speed", &speed, 1.0F, 0.1F, 100000.0F, "%.4gx", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-							settings.timeSpeed.store(speed, std::memory_order_relaxed);
-						SetItemTooltip("How many times as fast as real time the time of day advances: 60 is an hour a minute, 3600 an hour a second.");
-						float latitude = settings.latitude.load(std::memory_order_relaxed);
-						if (DragFloat("Latitude", &latitude, 0.1F, -90.0F, 90.0F, "%.2f deg", ImGuiSliderFlags_AlwaysClamp))
-							settings.latitude.store(latitude, std::memory_order_relaxed);
-						SetItemTooltip("Where on Earth, north positive (48.86: Paris).");
-						float day = settings.dayOfYear.load(std::memory_order_relaxed);
-						if (DragFloat("Day of Year", &day, 0.5F, 1.0F, 365.0F, "%.0f", ImGuiSliderFlags_AlwaysClamp))
-							settings.dayOfYear.store(day, std::memory_order_relaxed);
-						SetItemTooltip("1 the 1st of January, 172 the 21st of June (the longest day north of the equator).");
-						int year = settings.year.load(std::memory_order_relaxed);
-						if (DragInt("Year", &year, 0.2F, ui::kMinYear, ui::kMaxYear, "%d", ImGuiSliderFlags_AlwaysClamp))
-							settings.year.store(year, std::memory_order_relaxed);
-						SetItemTooltip("The moon's place and phase go by it (and the stars' a little).");
-						// how clear the air is (see environment::SkyAerosols), the air between the eye and what it sees (see
-						// AerialPerspectiveData), and the sun's shadows in it
-						float visibility = settings.visibility.load(std::memory_order_relaxed);
-						if (DragFloat("Visibility", &visibility, 0.5F, ui::kMinVisibility, gfx::environment::kSkyClearestVisibility, "%.3g km", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-							settings.visibility.store(visibility, std::memory_order_relaxed);
-						SetItemTooltip(
-							"How clear the air is: how far one sees through it (217 km a very clear day, from 288 km the air alone, "
-							"20 km a hazy day, 2 km mist). The sky, the sun's light, the haze and the light shafts all go by it. "
-							"Drag, or double-click to type.");
-						bool aerial = settings.aerialPerspective.load(std::memory_order_relaxed);
-						if (Checkbox("Aerial Perspective", &aerial))
-							settings.aerialPerspective.store(aerial, std::memory_order_relaxed);
-						SetItemTooltip("The sky's air between the eye and what it sees: far things fade into the haze of the horizon.");
-						BeginDisabled(!aerial);
-						bool shafts = settings.lightShafts.load(std::memory_order_relaxed);
-						if (Checkbox("Light Shafts", &shafts))
-							settings.lightShafts.store(shafts, std::memory_order_relaxed);
-						SetItemTooltip("The sun's shadows in the air: shafts of light where it shines between what casts them.");
-						// the fog near the ground, in the air (see AerialPerspectiveData::fog)
-						bool fog = settings.fog.load(std::memory_order_relaxed);
-						if (Checkbox("Fog", &fog))
-							settings.fog.store(fog, std::memory_order_relaxed);
-						SetItemTooltip(
-							"A layer of haze near the ground, densest at it: what is far along the ground fades into it, the lights "
-							"shine through it, and the sun in shafts where it is dense.");
-						BeginDisabled(!fog);
-						float fogVisibility = settings.fogVisibility.load(std::memory_order_relaxed);
-						if (DragFloat("Fog Visibility", &fogVisibility, 0.5F, ui::kMinFogVisibility, ui::kMaxFogVisibility, "%.3g km", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-							settings.fogVisibility.store(fogVisibility, std::memory_order_relaxed);
-						SetItemTooltip("How far one sees through the fog at the ground: 30 km a clear day, 2 km mist, 0.2 km fog. Drag, or double-click to type.");
-						float fogHeight = settings.fogHeight.load(std::memory_order_relaxed);
-						if (DragFloat("Fog Height", &fogHeight, 1.0F, ui::kMinFogHeight, ui::kMaxFogHeight, "%.3g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-							settings.fogHeight.store(fogHeight, std::memory_order_relaxed);
-						SetItemTooltip("How thick the layer is: this high up it is a third as dense as at the ground (its scale height). Drag, or double-click to type.");
-						EndDisabled();
-						EndDisabled();
-						Separator();
-					}
-					// its strongest light sources, directional lights (with shadows) rather than part of the environment
-					{
-						auto info = App().GetScene().GetEnvironmentLightInfo().Read();
-						if (info.Get().empty())
-							TextDisabled("Dominant lights: none");
-						for (size_t lightIt = 0; lightIt < info.Get().size(); lightIt++)
-						{
-							const auto& light = info.Get()[lightIt];
-							if (light.merged)
-								TextDisabled("Dominant light %zu: %.3g lux, the model's own", lightIt + 1, light.lux);
-							else
-								TextDisabled("Dominant light %zu: %.3g lux (x intensity)", lightIt + 1, light.lux);
-							SetItemTooltip(
-								"One of the environment's strongest light sources, which light the scene as directional "
-								"lights (with shadows). Where the model has a directional light from the same direction, "
-								"the model's is used instead, if merging is on.");
-						}
-					}
-					bool merge = App().GetScene().GetSettings().mergeLights.load(std::memory_order_relaxed);
-					if (Checkbox("Merge with the model's lights", &merge))
-						App().GetScene().GetSettings().mergeLights.store(merge, std::memory_order_relaxed);
-					SetItemTooltip(
-						"Treats a dominant light and a directional light of the model's within 5 degrees of it as one, "
-						"the model's. Off: both light the scene.");
-				}
-				Separator();
-				if (MenuItem("Physical sky"))
-					(void)gLoads.Enqueue(
-						"Physical sky",
-						[&rhi](std::atomic_uint8_t& progress) { App().GetScene().LoadEnvironment(std::nullopt, progress); });
-				if (MenuItem("Open Environment...", SHORTCUT_LABEL("E"), gShowBrowser && gBrowserPurpose == BrowserPurpose::kEnvironment))
-				{
-					// the file browser, listing panoramas only
-					gShowBrowser = !(gShowBrowser && gBrowserPurpose == BrowserPurpose::kEnvironment);
-					gBrowserPurpose = BrowserPurpose::kEnvironment;
+					SetItemTooltip("The swapchain is recreated before the next frame.");
 				}
 				ImGui::EndMenu();
 			}
-			// the scene's unit (see gfx::SceneUnit): one of the units, pinned for the scene's file (remembered, see
-			// RememberUnit), a custom meters per unit, or automatic, the file's forgotten and guessed again (GuessUnit)
-			if (ui::BeginMenu("Units"))
-			{
-				auto& settings = App().GetScene().GetSettings();
-				float metersPerUnit = settings.metersPerUnit.load(std::memory_order_relaxed);
-				auto current = gfx::UnitOf(metersPerUnit);
-				std::string filePath = App().GetScene().GetScenes().Read().Get().filePath;
-				auto set = [&settings, &filePath](float value)
-				{
-					settings.metersPerUnit.store(value, std::memory_order_relaxed);
-					if (!filePath.empty())
-						windowedapplication::RememberUnit(filePath, value);
-				};
-				for (auto unit : gfx::kSceneUnits)
-					if (MenuItem(gfx::UnitName(unit).data(), nullptr, current == unit))
-						set(gfx::MetersPerUnit(unit));
-				SetItemTooltip("What the file's coordinates are in: the lights' falloff, the ground plane's squares (a meter each) and the air go by it. Remembered for the file.");
-				Separator();
-				float custom = metersPerUnit;
-				if (DragFloat("Meters per Unit", &custom, 0.01F, 1e-4F, 1e4F, "%.4g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-					set(custom);
-				SetItemTooltip("A custom unit: how long the file's unit is. Drag, or double-click to type. Remembered for the file.");
-				BeginDisabled(filePath.empty() || !windowedapplication::RememberedUnit(filePath));
-				if (MenuItem("Automatic"))
-				{
-					// forgotten, and resolved again as the file's would be (see ResolveSceneUnit)
-					windowedapplication::RememberUnit(filePath, std::nullopt);
-					windowedapplication::ForgetSceneUnit();
-				}
-				EndDisabled();
-				SetItemTooltip("Forget the unit remembered for the file: a gltf's meters, an obj's by its size (centimeters over 500 units across).");
-				ImGui::EndMenu();
-			}
+			SeparatorText("Scene");
 			if (ui::BeginMenu("Scene"))
 			{
 				// the installed gltf file's scenes: choosing one loads the file again with it (with its variant, or its
@@ -2858,9 +3208,21 @@ void WindowedApplication::PrepareDraw()
 				// the installed model's animations (see Model::Animate)
 				auto animation = App().GetScene().GetAnimation().Write();
 				auto& state = animation.Get();
-				Checkbox("Play", &state.playing);
+				SmallCheckbox("Play", &state.playing);
 				if (MenuItem("Restart"))
 					state.time = 0.0;
+				// where it is (as the pose wraps it, see Copy Scene's SPEEDO_ANIMATION_TIME), to find a moment by hand: dragged,
+				// it plays on from there, unless paused (the user's ask, 2026-11-18)
+				{
+					float duration = state.selected && *state.selected < state.durations.size() ? state.durations[*state.selected] : 0.0F;
+					BeginDisabled(duration <= 0.0F);
+					float time = duration > 0.0F ? std::fmod(std::max(static_cast<float>(state.time), 0.0F), duration) : 0.0F;
+					SetNextItemWidth(GetFontSize() * 12.0F);
+					if (SliderFloat("Time", &time, 0.0F, std::max(duration, 1e-3F), "%.3f s", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+						state.time = time;
+					EndDisabled();
+					SetItemTooltip("Where the animation is, of its %.3g s: drag to move it (Ctrl/Cmd+click to type). Edit > Copy Scene writes it.", static_cast<double>(duration));
+				}
 				Separator();
 				if (MenuItem("Rest pose", nullptr, !state.selected.has_value()))
 					state.Select(std::nullopt);
@@ -2873,379 +3235,212 @@ void WindowedApplication::PrepareDraw()
 				}
 				ImGui::EndMenu();
 			}
-			if (ui::BeginMenu("Camera"))
+			if (ui::BeginMenu("Environment"))
 			{
-				// the installed model's cameras (see Views::SetScene), applied on the draw thread
-				auto useCamera = [this, &rhi](std::optional<size_t> camera)
+				// what lights the scene (see InstallEnvironment): a panorama file, its settings here, or the sky, all of whose
+				// are in its window (the user's ask, 2026-11-18: the sky's here and in its window confused)
+				if (!App().GetScene().IsSkyInstalled())
 				{
-					rhi.drawCalls.enqueue([this, camera](QueueTimelineContextData& /*graphics*/) { myViews->UseSceneCamera(camera); });
-				};
-				if (MenuItem("Copy Pose", SHORTCUT_LABEL("Shift+C")))
-					InternalCopyPose();
-				SetItemTooltip("Copies the camera, the model and the settings as the variables that reproduce this view (SPEEDO_CAMERA=..., SPEEDO_AUTOLOAD_MODEL=...), to paste into a report.");
-				if (MenuItem("Paste Pose", SHORTCUT_LABEL("Shift+V")))
-					InternalPastePose();
-				SetItemTooltip("Applies a pose Copy Pose copied (SPEEDO_CAMERA=... SPEEDO_AUTOLOAD_MODEL=... # window ...): its settings (those it leaves out back to their defaults), its model and environment if they aren't the ones loaded, the window's size, and the camera once the model is in.");
-				Separator();
-				auto current = myViews->GetSceneCamera();
-				if (MenuItem("Frame model", nullptr, !current.has_value()))
-					useCamera(std::nullopt);
-				auto names = myViews->GetSceneCameraNames();
-				if (!names.empty())
+					std::string current = App().GetScene().GetEnvironmentName().Read().Get();
+					TextDisabled("%s", current.empty() ? "None" : current.c_str());
+					environmentLight();
+					environmentLights();
 					Separator();
-				for (size_t cameraIt = 0; cameraIt < names.size(); cameraIt++)
-				{
-					PushID(static_cast<int>(cameraIt));
-					if (MenuItem(names[cameraIt].c_str(), nullptr, current == cameraIt))
-						useCamera(cameraIt);
-					PopID();
 				}
-				Separator();
-				// the physical camera (see gfx/physicalcamera.h): its sensor and focal length, which give the field of view,
-				// and its exposure's mode and settings
+				// the physical sky as the environment (a panorama's replaced), and its window: checked where it is the
+				// environment (where the window's being open was checked, the sky in use showed nothing)
+				if (MenuItem("Physical Sky...", nullptr, App().GetScene().IsSkyInstalled()))
 				{
-					auto sensor = ui::SensorOfHeight(myViews->GetSensorHeight());
-					if (ui::BeginMenu("Sensor"))
+					if (!App().GetScene().IsSkyInstalled())
 					{
-						for (auto preset : gfx::camera::kSensors)
-							if (MenuItem(gfx::camera::SensorName(preset).data(), nullptr, sensor == preset))
-								myViews->SetSensorHeight(gfx::camera::SensorSizeOf(preset).height);
-						SetItemTooltip("The sensor's size: with the focal length it gives the field of view (a smaller sensor's is narrower, as a lens's is).");
-						ImGui::EndMenu();
+						useSky();
+						gShowSky = true;
 					}
-					// the lens (see gfx/lens.h): the pinhole shows the frame as it is at any focal length; a prime pins its
-					// own, and the Lens pass draws its vignetting, aberration and distortion
-					auto& settings = App().GetScene().GetSettings();
-					const auto& lenses = gfx::lens::Lenses();
-					auto lensIndex = settings.lens.load(std::memory_order_relaxed);
-					bool prime = lensIndex < lenses.size() && !gfx::lens::IsPinhole(lenses[lensIndex]);
-					if (ui::BeginMenu("Lens"))
-					{
-						for (size_t lensIt = 0; lensIt < lenses.size(); lensIt++)
-							if (MenuItem(lenses[lensIt].name.c_str(), nullptr, lensIndex == lensIt))
-								settings.lens.store(static_cast<uint32_t>(lensIt), std::memory_order_relaxed);
-						SetItemTooltip("The lens the camera takes the frame through. The pinhole shows it as it is, at any focal length. A real lens has its own focal length and aperture range, and shows the frame as it does: darker toward the corners (vignetting, most wide open), its red and blue images a little larger or smaller than its green (lateral chromatic aberration) and barrel or pincushion distorted.");
-						ImGui::EndMenu();
-					}
-					bool glare = settings.lensGlare.load(std::memory_order_relaxed);
-					BeginDisabled(!prime);
-					if (Checkbox("Lens Glare", &glare))
-						settings.lensGlare.store(glare, std::memory_order_relaxed);
-					EndDisabled();
-					SetItemTooltip("The lens's glare: the light it veils the frame with, and the ghosts and starburst of the bright things in view (the sun, lamps): each pair of its surfaces reflects a ghost onto the sensor, and the aperture's blades diffract a starburst.");
-					// the focus (the depth of field, see dof.slang): a system camera's modes
-					auto focusMode = static_cast<gfx::FocusMode>(settings.focusMode.load(std::memory_order_relaxed));
-					BeginDisabled(!prime);
-					if (ui::BeginMenu("Focus"))
-					{
-						for (auto [name, wanted, tip] : {
-								 std::tuple{"Spot", gfx::FocusMode::kSpot, "A single point: what is under the view's center."},
-								 std::tuple{"Zone", gfx::FocusMode::kZone, "A zone around the view's center (a fifth of the view)."},
-								 std::tuple{"Wide", gfx::FocusMode::kWide, "The whole view: the nearest thing in it, as an auto area picks the nearest subject."},
-								 std::tuple{"Manual", gfx::FocusMode::kManual, "The distance set below."}})
-						{
-							if (MenuItem(name, nullptr, focusMode == wanted))
-							{
-								// manual starts from the focus it had
-								if (wanted == gfx::FocusMode::kManual)
-									settings.focusDistance.store(App().GetScene().GetFocusDistance(), std::memory_order_relaxed);
-								settings.focusMode.store(static_cast<uint8_t>(wanted), std::memory_order_relaxed);
-							}
-							SetItemTooltip("%s", tip);
-						}
-						Separator();
-						bool continuous = settings.focusContinuous.load(std::memory_order_relaxed);
-						BeginDisabled(focusMode == gfx::FocusMode::kManual);
-						if (Checkbox("Continuous", &continuous))
-							settings.focusContinuous.store(continuous, std::memory_order_relaxed);
-						SetItemTooltip("Follows what the mode measures every frame (AF-C); off, holds the focus last acquired (AF-S), until Focus Now.");
-						BeginDisabled(continuous);
-						if (MenuItem("Focus Now"))
-							settings.focusAcquire.store(true, std::memory_order_relaxed);
-						SetItemTooltip("Acquires the focus once, as a half press of the shutter does.");
-						EndDisabled();
-						EndDisabled();
-						TextDisabled("%.3g m", static_cast<double>(App().GetScene().GetFocusDistance()));
-						ImGui::EndMenu();
-					}
-					SetItemTooltip("What the lens focuses at: a point or a zone at the view's center, the nearest thing in view, or a distance; what is nearer or farther blurs by the aperture (wider open, shallower).");
-					EndDisabled();
-					BeginDisabled(!prime || focusMode != gfx::FocusMode::kManual);
-					float focusDistance = App().GetScene().GetFocusDistance();
-					if (DragFloat("Focus Distance", &focusDistance, 0.01F, 0.01F, 10000.0F, "%.3g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-						settings.focusDistance.store(focusDistance, std::memory_order_relaxed);
-					EndDisabled();
-					SetItemTooltip("The distance the lens focuses at, meters (set by hand with Focus > Manual). Drag, or double-click to type.");
-					// the motion blur and the grain (see motionblur.slang, SharpenLens)
-					bool motionBlur = settings.motionBlur.load(std::memory_order_relaxed);
-					bool grain = settings.grain.load(std::memory_order_relaxed);
-					BeginDisabled(!prime);
-					if (Checkbox("Motion Blur", &motionBlur))
-						settings.motionBlur.store(motionBlur, std::memory_order_relaxed);
-					SetItemTooltip("What moves while the shutter is open smears along its way: the shutter's share of a frame's motion (a slower shutter, a longer smear).");
-					if (Checkbox("Grain", &grain))
-						settings.grain.store(grain, std::memory_order_relaxed);
-					SetItemTooltip("The sensor's shot noise at the ISO: the photons a pixel counts, fewer the higher the ISO (a night at ISO 40000 is grainy, a day at ISO 100 isn't).");
-					EndDisabled();
-					auto first = myViews->GetCamera(0);
-					bool orthographic = first && first->GetDesc().viewport.type == ViewType::Orthographic;
-					BeginDisabled(orthographic || prime);
-					float focalLength = myViews->GetFocalLength();
-					if (DragFloat("Focal Length", &focalLength, 0.5F, 4.0F, 1200.0F, "%.3g mm", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-						myViews->SetFocalLength(focalLength);
-					EndDisabled();
-					if (prime)
-						SetItemTooltip("The lens's focal length on the sensor: the vertical field of view is %.1f degrees. A prime's is its own: choose the pinhole to change it.", static_cast<double>(glm::degrees(myViews->GetFieldOfView())));
 					else
-						SetItemTooltip("The lens's focal length on the sensor: the vertical field of view is %.1f degrees. Drag, or double-click to type.", static_cast<double>(glm::degrees(myViews->GetFieldOfView())));
+						gShowSky = !gShowSky;
 				}
-				if (ui::BeginMenu("Exposure"))
+				SetItemTooltip("Lights the scene with Earth's sky (the default; it replaces a panorama opened) and opens its settings: its intensity, the sun by the time of day, where and when, and the air's haze and fog. Checked while the sky is the environment; with it, opens or closes its settings.");
+				if (MenuItem("Open Environment...", SHORTCUT_LABEL("E"), gShowBrowser && gBrowserPurpose == BrowserPurpose::kEnvironment))
 				{
-					auto& settings = App().GetScene().GetSettings();
-					auto mode = static_cast<gfx::camera::ExposureMode>(settings.exposureMode.load(std::memory_order_relaxed));
-					auto chosen = App().GetScene().GetViewExposure();
-					// a mode change keeps what the camera chose as what is set, so a priority starts from the exposure it had
-					auto setMode = [&settings, &chosen](gfx::camera::ExposureMode wanted)
-					{
-						settings.aperture.store(chosen.aperture, std::memory_order_relaxed);
-						settings.shutter.store(chosen.shutter, std::memory_order_relaxed);
-						settings.iso.store(chosen.iso, std::memory_order_relaxed);
-						settings.exposureMode.store(static_cast<uint8_t>(wanted), std::memory_order_relaxed);
-					};
-					for (auto [name, wanted] : {std::pair{"Program", gfx::camera::ExposureMode::kProgram},
-												std::pair{"Aperture Priority", gfx::camera::ExposureMode::kAperturePriority},
-												std::pair{"Shutter Priority", gfx::camera::ExposureMode::kShutterPriority},
-												std::pair{"Manual", gfx::camera::ExposureMode::kManual}})
-						if (MenuItem(name, nullptr, mode == wanted))
-							setMode(wanted);
-					SetItemTooltip("Program: the camera chooses its aperture, shutter and ISO for the scene's brightness, along a line from sunny sixteen (narrower and faster where it is brighter, wider and slower where darker, the ISO for the rest). A priority pins one of them. Manual pins all three.");
-					Separator();
-					// within the lens's aperture range (see Scene::GetExposureLimits)
-					const auto limits = App().GetScene().GetExposureLimits();
-					bool apertureSet = mode == gfx::camera::ExposureMode::kManual || mode == gfx::camera::ExposureMode::kAperturePriority;
-					bool shutterSet = mode == gfx::camera::ExposureMode::kManual || mode == gfx::camera::ExposureMode::kShutterPriority;
-					bool isoSet = mode == gfx::camera::ExposureMode::kManual;
-					BeginDisabled(!apertureSet);
-					float aperture = apertureSet ? settings.aperture.load(std::memory_order_relaxed) : chosen.aperture;
-					if (DragFloat("Aperture", &aperture, 0.02F, limits.widestAperture, limits.narrowestAperture, "f/%.3g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-						settings.aperture.store(aperture, std::memory_order_relaxed);
-					EndDisabled();
-					SetItemTooltip("The f-number: a stop of exposure per factor of the square root of 2 (wider open, more light). Drag, or double-click to type.");
-					BeginDisabled(!shutterSet);
-					float shutter = shutterSet ? settings.shutter.load(std::memory_order_relaxed) : chosen.shutter;
-					if (DragFloat("Shutter", &shutter, 0.01F, limits.fastestShutter, limits.slowestShutter, "%.5g s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-						settings.shutter.store(shutter, std::memory_order_relaxed);
-					EndDisabled();
-					SetItemTooltip("The shutter's time, seconds: %s. Drag, or double-click to type.", ui::ShutterText(shutter).c_str());
-					BeginDisabled(!isoSet);
-					float iso = isoSet ? settings.iso.load(std::memory_order_relaxed) : chosen.iso;
-					if (DragFloat("ISO", &iso, 1.0F, limits.lowestIso, limits.highestIso, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-						settings.iso.store(iso, std::memory_order_relaxed);
-					EndDisabled();
-					SetItemTooltip("The sensor's sensitivity: a stop per doubling. Drag, or double-click to type.");
-					TextDisabled("EV100 %.2f, %+.2f EV", static_cast<double>(chosen.Ev100()), static_cast<double>(chosen.Stops()));
-					ImGui::EndMenu();
+					// the file browser, listing panoramas only
+					gShowBrowser = !(gShowBrowser && gBrowserPurpose == BrowserPurpose::kEnvironment);
+					gBrowserPurpose = BrowserPurpose::kEnvironment;
 				}
 				ImGui::EndMenu();
 			}
-			Checkbox("FPS", &gShowFps);
-			Checkbox("TPS", &gShowTps);
-			Separator();
+			// the scene's unit (see gfx::SceneUnit): one of the units, pinned for the scene's file (remembered, see
+			// RememberUnit), a custom meters per unit, or automatic, the file's forgotten and guessed again (GuessUnit)
+			if (ui::BeginMenu("Units"))
 			{
-				// logarithmic: model scales span many orders of magnitude (see Views::FrameBounds). a drag box rather than a
-				// slider: a double-click (or Ctrl/Cmd+click) types a number into it, which a slider only does on
-				// Ctrl/Cmd+click. its speed is in the logarithmic range's terms: about 1% faster or slower per pixel.
-				constexpr float kMinMoveSpeed = 1e-4F;
-				constexpr float kMaxMoveSpeed = 1e6F;
-				constexpr float kDragPixelsAcrossRange = 1000.0F;
-				float moveSpeed = myViews->GetMoveSpeed();
-				if (DragFloat(
-						"Move speed",
-						&moveSpeed,
-						(kMaxMoveSpeed - kMinMoveSpeed) / kDragPixelsAcrossRange,
-						kMinMoveSpeed,
-						kMaxMoveSpeed,
-						"%.3g units/s",
-						ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
-					myViews->SetMoveSpeed(moveSpeed);
-				SetItemTooltip(
-					"Drag to change, or double-click to type a speed.\n"
-					"w, a, s, d move the camera under the mouse, and the mouse wheel changes the speed.");
-			}
-			{
-				float stops = App().GetScene().GetSettings().exposureStops.load(std::memory_order_relaxed);
-				if (DragFloat("Exposure", &stops, 0.05F, -16.0F, 16.0F, "%+.2f EV", ImGuiSliderFlags_AlwaysClamp))
-					App().GetScene().GetSettings().exposureStops.store(stops, std::memory_order_relaxed);
-				SetItemTooltip("An exposure compensation: scales the image by 2^EV on top of the camera's exposure (View > Camera > Exposure). Drag, or double-click to type.");
-				// auto exposure: the camera's program mode against manual (its priority modes are under View > Camera >
-				// Exposure); turned off, manual takes what the camera chose, as a lock does
 				auto& settings = App().GetScene().GetSettings();
-				bool autoExposure = settings.AutoExposure();
-				if (Checkbox("Auto Exposure", &autoExposure))
+				float metersPerUnit = settings.metersPerUnit.load(std::memory_order_relaxed);
+				auto current = gfx::UnitOf(metersPerUnit);
+				std::string filePath = App().GetScene().GetScenes().Read().Get().filePath;
+				auto set = [&settings, &filePath](float value)
 				{
-					if (!autoExposure)
-					{
-						auto chosen = App().GetScene().GetViewExposure();
-						settings.aperture.store(chosen.aperture, std::memory_order_relaxed);
-						settings.shutter.store(chosen.shutter, std::memory_order_relaxed);
-						settings.iso.store(chosen.iso, std::memory_order_relaxed);
-					}
-					settings.exposureMode.store(
-						static_cast<uint8_t>(autoExposure ? gfx::camera::ExposureMode::kProgram : gfx::camera::ExposureMode::kManual), std::memory_order_relaxed);
-				}
-				SetItemTooltip("The camera chooses its aperture, shutter and ISO for the scene's brightness over time (a program, or a priority mode under View > Camera > Exposure); off, it keeps what it chose, to set by hand there.");
+					settings.metersPerUnit.store(value, std::memory_order_relaxed);
+					if (!filePath.empty())
+						windowedapplication::RememberUnit(filePath, value);
+				};
+				for (auto unit : gfx::kSceneUnits)
 				{
-					auto exposure = App().GetScene().GetViewExposure();
-					TextDisabled(
-						"%s: %+.2f EV (f/%.3g, %s, ISO %.0f)", autoExposure ? "Auto" : "Manual", static_cast<double>(exposure.Stops()), static_cast<double>(exposure.aperture),
-						ui::ShutterText(exposure.shutter).c_str(), static_cast<double>(exposure.iso));
+					if (MenuItem(gfx::UnitName(unit).data(), nullptr, current == unit))
+						set(gfx::MetersPerUnit(unit));
+					SetItemTooltip("What the file's coordinates are in: the lights' falloff, the ground plane's squares (a meter each) and the air go by it. Remembered for the file.");
 				}
-				bool shadows = App().GetScene().GetSettings().shadows.load(std::memory_order_relaxed);
-				if (Checkbox("Shadows", &shadows))
-					App().GetScene().GetSettings().shadows.store(shadows, std::memory_order_relaxed);
-				SetItemTooltip("The lights' shadows: cascades for directional lights, cubes for point lights, a view per spot light.");
-				bool tracedShadows = App().GetScene().GetSettings().tracedShadows.load(std::memory_order_relaxed);
-				BeginDisabled(!shadows);
-				if (Checkbox("Ray Traced Shadows", &tracedShadows))
-					App().GetScene().GetSettings().tracedShadows.store(tracedShadows, std::memory_order_relaxed);
+				Separator();
+				float custom = metersPerUnit;
+				if (DragFloat("Meters per Unit", &custom, 0.01F, 1e-4F, 1e4F, "%.4g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+					set(custom);
+				SetItemTooltip("A custom unit: how long the file's unit is. Drag, or double-click to type. Remembered for the file.");
+				BeginDisabled(filePath.empty() || !windowedapplication::RememberedUnit(filePath));
+				if (MenuItem("Automatic"))
+				{
+					// forgotten, and resolved again as the file's would be (see ResolveSceneUnit)
+					windowedapplication::RememberUnit(filePath, std::nullopt);
+					windowedapplication::ForgetSceneUnit();
+				}
 				EndDisabled();
-				SetItemTooltip(
-					"The brightest lights' shadows (the directional ones, then up to 4 in all) traced through the model's BVH, soft by each light's size (View > Lights), rather than looked up in the shadow atlas.");
-				// the traced reflections and refractions need the device's ray queries
-				bool rayQueries = App().GetScene().HasRayQueries();
-				BeginDisabled(!rayQueries);
-				bool tracedReflections = App().GetScene().GetSettings().tracedReflections.load(std::memory_order_relaxed);
-				if (Checkbox("Ray Traced Reflections", &tracedReflections))
-					App().GetScene().GetSettings().tracedReflections.store(tracedReflections, std::memory_order_relaxed);
-				SetItemTooltip(
-					"%s",
-					rayQueries ? "What smooth surfaces reflect (and clear coats), traced through the device's ray queries and shaded where the rays meet something: sharp up to a roughness of 0.15, fading into the indirect lighting's glossy reflection by 0.4. Off, the indirect lighting's and the environment's alone."
-							   : "Needs a device with ray queries (VK_KHR_ray_query).");
-				bool tracedRefractions = App().GetScene().GetSettings().tracedRefractions.load(std::memory_order_relaxed);
-				if (Checkbox("Ray Traced Refractions", &tracedRefractions))
-					App().GetScene().GetSettings().tracedRefractions.store(tracedRefractions, std::memory_order_relaxed);
-				SetItemTooltip(
-					"%s",
-					rayQueries ? "What transmissive surfaces show behind them, traced along the refracted ray (behind them or out of the view alike), rather than looked up in the frame drawn so far."
-							   : "Needs a device with ray queries (VK_KHR_ray_query).");
-				bool caustics = App().GetScene().GetSettings().caustics.load(std::memory_order_relaxed);
-				if (Checkbox("Caustics", &caustics))
-					App().GetScene().GetSettings().caustics.store(caustics, std::memory_order_relaxed);
-				SetItemTooltip(
-					"%s",
-					rayQueries ? "The lights' light refracted through transmissive surfaces that don't move, traced as photons from the lights' shadow views. Off, it goes straight through them, tinted."
-							   : "Needs a device with ray queries (VK_KHR_ray_query).");
-				EndDisabled();
-				bool emissiveLights = App().GetScene().GetSettings().emissiveLights.load(std::memory_order_relaxed);
-				if (Checkbox("Emissive Lights", &emissiveLights))
-					App().GetScene().GetSettings().emissiveLights.store(emissiveLights, std::memory_order_relaxed);
-				SetItemTooltip(
-					"Emissive surfaces light the scene as area lights: points of them picked through a tree of them by how much each may give, at every 4th pixel each way by default (and in the indirect lighting's voxels), shadowed by rays through the model's BVH. Off, the indirect lighting's rays take their emission as they meet them.");
-				bool culling = App().GetScene().GetSettings().culling.load(std::memory_order_relaxed);
-				if (Checkbox("Culling", &culling))
-					App().GetScene().GetSettings().culling.store(culling, std::memory_order_relaxed);
-				SetItemTooltip("Skips the chunks of the model outside each view's frustum, and each shadow view's.");
-				bool clusteredLights = App().GetScene().GetSettings().clusteredLights.load(std::memory_order_relaxed);
-				if (Checkbox("Clustered Lights", &clusteredLights))
-					App().GetScene().GetSettings().clusteredLights.store(clusteredLights, std::memory_order_relaxed);
-				SetItemTooltip("Shades each pixel with only the lights that may reach its cluster (a tile of the view and a slice of depth), not all of them.");
+				SetItemTooltip("Forget the unit remembered for the file: a gltf's meters, an obj's by its size (centimeters over 500 units across).");
+				// how fast the camera moves, in the scene's units (here since 2026-11-18, the user's ask)
+				Separator();
+				{
+					// logarithmic: model scales span many orders of magnitude (see Views::FrameBounds). a drag box rather than a
+					// slider: a double-click (or Ctrl/Cmd+click) types a number into it, which a slider only does on
+					// Ctrl/Cmd+click. its speed is in the logarithmic range's terms: about 1% faster or slower per pixel.
+					constexpr float kMinMoveSpeed = 1e-4F;
+					constexpr float kMaxMoveSpeed = 1e6F;
+					constexpr float kDragPixelsAcrossRange = 1000.0F;
+					float moveSpeed = myViews->GetMoveSpeed();
+					// in the scene's unit, a custom one's "units" (current: the one just chosen above)
+					auto speedFormat = std::format("%.3g {}/s", current ? gfx::UnitSymbol(*current) : std::string_view("units"));
+					if (DragFloat(
+							"Move speed",
+							&moveSpeed,
+							(kMaxMoveSpeed - kMinMoveSpeed) / kDragPixelsAcrossRange,
+							kMinMoveSpeed,
+							kMaxMoveSpeed,
+							speedFormat.c_str(),
+							ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+						myViews->SetMoveSpeed(moveSpeed);
+					SetItemTooltip(
+						"Drag to change, or double-click to type a speed.\n"
+						"w, a, s, d move the camera under the mouse, and the mouse wheel changes the speed.");
+				}
+				ImGui::EndMenu();
+			}
+			if (MenuItem("Cameras...", nullptr, gShowCameras))
+				gShowCameras = !gShowCameras;
+			SetItemTooltip("The model's cameras, and the physical camera: its sensor, lens, focus, focal length and exposure.");
+			if (MenuItem("Lights...", nullptr, gShowLights))
+				gShowLights = !gShowLights;
+			SetItemTooltip("Lists the lights, and draws them over the views: where they are (a directional light outside the scene, shining in), spot cones, point light ranges and the shadow views' frusta.");
+			SeparatorText("Rendering");
+			{
+				// the rendering's features, each switched on or off (their options in windows of their own: the indirect
+				// lighting's), the user's ask (2026-11-18), out of View itself
 				bool indirectLighting = App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed);
-				if (Checkbox("Indirect Lighting", &indirectLighting))
-					App().GetScene().GetSettings().indirectLighting.store(indirectLighting, std::memory_order_relaxed);
-				SetItemTooltip(
-					"Diffuse ambient light from irradiance probes over a voxel clipmap (on by default, SPEEDO_GI=0 to start without it): "
-					"bounced light, colour bleeding, and the sky occluded indoors. Turned on, the scene is voxelized again.");
-				if (ui::BeginMenu("Indirect Lighting Rays"))
+				if (ui::BeginMenu("Rendering Features"))
 				{
-					// how the probes' rays (and the voxels' shadow rays) find what they meet: the model's triangles through its
-					// BVHs, or the voxels (see GiData::trace)
-					bool traceTriangles = App().GetScene().GetSettings().traceTriangles.load(std::memory_order_relaxed);
-					if (MenuItem("Triangles (BVH)", nullptr, traceTriangles))
-						App().GetScene().GetSettings().traceTriangles.store(true, std::memory_order_relaxed);
+					SeparatorText("Shadows");
+					bool shadows = App().GetScene().GetSettings().shadows.load(std::memory_order_relaxed);
+					if (SmallCheckbox("Shadows", &shadows))
+						App().GetScene().GetSettings().shadows.store(shadows, std::memory_order_relaxed);
+					SetItemTooltip("The lights' shadows: cascades for directional lights, cubes for point lights, a view per spot light.");
+					bool tracedShadows = App().GetScene().GetSettings().tracedShadows.load(std::memory_order_relaxed);
+					if (SmallCheckbox("Ray Traced Shadows", &tracedShadows, shadows))
+						App().GetScene().GetSettings().tracedShadows.store(tracedShadows, std::memory_order_relaxed);
 					SetItemTooltip(
-						"The rays meet the model's triangles, through its BVHs (one of what doesn't move, one of what does, "
-						"refit each frame), and take the voxels' light where they hit: no surface a voxel thick, no opening "
-						"narrowed by the voxels, light through alpha masked gaps.");
-					if (MenuItem("Voxels", nullptr, !traceTriangles))
-						App().GetScene().GetSettings().traceTriangles.store(false, std::memory_order_relaxed);
-					SetItemTooltip("The rays walk the voxels (SPEEDO_GI_TRACE=voxels to start with them).");
+						"The brightest lights' shadows (the directional ones, then up to 4 in all) traced through the model's BVH, soft by each light's size (View > Lights), rather than looked up in the shadow atlas.");
+					// the traced reflections and refractions need the device's ray queries
+					SeparatorText("Ray Traced");
+					bool rayQueries = App().GetScene().HasRayQueries();
+					constexpr const char* kNoRayQueries = "Needs a device with ray queries, which this one hasn't.";
+					bool tracedReflections = App().GetScene().GetSettings().tracedReflections.load(std::memory_order_relaxed);
+					if (SmallCheckbox("Ray Traced Reflections", &tracedReflections, rayQueries))
+						App().GetScene().GetSettings().tracedReflections.store(tracedReflections, std::memory_order_relaxed);
+					SetItemTooltip(
+						"%s",
+						rayQueries ? "What smooth surfaces reflect (and clear coats), traced through the device's ray queries and shaded where the rays meet something: sharp up to a roughness of 0.15, fading into the indirect lighting's glossy reflection by 0.4. Off, the indirect lighting's and the environment's alone."
+								   : kNoRayQueries);
+					bool tracedRefractions = App().GetScene().GetSettings().tracedRefractions.load(std::memory_order_relaxed);
+					if (SmallCheckbox("Ray Traced Refractions", &tracedRefractions, rayQueries))
+						App().GetScene().GetSettings().tracedRefractions.store(tracedRefractions, std::memory_order_relaxed);
+					SetItemTooltip(
+						"%s",
+						rayQueries ? "What transmissive surfaces show behind them, traced along the refracted ray (behind them or out of the view alike), rather than looked up in the frame drawn so far."
+								   : kNoRayQueries);
+					bool caustics = App().GetScene().GetSettings().caustics.load(std::memory_order_relaxed);
+					// (traced from the lights' shadow views: none without the shadows)
+					if (SmallCheckbox("Caustics", &caustics, rayQueries && shadows))
+						App().GetScene().GetSettings().caustics.store(caustics, std::memory_order_relaxed);
+					SetItemTooltip(
+						"%s",
+						rayQueries ? "The lights' light refracted through transmissive surfaces that don't move, traced as photons from the lights' shadow views (with the shadows). Off, it goes straight through them, tinted."
+								   : kNoRayQueries);
+					SeparatorText("Light");
+					bool emissiveLights = App().GetScene().GetSettings().emissiveLights.load(std::memory_order_relaxed);
+					if (SmallCheckbox("Emissive Lights", &emissiveLights))
+						App().GetScene().GetSettings().emissiveLights.store(emissiveLights, std::memory_order_relaxed);
+					SetItemTooltip(
+						"Emissive surfaces light the scene as area lights: points of them picked through a tree of them by how much each may give, at every 4th pixel each way by default (and in the indirect lighting's voxels), shadowed by rays through the model's BVH. Off, the indirect lighting's rays take their emission as they meet them.");
+					if (SmallCheckbox("Indirect Lighting", &indirectLighting))
+						App().GetScene().GetSettings().indirectLighting.store(indirectLighting, std::memory_order_relaxed);
+					SetItemTooltip(
+						"Diffuse ambient light from irradiance probes over a voxel clipmap (on by default, SPEEDO_GI=0 to start without it): "
+						"bounced light, colour bleeding, and the sky occluded indoors. Turned on, the scene is voxelized again.");
+					if (MenuItem("Indirect Lighting...", nullptr, gShowIndirectLighting))
+						gShowIndirectLighting = !gShowIndirectLighting;
+					SetItemTooltip("The indirect lighting's options: what its rays meet, its surface cache, its near field and its resolution.");
+					// what changes no picture, only how fast it is drawn
+					SeparatorText("Performance");
+					bool culling = App().GetScene().GetSettings().culling.load(std::memory_order_relaxed);
+					if (SmallCheckbox("Culling", &culling))
+						App().GetScene().GetSettings().culling.store(culling, std::memory_order_relaxed);
+					SetItemTooltip("Skips the chunks of the model outside each view's frustum, and each shadow view's.");
+					bool clusteredLights = App().GetScene().GetSettings().clusteredLights.load(std::memory_order_relaxed);
+					if (SmallCheckbox("Clustered Lights", &clusteredLights))
+						App().GetScene().GetSettings().clusteredLights.store(clusteredLights, std::memory_order_relaxed);
+					SetItemTooltip("Shades each pixel with only the lights that may reach its cluster (a tile of the view and a slice of depth), not all of them.");
 					ImGui::EndMenu();
 				}
-				bool surfaceCache = App().GetScene().GetSettings().giSurfaceCache.load(std::memory_order_relaxed);
-				if (Checkbox("Indirect Lighting Surface Cache", &surfaceCache))
-					App().GetScene().GetSettings().giSurfaceCache.store(surfaceCache, std::memory_order_relaxed);
-				SetItemTooltip(
-					"Refines the probes' light at the voxels the views look up with rays from each voxel itself, one a frame, "
-					"accumulated over time and filtered along the surface: light through narrow openings resolves at the voxels' "
-					"size rather than the probes' spacing. On by default (SPEEDO_GI_CACHE=0 to start without it); its memory grows "
-					"with the resolution (0.3 GB at 384 in Sponza).");
-				bool nearField = App().GetScene().GetSettings().giNearField.load(std::memory_order_relaxed);
-				if (Checkbox("Indirect Lighting Near Field", &nearField))
-					App().GetScene().GetSettings().giNearField.store(nearField, std::memory_order_relaxed);
-				SetItemTooltip(
-					"Near other surfaces, takes the light a ray from each pixel gathers within a few voxels (filtered along the "
-					"surface) in place of the voxels' own, which can't hold what is closer than a voxel: contacts darken "
-					"smoothly, without blocks. Where the rays trace the triangles. On by default (SPEEDO_GI_NEAR=0 to start "
-					"without it).");
+				if (ui::BeginMenu("Tonemapper"))
 				{
-					float contact = App().GetScene().GetSettings().giNearContact.load(std::memory_order_relaxed);
-					BeginDisabled(!nearField);
-					if (DragFloat("Near Field Contact", &contact, 0.05F, 0.0F, gfx::gi::kMaxNearContact, "%.2f voxels", ImGuiSliderFlags_AlwaysClamp))
-						App().GetScene().GetSettings().giNearContact.store(contact, std::memory_order_relaxed);
-					EndDisabled();
-					SetItemTooltip(
-						"How near another surface a pixel's rays find before its light is theirs rather than the voxels', in voxels "
-						"(SPEEDO_GI_NEAR_CONTACT, %.1f by default). Wider takes the rays' light along more of every junction; "
-						"narrower leaves more of the voxels' own near contacts. Drag, or double-click to type.",
-						static_cast<double>(gfx::gi::kDefaultNearContact));
-				}
-				{
-					// every how many pixels each way the near field's rays are traced (see GiData::nearStride)
-					BeginDisabled(!nearField);
-					if (ui::BeginMenu("Near Field Rays"))
+					// (as tonemap.slang has them)
+					static constexpr std::array<std::tuple<const char*, uint32_t, const char*>, 5> kTonemappers{{
+						{"Khronos PBR Neutral", TONEMAPPER_PBR_NEUTRAL, "Leaves colors up to about 0.76 nearly as they are, so that base colors show as themselves under a white light, and compresses brighter ones toward white (the default)."},
+						{"ACES", TONEMAPPER_ACES, "The film industry's filmic look (Stephen Hill's fit of ACES): more contrast and saturation, bright colors shifting toward white."},
+						{"AgX", TONEMAPPER_AGX, "A filmic curve over a wide range of stops that desaturates bright colors smoothly toward white, without their hues shifting (Blender's)."},
+						{"Reinhard", TONEMAPPER_REINHARD, "Each color divided by one plus its luminance: simple, and flat in the highlights."},
+						{"Linear (clamped)", TONEMAPPER_LINEAR, "No curve: what is brighter than 1 clips, to judge the exposure itself."},
+					}};
+					auto current = App().GetScene().GetSettings().tonemapper.load(std::memory_order_relaxed);
+					for (auto [name, tonemapper, tooltip] : kTonemappers)
 					{
-						uint32_t stride = App().GetScene().GetSettings().giNearStride.load(std::memory_order_relaxed);
-						for (auto [label, value, tooltip] : std::array{
-								 std::tuple{"Every 2nd pixel", 2U, "A quarter of the pixels trace a ray: finer contacts at thin features, 1.3 to 3.2 ms more a frame at the benchmark poses (SPEEDO_GI_NEAR_STRIDE=2)."},
-								 std::tuple{"Every 4th pixel", 4U, "A sixteenth of the pixels trace a ray (the default)."}})
-						{
-							if (MenuItem(label, nullptr, stride == value))
-								App().GetScene().GetSettings().giNearStride.store(value, std::memory_order_relaxed);
-							SetItemTooltip("%s", tooltip);
-						}
-						ImGui::EndMenu();
+						if (MenuItem(name, nullptr, current == tonemapper))
+							App().GetScene().GetSettings().tonemapper.store(tonemapper, std::memory_order_relaxed);
+						SetItemTooltip("%s", tooltip);
 					}
-					EndDisabled();
-				}
-				{
-					bool temporal = App().GetScene().GetSettings().giNearTemporal.load(std::memory_order_relaxed);
-					BeginDisabled(!nearField);
-					if (Checkbox("Near Field Over Frames", &temporal))
-						App().GetScene().GetSettings().giNearTemporal.store(temporal, std::memory_order_relaxed);
-					EndDisabled();
-					SetItemTooltip(
-						"Accumulates the near field's rays over frames (their directions turn every frame), reprojected by the "
-						"depth: smooth rather than a grain fixed to the screen, at a lag of a few frames where the light changes. "
-						"On by default (SPEEDO_GI_NEAR_TEMPORAL=0 to start without; SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT, 16, how "
-						"many frames it remembers).");
-				}
-				if (ui::BeginMenu("Indirect Lighting Resolution"))
-				{
-					// the last clip's voxels along the scene's longest axis (see gi::kResolutions): changing it voxelizes
-					// the scene again
-					auto current = App().GetScene().GetSettings().giResolution.load(std::memory_order_relaxed);
-					for (auto resolution : gfx::gi::kResolutions)
-					{
-						auto label = std::format("{}{}", resolution, resolution == gfx::gi::kDefaultResolution ? " (default)" : "");
-						if (MenuItem(label.c_str(), nullptr, current == resolution))
-							App().GetScene().GetSettings().giResolution.store(resolution, std::memory_order_relaxed);
-					}
-					SetItemTooltip(
-						"Voxels along the scene's longest side (SPEEDO_GI_RESOLUTION to start with another). Finer resolves "
-						"light through narrower openings, at a steep cost: each step about doubles the indirect lighting's "
-						"time. Changing it voxelizes the scene again.");
 					ImGui::EndMenu();
 				}
+				if (ui::BeginMenu("Upscaling"))
+				{
+					// temporal upscaling (FSR 3.1's, see upscale.slang): the render size a share of the output's, reconstructed at it over frames
+					auto current = App().GetScene().GetSettings().upscaling.load(std::memory_order_relaxed);
+					for (auto [label, upscaling, tooltip] : std::array{
+							 std::tuple{"Off", gfx::Upscaling::kOff, "Rendered at the output's size, without a history (SPEEDO_UPSCALING=off)."},
+							 std::tuple{"Native", gfx::Upscaling::kNative, "Rendered at the output's size and reconstructed over frames by FSR 3.1: its antialiasing alone (SPEEDO_UPSCALING=native)."},
+							 std::tuple{"Quality (77%)", gfx::Upscaling::kQuality, "Rendered at 77% of the output's size each way, 59% of its pixels, and upscaled over frames (SPEEDO_UPSCALING=quality)."},
+							 std::tuple{"Balanced (67%)", gfx::Upscaling::kBalanced, "Rendered at 67% of the output's size each way, 45% of its pixels, and upscaled over frames (the default)."},
+							 std::tuple{"Performance (50%)", gfx::Upscaling::kPerformance, "Rendered at half the output's size each way, a quarter of its pixels, and upscaled over frames (SPEEDO_UPSCALING=performance)."}})
+					{
+						if (MenuItem(label, nullptr, current == upscaling))
+							App().GetScene().GetSettings().upscaling.store(upscaling, std::memory_order_relaxed);
+						SetItemTooltip("%s", tooltip);
+					}
+					ImGui::EndMenu();
+				}
+				SeparatorText("Diagnostics");
 				if (ui::BeginMenu("Debug View"))
 				{
 					// what the views show instead of their light (see DEBUG_VIEW_*): values (base color, normals, ...) as they
@@ -3273,62 +3468,25 @@ void WindowedApplication::PrepareDraw()
 					group(ui::DebugViewGroup::kLighting, "Lighting", true);
 					group(ui::DebugViewGroup::kIndirectLighting, "Indirect Lighting", indirectLighting);
 					if (!indirectLighting)
-						TextDisabled("Turn on View > Indirect Lighting for these.");
-					ImGui::EndMenu();
-				}
-				if (ui::BeginMenu("Tonemapper"))
-				{
-					static constexpr std::array<std::pair<const char*, uint32_t>, 5> kTonemappers{{
-						{"Khronos PBR Neutral", TONEMAPPER_PBR_NEUTRAL},
-						{"ACES", TONEMAPPER_ACES},
-						{"AgX", TONEMAPPER_AGX},
-						{"Reinhard", TONEMAPPER_REINHARD},
-						{"Linear (clamped)", TONEMAPPER_LINEAR},
-					}};
-					auto current = App().GetScene().GetSettings().tonemapper.load(std::memory_order_relaxed);
-					for (auto [name, tonemapper] : kTonemappers)
-						if (MenuItem(name, nullptr, current == tonemapper))
-							App().GetScene().GetSettings().tonemapper.store(tonemapper, std::memory_order_relaxed);
-					ImGui::EndMenu();
-				}
-				if (ui::BeginMenu("Upscaling"))
-				{
-					// temporal upscaling (FSR 3.1's, see upscale.slang): the render size a share of the output's, reconstructed at it over frames
-					auto current = App().GetScene().GetSettings().upscaling.load(std::memory_order_relaxed);
-					for (auto [label, upscaling, tooltip] : std::array{
-							 std::tuple{"Off", gfx::Upscaling::kOff, "Rendered at the output's size, without a history (SPEEDO_UPSCALING=off)."},
-							 std::tuple{"Native", gfx::Upscaling::kNative, "Rendered at the output's size and reconstructed over frames by FSR 3.1: its antialiasing alone (SPEEDO_UPSCALING=native)."},
-							 std::tuple{"Quality (77%)", gfx::Upscaling::kQuality, "Rendered at 77% of the output's size each way, 59% of its pixels, and upscaled over frames (SPEEDO_UPSCALING=quality)."},
-							 std::tuple{"Balanced (67%)", gfx::Upscaling::kBalanced, "Rendered at 67% of the output's size each way, 45% of its pixels, and upscaled over frames (the default)."},
-							 std::tuple{"Performance (50%)", gfx::Upscaling::kPerformance, "Rendered at half the output's size each way, a quarter of its pixels, and upscaled over frames (SPEEDO_UPSCALING=performance)."}})
-					{
-						if (MenuItem(label, nullptr, current == upscaling))
-							App().GetScene().GetSettings().upscaling.store(upscaling, std::memory_order_relaxed);
-						SetItemTooltip("%s", tooltip);
-					}
+						TextDisabled("Turn on View > Rendering Features > Indirect Lighting for these.");
 					ImGui::EndMenu();
 				}
 			}
-			if (MenuItem("Lights...", nullptr, gShowLights))
-				gShowLights = !gShowLights;
-			SetItemTooltip("Lists the lights, and draws them over the views: where they are (a directional light outside the scene, shining in), spot cones, point light ranges and the shadow views' frusta.");
 #if (SPEEDO_PROFILING_LEVEL > 0)
 			if (MenuItem("Statistics...", nullptr, gShowStatistics))
 				gShowStatistics = !gShowStatistics;
 			SetItemTooltip("The passes' gpu timings (where the driver writes them), submits, transient memory, and in debug builds the vulkan objects.");
+#else
+			// (the Statistics window holds it where there is one)
+			SmallCheckbox("Show FPS", &gShowFps);
+			SetItemTooltip("The frame rate, in the top right corner.");
 #endif
-			ImGui::EndMenu();
-		}
-		if (ui::BeginMenu("About"))
-		{
-			if (MenuItem("About Speedo..."))
-				gShowAbout = !gShowAbout;
 			ImGui::EndMenu();
 		}
 
 		EndMainMenuBar();
 	}
-	PopStyleVar(2);
+	PopStyleVar();
 	PopStyleColor();
 
 	myImGui->EndFrame([this](uint64_t sequence) { myImGuiRenderer->UpdateTextures(sequence); });

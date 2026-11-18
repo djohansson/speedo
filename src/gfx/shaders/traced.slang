@@ -1,4 +1,4 @@
-// the traced reflections and refractions (PushConstants::traced, TRACED_*; View > Ray Traced Reflections and
+// the traced reflections and refractions (PushConstants::traced, TRACED_*; View > Rendering Features > Ray Traced Reflections and
 // Refractions): where the device has ray queries (BVH_RAY_QUERY), the radiance along a smooth surface's reflection
 // (TracedReflection, see Shade) and the light through a transmissive one (see TransmittedLight), traced
 // through the model's acceleration structures (gBvhScene[frame], BvhTraceScene) and shaded where the ray meets something

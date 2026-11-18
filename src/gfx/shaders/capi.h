@@ -385,7 +385,7 @@ extern "C"
 #define DEBUG_VIEW_INDIRECT 13u // the ambient light alone: diffuse and specular (the environment's or the indirect lighting's)
 #define DEBUG_VIEW_INDIRECT_DIFFUSE 14u // the ambient irradiance over pi, a white surface's (whatever lights it)
 #define DEBUG_VIEW_INDIRECT_SPECULAR 15u // the ambient specular alone
-// the indirect lighting's (View > Indirect Lighting), up to DEBUG_VIEW_GI_END: GiData::debug is the view - DEBUG_VIEW_GI_FIRST + 1 (see
+// the indirect lighting's (View > Rendering Features > Indirect Lighting), up to DEBUG_VIEW_GI_END: GiData::debug is the view - DEBUG_VIEW_GI_FIRST + 1 (see
 // GiData::debug)
 #define DEBUG_VIEW_GI_FIRST 16u
 #define DEBUG_VIEW_GI_IRRADIANCE 16u // its indirect diffuse alone, a white surface's (magenta where no clip covers it)
@@ -459,7 +459,7 @@ struct ViewData
 	// the bias of its textures' mip levels: with temporal upscaling, those of the output's size, a little sharper still,
 	// since the resolve averages what the jittered frames sampled (see Views::Upload)
 	alignas(4) FLOAT1(textureLodBias);
-	// what its image is scaled by before tonemapping: the exposure in stops (View > Exposure) and its auto exposure's (by its
+	// what its image is scaled by before tonemapping: the exposure in stops (View > Cameras... > Compensation) and its auto exposure's (by its
 	// own pixels, see SHADER_TYPES_EXPOSURE_BINS), as a factor
 	alignas(4) FLOAT1(exposure);
 	// how much its scene is seen by the eye's night vision (0 by a lit street's light, 1 by moonlight: see Scotopic), by
@@ -587,7 +587,7 @@ struct AerialPerspectiveData
 	alignas(4) UINT1(padding4);
 };
 
-// the camera's lens (View > Camera > Lens, see gfx/lens.h: a prescription, from which the cpu derives this each frame
+// the camera's lens (View > Cameras... > Lens, see gfx/lens.h: a prescription, from which the cpu derives this each frame
 // for the aperture the camera exposes with): what the Lens pass (ComputeLens, lens.slang) makes of the frame at the
 // output's size, between the frame's reconstruction and the final pass. gLensData[frame][0]
 #define SHADER_TYPES_LENS_VIGNETTING_COUNT 32u
@@ -637,7 +637,7 @@ struct LensData
 	alignas(4) FLOAT1(entranceRadius);
 	alignas(4) FLOAT1(ghostGain);
 	alignas(4) FLOAT1(starGain);
-	alignas(4) UINT1(flares); // whether the sources' ghosts and starbursts are drawn (View > Camera > Lens Glare)
+	alignas(4) UINT1(flares); // whether the sources' ghosts and starbursts are drawn (View > Cameras... > Lens Glare)
 	// the depth of field (see the DOF passes, dof.slang): whether it is drawn (a real lens's), the distance focused at
 	// (mm, along the view), the aperture's diameter (mm: the focal length over the f-number), and how far the red's and
 	// the blue's focal lengths are from the green's (mm: the longitudinal chromatic aberration, their circles of
@@ -884,7 +884,7 @@ struct EmitterNode
 // the frame's emitters (gEmitterData[frame])
 struct EmitterData
 {
-	// the triangles in gEmitters: 0 where emissive surfaces aren't lights (none, or View > Emissive Lights off), and then
+	// the triangles in gEmitters: 0 where emissive surfaces aren't lights (none, or View > Rendering Features > Emissive Lights off), and then
 	// the indirect lighting's rays take the emission of what they meet
 	alignas(4) UINT1(count);
 	// the candidates a traced pixel resamples each frame (SPEEDO_EMITTER_CANDIDATE_COUNT), and a voxel's for each of
@@ -1341,7 +1341,7 @@ struct CullView
 #define SHADER_TYPES_GI_FLAG_WORD_COUNT 3u
 // how the indirect lighting's rays find what they meet (GiData::trace): traversing the model's BVHs (gBvhNodes of what
 // doesn't move, gBvhMovingNodes of what does, see bvh.slang; the default), reading the voxels' radiance where they hit,
-// or walking the voxels (View > Indirect Lighting Rays, SPEEDO_GI_TRACE=voxels; see GiMarch)
+// or walking the voxels (View > Rendering Features > Indirect Lighting... > Rays, SPEEDO_GI_TRACE=voxels; see GiMarch)
 #define GI_TRACE_VOXELS 0u
 #define GI_TRACE_BVH 1u
 // the BVH (gBvhNodes and gBvhTriangles, see gfx/bvh.h): tinybvh's CWBVH, a node 5 float4, a triangle 4 (Baldwin and
@@ -1717,7 +1717,7 @@ struct PushConstants
 	alignas(4) UINT1(upscale);
 	// per dispatch: which tiles the visibility buffer's shading shades (VISIBILITY_TILES_*, see ComputeMainVisibility)
 	alignas(4) UINT1(visibilityTiles);
-	// per frame: what the shading traces through the device's ray queries (TRACED_*, see traced.slang): View > Ray Traced
+	// per frame: what the shading traces through the device's ray queries (TRACED_*, see traced.slang): View > Rendering Features > Ray Traced
 	// Reflections and Refractions, where the device has them
 	alignas(4) UINT1(traced);
 	// per frame: the scene's unit in meters (View > Units, see gfx::SceneUnit): the lights' inverse square falloff and the

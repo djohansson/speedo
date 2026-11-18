@@ -51,7 +51,7 @@ inline constexpr std::array kSceneUnits{SceneUnit::kMeters, SceneUnit::kCentimet
 	}
 }
 
-// the unit's symbol: what SPEEDO_UNITS takes and Copy Pose writes
+// the unit's symbol: what SPEEDO_UNITS takes and Copy Scene writes
 [[nodiscard]] constexpr std::string_view UnitSymbol(SceneUnit unit) noexcept
 {
 	switch (unit)

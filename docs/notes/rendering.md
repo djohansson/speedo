@@ -368,17 +368,17 @@ commit). The renderer's units: a unit of radiance is `camera::kUnitLuminance`, 4
 radiates a unit over pi), and a sensor saturates at 1.2 * 2^EV100 cd/m^2 (Lagarde and de Rousiers' physically based
 camera), so the exposure that shows a unit as white, the renderer's 0 stops, is EV100 `kSaturationEv100`, 15.32: sunny
 sixteen's, f/16 at 1/160 s and ISO 100, the defaults (`camera::Exposure`); the stops an aperture, shutter and ISO give are
-`kSaturationEv100 - EV100(N, t, S)` (`ExposureStops`), on which View > Exposure (`Settings::exposureStops`) is a
+`kSaturationEv100 - EV100(N, t, S)` (`ExposureStops`), on which View > Cameras... > Compensation (`Settings::exposureStops`) is a
 compensation. The **sensor** (`camera::Sensor`: full frame, 36x24 mm, by default; APS-C, Super 35, 1 inch, a phone's
-1/2.3 inch; View > Camera > Sensor, `SPEEDO_SENSOR=full-frame|aps-c|super35|1-inch|phone`) and the **focal length**
-(View > Camera > Focal Length, `SPEEDO_FOCAL_LENGTH=<mm>`) give the vertical field of view (`camera::FieldOfView`,
+1/2.3 inch; View > Cameras... > Sensor, `SPEEDO_SENSOR=full-frame|aps-c|super35|1-inch|phone`) and the **focal length**
+(View > Cameras... > Focal Length, `SPEEDO_FOCAL_LENGTH=<mm>`) give the vertical field of view (`camera::FieldOfView`,
 `Views::SetFocalLength`, `SetSensorHeight`, which keeps the focal length, so a smaller sensor narrows the view as a
 lens's does): the cameras' `fovY` stays the truth, the default 75 degrees reading as 15.6 mm on full frame, and a scene
 camera's yfov as its focal length; the variables are applied with `SPEEDO_CAMERA`, once the model is in (the install
-frames the views, which sets the field of view back: `ui::AutoLens`), and Copy Pose writes them where they aren't the
-defaults. The **exposure** (`Settings::exposureMode`, `aperture`, `shutter`, `iso`; View > Camera > Exposure;
+frames the views, which sets the field of view back: `ui::AutoLens`), and Copy Scene writes them where they aren't the
+defaults. The **exposure** (`Settings::exposureMode`, `aperture`, `shutter`, `iso`; View > Cameras... > Exposure;
 `SPEEDO_EXPOSURE_MODE=program|aperture|shutter|manual`, `SPEEDO_APERTURE=<f-number>`, `SPEEDO_SHUTTER=<seconds or
-1/n>`, `SPEEDO_ISO`; Copy Pose writes the mode where it isn't program, as `SPEEDO_AUTO_EXPOSURE=0` for manual, and what
+1/n>`, `SPEEDO_ISO`; Copy Scene writes the mode where it isn't program, as `SPEEDO_AUTO_EXPOSURE=0` for manual, and what
 is set in it): auto exposure asks for stops as before (see "Auto exposure" under "Asset import and testing"), and the
 camera chooses what to expose with (`camera::Choose`, per view, every frame: `ChosenExposure` in `scene.cpp`, whose
 stops `ViewExposure` takes): in **program** mode the aperture and the shutter along the line through sunny sixteen, a
@@ -386,7 +386,7 @@ stop to the shutter for every stop to the aperture (narrower and faster where th
 where darker), each as far as its limit (`camera::ExposureLimits`: f/0.7 to f/64 until a lens narrows it, 1/8000 to
 30 s, 1/30 the slowest held by hand, which the program keeps to, ISO 50 to 409600), and the ISO for the rest; in
 **aperture or shutter priority** the one set and the other along the line, then the ISO; **manual** exposes with what
-is set (View > Auto Exposure off; turned off, it takes what the camera chose, as a lock does, and a mode change keeps the
+is set (View > Cameras... > Mode: Manual; turned to it, it takes what the camera chose, as a lock does, and a mode change keeps the
 chosen as the set, so a priority starts from the exposure it had). Beyond the limits the image is under or over exposed,
 as a real camera's: moonlight at +20 stops is f/0.7, 1/30 s and ISO 38000 with the pinhole's aperture, f/1.4 and ISO
 153000 with a 50 mm f/1.4; starlight past ISO 409600 stays dark. Within them the choice reaches auto exposure's stops
@@ -397,8 +397,8 @@ a fixed exposure 0.37 of 255 from before, the traced effects' noise). The client
 choice at exit with the stops (`auto exposure: +x EV (f/n, 1/t s, ISO s, EV100 e)`), and the View menu shows it under
 Auto Exposure.
 
-**The lens** (`gfx/lens.h`, the second stage; View > Camera > Lens, `SPEEDO_LENS=<key>`, `Scene::Settings::lens`, which
-Copy Pose writes where it isn't the pinhole): a prescription (`lens::Prescription`: its glass surfaces from the front as a
+**The lens** (`gfx/lens.h`, the second stage; View > Cameras... > Lens, `SPEEDO_LENS=<key>`, `Scene::Settings::lens`, which
+Copy Scene writes where it isn't the pinhole): a prescription (`lens::Prescription`: its glass surfaces from the front as a
 patent lists them, a radius, the distance to the next, the glass after it by its index at the d line and its Abbe number,
 its clear radius; one of them the aperture stop, with its blade count and whether its glass-air surfaces are coated; its
 nominal focal length, which `lens::Scale` scales it to, its aperture range, its third order distortion, an anamorphic
@@ -466,8 +466,8 @@ at the output's size (the Composite pass, as with upscaling) and Sharpen takes t
 (`UPSCALE_SHARPEN`, the Upscale passes' alone), where ComputeMain did everything; the pinhole's frames are as before on
 both paths (the Lens pass disabled, Sharpen reading the reconstruction, ComputeMain without upscaling).
 
-**The glare** (the third stage, 2026-11-05; View > Camera > Lens Glare, `Settings::lensGlare`, `SPEEDO_LENS_GLARE=0`
-without, which Copy Pose writes; `LensData::glare`, `flares`, `ghostCount`): three passes after the Lens pass, in
+**The glare** (the third stage, 2026-11-05; View > Cameras... > Lens Glare, `Settings::lensGlare`, `SPEEDO_LENS_GLARE=0`
+without, which Copy Scene writes; `LensData::glare`, `flares`, `ghostCount`): three passes after the Lens pass, in
 `lens.slang` and `flare.slang`, in the renderer's units of radiance as the lens's image is. The **Bloom** pass veils the
 lens's image over itself: a chain of `SHADER_TYPES_BLOOM_LEVEL_COUNT` (6) levels at half the output's size and down
 (`myBloom`, an output sized transient with a mip chain, a storage view per level, `gBloomLevels`, and sampled whole as
@@ -587,9 +587,9 @@ spikes; 6.5 and 11 to 15 sampling the lens's image at the output's size). Not ye
 (the sun just outside it flares a real lens), extended sources' ghosts, rounded blades (round a few stops down), the
 ghosts at half resolution where their fill costs.
 
-**The depth of field** (the fourth stage, 2026-11-05; a real lens's, the pinhole's everything sharp; View > Camera >
+**The depth of field** (the fourth stage, 2026-11-05; a real lens's, the pinhole's everything sharp; View > Cameras... >
 Autofocus and Focus Distance, `Settings::focusAuto` and `focusDistance` in meters, `SPEEDO_FOCUS=auto|<meters>`, which
-Copy Pose writes where it isn't auto; `Scene::GetFocusDistance`; `LensData::dof`, `focusDistance`, `apertureDiameter`,
+Copy Scene writes where it isn't auto; `Scene::GetFocusDistance`; `LensData::dof`, `focusDistance`, `apertureDiameter`,
 `focusShiftRed`, `focusShiftBlue`, `catEye`; `dof.slang`, five passes before the Lens pass, which takes the frame
 through it, `SHADER_TYPES_DOF_TEXTURE`, in place of the frame). The circle of confusion is the thin lens's
 (`DofCircleMm`: the sensor at the green's image of the focus, a point's image at its own distance along the view,
@@ -598,7 +598,7 @@ exposes with, times how far the point's image falls from the sensor over the ima
 diameter, and its radius half that; signed, in the output's pixels by the sensor's mm per pixel, at most
 `SHADER_TYPES_DOF_MAX_COC`, 48. Every pass after takes the circle as a radius, and until 2026-11-06 it was the diameter,
 so everything spread over twice the thin lens's circle), so the depth of field follows the
-exposure's aperture (wide open at night, shallow); the focus is what the autofocus mode picks (`gfx::FocusMode`, View > Camera > Focus, `SPEEDO_FOCUS=spot|zone|wide|<meters>`, as a system camera has them, the user's ask, 2026-11-05): the median distance of what is under the view's center spot (4% of the view each way, `SHADER_TYPES_FOCUS_SPOT`) or its center zone (20%, `SHADER_TYPES_FOCUS_ZONE`), binned by ComputeMain beside the distance bins (`SHADER_TYPES_FOCUS_BINS`), or the nearest tenth of the whole view (wide, an auto area's nearest subject), each read back and adapted as the look distance is, followed continuously (AF-C) or held as acquired (`Settings::focusContinuous`, Focus Now, `SPEEDO_FOCUS_CONTINUOUS=0`); the whole view's median at first, which focused on the board rather than the king under the center (the user's ABeautifulGame pose `-0.0303,0.2001,0.2945,29.066,0.046`): spot puts the king's cross sharp, zone the board behind it, wide the king's base
+exposure's aperture (wide open at night, shallow); the focus is what the autofocus mode picks (`gfx::FocusMode`, View > Cameras... > Focus, `SPEEDO_FOCUS=spot|zone|wide|<meters>`, as a system camera has them, the user's ask, 2026-11-05): the median distance of what is under the view's center spot (4% of the view each way, `SHADER_TYPES_FOCUS_SPOT`) or its center zone (20%, `SHADER_TYPES_FOCUS_ZONE`), binned by ComputeMain beside the distance bins (`SHADER_TYPES_FOCUS_BINS`), or the nearest tenth of the whole view (wide, an auto area's nearest subject), each read back and adapted as the look distance is, followed continuously (AF-C) or held as acquired (`Settings::focusContinuous`, Focus Now, `SPEEDO_FOCUS_CONTINUOUS=0`); the whole view's median at first, which focused on the board rather than the king under the center (the user's ABeautifulGame pose `-0.0303,0.2001,0.2945,29.066,0.046`): spot puts the king's cross sharp, zone the board behind it, wide the king's base
 (`myFocusDistances`, as a camera's single point autofocus) or the setting. The red's and
 the blue's circles are the green's less the aperture's diameter times their focal lengths' shift over the focal length
 (`lens::Appearance::focalLengthRed`, `focalLengthBlue`, from `Trace` at their wavelengths: the longitudinal chromatic
@@ -641,8 +641,8 @@ under the validation layer. Not yet: the bokeh's onion rings (an aspheric's poli
 profile across the field (it is the axis's everywhere), the focus pulling smoothly over time, each split screen view's
 own focus (the first's serves all).
 
-**The motion blur and the grain** (the fifth stage, 2026-11-05, the camera plan's last; View > Camera > Motion Blur
-and Grain, `Settings::motionBlur` and `grain`, `SPEEDO_MOTION_BLUR=0` and `SPEEDO_GRAIN=0` without, which Copy Pose
+**The motion blur and the grain** (the fifth stage, 2026-11-05, the camera plan's last; View > Cameras... > Motion Blur
+and Grain, `Settings::motionBlur` and `grain`, `SPEEDO_MOTION_BLUR=0` and `SPEEDO_GRAIN=0` without, which Copy Scene
 writes; both a real lens's, the pinhole's frames as before). The **motion blur** (`motionblur.slang`, four passes after
 the depth of field, before the Lens pass, which takes the frame through it, `SHADER_TYPES_MOTION_BLUR_TEXTURE`): what
 moves across the sensor while the shutter is open smears along its way, the shutter's share of a frame's motion
@@ -715,7 +715,7 @@ aerial perspective's slices have it.
 ## Temporal upscaling
 
 View > Upscaling (`SPEEDO_UPSCALING=off|native|quality|balanced|performance`, `gfx::Upscaling` in `gfx/upscaling.h`;
-Copy Pose writes it where it isn't the default; balanced by default since 2026-10-29, the user's call once FSR 3.1 was
+Copy Scene writes it where it isn't the default; balanced by default since 2026-10-29, the user's call once FSR 3.1 was
 ported, `kDefaultUpscaling`, the file browser's preview too; `SPEEDO_UPSCALING=off` for measurements of the frame at the
 output's size): the frame rendered at a share of the output's size each way (`RenderScale`: 1,
 0.77, 0.67, 0.5) and reconstructed at it over frames by AMD's FSR 3.1 upscaler, ported (`upscale.slang`); native
@@ -858,7 +858,7 @@ chunk whose vertices leave its bounds; its encodings comparison counts the subme
 an infinite far plane comes out as (0, 0, 0, near), which culls nothing) and skips the draws whose bounds are outside a plane. The
 main pass culls by `FrameInputs::viewProjections` (the cameras `Views::Upload` wrote to the frame's view buffer, so the
 cpu culls by what the gpu draws with), the shadow pass by each shadow view's (no depth clamp, so a caster in front of
-a shadow view's near plane casts nothing anyway). View > Culling (`SPEEDO_CULLING=0`) turns it off. Each draw costs about a
+a shadow view's near plane casts nothing anyway). View > Rendering Features > Culling (`SPEEDO_CULLING=0`) turns it off. Each draw costs about a
 microsecond of gpu time on KosmicKrisp (Bistro framed, nothing culled: Main 3.72 ms unchunked, 4.34 in chunks of 4096), so
 `RecordDrawList` sets cull mode, front face and push constants only where they change (a submesh's chunks share them), and
 the chunks are big. Bistro's gpu time (Main + Shadows), before and with chunks of 16384 culled: 11.9 to 10.9 ms looking
@@ -868,7 +868,7 @@ cascade skips what it doesn't see); chunks of 4096 were 7.5 in the street but 7.
 installed (`Views::Place`), for such measurements: Bistro's were `3430,170,2200,0,-62`, `564,170,-2436,0,30`, and framed.
 It keeps the near and far planes of the camera the views had (a model's own camera's, e.g. a chase camera's far plane of
 1 m in DiffuseTransmissionPlant, where the model stands on no ground plane: on one the views have no far plane, see
-"Depth: reversed"); `SPEEDO_CAMERA=frame` frames the model instead, as View > Camera > Frame model.
+"Depth: reversed"); `SPEEDO_CAMERA=frame` frames the model instead, as View > Cameras... > Frame model.
 `SPEEDO_LAYOUT=1x1|1x2|2x1|2x2` starts with that grid of views, as View > Layout.
 
 ## Shadows
@@ -909,7 +909,7 @@ light sees it: DiffuseTransmissionPlant's fireflies shone through leaves in a st
 lookups (`GatherRed`, four comparisons each). The rule holds for whatever replaces this, shadow maps or rays: a point
 pushed off its surface goes to the side its query goes to (a shadow test's light, a reflected ray's viewer, a refracted
 or transmitted ray's far side), not along the normal regardless, which faces the viewer on double sided materials; on
-the wrong side, the surface occludes or hits itself (missing transmitted light, black speckles in refractions). View > Shadows toggles them (`SPEEDO_SHADOWS=0` starts without). View > Lights... (`SPEEDO_SHOW_LIGHTS=1`) lists gLights (the model's,
+the wrong side, the surface occludes or hits itself (missing transmitted light, black speckles in refractions). View > Rendering Features > Shadows toggles them (`SPEEDO_SHADOWS=0` starts without). View > Lights... (`SPEEDO_SHOW_LIGHTS=1`) lists gLights (the model's,
 then the environment's dominant lights, or the sky's sun, unless merged: a model sun more than 5 degrees from
 the sky's makes two sets of shadows) and draws them over the views as an imgui overlay (no shader or pipeline of its own):
 the renderer keeps a copy of a frame's lights, shadow views and scene bounds while it is open (`FrameInputs::captureLights`,
@@ -954,8 +954,8 @@ cast their colors on the floor, the metallic row's darker; the other glass sampl
 refractions' hits take it too (see "Traced reflections and refractions"). Not yet: the indirect lighting's voxels
 (sunlight through a window into a room).
 
-**Caustics** (View > Caustics, under Ray Traced Refractions; on where the device has ray queries, `SPEEDO_CAUSTICS=0`
-without, which Copy Pose writes; `caustics.slang`): where the transmittance is drawn, the light the transmissive surfaces
+**Caustics** (View > Rendering Features > Caustics, under Ray Traced Refractions; on where the device has ray queries, `SPEEDO_CAUSTICS=0`
+without, which Copy Scene writes; `caustics.slang`): where the transmittance is drawn, the light the transmissive surfaces
 refract lands where it goes rather than straight behind them. The Caustics pass traces photons from every shadow view of
 a light (`ShadowData::lightViews`: a directional light's cascades, a point light's faces) of which the frame redraws one
 and one's frustum holds a transmissive draw (`Renderer::myCausticViews`; the atlas's cache keeps the others', and the
@@ -1029,7 +1029,7 @@ and frames are faster for the overdraw no longer shaded (Bistro's street, GI on,
 buffer (the default, see "The visibility buffer") the opaque triangles aren't drawn again at all: Main Visibility shades
 them from what the pre-pass wrote, and Main draws only the rest.
 
-**The traced shadows** (View > Ray Traced Shadows, on by default; `SPEEDO_TRACED_SHADOWS=0` for the atlas alone, `all`
+**The traced shadows** (View > Rendering Features > Ray Traced Shadows, on by default; `SPEEDO_TRACED_SHADOWS=0` for the atlas alone, `all`
 to trace every pixel): for up to `SHADER_TYPES_SHADOW_TRACE_SLOT_COUNT` (4) lights a frame (the directional ones first,
 brightest first, then the point and spot lights the atlas has views of, by their light at the nearest eye; none of zero
 light), where the model has a BVH (see "Tracing the triangles"; `Animate` places the moving one for them too), a ray per
@@ -1100,9 +1100,9 @@ the listed pixels taken by persistent threads 20.3, the filter over flagged tile
 
 ## Traced reflections and refractions
 
-View > Ray Traced Reflections and Ray Traced Refractions (on by default where the device has ray queries, the user's call,
+View > Rendering Features > Ray Traced Reflections and Ray Traced Refractions (on by default where the device has ray queries, the user's call,
 2026-11-01; greyed out elsewhere, `Scene::HasRayQueries`; `SPEEDO_TRACED_REFLECTIONS=0` and `SPEEDO_TRACED_REFRACTIONS=0`,
-which Copy Pose writes): `traced.slang`, by `PushConstants::traced` (`TRACED_*`, set where the model has its acceleration
+which Copy Scene writes): `traced.slang`, by `PushConstants::traced` (`TRACED_*`, set where the model has its acceleration
 structures: the file browser's preview hasn't, and its reflections would all be the environment's). `Shade` takes what a
 traced ray meets in place of the probes' and the environment's radiance along the reflection (`environmentRadiance`, which
 the split sum's terms then weigh as before), two ways. A fragment's (Main's blended surfaces, the transmissive ones, the
@@ -1362,8 +1362,8 @@ Per frame index, host visible: `gClusterViews` (a `ClusterView` per view: the de
 from the view's own view projection, which is the one the clusters were planned with, see `Views::Upload`), `gClusters`
 (per cluster its first index and count) and `gClusterLights` (the indices, at most
 `SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT`, a hard failure past it: ThousandsOfLights in four views fits; `enabled` 0, all
-lights looped over, is for View > Clustered Lights off).
-View > Clustered Lights (`SPEEDO_CLUSTERED_LIGHTS=0`) turns it off. Every light the loop rejects cost about 60 us of
+lights looped over, is for View > Rendering Features > Clustered Lights off).
+View > Rendering Features > Clustered Lights (`SPEEDO_CLUSTERED_LIGHTS=0`) turns it off. Every light the loop rejects cost about 60 us of
 main pass per frame (ManyLights with 223 more lights out of reach: 20.7 ms, clustered 5.2, as without them; ManyLights
 itself 5.8 to 5.2, 4.9 with its spot lights bounded by their cones, orthographic 6.3 to 5.3; Bistro with one light 4.10
 to 4.15). Renders with and without are identical. The cpu binning stays cheap: 6 us a frame for Bistro's one light, 42
