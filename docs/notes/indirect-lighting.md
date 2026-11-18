@@ -271,11 +271,22 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
   half as fast (56.5 at 500, 62.3 at 1000), of 64 slower again.
   The wall's mottling is the other half (the user: "general noise levels in the dark areas"), and with the bounces
   no longer waiting on the window, what smooths it costs no convergence:
-  - a longer window doesn't work as the entries are stored: 4096 samples (`SPEEDO_GI_CACHE_SAMPLES`) were 14% smoother
-    by frame 10000 (2.73 against 3.15), then the wall rose without end (66.9 at 12000, 88.3 at 24000, its level 65).
-    The faces are halves: a sample moves a mean of thousands by less than half a step of theirs, so the many small
-    steps down round away and the rare large ones up stay. 1024 is about what halves hold; more wants the faces
-    rounded up or down at random by where the value lies between the steps, or wider.
+  - a longer window doesn't work, and why isn't found: 4096 samples (`SPEEDO_GI_CACHE_SAMPLES`) were 14% smoother by
+    frame 10000 (2.73 against 3.15), then the wall rose without end (66.9 at 12000, 88.3 at 24000, its level 65), in
+    pink and yellow patches (the colors each their own way); 2048 fell instead (65.3 at 6000, 60.7 at 24000 and
+    falling), 1024 holds (65.1 to 65.6 over 24000 frames). The same with the fast mean off. A wall voxel's entry at
+    frame 16000 held 1.8 times the light in every face with 4096 (`SPEEDO_GI_DUMP=5.95,1.5,0.3`: 0.0101 against
+    0.00567 along -x, where a half's step is under a thousandth). First taken for the faces' halves rounding a mean
+    of thousands' small steps away, but the faces rounded up or down at random by where the value lies between two
+    halves (tried in `GiCacheStore`, 2026-11-18, not kept) changed neither the drift nor anything at 1024 (the wall
+    the same to 0.13 of 255), nor did rounding up whenever between two, though a step up at every store ran away at
+    once: what drifts past 1024 samples is still to find before a longer window can be had.
+  - what the mottling is, measured (`temp/gi-disocclusion/wallpattern.ps1`: two captures' blotches, each pixel less
+    the mean of the 33x33 around it, and their correlation): settled, the wall's blotches are 0.95 to 0.99 the same
+    12000 frames apart, from run to run, and between resolutions 96, 128 and 160, so most of that measure is the
+    wall's own light (brighter in the middle, darker to the corners and by the boxes); what differs between
+    independent frames is 0.44 to 0.49 of 255, the noise proper (5.7 with a window of 64). It shows more at a finer
+    resolution (160) and less at a coarser (96), as the filter's reach in the world goes.
   - one more pass of the filter at the coarser levels does (`Renderer`: two for the last level and one more per level
     finer, at most `SPEEDO_GI_CACHE_FILTER_PASSES`'s 3; it was one for the last): 5.0 to 3.2 at frame 500, as smooth
     as it used to be settled, and 3.2 to 2.7 settled (two more: 2.8 and 2.7). The reach at the last level is 3 voxels
