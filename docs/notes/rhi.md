@@ -56,7 +56,13 @@ which catches the draw thread blocked inside a call without a timeout (a present
 signaled blocked the draw thread where no wait did). What makes progress where no heartbeat can tell (a pipeline created cold, inside the
 driver's call, or one the draw thread waits for a background job to create) is a busy span (`rhi::CrashBusy`), which
 the watch gives 120 s from where it began: four clients compiling at once on KosmicKrisp, two waited past the timeout
-for their first frames' pipelines. `SPEEDO_CRASH_TEST=hang` makes the frames from the 100th wait for
+for their first frames' pipelines. The test tier's clients wait 60 s (`assettest.ps1` sets `SPEEDO_GPU_HANG_TIMEOUT`,
+2026-11-18): 11 validated D3D12 clients starting together (the debug layer on, the card's 16 GB at 13) stalled one
+another, a client's draw thread standing for 15 to 20 s a couple of seconds after its model was in, nothing in flight,
+then going on; with 20 s one client in 61 was reported hung in most runs after a shader change (`02295a514e8db0f7`,
+another model each time, each passing alone), and the stalled ones pass in 35 to 38 s for the others' 25. What it
+stands in wasn't found (the report has the watching thread's stack alone; not a pipeline's creation or the wait for
+one, which are busy spans). `SPEEDO_CRASH_TEST=hang` makes the frames from the 100th wait for
 a semaphore nothing signals, to check reports end to end (with `SPEEDO_GPU_HANG_TIMEOUT=3`).
 
 **The Crash Diagnostic Layer** (see the presentation test's paragraph): where tooling info names it, no breadcrumbs are

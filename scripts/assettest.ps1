@@ -90,6 +90,13 @@ param(
 # the clients don't record Tracy's events (SPEEDO_TRACY=0, see core/profiling.h): a profile build's grew their memory
 # by about 65 MB a second, kept for a profiler that never connects
 if (-not $env:SPEEDO_TRACY) { $env:SPEEDO_TRACY = '0' }
+# and they wait 60 s before reporting a hang, not the client's 20 (SPEEDO_GPU_HANG_TIMEOUT): as many validated clients
+# at once as the machine holds stall each other when they start together. on D3D12 (the debug layer on, 11 clients, an
+# RTX 4070 Ti SUPER's 16 GB at 13) a client's draw thread stood for 15 to 20 s a couple of seconds after its model was
+# in, nothing in flight, and went on: one client in 61 or 122 was reported hung in most runs after a shader change
+# (signature 02295a514e8db0f7, another model each time, each passing alone), none with the longer wait, where the
+# stalled ones passed in 35 to 38 s for the others' 25
+if (-not $env:SPEEDO_GPU_HANG_TIMEOUT) { $env:SPEEDO_GPU_HANG_TIMEOUT = '60' }
 
 $ErrorActionPreference = 'Stop'
 

@@ -174,7 +174,8 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
 `PixelHistory` (`GiNearHistory`): the mark added to `PixelHistory` itself (-1 from the emitters' and the traced
 reflections' calls) failed the validated quick tier's D3D12 clients three runs in three (3 or 4 of the 61, the emitters'
 and transmission's models: DispersionTest, IORTestGrid, the lamps, AnimationPointerUVs, the draw thread silent for 20 s,
-`02295a514e8db0f7`; each passed alone), and passed 61 of 61 with that file as it was; why wasn't found. Ruled out on the way:
+`02295a514e8db0f7`; each passed alone), and passed 61 of 61 with that file as it was; why wasn't found then (most likely the tier's own stall when its
+clients start together, found later the same day: see "Hangs" in docs/notes/rhi.md). Ruled out on the way:
   the probes' irradiance (gi-probes steady), the probes' inside flag (ignored, no change), the voxels' visibility of
   probes the sphere hides (traced against what moves, no change), rays starting inside the traced sphere (none), the
   volume beside the sphere (steady along the normal).
