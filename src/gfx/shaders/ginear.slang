@@ -71,7 +71,11 @@ float4 GiNearRay(int2 pixel)
 	float bias = max(1.5 * surface.metersPerPixel, 1e-4 * distance(surface.position, view.eyePosition.xyz));
 	float4 ray = GiNearTrace(gi, surface.position, surface.normal, direction, bias, voxel);
 	if (ray.a > 0.0)
-		ray.a *= GiLookupTrust(GiSampleSurface(surface.position, surface.normal, normalize(view.eyePosition.xyz - surface.position), false));
+	{
+		bool moving;
+		GiSample lookup = GiSampleSurface(surface.position, surface.normal, normalize(view.eyePosition.xyz - surface.position), false, moving);
+		ray.a *= GiLookupTrust(lookup, moving);
+	}
 	return ray;
 }
 
@@ -290,6 +294,55 @@ float4 GiNearUpsample(int2 pixel, ShadowSurface surface, ViewData view, int stri
 	return weights > 0.0 ? total / weights : kGiNearUnknown;
 }
 
+// a pixel's near field history as PixelHistory's (see there), but of the pixels whose surfaces' fourth channel was mark
+// alone (1 where the surface moves, so that what moves takes no history from what it passed in front of, nor the other way)
+float4 GiNearHistory(Texture2D last, Texture2D lastSurfaces, ViewData view, float2 at, float expected, float tolerance, float3 normal, float mark, out float weights, out float held)
+{
+	int2 base = int2(floor(at));
+	float2 f = at - float2(base);
+	float4 total = 0.0;
+	weights = 0.0;
+	held = 0.0;
+	for (int corner = 0; corner < 4; corner++)
+	{
+		int2 offset = int2(corner & 1, corner >> 1);
+		int2 tap = base + offset;
+		if (any(float2(tap) < view.viewport.xy) || any(float2(tap) >= view.viewport.xy + view.viewport.zw))
+			continue;
+		float4 value = last.Load(int3(tap, 0));
+		float4 seen = lastSurfaces.Load(int3(tap, 0));
+		if (value.a < 0.0 || seen.x < 0.0 || abs(seen.x - expected) > tolerance || dot(EmitterUnpackNormal(seen.y), normal) < 0.9 || seen.w != mark)
+			continue;
+		float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y);
+		total += w * value;
+		weights += w;
+		held += w * seen.z;
+	}
+	if (weights > 1e-3)
+		return total;
+	total = 0.0;
+	weights = 0.0;
+	held = 0.0;
+	int2 center = int2(round(at));
+	for (int y = -1; y <= 1; y++)
+		for (int x = -1; x <= 1; x++)
+		{
+			int2 tap = center + int2(x, y);
+			if (any(float2(tap) < view.viewport.xy) || any(float2(tap) >= view.viewport.xy + view.viewport.zw))
+				continue;
+			float4 value = last.Load(int3(tap, 0));
+			float4 seen = lastSurfaces.Load(int3(tap, 0));
+			if (value.a < 0.0 || seen.x < 0.0 || abs(seen.x - expected) > tolerance || dot(EmitterUnpackNormal(seen.y), normal) < 0.9 || seen.w != mark)
+				continue;
+			float2 d = float2(tap) - at;
+			float w = 1.0 / (1.0 + dot(d, d));
+			total += w * value;
+			weights += w;
+			held += w * seen.z;
+		}
+	return total;
+}
+
 // the near field over frames (GI Near Temporal; GiData::nearTemporal), per pixel of the pre-pass's depth: the frame's
 // filtered rays upsampled from the traced pixels around (GiNearUpsample), blended into what the last frame's history
 // holds where the pixel's point was then (by the view's last view projection, ViewData::previousViewProjection, the
@@ -297,8 +350,9 @@ float4 GiNearUpsample(int2 pixel, ShadowSurface surface, ViewData view, int stri
 // frame's alone). the history is bilinear over the 4 pixels around that place, each only if its point was as far from
 // the last frame's eye as this pixel's is now (within a fifth of a percent and the depth two pixels make along the
 // surface: else it saw something else there, revealed or moved) and its normal within 25 degrees, else the 3x3 around
-// that are (see PixelHistory), and what moves (the main depth's stencil) takes none, so neither ghosts. the frame's
-// history and its pixels' surfaces (distance and normal, as the emitters') go to the images the frame's parity says
+// that are (see PixelHistory); what moves (the main depth's stencil) by its own motion (the pre-pass's), from the pixels
+// of what moved alone and the rest from the rest's alone (the surfaces' mark), so neither ghosts. the frame's
+// history and its pixels' surfaces (distance and normal, as the emitters', and whether it moves) go to the images the frame's parity says
 // (SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE). per pixel rather than per traced pixel, as the
 // emitters' (see ComputeEmitterTemporal): under temporal upscaling's jitter, the pixels upsampled from a traced pixel at
 // an edge changed as a block, which the upscaler passed on (the near field's light alone, the indirect diffuse debug view
@@ -332,17 +386,30 @@ void ComputeGiNearTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float4 result = now;
 	bool moves = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
 	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
-	if (now.a >= 0.0 && gi.nearBlend < 1.0 && view.previousEyePosition.w > 0.0 && !moves && clip.w > 0.0)
+	if (now.a >= 0.0 && gi.nearBlend < 1.0 && view.previousEyePosition.w > 0.0 && clip.w > 0.0)
 	{
 		float2 at = PixelHistoryAt(view, clip);
 		float expected = distance(surface.position, view.previousEyePosition.xyz);
 		float slant = abs(dot(surface.normal, normalize(toEye)));
 		float tolerance = 0.002 * expected + 2.0 * surface.metersPerPixel * sqrt(max(1.0 - slant * slant, 0.0)) / max(slant, 0.05);
+		// what moves by where its point was (the pre-pass's motion, as temporal upscaling reprojects it), from the pixels
+		// of what moved last frame alone (their surfaces' mark, below), within half its distance (where it was isn't
+		// known, only where it showed: MovingInterior's sphere comes 7.5 cm nearer a frame at 60 frames a second, a
+		// quarter of its distance 30 cm from the lens; within a tenth, it lost its history under 75 cm, grainy patches as
+		// it passed the camera).
+		// it took none, and its near field was the frame's rays alone, a sixteenth of the pixels: a blotchy light, which
+		// the shading let through wherever its lookup saw its probes a little less (a tenth of it at a trust of 0.9),
+		// and the sphere flickered dark in patches whenever it crossed a row of probes (the user's report, 2026-11-18)
+		if (moves)
+		{
+			at = float2(pixel) + gTextures[SHADER_TYPES_PREPASS_MOTION_TEXTURE].Load(int3(pixel, 0)).xy;
+			tolerance += 0.5 * expected;
+		}
 		Texture2D last = gTextures[SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE + (current ^ 1u)];
 		Texture2D lastSurfaces = gTextures[SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE + (current ^ 1u)];
 		float weights;
 		float held;
-		float4 total = PixelHistory(last, lastSurfaces, view, at, expected, tolerance, surface.normal, weights, held);
+		float4 total = GiNearHistory(last, lastSurfaces, view, at, expected, tolerance, surface.normal, moves ? 1.0 : 0.0, weights, held);
 		// the frame blended in by 1 over the frames the history holds, at least the blend, or while the view is still and
 		// nothing may change its light the still blend (GiData::nearStillBlend), as the emitters' light (see
 		// ComputeEmitterTemporal): a mean of the last 16 frames' rays never settles, and what was left of their noise
@@ -356,13 +423,14 @@ void ComputeGiNearTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		if (weights > 1e-3)
 		{
 			float4 kept = total / weights;
-			float least = EmitterViewStill(view) ? gi.nearStillBlend : gi.nearBlend;
+			// (what moves never by the still blend: its light changes as it moves)
+			float least = EmitterViewStill(view) && !moves ? gi.nearStillBlend : gi.nearBlend;
 			count = min(max(held / weights, 1.0) + 1.0, 1.0 / least);
 			result = lerp(kept, float4(HistoryFireflyClamp(now.rgb, kept.rgb, view.exposure), now.a), max(1.0 / count, least));
 		}
 	}
 	history[pixel] = result;
-	surfaces[pixel] = float4(length(toEye), EmitterPackNormal(surface.normal), count, 0.0);
+	surfaces[pixel] = float4(length(toEye), EmitterPackNormal(surface.normal), count, moves ? 1.0 : 0.0);
 }
 
 // what the near field's rays gathered at the main pass's opaque fragment's pixel (over frames, its history there, whose
@@ -388,6 +456,20 @@ static const float kGiNearTrustedWeight = 0.2;
 float GiLookupTrust(GiSample sample)
 {
 	return sample.valid ? saturate(sample.last.w / kGiNearTrustedWeight) : 0.0;
+}
+
+// and of something moving's surface (GiSurfaceBias's moving), from a tenth of that weight: its voxels and the air's beside
+// it hold the probes' light alone, at the probes' weight (their facing's 4th power, about a tenth where they see it
+// well), where a still surface's hold the cache's at its confidence, 1 once settled; a probe hidden counts a thousandth.
+// by the still surfaces' line, MovingInterior's sphere was half the near field's light over its outer third (flat, the
+// volume's along its rays' ends: 96 of 255 where the lookup's shading along its normal held 38 to 60), by a share that
+// changed every frame with where it stood among the voxels: its rim 59, 57 and 45 in three frames at 60 a second,
+// dark rings and patches flickering over it (the user's report, 2026-11-18); the lookup alone held 38, 37, 38
+static const float kGiNearTrustedMovingWeight = 0.02;
+
+float GiLookupTrust(GiSample sample, bool moving)
+{
+	return sample.valid ? saturate(sample.last.w / (moving ? kGiNearTrustedMovingWeight : kGiNearTrustedWeight)) : 0.0;
 }
 
 // the main pass's opaque fragments' diffuse indirect light (see Shade): the volume's lookup (indirect, -1 outside the

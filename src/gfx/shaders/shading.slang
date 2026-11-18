@@ -165,8 +165,9 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 	// what the near field's rays gathered at the pixel (the main pass's opaque fragments, see GiNearIrradiance), which
 	// stands in for the lookup's second try where the first sees no probe
 	float4 near = GiNearAtFragment();
-	GiSample gi = GiSampleSurface(position, normal, view, near.a < 0.0);
-	float giTrust = near.a >= 0.0 ? GiLookupTrust(gi) : 1.0;
+	bool giMoving;
+	GiSample gi = GiSampleSurface(position, normal, view, near.a < 0.0, giMoving);
+	float giTrust = near.a >= 0.0 ? GiLookupTrust(gi, giMoving) : 1.0;
 	// where a clip holds the point but no probe is seen around it, none of its light: the environment's there (the sky
 	// unoccluded) shone into dark interiors along their edges
 	float3 indirect = gi.valid ? GiEvaluate(gi, normal) : (gi.inside ? 0.0 : -1.0);

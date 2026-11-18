@@ -160,6 +160,52 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   around the runner is within the noise either way (5.15 and 4.82 of 255 with upscaling off), and what trails there
   most is the probes' (with the cache off a dark silhouette on the far wall where the sphere had been: their light
   moves a few percent an update).
+  Playing, a frame in four or five darkened the sphere in patches (the user's report, 2026-11-18, pose
+  `-4.2534,1.1361,-0.0074,0.532,-266.575` at 2.316 s: "ringing & darkening on single animation frames"), whenever it
+  crossed a row of the finest clip's probes (4.5 cm a frame at 1/100 s against a spacing of about 19 cm). The near
+  field's: off, it was gone, the cache on or off. Its history took nothing of what moves, so on the sphere it was the
+  frame's rays alone at a sixteenth of the pixels, blotchy; the shading takes it by the lookup's trust, which on the
+  sphere stays near 1 and dipped to about 0.9 on those frames, a tenth of the blotches let through. Its history now
+  follows what moves by the pre-pass's motion (see the near field below): with `SPEEDO_REPEATABLE` and
+  `SPEEDO_CAPTURE_COUNT` (the same frames every run), the sphere coming at the camera (frames 741 to 800 at 1/100 s) had
+  3 frames with more than 0.3% of the pixels darker than both neighbours by 8 of 255 (up to 1.16%), now none (up to
+  0.27%); after the loop's wrap (801 to 860) 12, every fifth, now 1 (the sphere 20 cm from the lens, which moves more
+  than a tenth of its distance a frame and takes no history). GI Near Temporal 0.045 ms to 0.046. Its own copy of
+`PixelHistory` (`GiNearHistory`): the mark added to `PixelHistory` itself (-1 from the emitters' and the traced
+reflections' calls) failed the validated quick tier's D3D12 clients three runs in three (3 or 4 of the 61, the emitters'
+and transmission's models: DispersionTest, IORTestGrid, the lamps, AnimationPointerUVs, the draw thread silent for 20 s,
+`02295a514e8db0f7`; each passed alone), and passed 61 of 61 with that file as it was; why wasn't found. Ruled out on the way:
+  the probes' irradiance (gi-probes steady), the probes' inside flag (ignored, no change), the voxels' visibility of
+  probes the sphere hides (traced against what moves, no change), rays starting inside the traced sphere (none), the
+  volume beside the sphere (steady along the normal).
+  That was at 1/100 s a frame with the indirect lighting's blend by the real frames (2 ms): not what the user watched,
+  who saw no difference. Stepped as a 60 Hz session is (the animation and `SPEEDO_TIME_FRAME_SECONDS` both 1/60), three
+  causes showed, each fixed:
+  - **A moving surface's lookup was half distrusted, by a share that changed every frame.** The shading takes the near
+    field's light for the lookup's by the lookup's trust (`GiLookupTrust`: its voxels' weight over 0.2), a line drawn
+    for still surfaces, whose voxels hold the cache's light at its confidence (1 once settled). Something moving's
+    voxels and the air beside it hold the probes' light alone, at the probes' weight (their facing's 4th power: about a
+    tenth), so over the sphere's outer third the image was about half the near field's light (flat, 96 of 255) and half
+    the lookup's (shaded along the normal, 38 to 60), the share following where the sphere stood among the voxels: its
+    rim 59, 57 and 45 in three frames (upscaling off), the lookup alone 38, 37, 38. Temporal upscaling smeared the
+    one pixel rings into crescents: the user's "ringing & darkening on single animation frames". Now a moving surface's
+    lookup (`GiSurfaceBias`'s moving) is trusted from a tenth of that weight (`kGiNearTrustedMovingWeight`, 0.02; a
+    hidden probe counts a thousandth): the rim 39, 38, 38.
+  - **What something passing hid showed its cache entries unfiltered when it came back.** The filter ran in the blocks a
+    lookup read in the last 2 updates (the tracing's line too): the ring of wall the receding sphere's outline uncovered
+    each frame, the floor behind the runner, and the whole room when the sphere had passed over the camera (a third of a
+    second) came back as each voxel's own samples' mean, blotchy, for a frame. The filter now runs for about a second
+    after the last read (`GiData::cacheSeenFrameCount`, `kGiCacheSeenSeconds` by the frames' length); the voxels trace
+    as read for 2 updates as before (`kGiCacheReadFrameCount`). A still camera's cost is the same (the same blocks);
+    one that turns keeps the filter in what it saw within the second (not measured on a path yet).
+  - **The near field's history for what moves gave out near the camera**: within a tenth of its distance the sphere lost
+    it under 75 cm at 7.5 cm a frame (grainy grey patches as it passed); within half now.
+  Measured on the same frames (`SPEEDO_REPEATABLE`, `SPEEDO_CAPTURE_COUNT`), 1280x720, frames 466 to 510 (the sphere over
+  the camera and off again): 3 frames with more than 0.3% of the pixels darker than both neighbours by 8 of 255 (0.50%
+  at most), now none (0.15%). Ruled out before these: the air's light refreshed every update
+  (`SPEEDO_GI_PROBE_AIR_INTERVAL=1`, no change), the lookup's offset (along the normal alone, 1.5 or 2.25 voxels: the
+  same; the sphere's darker rim is its shading, lit from the room's middle), temporal upscaling (off, the rings were
+  there, a pixel wide).
 - **The dark walls converge slowly, not only noisily** (MovingInterior without its animation, the user's first pose, the
   far wall against 12000 frames with a window of 16384: SPEEDO_GI_CACHE_SAMPLES): -22 of 255 at frame 300, -11 at
   1500, -3.5 at 6000, darker all the way. Each bounce reaches the wall through the cache's mean, which a window of half
@@ -915,8 +961,11 @@ the view didn't move; both frames' jitters taken out, `PixelHistoryAt`, see the 
 around where it was, each only if its point was as far from the last eye as this one's and its normal within 25 degrees
 (by the pixels' surfaces, `SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE`: RGBA32F, distance, packed normal and the frames
 the history holds; within a
-fifth of a percent and two pixels' depth along the surface), else the 3x3 around that are (`PixelHistory`), none for what moves (the
-main depth's stencil), by 1 over `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` (16), a frame far brighter than what the history
+fifth of a percent and two pixels' depth along the surface), else the 3x3 around that are (`PixelHistory`); what moves (the
+main depth's stencil) by its own motion (the pre-pass's, as temporal upscaling reprojects it), from the pixels of what
+moved alone (the surfaces' fourth channel marks them; the rest take none of theirs), within half its distance
+(where its point was isn't known, only where it showed), never by the still blend (until 2026-11-18 it took none, and a moving sphere flickered: see the clipmap's
+paragraphs on what moves); by 1 over `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` (16), a frame far brighter than what the history
 holds taken as at most 8 times that, or that and a quarter of the frame's white more (`HistoryFireflyClamp`, the
 emitters': a traced pixel's ray that meets what is bright, the voxels by a lit window's interior from a window frame's side
 across the opening, is a sixteenth of the pixels around at a stride of 4, and faded over the 16 frames, white fireflies

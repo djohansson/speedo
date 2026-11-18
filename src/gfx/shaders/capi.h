@@ -1660,8 +1660,11 @@ struct GiData
 	// every frame; while its pose stays as it was (paused, FrameInputs::modelStill) it isn't voxelized again, its voxels
 	// kept, and the first update it moves again restores the blocks of the last it was voxelized in
 	alignas(4) UINT1(restoreStamp);
-	// the struct's 16 byte alignment's tail
-	alignas(4) UINT1(padding0);
+	// the updates after a lookup last read a block of the surface cache (or one around it) that the filter still runs in
+	// it (ComputeGiResolve's records): about a second's (Renderer, by the frames' length; at least 2), so that what
+	// something passing hid for a moment is still filtered when it shows again. its voxels trace as read for 2 updates
+	// only (kGiCacheReadFrameCount)
+	alignas(4) UINT1(cacheSeenFrameCount);
 };
 
 struct PushConstants

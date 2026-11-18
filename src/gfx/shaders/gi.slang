@@ -2973,7 +2973,9 @@ static const uint kGiCacheEmitterRayCount = 8u;
 static const uint kGiCacheEmitterCandidateCount = 2u;
 // how much of the emitters' light a voxel keeps is that of the voxels beside it on its surface (see GiCacheUpdate)
 static const float kGiKeptNeighbourShare = 0.8;
-static const uint kGiCacheSeenFrameCount = 2u;
+// the updates after a lookup read a block (or one around it) that its voxels trace as read (see ComputeGiResolve); the
+// filter runs in it for longer (GiData::cacheSeenFrameCount)
+static const uint kGiCacheReadFrameCount = 2u;
 // the updates an entry's window stays short (min(cacheSampleCount, 32) samples) after something last moved in its block:
 // what it gathered while it was there (the floor under MovingInterior's runner, shadowed by it) falls out of its mean
 // within as many updates, where with the whole window back at once (1024) the darkened samples weighed on for seconds,
@@ -4216,8 +4218,14 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 		gGiSharedProbeMoved[slot] = history == kGiNoProbe || any(GiProbeOffset(history) != GiProbeOffset(current)) ? 1u : 0u;
 	}
 	// whether the surface cache traces and filters the block this frame: a lookup read it, or one of the blocks around it
-	// (the filter's reach), in the last kGiCacheSeenFrameCount frames (GiMarkSeen, at the block's place then, by the
-	// scroll). the others trace a ray now and then, and the filter takes their own light (see ComputeGiCacheFilter): at
+	// (the filter's reach), in the last kGiCacheReadFrameCount updates for the tracing (bit 0) and
+	// GiData::cacheSeenFrameCount, about a second's, for the filter (bit 1; GiMarkSeen, at the block's place then, by the
+	// scroll). for the filter by the 2 updates too, as it was, whatever something passing hid for longer showed its
+	// entries unfiltered the frame it came back into view, each voxel its own samples' mean: a ring of blotches around
+	// MovingInterior's sphere as it receded (the wall its outline uncovered each frame), a trail behind its runner, and
+	// the whole room grainy for a frame when the sphere had passed over the camera (the user's reports, 2026-11-18:
+	// "ringing & darkening on single animation frames", "trails after moving objects"). the others trace a ray now and
+	// then, and the filter takes their own light (see ComputeGiCacheFilter): at
 	// the user's corridor pose in Sponza, the cache traced and filtered every voxel near a surface in the 3 clips, for 4
 	// ms a frame. a thread each of the 27 blocks: by the first thread alone, one after another (it stopped at the first
 	// read, so the loads couldn't overlap), the group's other threads waiting, and most blocks are read by no lookup
@@ -4226,7 +4234,8 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 		int3 here = int3(block) + int3(groupIndex % 3u, (groupIndex / 3u) % 3u, groupIndex / 9u) - 1;
 		int3 around = here + gi.scroll.xyz / int(1u << SHADER_TYPES_GI_FLAG_LEVEL);
 		uint seen = GiInside(around, blocks) ? gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(around), blocks)) + 2u] : 0u;
-		gGiSharedCacheSeen[groupIndex] = seen != 0u && gi.frameStamp - seen <= kGiCacheSeenFrameCount ? 1u : 0u;
+		uint since = gi.frameStamp - seen;
+		gGiSharedCacheSeen[groupIndex] = seen == 0u ? 0u : ((since <= kGiCacheReadFrameCount ? 1u : 0u) | (since <= max(gi.cacheSeenFrameCount, kGiCacheReadFrameCount) ? 2u : 0u));
 		// and whether something moves in it, this frame or the last (the voxelizing's stamp; see the probes, below)
 		uint movingStamp = gi.moving != 0u && GiInside(here, blocks) ? gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(here), blocks)) + 1u] : 0u;
 		gGiSharedMovingAround[groupIndex] = movingStamp != 0u && gi.frameStamp - movingStamp <= 1u ? 1u : 0u;
@@ -4235,8 +4244,12 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	if (gi.cacheRayCount != 0u && groupIndex == 0u)
 	{
 		bool read = gi.cacheEverywhere != 0u;
+		bool lately = read;
 		for (uint aroundIt = 0; aroundIt < 27u; aroundIt++)
-			read = read || gGiSharedCacheSeen[aroundIt] != 0u;
+		{
+			read = read || (gGiSharedCacheSeen[aroundIt] & 1u) != 0u;
+			lately = lately || (gGiSharedCacheSeen[aroundIt] & 2u) != 0u;
+		}
 		// anchored (GiCacheAnchored), every block that holds a surface's voxels has its page, read or not (and keeps it:
 		// Renderer sets no cacheKeepFrameCount): what no lookup reads traces a ray now and then (kGiCacheIdleFrameCount) and
 		// is what the rays that meet it take its bounced light from. with pages for what was read alone, that light was
@@ -4256,9 +4269,9 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 			InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CACHE_BLOCKS], 1u);
 			InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CLIP_FIRST + GI_STATISTIC_CLIP_WORD_COUNT * gi.clip + 1u], 1u);
 		}
-		// filtered this frame where it was read and has a record (see GiCacheTakeRecord)
+		// filtered this frame where it was read lately and has a record (see GiCacheTakeRecord)
 		uint record = 0u;
-		if (read && cachePage != 0u)
+		if (lately && cachePage != 0u)
 		{
 			record = GiCacheTakeRecord(gi);
 			InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CACHE_ACTIVE_BLOCKS], 1u);
@@ -4892,24 +4905,39 @@ bool GiMovingSurface(float3 position, float3 normal)
 // but a surface something moving holds this frame (GiMovingSurface): its voxels' light is the probes' alone, resolved at
 // each voxel it passes through, in patches over it, and it is looked up off it as without the cache, where the air's
 // light is smooth (MovingInterior's sphere, 2026-11-18)
-float3 GiSurfaceBias(float3 position, float3 normal, float3 view)
+// moving: whether it is such a surface (the cache on or off), whose lookup's weight is the probes' alone (see
+// GiLookupTrust)
+float3 GiSurfaceBias(float3 position, float3 normal, float3 view, out bool moving)
 {
 	uint frameIndex = gPushConstants.frameIndex;
 	bool anchored = gGi[frameIndex][0].trace == GI_TRACE_BVH && gGi[frameIndex][0].cacheRayCount != 0u;
-	return anchored && !GiMovingSurface(position, normal) ? normal * 0.5 : normal * 0.75 + view * 1.5;
+	moving = GiMovingSurface(position, normal);
+	return anchored && !moving ? normal * 0.5 : normal * 0.75 + view * 1.5;
+}
+
+float3 GiSurfaceBias(float3 position, float3 normal, float3 view)
+{
+	bool moving;
+	return GiSurfaceBias(position, normal, view, moving);
 }
 
 // a surface's lookup (the shading's): off it 0.75 voxels along its normal and 1.5 toward the eye (along the line of
 // sight, which is clear: at a concave edge the normal alone leads into the other surface's voxels, whose probes are the
 // other surface's), and twice as far where that finds no probes (retry; not where the near field's light stands in, see
 // GiNearIrradiance)
-GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry = true)
+GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry, out bool moving)
 {
-	float3 bias = GiSurfaceBias(position, normal, view);
+	float3 bias = GiSurfaceBias(position, normal, view, moving);
 	GiSample sample = GiSampleAt(position, normal, bias);
 	if (retry && !sample.valid && sample.inside)
 		sample = GiSampleAt(position, normal, bias * 2.0);
 	return sample;
+}
+
+GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry = true)
+{
+	bool moving;
+	return GiSampleSurface(position, normal, view, retry, moving);
 }
 
 // where the surface cache is on, the blocks a surface's lookup reads (GiSampleSurface's point, in each clip that lights

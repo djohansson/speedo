@@ -167,6 +167,10 @@ constexpr uint32_t kGiCachePageStep = 1024;
 constexpr uint32_t kGiBounceDelayFrameCount = 32;
 // the frames after the surface cache starts over during which it traces 4 rays a voxel (see cacheRayCount in InternalPlanGi)
 constexpr uint32_t kGiCacheWarmFrameCount = 256;
+// how long after a lookup last read a block of the surface cache its filter still runs in it (GiData::cacheSeenFrameCount,
+// in the clip's updates by the frames' length): what something passing hides is back within it (MovingInterior's sphere
+// over the camera for a third of a second), and showed its unfiltered entries for a frame with the 2 updates it was
+constexpr double kGiCacheSeenSeconds = 1.0;
 // the frames after lights last changed gradually (see Renderer::myGiLightsGradual) for which the surface cache samples
 // as where something moves, so that it follows them: about a second
 constexpr uint32_t kGiLightsFollowFrameCount = 64;
@@ -1580,6 +1584,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{
 			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassMotion, ResourceUse::Sampled(PipelineStage::kComputeShader)); // what moves, by its motion
 			builder.Use(myGiNear, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			for (auto image : {myGiNearHistory[0], myGiNearHistory[1], myGiNearHistoryDistance[0], myGiNearHistoryDistance[1]})
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
@@ -5237,6 +5242,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.probeFreeze = myGiProbeFreeze && myGiStillFrameCount >= 2 * myGiRayPhaseCount * interval && !myGiDump ? 1U : 0U;
 		clip.frameStamp = clock.frameStamp;
 		clip.restoreStamp = clock.restoreStamp;
+		clip.cacheSeenFrameCount = static_cast<uint32_t>(std::clamp(kGiCacheSeenSeconds / (myGiFrameSeconds * interval), 2.0, 1024.0));
 		uint32_t clipFirst = clip.probeFirst;
 		clip.probeFirst = clock.probeHalf * probeTotal + clipFirst;
 		clip.probePreviousFirst = (1 - clock.probeHalf) * probeTotal + clipFirst;
