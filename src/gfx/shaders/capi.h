@@ -409,7 +409,9 @@ extern "C"
 // probes' lookups approximate there
 #define DEBUG_VIEW_GI_SURFACE_REFERENCE 28u
 // the state of the 8 probes around a point, trilinear (data): red the share marked inside something, green the share
-// whose depth map toward the point is empty (no ray near that way yet), blue the share that fail the visibility test
+// whose depth map toward the point is empty (no ray near that way yet), blue the share that fail the visibility test;
+// where the rays trace the triangles (no depth maps), by a ray from each probe to the point as the resolve's: green the
+// share behind a surface's back, blue the share a surface's front hides
 #define DEBUG_VIEW_GI_PROBE_STATE 29u
 #define DEBUG_VIEW_GI_END 30u
 // the traced shadows (see ShadowTraceData) of the first traced light (data): as the main pass takes them, filtered over

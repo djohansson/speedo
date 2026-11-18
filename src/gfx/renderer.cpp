@@ -2727,7 +2727,7 @@ Renderer::~Renderer()
 		{
 			const float* values = myGiDumpValues.data() + clipIt * GI_DUMP_FLOAT_COUNT;
 			std::println(
-				"indirect lighting, clip {}'s probe nearest ({:.2f}, {:.2f}, {:.2f}): at ({:.3f}, {:.3f}, {:.3f}), offset ({:.3f}, {:.3f}, {:.3f}), age {:.0f}, inside {:.0f}, {:.0f} of {:.0f} rays met a back; depth map (rows from the map's bottom, spacings, negative provisional):",
+				"indirect lighting, clip {}'s probe nearest ({:.2f}, {:.2f}, {:.2f}): at ({:.3f}, {:.3f}, {:.3f}), offset ({:.3f}, {:.3f}, {:.3f}), age {:.0f}, inside {:.0f}, {:.0f} of {:.0f} rays met a back; depth map (rows from the map's bottom, spacings, negative provisional; none where the rays trace the triangles):",
 				clipIt, static_cast<double>(myGiDumpPoint.x), static_cast<double>(myGiDumpPoint.y), static_cast<double>(myGiDumpPoint.z),
 				static_cast<double>(values[0]), static_cast<double>(values[1]), static_cast<double>(values[2]),
 				static_cast<double>(values[3]), static_cast<double>(values[4]), static_cast<double>(values[5]),
@@ -2789,6 +2789,9 @@ Renderer::~Renderer()
 					}
 				}
 			}
+			// (the probes keep no depth maps where the rays trace the triangles, see ComputeGiProbeUpdate)
+			if (myGiTraceBvh)
+				continue;
 			{
 				uint32_t emptyCount = 0;
 				uint32_t provisionalCount = 0;

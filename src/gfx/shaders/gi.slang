@@ -5047,7 +5047,11 @@ float3 GiVoxelWorldDebug(float3 eye, float3 direction, uint debugView)
 
 // the debug view of the probes' state (DEBUG_VIEW_GI_PROBE_STATE): of the 8 probes around the point of the finest clip
 // that holds it, trilinear, the share marked inside something (red), the share whose depth map toward the point is empty
-// (green) and the share failing the visibility test for it (blue), the point out along the normal as the resolve's is
+// (green) and the share failing the visibility test for it (blue), the point out along the normal as the resolve's is.
+// where the rays trace the triangles the probes keep no depth maps (see ComputeGiProbeUpdate), and the resolve tests a
+// probe by a ray to the voxel (GiResolve): this view by the same ray to the point, half a voxel out along its normal,
+// green the share behind a surface's back (kGiBehind: they light the point not at all), blue the share a front hides
+// (kGiHidden). a ray a probe a pixel, which the resolve keeps per voxel: what it would find there now
 float3 GiProbeStateDebug(float3 position, float3 normal)
 {
 	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
@@ -5073,6 +5077,21 @@ float3 GiProbeStateDebug(float3 position, float3 normal)
 			float3 probePosition = GiProbePosition(gi, probe, probeIndex);
 			float inside = gGiIrradiance[probeIndex * SHADER_TYPES_GI_IRRADIANCE_COUNT + 5].w > kGiInsideShare ? 1.0 : 0.0;
 			float3 toProbe = probePosition - point;
+			if (GiTracesBvh(gi))
+			{
+				// of the probes on the point's open side only, as below
+				if (dot(toProbe, normal) < 0.0)
+					continue;
+				float3 toPoint = position + normal * (0.5 * gi.volumeOrigin.w) - probePosition;
+				float pointDistance = length(toPoint);
+				BvhHit hit = GiTraceTriangles(gi, probePosition, toPoint / max(pointDistance, 1e-6), max(pointDistance - 0.05 * gi.volumeOrigin.w, 0.0), false, false, false);
+				uint state = !BvhHitSomething(hit) && !hit.capped ? kGiVisible
+							 : (!BvhHitSomething(hit) || hit.frontFace || (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) != 0u ? kGiHidden : kGiBehind);
+				// (each of the probes not marked inside: one inside a wall is behind its back too, which drew the walls' feet
+				// yellow)
+				result += weight * float3(inside, inside == 0.0 && state == kGiBehind ? 1.0 : 0.0, inside == 0.0 && state == kGiHidden ? 1.0 : 0.0);
+				continue;
+			}
 			float distance = length(toProbe);
 			GiDepthTaps taps = GiDepthTapsAt(-toProbe / max(distance, 1e-6));
 			float2 moments = 0.0;

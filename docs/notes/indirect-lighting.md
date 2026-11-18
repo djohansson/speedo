@@ -421,7 +421,11 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   Probe State debug view (`GiProbeStateDebug`, a data view) shows, of the 8 probes around a point in the clip that
   lights it, the share marked inside (red), the share whose depth toward the point is empty (green) and the share
   failing the test (blue): every camera following artifact so far showed in it as green or blue where the lit view
-  showed nothing yet. `SPEEDO_GI_DUMP=<x,y,z>` (or `pixel:<x>,<y>`: the point under a pixel, which `ComputeMain` unprojects into
+  showed nothing yet. Where the rays trace the triangles the probes keep no depth maps (step 3), and the view read the
+  ones left from before: there it traces the resolve's ray itself, from each probe to the point half a voxel out along
+  its normal, green the share behind a surface's back (`kGiBehind`) and blue the share a front hides (`kGiHidden`): a
+  ray a probe a pixel, what the resolve would find there now rather than the bits it keeps per voxel (fixed 2026-11-18,
+  the user's ask; the dump's depth map is left out there too). `SPEEDO_GI_DUMP=<x,y,z>` (or `pixel:<x>,<y>`: the point under a pixel, which `ComputeMain` unprojects into
   `GI_STATISTIC_DUMP_POINT` for the next frame's dump, `GiData::dumpPixel`: what found the entrance's probes) prints, at exit, per clip the probe nearest the point: its position,
   offset, age, backface count, its lattice point's voxel coordinates and the column of voxels through it, its depth
   map, the first rays' depths, its light along the axes, a walk straight down from it (`GiOccluderHitDebug`), the
@@ -1403,8 +1407,9 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
     cache is off or isn't anchored.
   - **The probes' depth maps aren't made where the rays trace the triangles** (`ComputeGiProbeUpdate`): the resolve
     tests each probe by a ray there, and the maps were most of the update's work, a texel against every ray (0.01 to
-    0.05 ms). The indirect lighting starts over when what the rays meet is switched. The probes' debug view of what
-    they see reads maps no longer kept up there.
+    0.05 ms). The indirect lighting starts over when what the rays meet is switched. The Probe State debug view, which
+    read the maps, traces the resolve's ray there instead (see `GiProbeStateDebug`), and `SPEEDO_GI_DUMP` leaves the
+    probe's map out.
   Measured, each run beside one of every voxel (`SPEEDO_GI_PROBES=2`, with the depth maps left out too), 5000 frames:
 
   | | the GI pass | a frame | voxels the probes are resolved into |
