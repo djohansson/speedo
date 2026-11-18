@@ -87,6 +87,9 @@ param(
 	[int] $Jobs = 0, # 0: from the machine's resources (see Get-ClientJobs)
 	[Parameter(ValueFromRemainingArguments = $true)] [string[]] $Inputs
 )
+# the clients don't record Tracy's events (SPEEDO_TRACY=0, see core/profiling.h): a profile build's grew their memory
+# by about 65 MB a second, kept for a profiler that never connects
+if (-not $env:SPEEDO_TRACY) { $env:SPEEDO_TRACY = '0' }
 
 $ErrorActionPreference = 'Stop'
 

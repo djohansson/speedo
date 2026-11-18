@@ -33,6 +33,9 @@ param(
 	[int] $TimeoutSeconds = 600,
 	[switch] $Validate
 )
+# the clients don't record Tracy's events (SPEEDO_TRACY=0, see core/profiling.h): a profile build's grew their memory
+# by about 65 MB a second, kept for a profiler that never connects
+if (-not $env:SPEEDO_TRACY) { $env:SPEEDO_TRACY = '0' }
 $ErrorActionPreference = 'Stop'
 # -Only a,b from a shell (pwsh -File) comes as one string
 $Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })

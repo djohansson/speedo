@@ -45,6 +45,10 @@ GpuProfiler<G>::GpuProfiler(QueryPool<G>&& pool, QueueHandle<G> queue, CommandBu
 
 	myContext = tracy::GetGpuCtxCounter().fetch_add(1, std::memory_order_relaxed);
 	ENSURE(myContext != 255);
+	// (Tracy's events where they are recorded, see core::profiling::Enabled; the timestamps are written either way, the
+	// groups' timings are this profiler's own)
+	if (!core::profiling::Enabled())
+		return;
 	___tracy_emit_gpu_new_context_serial({
 		.gpuTime = gpuTime,
 		.period = static_cast<float>(myPeriod),
@@ -80,10 +84,11 @@ typename GpuProfiler<G>::Scope GpuProfiler<G>::Begin(CommandBufferHandle<G> cmd,
 
 	std::scoped_lock lock(myMutex);
 	auto index = InternalWrite(cmd, stage);
-	___tracy_emit_gpu_zone_begin_serial({
-		.srcloc = reinterpret_cast<uint64_t>(&location),
-		.queryId = static_cast<uint16_t>(index % myQueries.size()),
-		.context = myContext});
+	if (core::profiling::Enabled())
+		___tracy_emit_gpu_zone_begin_serial({
+			.srcloc = reinterpret_cast<uint64_t>(&location),
+			.queryId = static_cast<uint16_t>(index % myQueries.size()),
+			.context = myContext});
 	return {this, cmd, index};
 }
 
@@ -91,26 +96,28 @@ template <GraphicsApi G>
 typename GpuProfiler<G>::Scope GpuProfiler<G>::Begin(
 	CommandBufferHandle<G> cmd, std::string_view name, const SourceLocationData& location, uint64_t group, PipelineStage stage)
 {
-	auto color = location.color != 0 ? location.color
-									 : 0xFF000000U | (static_cast<uint32_t>(std::hash<std::string_view>{}(name)) & 0x00FFFFFFU);
-	auto srcloc = ___tracy_alloc_srcloc_name(
-		location.line,
-		location.file,
-		std::char_traits<char>::length(location.file),
-		location.function,
-		std::char_traits<char>::length(location.function),
-		name.data(),
-		name.size(),
-		color);
-
 	std::scoped_lock lock(myMutex);
 	auto index = InternalWrite(cmd, stage);
 	auto& query = myQueries[index % myQueries.size()];
 	query.group = group;
 	if (group != 0)
 		query.name = name;
-	___tracy_emit_gpu_zone_begin_alloc_serial(
-		{.srcloc = srcloc, .queryId = static_cast<uint16_t>(index % myQueries.size()), .context = myContext});
+	if (core::profiling::Enabled())
+	{
+		auto color = location.color != 0 ? location.color
+										 : 0xFF000000U | (static_cast<uint32_t>(std::hash<std::string_view>{}(name)) & 0x00FFFFFFU);
+		auto srcloc = ___tracy_alloc_srcloc_name(
+			location.line,
+			location.file,
+			std::char_traits<char>::length(location.file),
+			location.function,
+			std::char_traits<char>::length(location.function),
+			name.data(),
+			name.size(),
+			color);
+		___tracy_emit_gpu_zone_begin_alloc_serial(
+			{.srcloc = srcloc, .queryId = static_cast<uint16_t>(index % myQueries.size()), .context = myContext});
+	}
 	return {this, cmd, index};
 }
 
@@ -121,7 +128,8 @@ void GpuProfiler<G>::InternalEnd(CommandBufferHandle<G> cmd, uint64_t begin, Pip
 	auto index = InternalWrite(cmd, stage);
 	if (begin >= myTail)
 		myQueries[begin % myQueries.size()].end = index;
-	___tracy_emit_gpu_zone_end_serial({.queryId = static_cast<uint16_t>(index % myQueries.size()), .context = myContext});
+	if (core::profiling::Enabled())
+		___tracy_emit_gpu_zone_end_serial({.queryId = static_cast<uint16_t>(index % myQueries.size()), .context = myContext});
 }
 
 template <GraphicsApi G>
@@ -187,8 +195,9 @@ void GpuProfiler<G>::Collect()
 		else
 			time = floor->second != 0 ? floor->second : myLastTime;
 		times[queryIt] = time;
-		___tracy_emit_gpu_time_serial(
-			{.gpuTime = static_cast<int64_t>(time), .queryId = static_cast<uint16_t>(index % size), .context = myContext});
+		if (core::profiling::Enabled())
+			___tracy_emit_gpu_time_serial(
+				{.gpuTime = static_cast<int64_t>(time), .queryId = static_cast<uint16_t>(index % size), .context = myContext});
 	}
 
 	// the groups' scopes whose two timestamps are plausible
