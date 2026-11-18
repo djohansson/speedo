@@ -77,6 +77,25 @@ void RecordFrameCaptures(CommandBufferHandle cmd, const FrameCaptureTarget& targ
 	}
 	else if (uint8_t requested = 1; gCaptureState.compare_exchange_strong(requested, 2))
 		framecapture::RecordCapture(cmd, target, gCapturePath, &gCaptureState, callbacks);
+	// SPEEDO_CAPTURE_COUNT=<n>: the n frames the count ends on (the last among them), as <capture>-<frame of the count>.bmp
+	// (see gRepeatableCaptureCountFrames)
+	static const uint32_t kCaptureCount = []
+	{
+		const char* value = std::getenv("SPEEDO_CAPTURE_COUNT");
+		return value != nullptr && *value != '\0' ? std::max(static_cast<uint32_t>(std::strtoul(value, nullptr, 10)), 1U) : 1U;
+	}();
+	if (kCaptureCount > 1 && gRepeatableCaptureFrame && !gCapturePath.empty())
+	{
+		uint64_t drawn = gDrawnFrameCount.load(std::memory_order_relaxed);
+		uint64_t last = *gRepeatableCaptureFrame;
+		if (drawn <= last && last - drawn < kCaptureCount && last - drawn < gRepeatableCaptureCountFrames)
+		{
+			std::filesystem::path path(gCapturePath);
+			uint64_t frame = gRepeatableCaptureCountFrames - (last - drawn);
+			auto numbered = path.parent_path() / std::format("{}-{:04}{}", path.stem().string(), frame, path.extension().string());
+			framecapture::RecordCapture(cmd, target, numbered.string(), nullptr, callbacks);
+		}
+	}
 	// each frame drawing a pose of SPEEDO_CAMERA_PATH for the first time (SPEEDO_CAPTURE_PATH=<directory>:
 	// pose-<NNNN>.bmp), to compare a move's frames
 	static const char* gCapturePathDirectory = std::getenv("SPEEDO_CAPTURE_PATH");

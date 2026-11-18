@@ -2854,6 +2854,7 @@ void WindowedApplication::PrepareDraw()
 						{
 							gCapturePath = path;
 							gRepeatableCaptureFrame = gDrawnFrameCount.load(std::memory_order_relaxed) + std::max<uint32_t>(frames, 1) - 1;
+							gRepeatableCaptureCountFrames = std::max<uint32_t>(frames, 1);
 						}
 					});
 		}

@@ -226,7 +226,10 @@ comparison: per channel max and mean, the share of pixels past 0, 1, 4 and 16 le
   `SPEEDO_AUTOLOAD_EXIT`-th frame from there itself; the indirect lighting's blend takes `SPEEDO_TIME_FRAME_SECONDS`
   where set. On KosmicKrisp three runs then differed by at most 11 to 13 levels (rather than 50 to 67), with any one of
   the indirect lighting and temporal upscaling off by at most 1 level, and the base color view (`SPEEDO_DEBUG_VIEW=1`)
-  bitwise identical.
+  bitwise identical. `SPEEDO_CAPTURE_COUNT=<n>` (2026-11-18) saves the count's last n frames too
+  (`<capture>-<frame>.bmp`), the same frames every run: a flicker of a frame in a few compared run against run (with
+  `SPEEDO_ANIMATION_FRAME_SECONDS`, frame n is n steps into the animation). `SPEEDO_CAMERA_PATH`'s captures can't: the
+  path starts at the first frame drawn, the animation when the model is in, a few frames apart from run to run.
 - **What is left on KosmicKrisp**: 1 level in most pixels, from the ambient light (the indirect view, `SPEEDO_DEBUG_VIEW=13`,
   46% of pixels; the direct light's 6 pixels), the same with a fixed panorama for the environment (neutral.hdr) rather
   than the sky, in its diffuse and specular halves alike: the environment's lighting differs slightly as a whole from

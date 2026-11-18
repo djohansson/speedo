@@ -105,6 +105,9 @@ inline std::string gCapturePath;
 	return kRepeatable;
 }
 inline std::optional<uint64_t> gRepeatableCaptureFrame;
+// and SPEEDO_CAPTURE_COUNT=<n>: the n frames the count ends on, each saved as <capture>-<frame>.bmp (its frame of the
+// count, from 1), to compare runs frame by frame (a flicker of a frame in a few). the count's frames (SPEEDO_AUTOLOAD_EXIT)
+inline uint32_t gRepeatableCaptureCountFrames = 0;
 inline std::atomic<float> gFramesPerSecond;
 // the frames Draw has submitted (SPEEDO_AUTOLOAD_EXIT counts them: the ui thread's frames aren't paced by them)
 inline std::atomic_uint64_t gDrawnFrameCount{0};
