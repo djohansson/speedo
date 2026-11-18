@@ -78,17 +78,21 @@ void RecordFrameCaptures(CommandBufferHandle cmd, const FrameCaptureTarget& targ
 	else if (uint8_t requested = 1; gCaptureState.compare_exchange_strong(requested, 2))
 		framecapture::RecordCapture(cmd, target, gCapturePath, &gCaptureState, callbacks);
 	// SPEEDO_CAPTURE_COUNT=<n>: the n frames the count ends on (the last among them), as <capture>-<frame of the count>.bmp
-	// (see gRepeatableCaptureCountFrames)
-	static const uint32_t kCaptureCount = []
+	// (see gRepeatableCaptureCountFrames); SPEEDO_CAPTURE_STRIDE=<s>: every s-th frame back from the last instead (how
+	// something converges from the count's start, in one run)
+	auto captureSetting = [](const char* name)
 	{
-		const char* value = std::getenv("SPEEDO_CAPTURE_COUNT");
+		const char* value = std::getenv(name);
 		return value != nullptr && *value != '\0' ? std::max(static_cast<uint32_t>(std::strtoul(value, nullptr, 10)), 1U) : 1U;
-	}();
+	};
+	static const uint32_t kCaptureCount = captureSetting("SPEEDO_CAPTURE_COUNT");
+	static const uint32_t kCaptureStride = captureSetting("SPEEDO_CAPTURE_STRIDE");
 	if (kCaptureCount > 1 && gRepeatableCaptureFrame && !gCapturePath.empty())
 	{
 		uint64_t drawn = gDrawnFrameCount.load(std::memory_order_relaxed);
 		uint64_t last = *gRepeatableCaptureFrame;
-		if (drawn <= last && last - drawn < kCaptureCount && last - drawn < gRepeatableCaptureCountFrames)
+		if (drawn <= last && (last - drawn) % kCaptureStride == 0 && (last - drawn) / kCaptureStride < kCaptureCount &&
+			last - drawn < gRepeatableCaptureCountFrames)
 		{
 			std::filesystem::path path(gCapturePath);
 			uint64_t frame = gRepeatableCaptureCountFrames - (last - drawn);
