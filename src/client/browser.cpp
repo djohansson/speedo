@@ -190,8 +190,9 @@ struct State
 	// unit's index in gfx::kSceneUnits, chosen for them as they install (ChooseSceneUnit) and remembered
 	int unit = 0;
 	bool listed = false;
-	// it started in the resource directory for want of the test assets, and hasn't been shown: it opens in them once they
-	// are there (File > Download Test Assets, see testassets.h)
+	// an install's (its test assets aren't below its resources): it started in the resource directory for want of the
+	// test assets, and hasn't been shown: it opens in them once they are there (File > Download Test Assets, see
+	// testassets.h)
 	bool awaitingTestAssets = false;
 	ListOptions options; // the current purpose's (see BrowserPurpose)
 	windowedapplication::BrowserPurpose purpose = windowedapplication::BrowserPurpose::kFiles;
@@ -347,7 +348,7 @@ void WindowedApplication::InternalDrawBrowser()
 
 	// where it starts: SPEEDO_BROWSE=<dir> (absolute, or relative to the resource dir) opens it there at startup, with
 	// SPEEDO_BROWSE_SELECT=<path>[;<path>...] selected (paths from the folder, see Entry::relative), and SPEEDO_BROWSE_OPEN=side-by-side or as-authored opens them
-	// (automated tests and screenshots); else where the file dialogs open
+	// (automated tests and screenshots); else in the resource directory, or an install's test assets (below)
 	if (static bool gStarted = false; !gStarted)
 	{
 		gStarted = true;
@@ -355,8 +356,13 @@ void WindowedApplication::InternalDrawBrowser()
 		auto resourcePath = std::get<std::filesystem::path>(variables["ResourcePath"]);
 		std::error_code error;
 		auto testAssets = std::get<std::filesystem::path>(variables["TestAssetsPath"]);
-		state.awaitingTestAssets = !std::filesystem::is_directory(testAssets, error);
-		state.directory = state.awaitingTestAssets ? resourcePath : testAssets;
+		// the resource directory where the test assets are below it (a checkout's, or -r's): the models made for tests
+		// (resources/test-models) are listed with them (the user's ask, 2026-11-18). an install's resources hold no
+		// models and its test assets are the user's: in those, once they are there
+		auto fromResources = testAssets.lexically_relative(resourcePath);
+		bool below = !fromResources.empty() && *fromResources.begin() != "..";
+		state.awaitingTestAssets = !below && !std::filesystem::is_directory(testAssets, error);
+		state.directory = (below || state.awaitingTestAssets) ? resourcePath : testAssets;
 		if (const char* browse = std::getenv("SPEEDO_BROWSE"); browse != nullptr && *browse != '\0')
 		{
 			state.awaitingTestAssets = false;

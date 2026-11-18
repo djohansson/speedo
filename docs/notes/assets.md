@@ -512,8 +512,11 @@ times; a cancel or the exit stops the transfers within 100 ms (`curl_multi_poll`
 parts are extracted with `core::zip::ExtractAll` once they are all there (the same 415 files as the script's, which also
 makes the zips' empty directories). Measured: the quick set into an empty directory, beside a cold shader compile, in 60.7 s
 (the script's 103 s); the files then verified by the script. The Loading window's shader compile and the download's window
-(bottom right) are drawn together; the file browser opens in the test assets once they are there, if it had started in the
-resources for want of them.
+(bottom right) are drawn together; the file browser opens in the resource directory where the
+test assets are below it (a checkout's, or `-r`'s: `resources/test-models`' models are then listed after the test assets',
+the user's ask, 2026-11-18, to reach the generated ones without going up a folder), and otherwise (an install, whose
+resources hold no models, or `SPEEDO_TEST_ASSETS` elsewhere) in the test assets once they are there, if it had started in
+the resources for want of them.
 `resources/test-models/gltf` holds hand-made models for what no downloaded one covers (`SparseIndices.gltf`: index
 accessors that are sparse, with and without base values; cgltf's `cgltf_accessor_read_index` and
 `cgltf_accessor_unpack_indices` refuse sparse accessors, so `gltf::ReadIndices` applies them;

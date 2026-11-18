@@ -251,7 +251,7 @@ The renderer's, but for `SPEEDO_CULLING`, which is View > Culling's starting sta
 
 | Variable | Values (default) | What it does |
 |---|---|---|
-| `SPEEDO_BROWSE` | A folder. Default: closed (it opens in the test assets, else the resource directory). | Opens the file browser in that folder at startup. |
+| `SPEEDO_BROWSE` | A folder. Default: closed (it opens in the resource directory, which in a checkout holds the test assets and `test-models`; in an install's test assets once they are there). | Opens the file browser in that folder at startup. |
 | `SPEEDO_BROWSE_ENVIRONMENT` | Exactly `1` on. Default: off. | Opens the environment browser instead (View > Environment > Open Environment...): every panorama below the folder. |
 | `SPEEDO_BROWSE_RECURSIVE` | `0` off. Default: on. | Include subfolders: every file below the folder rather than its own entries. |
 | `SPEEDO_BROWSE_KINDS` | Any of `models`, `archives`, `images`, `panoramas`. Default: models and archives. | The kinds of file listed. |
@@ -264,7 +264,7 @@ The renderer's, but for `SPEEDO_CULLING`, which is View > Culling's starting sta
 
 | Variable | Values (default) | What it does |
 |---|---|---|
-| `SPEEDO_TEST_ASSETS` | A folder. Default: `resources/test-assets` in a checkout (or under `-r`), else `test-assets` in the user's data. | Where the test assets are: where File > Open... starts and File > Download Test Assets... downloads to. The scripts read it too (`fetch-test-assets.ps1`, `visualtest.ps1`). |
+| `SPEEDO_TEST_ASSETS` | A folder. Default: `resources/test-assets` in a checkout (or under `-r`), else `test-assets` in the user's data. | Where the test assets are: where File > Download Test Assets... downloads to, and where File > Open... starts if they aren't below the resource directory. The scripts read it too (`fetch-test-assets.ps1`, `visualtest.ps1`). |
 | `SPEEDO_DOWNLOAD_TEST_ASSETS` | `offer`, `quick` or `full`. Default: the first launch offers them. | `offer` opens the Test Assets dialog; `quick` or `full` downloads that set, prints a summary and exits. |
 
 ## The gpu and drivers
