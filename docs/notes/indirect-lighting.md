@@ -196,9 +196,12 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
     lookup read in the last 2 updates (the tracing's line too): the ring of wall the receding sphere's outline uncovered
     each frame, the floor behind the runner, and the whole room when the sphere had passed over the camera (a third of a
     second) came back as each voxel's own samples' mean, blotchy, for a frame. The filter now runs for about a second
-    after the last read (`GiData::cacheSeenFrameCount`, `kGiCacheSeenSeconds` by the frames' length); the voxels trace
-    as read for 2 updates as before (`kGiCacheReadFrameCount`). A still camera's cost is the same (the same blocks);
-    one that turns keeps the filter in what it saw within the second (not measured on a path yet).
+    after the last read (`GiData::cacheSeenFrameCount`, `SPEEDO_GI_CACHE_SEEN_SECONDS` by the frames' length); the voxels
+    trace as read for 2 updates as before (`kGiCacheReadFrameCount`). A still camera's cost is the same (the same
+    blocks); one that turns keeps the filter in what it saw within the second: turning in place 90 degrees a second
+    (1800 frames at 1920x1080, stepped at 60 a second, `temp/gi-disocclusion/turncost.ps1`, the second against 2
+    frames in turn, twice) Sponza's GI pass 2.00 to 2.12 ms (the frame 4.70 to 4.79) and Bistro's 3.17 to 3.30 (8.26 to
+    8.35); walking 3 m a second while turning 12 degrees a second 1.39 to 1.42 and 2.47 to 2.52.
   - **The near field's history for what moves gave out near the camera**: within a tenth of its distance the sphere lost
     it under 75 cm at 7.5 cm a frame (grainy grey patches as it passed); within half now.
   Measured on the same frames (`SPEEDO_REPEATABLE`, `SPEEDO_CAPTURE_COUNT`), 1280x720, frames 466 to 510 (the sphere over

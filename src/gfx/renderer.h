@@ -782,6 +782,11 @@ private:
 	uint32_t myGiCacheRayCount = 1;
 	uint32_t myGiCacheSampleCount = 1024;
 	uint32_t myGiCacheFastSampleCount = 16; // SPEEDO_GI_CACHE_FAST_SAMPLES: see GiData::cacheFastCount
+	// how long after a lookup last read a block of the surface cache its filter still runs in it (SPEEDO_GI_CACHE_SEEN_SECONDS;
+	// GiData::cacheSeenFrameCount, in the clip's updates by the frames' length): what something passing hides is back
+	// within it (MovingInterior's sphere over the camera for a third of a second), and showed its unfiltered entries for a
+	// frame with the 2 updates it was
+	double myGiCacheSeenSeconds = 1.0;
 	uint32_t myGiCacheFilterPassCount = 3;
 	float myGiCacheSigma = 8.0F;
 	// the frames since the cache started over after which it is settled (see GiData::cacheSettled):

@@ -162,6 +162,7 @@ On macOS ray queries are opt in (`SPEEDO_RAY_QUERY=1`, see [the gpu and drivers]
 | `SPEEDO_GI_CACHE_RAYS` | Rays per voxel an update, 1 to 64. Default: 1. | The cache's rays (at least 4 for its first 256 updates, where the blending is time based). |
 | `SPEEDO_GI_CACHE_SAMPLES` | 1 to 65535. Default: 1024. | The most samples a voxel's average covers. |
 | `SPEEDO_GI_CACHE_FAST_SAMPLES` | 0 to 1024 (0 off). Default: 16. | The samples of a voxel's fast average, whose lead over the whole one the cache's rays bounce on: how soon each bounce follows the one before it (a dim interior settles in seconds rather than minutes). |
+| `SPEEDO_GI_CACHE_SEEN_SECONDS` | 0 to 60. Default: 1. | How long after a lookup last read a block its filter still runs (at least 2 updates): what something passing hid is still filtered when it shows again. 0 to compare (as it was: about 0.1 ms less of the GI pass in a fast turn, and a frame of blotches where something uncovers what it hid). |
 | `SPEEDO_GI_CACHE_FILTER_PASSES` | 1 to 4. Default: 3. | The most passes of the filter along surfaces: the last level takes two and each finer level one more, up to this. |
 | `SPEEDO_GI_CACHE_SIGMA` | 0 or more. Default: 8. | How many deviations of the noise a neighbour's light may differ by and still be averaged in. |
 | `SPEEDO_GI_CACHE_SETTLED_FRAMES` | Updates. Default: twice `SPEEDO_GI_CACHE_SAMPLES`. | After this many updates the cache is settled, and its voxels trace every other frame. |

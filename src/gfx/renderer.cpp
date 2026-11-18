@@ -167,10 +167,6 @@ constexpr uint32_t kGiCachePageStep = 1024;
 constexpr uint32_t kGiBounceDelayFrameCount = 32;
 // the frames after the surface cache starts over during which it traces 4 rays a voxel (see cacheRayCount in InternalPlanGi)
 constexpr uint32_t kGiCacheWarmFrameCount = 256;
-// how long after a lookup last read a block of the surface cache its filter still runs in it (GiData::cacheSeenFrameCount,
-// in the clip's updates by the frames' length): what something passing hides is back within it (MovingInterior's sphere
-// over the camera for a third of a second), and showed its unfiltered entries for a frame with the 2 updates it was
-constexpr double kGiCacheSeenSeconds = 1.0;
 // the frames after lights last changed gradually (see Renderer::myGiLightsGradual) for which the surface cache samples
 // as where something moves, so that it follows them: about a second
 constexpr uint32_t kGiLightsFollowFrameCount = 64;
@@ -2473,6 +2469,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheRayCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(rays, nullptr, 10)), 1U, 64U);
 	if (const char* samples = std::getenv("SPEEDO_GI_CACHE_SAMPLES"); samples != nullptr && *samples != '\0')
 		myGiCacheSampleCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(samples, nullptr, 10)), 1U, 0xFFFFU);
+	if (const char* seen = std::getenv("SPEEDO_GI_CACHE_SEEN_SECONDS"); seen != nullptr && *seen != '\0')
+		myGiCacheSeenSeconds = std::clamp(std::strtod(seen, nullptr), 0.0, 60.0);
 	if (const char* fast = std::getenv("SPEEDO_GI_CACHE_FAST_SAMPLES"); fast != nullptr && *fast != '\0')
 		myGiCacheFastSampleCount = std::min<uint32_t>(static_cast<uint32_t>(std::strtoul(fast, nullptr, 10)), 1024U);
 	if (const char* passes = std::getenv("SPEEDO_GI_CACHE_FILTER_PASSES"); passes != nullptr && *passes != '\0')
@@ -5251,7 +5249,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.probeFreeze = myGiProbeFreeze && myGiStillFrameCount >= 2 * myGiRayPhaseCount * interval && !myGiDump ? 1U : 0U;
 		clip.frameStamp = clock.frameStamp;
 		clip.restoreStamp = clock.restoreStamp;
-		clip.cacheSeenFrameCount = static_cast<uint32_t>(std::clamp(kGiCacheSeenSeconds / (myGiFrameSeconds * interval), 2.0, 1024.0));
+		clip.cacheSeenFrameCount = static_cast<uint32_t>(std::clamp(myGiCacheSeenSeconds / (myGiFrameSeconds * interval), 2.0, 1024.0));
 		clip.cacheFastCount = myGiCacheFastSampleCount;
 		uint32_t clipFirst = clip.probeFirst;
 		clip.probeFirst = clock.probeHalf * probeTotal + clipFirst;
