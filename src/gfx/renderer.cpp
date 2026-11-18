@@ -1359,12 +1359,12 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(cmd, kGiFlagsEntryPoint, layout.flagCount, clip, stepIt); });
 			}
 			computeBarrier(cmd);
-			if (!Skipped("GI Trace"))
+			if (myGiProbes != 0 && !Skipped("GI Trace"))
 				clips([&](uint32_t clip, const gi::Layout& layout)
 					  { giKernel(cmd, kGiTraceEntryPoint, static_cast<uint64_t>(layout.probeCount) * myGiRayCountThisFrame, clip); });
 			computeBarrier(cmd);
 			constexpr uint64_t kTexelCount = SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE;
-			if (!Skipped("GI Probe Update"))
+			if (myGiProbes != 0 && !Skipped("GI Probe Update"))
 				clips([&](uint32_t clip, const gi::Layout& layout)
 					  { giKernel(cmd, kGiProbeUpdateEntryPoint, static_cast<uint64_t>(layout.probeCount) * kTexelCount, clip); });
 			computeBarrier(cmd);
@@ -2484,6 +2484,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheLit = std::string_view(lit) != "0";
 	if (const char* thin = std::getenv("SPEEDO_GI_CACHE_THIN"); thin != nullptr)
 		myGiCacheThin = static_cast<uint32_t>(std::clamp(std::atoi(thin), 0, 2));
+	if (const char* probes = std::getenv("SPEEDO_GI_PROBES"); probes != nullptr)
+		myGiProbes = static_cast<uint32_t>(std::clamp(std::atoi(probes), 0, 2));
+	if (const char* interval = std::getenv("SPEEDO_GI_PROBE_AIR_INTERVAL"); interval != nullptr && *interval != '\0')
+		myGiProbeAirInterval = static_cast<uint32_t>(std::clamp(std::atoi(interval), 1, 255));
 	// the clipmap's levels (SPEEDO_GI_CLIP_COUNT, 3 by default: the scene's, and two of half and a quarter of its voxels
 	// around the camera, each of split screen's views its own)
 	if (const char* clipCount = std::getenv("SPEEDO_GI_CLIP_COUNT"); clipCount != nullptr && *clipCount != '\0')
@@ -2810,6 +2814,12 @@ Renderer::~Renderer()
 			static_cast<double>(myGiActiveProbeSum) / static_cast<double>(myGiStatisticFrameCount),
 			static_cast<double>(myGiRayCountSum) / static_cast<double>(myGiStatisticFrameCount),
 			myGiStatisticFrameCount);
+	// (every clip's, as each last counted, a sixteenth of the voxels counted: see GiResolve)
+	if (myCollectTimings && myGiStatisticFrameCount > 0)
+		std::println(
+			"indirect lighting: the probes resolved into {:.0f} voxels a frame, {} at the end",
+			static_cast<double>(myGiProbeVoxelSum) / static_cast<double>(myGiStatisticFrameCount),
+			std::accumulate(myGiClipProbeVoxelCounts.begin(), myGiClipProbeVoxelCounts.end(), 0U));
 	// the medians of the passes' timings, for experiments (SPEEDO_GPU_TIMINGS=1)
 	if (!myCollectedTimings.empty())
 	{
@@ -3560,8 +3570,9 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		{
 			if ((myGiClipsUpdated[inputs.frameIndex] & (1U << clipIt)) == 0)
 				continue;
-			myGiClipProbeCounts[clipIt] = statistics[GI_STATISTIC_CLIP_FIRST + (2 * clipIt)];
-			myGiClipCacheBlockCounts[clipIt] = statistics[GI_STATISTIC_CLIP_FIRST + (2 * clipIt) + 1];
+			myGiClipProbeCounts[clipIt] = statistics[GI_STATISTIC_CLIP_FIRST + (GI_STATISTIC_CLIP_WORD_COUNT * clipIt)];
+			myGiClipCacheBlockCounts[clipIt] = statistics[GI_STATISTIC_CLIP_FIRST + (GI_STATISTIC_CLIP_WORD_COUNT * clipIt) + 1];
+			myGiClipProbeVoxelCounts[clipIt] = statistics[GI_STATISTIC_CLIP_FIRST + (GI_STATISTIC_CLIP_WORD_COUNT * clipIt) + 2];
 		}
 		myGiClipsUpdated[inputs.frameIndex] = 0;
 		myGiActiveProbeCount = std::accumulate(myGiClipProbeCounts.begin(), myGiClipProbeCounts.end(), 0U);
@@ -3596,6 +3607,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		{
 			myGiActiveProbeSum += statistics[GI_STATISTIC_ACTIVE_PROBES];
 			myGiRayCountSum += myGiRayCountThisFrame;
+			myGiProbeVoxelSum += std::accumulate(myGiClipProbeVoxelCounts.begin(), myGiClipProbeVoxelCounts.end(), 0U);
 			myGiStatisticFrameCount++;
 		}
 		std::memset(memory.data(), 0, sizeof(statistics));
@@ -4872,10 +4884,12 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	bool resolutionChanged = resolution != myGiResolution;
 	myGiResolution = resolution;
 	auto clipmap = gi::MakeClipmap(frame.casterBounds, eyes, myGiLookAhead, myGiResolution, myGiLevelCount, myGiProbeSpacing, myGiMaxVolumeSide);
-	// and when split screen's views come or go (each its own clips)
+	// and when split screen's views come or go (each its own clips), and when what the rays meet changes (the triangles
+	// or the voxels: the probes keep their depth maps only for the voxels', see ComputeGiProbeUpdate)
+	bool traceBvh = frame.traceTriangles && frame.model != nullptr && frame.model->HasBvh();
 	bool changed = std::exchange(myGiRestart, false) || frame.model != myGiModel || frame.casterBounds.GetMin() != myGiBounds.GetMin() ||
 				   frame.casterBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount || myGiRevoxelize || resolutionChanged ||
-				   clipmap.clips.size() != myGiClipmap.clips.size();
+				   clipmap.clips.size() != myGiClipmap.clips.size() || traceBvh != myGiTraceBvh;
 	// how far each clip moved, in voxels (whole probe cells, see gi::MakeClipmap): a voxel takes the one that was at its
 	// place plus that. all of it is voxelized again when the scene changed, or when it moved by its size or more
 	for (uint32_t clipIt = 0; clipIt < clipmap.clips.size(); clipIt++)
@@ -4943,6 +4957,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		myGiClipsUpdated.fill(0);
 		myGiClipProbeCounts.fill(0);
 		myGiClipCacheBlockCounts.fill(0);
+		myGiClipProbeVoxelCounts.fill(0);
 	}
 	ENSUREF(
 		clipmap.total.voxelCount == myGiClipmap.total.voxelCount || changed,
@@ -5239,6 +5254,11 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.cacheAnchor = myGiCacheAnchor ? 1U : 0U;
 		clip.cacheLit = myGiCacheLit ? 1U : 0U;
 		clip.cacheThin = myGiCacheThin;
+		// (the air's voxels take the probes' light every so many updates, GiResolve: every one while the lights change,
+		// gradually or just now, when the probes' light does by more than their hysteresis's few percent a frame)
+		constexpr uint32_t kGiProbeQuietUpdateCount = 64;
+		bool probesQuiet = myGiLightsFollowFrames == 0 && clock.updatesSinceCacheReset >= kGiProbeQuietUpdateCount;
+		clip.probes = myGiProbes | ((probesQuiet ? myGiProbeAirInterval : 1U) << 8);
 		clip.cacheAnchorBias = myGiClipmap.clips.back().data.volumeOrigin[3] / 64.0F;
 		// the filter's passes: anchored (GiData::cacheAnchor), one for the last level and one more per level finer, so that it
 		// reaches about as far in the world at every level (each pass doubles its reach in voxels, each level halves the

@@ -121,7 +121,7 @@ float AerialPerspectiveShadow(uint lightIndex, float3 position)
 float4 AerialPerspectiveAmbient(float3 position)
 {
 	uint frameIndex = gPushConstants.frameIndex;
-	if (gGi[frameIndex][0].enabled == 0)
+	if (gGi[frameIndex][0].enabled == 0 || (gGi[frameIndex][0].probes & 0xFFu) == 0u)
 		return 0.0;
 	uint clipCount = gGi[frameIndex][0].clipCount;
 	float3 light = 0.0;

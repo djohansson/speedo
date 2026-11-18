@@ -621,6 +621,7 @@ private:
 	uint32_t myGiActiveProbeCount = 0; // what the last frame of this index counted (see gGiStatistics)
 	uint64_t myGiActiveProbeSum = 0; // over the frames, for SPEEDO_GPU_TIMINGS' summary
 	uint64_t myGiRayCountSum = 0;
+	uint64_t myGiProbeVoxelSum = 0; // the voxels the probes were resolved into (myGiClipProbeVoxelCounts), for the summary too
 	uint32_t myGiStatisticFrameCount = 0;
 	std::vector<Buffer> myGiStatisticsBuffers;
 	FrameGraph::BufferId myGiStatisticsId;
@@ -664,6 +665,7 @@ private:
 	std::array<uint32_t, SHADER_TYPES_FRAME_COUNT> myGiClipsUpdated{};
 	std::array<uint32_t, SHADER_TYPES_GI_CLIP_COUNT> myGiClipProbeCounts{};
 	std::array<uint32_t, SHADER_TYPES_GI_CLIP_COUNT> myGiClipCacheBlockCounts{};
+	std::array<uint32_t, SHADER_TYPES_GI_CLIP_COUNT> myGiClipProbeVoxelCounts{}; // the voxels the probes were resolved into (GiData::probes)
 	// the probes hold what they have every second lap once the scene has been still for two (see GiData::probeFreeze):
 	// SPEEDO_GI_PROBE_FREEZE=0 for never, and the frames it has been still
 	bool myGiProbeFreeze = true;
@@ -788,6 +790,8 @@ private:
 	bool myGiCacheAnchor = true; // SPEEDO_GI_CACHE_ANCHOR=0 for off: see GiData::cacheAnchor
 	bool myGiCacheLit = true; // SPEEDO_GI_CACHE_LIT=0 for off: see GiData::cacheLit
 	uint32_t myGiCacheThin = 2; // SPEEDO_GI_CACHE_THIN: see GiData::cacheThin
+	uint32_t myGiProbes = 1; // SPEEDO_GI_PROBES: see GiData::probes
+	uint32_t myGiProbeAirInterval = 8; // SPEEDO_GI_PROBE_AIR_INTERVAL: its upper bits, while the lights are still
 	bool myGiSurfaceCacheOn = false; // this frame (FrameInputs::giSurfaceCache), for the GI pass's filter
 	bool myGiTraceBvh = false; // this frame: the rays trace the BVHs (GI_TRACE_BVH, see ComputeGiResolveTraced)
 	// the near field (see GiData::nearReach): its rays' reach in voxels (SPEEDO_GI_NEAR_REACH), the power of the share that

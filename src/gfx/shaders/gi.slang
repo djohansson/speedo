@@ -1992,6 +1992,11 @@ static const uint kGiVisible = 0u; // nothing between them
 static const uint kGiHidden = 1u; // a surface's front between them
 static const uint kGiBehind = 2u; // a surface's back between them: the probe is behind it
 static const uint kGiVisibilityValid = 1u << 16;
+// and, in the same word, what the voxel's light was made of as the surface cache's filter left it (ComputeGiCacheFilter,
+// for the next frame's resolve, see GiResolve): the cache's alone (a settled entry's, kGiCacheSettledCount), or the
+// cache's and the probes' blended. neither: the probes' alone, or none
+static const uint kGiVisibilityCacheAlone = 1u << 17;
+static const uint kGiVisibilityBlended = 1u << 18;
 
 float3 GiProbeOffset(uint offsetIndex)
 {
@@ -2308,7 +2313,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	if (texelIndex == 0u)
 	{
 		InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_ACTIVE_PROBES], 1u);
-		InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CLIP_FIRST + 2u * gi.clip], 1u);
+		InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CLIP_FIRST + GI_STATISTIC_CLIP_WORD_COUNT * gi.clip], 1u);
 	}
 	// holding what it has this frame (see GiProbeFrozen): copied over from its place last frame, its light, place, depth
 	// and cycle as they were
@@ -2334,6 +2339,10 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	}
 	// the rays: the thread's texels' depth (texelIndex, and every group's worth of texels after it), and (the first
 	// thread) the irradiance faces
+	// (the depth maps only where the resolve tests the probes by them, the rays walking the voxels: where they trace
+	// the triangles it tests each by a ray, ComputeGiResolveTraced, and the maps, most of this pass's work, a texel
+	// against every ray, are left as they are. Renderer starts the indirect lighting over when the rays change)
+	bool depthMaps = !GiTracesBvh(gi);
 	float3 texelDirection[kTexelsPerThread];
 	float2 depthSum[kTexelsPerThread];
 	float depthWeight[kTexelsPerThread];
@@ -2383,7 +2392,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 			// salle_de_bain's back wall, by the window's emitter, lit its niches with white patches the surface reference
 			// hasn't
 			float rayDepth = ray.a < 0.0 ? -ray.a * 0.2 : ray.a;
-			for (uint texelIt = 0; texelIt < kTexelsPerThread; texelIt++)
+			for (uint texelIt = 0; texelIt < (depthMaps ? kTexelsPerThread : 0u); texelIt++)
 			{
 				float cosine = max(dot(texelDirection[texelIt], direction), 0.0);
 				float weight = pow(cosine, SHADER_TYPES_GI_DEPTH_SHARPNESS);
@@ -2418,7 +2427,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 		}
 		GroupMemoryBarrierWithGroupSync();
 	}
-	for (uint texelIt = 0; texelIt < kTexelsPerThread; texelIt++)
+	for (uint texelIt = 0; texelIt < (depthMaps ? kTexelsPerThread : 0u); texelIt++)
 	{
 		uint texel = texelIndex + texelIt * SHADER_TYPES_GI_GROUP_SIZE;
 		// a texel's depth from the rays near it; one no ray is near this frame keeps what it held, or, holding nothing
@@ -2935,6 +2944,11 @@ struct GiCacheEntry
 // how many samples the probes' light counts as, against a voxel's: its light is the cache's by its samples over them
 // and this
 static const float kGiCachePrior = 16.0;
+// how many samples an entry holds once it is settled: from there on its voxel's light is the cache's alone (the probes'
+// share, the prior's over the samples and it, is scaled to reach none there: ComputeGiCacheFilter), and the probes
+// aren't resolved into the voxel (GiResolve, GiData::probes). as many as the coarser clip's seed
+// (kGiCacheAnchoredSeedCount), so that a voxel that scrolls in seeded is settled as it arrives
+static const uint kGiCacheSettledCount = 256u;
 // how many samples of their mean square a voxel's variance is taken with besides its own (a voxel of few samples is
 // noise, however alike they came out: one sample has no variance)
 static const float kGiCacheVariancePrior = 4.0;
@@ -3895,7 +3909,11 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 	// last clip's probes 3.7 m apart at resolution 64 don't see into Sponza's corridor) held the cache's light in half
 	// floats' subnormals, each color rounded its own way, and the corridor came out in pink, yellow and blue blotches;
 	// and a voxel no probe sees took none of it
-	float confidence = gi.cacheShow != 0u ? 1.0 : self.confidence;
+	// (where the probes are resolved only into what shows them, GiData::probes, their share reaches none as the entry
+	// settles: the confidence over a settled entry's, so that the voxel's light doesn't step when they are left out)
+	bool probesByNeed = (gi.probes & 0xFFu) == 1u && GiCacheAnchored(gi);
+	float settledConfidence = float(kGiCacheSettledCount) / (float(kGiCacheSettledCount) + kGiCachePrior);
+	float confidence = gi.cacheShow != 0u ? 1.0 : (probesByNeed ? saturate(self.confidence / settledConfidence) : self.confidence);
 	float weight = max(seen, confidence);
 	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
 		sh[faceIt] = lerp(seen > 0.0 ? sh[faceIt] / seen : filtered[faceIt], filtered[faceIt], confidence) * weight;
@@ -3977,6 +3995,14 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 	gGiVolumeImages[2][texel] = float4(sh[0].b, sh[1].b, sh[2].b, sh[3].b);
 	gGiVolumeImages[3][texel] = float4(sh[4].r, sh[5].r, sh[4].g, sh[5].g);
 	gGiVolumeImages[4][texel] = float4(sh[4].b, sh[5].b, sided ? seen : 0.0, seen);
+	// and what the voxel's light is made of, for the next frame's resolve (GiResolve): the cache's alone, where the
+	// probes needn't be resolved into it, or a blend, where they are every frame (an air voxel's by the entries it took:
+	// their mean's rounding counts as settled)
+	if (probesByNeed)
+	{
+		uint visibilityIndex = gi.visibilityFirst + GiVoxelIndex(at, size);
+		gGiVisibility[visibilityIndex] = gGiVisibility[visibilityIndex] | (confidence >= 0.999 ? kGiVisibilityCacheAlone : kGiVisibilityBlended);
+	}
 }
 
 // the cache's storage before the resolve (see GiCachePopPage; clip 0's GiData, a thread each of the tables' blocks or
@@ -4045,6 +4071,9 @@ groupshared uint gGiSharedCacheFresh;
 groupshared uint gGiSharedCacheActive;
 // whether a lookup read each of the 27 blocks around lately
 groupshared uint gGiSharedCacheSeen[27];
+// whether something moves in each of the 27 blocks around, this frame or the last, and whether in any (see GiResolve)
+groupshared uint gGiSharedMovingAround[27];
+groupshared uint gGiSharedMoving;
 
 // the resolve where the probes' rays walk the voxels: each probe tested by its depth map (kDepthMaps, see GiResolve)
 [shader("compute")]
@@ -4173,9 +4202,13 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	// read, so the loads couldn't overlap), the group's other threads waiting, and most blocks are read by no lookup
 	if (gi.cacheRayCount != 0u && groupIndex < 27u)
 	{
-		int3 around = int3(block) + gi.scroll.xyz / int(1u << SHADER_TYPES_GI_FLAG_LEVEL) + int3(groupIndex % 3u, (groupIndex / 3u) % 3u, groupIndex / 9u) - 1;
+		int3 here = int3(block) + int3(groupIndex % 3u, (groupIndex / 3u) % 3u, groupIndex / 9u) - 1;
+		int3 around = here + gi.scroll.xyz / int(1u << SHADER_TYPES_GI_FLAG_LEVEL);
 		uint seen = GiInside(around, blocks) ? gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(around), blocks)) + 2u] : 0u;
 		gGiSharedCacheSeen[groupIndex] = seen != 0u && gi.frameStamp - seen <= kGiCacheSeenFrameCount ? 1u : 0u;
+		// and whether something moves in it, this frame or the last (the voxelizing's stamp; see the probes, below)
+		uint movingStamp = gi.moving != 0u && GiInside(here, blocks) ? gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(here), blocks)) + 1u] : 0u;
+		gGiSharedMovingAround[groupIndex] = movingStamp != 0u && gi.frameStamp - movingStamp <= 1u ? 1u : 0u;
 	}
 	GroupMemoryBarrierWithGroupSync();
 	if (gi.cacheRayCount != 0u && groupIndex == 0u)
@@ -4200,7 +4233,7 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 		if (cachePage != 0u || (cacheWanted != 0u && (read || everywhere)))
 		{
 			InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CACHE_BLOCKS], 1u);
-			InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CLIP_FIRST + 2u * gi.clip + 1u], 1u);
+			InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CLIP_FIRST + GI_STATISTIC_CLIP_WORD_COUNT * gi.clip + 1u], 1u);
 		}
 		// filtered this frame where it was read and has a record (see GiCacheTakeRecord)
 		uint record = 0u;
@@ -4215,10 +4248,41 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 		gGiSharedCachePage = cachePage;
 		gGiSharedCacheFresh = fresh ? 1u : 0u;
 		gGiSharedCacheActive = read ? 1u : 0u;
+		uint movingAround = 0u;
+		for (uint aroundIt = 0; aroundIt < 27u; aroundIt++)
+			movingAround |= gGiSharedMovingAround[aroundIt];
+		gGiSharedMoving = movingAround;
 	}
 	GroupMemoryBarrierWithGroupSync();
 	bool active = gi.cacheRayCount != 0u && gGiSharedCacheActive != 0u;
 	uint page = gi.cacheRayCount != 0u ? gGiSharedCachePage : 0u;
+	// which voxels the probes are resolved into (GiData::probes; the loop below is most of this pass's time, and of the
+	// probes' cost). where the surface cache's entries are the light at the surface (GiCacheAnchored), only where they
+	// can change what the voxel shows:
+	// - not into a voxel whose light was the cache's alone last frame (kGiVisibilityCacheAlone: a settled entry's, or an
+	//   air voxel's beside settled ones), which holds none of theirs;
+	// - every frame into one whose light was a blend (kGiVisibilityBlended: an entry of few samples, just made, after
+	//   the lights changed, or where something moves, whose entries are capped at 32 samples);
+	// - into the rest (the air, and a surface's voxel without an entry's light) every GiData::probes' interval-th frame,
+	//   a block at a time in turn: their light is the probes' as resolved, which changes by a few percent a frame (the
+	//   hysteresis), and the voxel keeps what it held in between (the volumes aren't written, nor its visibility), at
+	//   once where a probe of the block moved. Renderer gives an interval of 1 while the lights change.
+	// and into every voxel as it was (everyVoxel) where what the voxels held isn't theirs or is stale: after a reset, a
+	// scroll, where something moves in the block or around it, and where the cache is off or isn't anchored. the light in
+	// the air stays the probes', then: the lookups beside what has few samples (thinner than a voxel: Bistro's window
+	// frames and shutters) read it, as do the near field's rays that meet nothing and what lets light through from
+	// behind. see "The probes, resolved where they show" in docs/notes/indirect-lighting.md for what was tried first
+	bool anchoredCache = GiCacheAnchored(gi) && gi.cacheRayCount != 0u;
+	uint probeMode = gi.probes & 0xFFu;
+	bool everyVoxel = probeMode != 1u || !anchoredCache || gi.reset != 0u || gi.cacheReset != 0u || gi.cacheInit != 0u || any(gi.scroll.xyz != 0) || gGiSharedMoving != 0u;
+	bool airTurn = true;
+	if (!everyVoxel)
+	{
+		bool moved = false;
+		for (uint slotIt = 0; slotIt < slotCount; slotIt++)
+			moved = moved || gGiSharedProbeMoved[slotIt] != 0u;
+		airTurn = moved || (((blockIndex * 0x9E3779B1u) >> 8) + gi.frameStamp) % max(gi.probes >> 8, 1u) == 0u;
+	}
 	if (!inside)
 		return;
 
@@ -4269,8 +4333,21 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	// GiSampleSurface), where the 6 neighbors alone gave no side, so every probe counted by its visibility alone, and a
 	// probe behind Bistro's hotel facade, whose depth toward the street mixes the facade's with the window's beside
 	// it (Chebyshev lets the point through), lit the wall by the window with the hotel's interior
+	// (not looked for where neither the probes nor the cache go by it: a voxel the probes aren't resolved into this
+	// frame, see above, whose entry, anchored, is its surface's)
 	float3 away = 0.0;
-	for (uint axisIt = 0; axisIt < 3; axisIt++)
+	bool occupied = (voxel.albedo >> 24) != 0u;
+	// what its light was made of last frame (where it is the voxel's still: nothing scrolled, see everyVoxel)
+	uint voxelIndex = GiVoxelIndex(at, size);
+	uint made = everyVoxel ? 0u : gGiVisibility[gi.visibilityPreviousFirst + voxelIndex];
+	bool cacheAlone = (made & kGiVisibilityCacheAlone) != 0u;
+	bool probes = probeMode != 0u && (everyVoxel || (made & kGiVisibilityBlended) != 0u || (!cacheAlone && airTurn));
+	// (kept as it is: the probes' light as last resolved into it)
+	bool keep = probeMode != 0u && !probes && !cacheAlone;
+	// (a sixteenth of the voxels counted, for the summary: an atomic a voxel is the pass's time)
+	if (probes && (voxelIndex & 15u) == 0u)
+		InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CLIP_FIRST + GI_STATISTIC_CLIP_WORD_COUNT * gi.clip + 2u], 16u);
+	for (uint axisIt = 0; axisIt < 3 && (probes || !anchoredCache); axisIt++)
 	{
 		int3 step = int3(axisIt == 0u, axisIt == 1u, axisIt == 2u);
 		for (int reachIt = 1; reachIt <= 3; reachIt++)
@@ -4303,7 +4380,6 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	// side the test point above goes by is a guess at the voxels around, which in a coarse clip pointed salle_de_bain's
 	// niches' points into the space behind their wall
 	bool traced = !kDepthMaps || GiTracesBvh(gi);
-	uint voxelIndex = GiVoxelIndex(at, size);
 	uint visibilityBits = 0u;
 	bool retrace = false;
 	float3 tracedPoint = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
@@ -4311,11 +4387,17 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	{
 		int3 from = int3(at) + gi.scroll.xyz;
 		visibilityBits = gi.reset == 0u && GiInside(from, size) ? gGiVisibility[gi.visibilityPreviousFirst + GiVoxelIndex(uint3(from), size)] : 0u;
+		// (without what its light was made of, the filter's: see kGiVisibilityCacheAlone)
+		visibilityBits &= kGiVisibilityValid | 0xFFFFu;
 		retrace = (visibilityBits & kGiVisibilityValid) == 0u;
 		for (uint slotIt = 0; slotIt < slotCount; slotIt++)
 			retrace = retrace || gGiSharedProbeMoved[slotIt] != 0u;
-		if (retrace)
+		// (traced where the probes are resolved into the voxel: one kept as it is keeps what was traced, and one whose
+		// light is the cache's alone drops it, to be traced again when the probes are of use to it)
+		if (retrace && probes)
 			visibilityBits = kGiVisibilityValid;
+		if (!probes && !keep)
+			visibilityBits = 0u;
 		// no further than halfway to a surface facing back at it (see GiOpenAlong)
 		if ((voxel.albedo >> 24) != 0u)
 			tracedPoint += GiVoxelNormal(voxel.normal) * (min(0.5, 0.5 * GiUnpackRgba16(gGiDirect[gi.voxelFirst + voxelIndex]).a) * gi.volumeOrigin.w);
@@ -4334,7 +4416,8 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
 		shHidden[shIt] = 1e30;
 	float hiddenWeight = 0.0;
-	for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
+	// (none where the probes aren't resolved into the voxel this frame, see above)
+	for (uint cornerIt = 0; cornerIt < (probes ? 8u : 0u); cornerIt++)
 	{
 		int3 offset = int3(cornerIt & 1, (cornerIt >> 1) & 1, cornerIt >> 2);
 		uint3 probe = uint3(clamp(base + offset, int3(0), int3(gi.probeSize.xyz) - 1));
@@ -4506,7 +4589,6 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	// of a surface but none of whose voxels hold one gives its page back next frame, and one without gets one then
 	// anchored (GiCacheAnchored), a surface's voxels alone: the air voxels beside them take their light (see
 	// ComputeGiCacheFilter)
-	bool occupied = (voxel.albedo >> 24) != 0u;
 	bool cacheEntry = GiCacheAnchored(gi) ? occupied : (awayLength > 0.0 || occupied);
 	if (gi.cacheRayCount != 0u && cacheEntry)
 	{
@@ -4521,6 +4603,10 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 		else
 			GiCacheClear(GiCacheEntryIndex(page, at));
 	}
+	// (a voxel the probes aren't resolved into this frame keeps their light as it holds it, see above, or, its light the
+	// cache's alone, holds none of theirs)
+	if (keep)
+		return;
 	gGiVolumeImages[0][texel] = float4(sh[0].r, sh[1].r, sh[2].r, sh[3].r);
 	gGiVolumeImages[1][texel] = float4(sh[0].g, sh[1].g, sh[2].g, sh[3].g);
 	gGiVolumeImages[2][texel] = float4(sh[0].b, sh[1].b, sh[2].b, sh[3].b);

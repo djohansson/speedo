@@ -1353,6 +1353,82 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   The filter's cut behind the voxel's own surface, the sharing's and the marked voxels together (the second report's
   fixes): salle_de_bain 0.5 of 255 darker at a fixed exposure, the rest of the regression set within 0.03 (Vulkan);
   Bistro's frame the same (6.36 and 6.34 ms), Sponza's 4.25 to 4.32.
+- **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
+  `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
+  `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows
+  the cache's light and a sixty-fifth of the probes'; what the probes are still for was measured by leaving
+  them out altogether (`SPEEDO_GI_PROBES=0`, against every voxel as it was, `2`; settled, RTX 4070 Ti SUPER, Vulkan,
+  1080p, of 255): salle_de_bain 0.02 at its framed pose, CornellBox 0.08, BrainStem, CesiumMan and Fox on their ground
+  0.02 to 0.16, Sponza's columns 0.56 and its corridor 1.33 of 7.7 (the floor along the curtains), Bistro 0.8 (4 in
+  parts); the levels' agreement in the corridor the same (1.45, 1.57 and 2.07 for 1.46, 1.62 and 2.09) and the walk
+  (1.07, 1.58 and 1.73 for 1.08, 1.57 and 1.86): they are no longer what makes the levels disagree. But:
+  - the fog reads them itself (`AerialPerspectiveAmbient`), and without them takes the sky's light indoors: Sponza's
+    corridor blue with haze at the default 30 km;
+  - what moves is theirs: an entry in a block something moves through is capped at 32 samples (a third the probes'),
+    and a moving thing's voxels are new every frame (most of its light);
+  - and the air's light is theirs, which more reads than the note of step 1 has it: the near field's rays that meet
+    nothing (`GiNearTrace`: the volumes where the ray ends, 8 voxels out), what lets light through from behind
+    (`GiIrradiance` along the normal's opposite, a voxel and a half back), and every lookup beside a surface's voxel
+    that holds few samples or none (below).
+  What they cost is the resolve, not the rays (the GI pass, before: salle_de_bain 1.53 ms, Sponza 2.00, Bistro 2.19;
+  without any 1.04, 1.26, 1.66): the rays 0.06, 0.02 and 0.17 ms (`SPEEDO_SKIP_PASSES=GI Trace`), the probes' update
+  0.12 to 0.14, and their light weighed into every voxel within the flags' reach of a surface, 8 probes each, the rest
+  (0.25 to 0.55). So fewer rays save nothing (64, 32 and 16 a probe: salle_de_bain's pass 1.513, 1.512 and 1.500 for
+  1.526) and aren't taken: a moving thing's light is as it was.
+  - **Tried first: the probes left out of the blocks whose entries are settled** (a bit a block in the cache's table,
+    set by its voxels' entries of fewer than 256 samples and read by the 27 blocks around the frame after; a block no
+    lookup reads settled at 32; an entry settled too once it had traced 256 rays, since 40 to 60% of the blocks hold a
+    voxel past its triangle's edge, whose rays find no surface under it to start from, and never were; the voxels of
+    what lets light through marked, their blocks never settled). The probes then lit a twentieth of the blocks after
+    500 frames and none after 5000, the pass 1.56 to 1.23 ms in salle_de_bain, 1.99 to 1.52 in Sponza, 2.17 to 1.98 in
+    Bistro. And the picture changed where no test had looked: salle_de_bain's window's recess 10 to 27 of 255 brighter
+    from the front (pose `-0.8,17.0,-6.5,0,1.2`, exposure -1), and Bistro's shadowed facade (`564,170,-2436,0,30`) 10 to
+    20 darker and blotchy, through the finer levels alone (through the last level, `SPEEDO_GI_LOOKUP_LEVEL=2`, the two
+    were 0.04 apart). A lookup reads the surface's voxel and the 7 around it; beside a surface's voxel of few samples
+    (thinner than a voxel: Bistro's window frames and shutters, a recess shallower than a voxel) those are air voxels
+    that take no entry's light, and what they held, the probes', was what kept the lookup smooth (the recess: the
+    entries 0.65 to 0.75 along +x, the air beside them 0.016 to 0.037 at weights of 0.2 to 0.4). Not a truer picture
+    either way; dropped for one that keeps it.
+  - **As built**: the probes' light stays in every voxel it was in, and is resolved into a voxel only when that can
+    change what it shows. The cache's filter leaves in the voxel's word of its probes' visibility what its light was
+    made of: the cache's alone (a settled entry's, 256 samples, or an air voxel's beside settled ones), or a blend. The
+    next frame's resolve, per voxel: none into the first (the probes' share, the prior's 16 over the samples and it, is
+    scaled to reach none at 256, so nothing steps); every frame into the second (few samples: just made, after the
+    lights changed, where something moves); and into the rest, the air and a surface's voxel without an entry's light,
+    every `SPEEDO_GI_PROBE_AIR_INTERVAL`-th update (8), a block at a time in turn, the voxel keeping what it holds in
+    between (the volumes aren't written), at once where a probe of the block moved. Their light changes by the
+    hysteresis's few percent a frame, so 8 frames late is nothing while the lights are still; while they change,
+    gradually or within the last 64 updates, the interval is 1 (Renderer). Into every voxel as it was after a reset, in
+    a clip that scrolled this frame, in a block something moves in or beside (this frame or the last), and where the
+    cache is off or isn't anchored.
+  - **The probes' depth maps aren't made where the rays trace the triangles** (`ComputeGiProbeUpdate`): the resolve
+    tests each probe by a ray there, and the maps were most of the update's work, a texel against every ray (0.01 to
+    0.05 ms). The indirect lighting starts over when what the rays meet is switched. The probes' debug view of what
+    they see reads maps no longer kept up there.
+  Measured, each run beside one of every voxel (`SPEEDO_GI_PROBES=2`, with the depth maps left out too), 5000 frames:
+
+  | | the GI pass | a frame | voxels the probes are resolved into |
+  |---|---|---|---|
+  | salle_de_bain | 1.84 to 1.21 ms | 3.09 to 2.95 | 793000 to 92000 |
+  | Sponza's corridor | 1.98 to 1.62 | 4.36 to 4.01 | 1320000 to 155000 |
+  | Bistro | 2.18 to 2.08 | 6.05 to 5.94 | 1116000 to 144000 |
+  | Bistro at night | 2.09 to 1.99 | 5.32 to 5.18 | 1080000 to 142000 |
+
+  (the air every 4th update: 1.27, 1.66, 2.10 and 2.01; every update, the settled voxels alone left out: 1.82, 1.92,
+  2.18 and 2.08, so the air is the saving; after 600 frames into 232000, 409000, 344000 and 344000.) The
+  picture is the same to the noise between two runs: the regression set, the user's four poses of salle_de_bain's
+  shelves, niche and window, and the frontal one, 0.00 to 0.18 of 255 on average and 0.12 to 0.60 in absolute
+  difference (CornellBox, where nothing changes, 0.12), on D3D12 the same; the walk 1.02, 1.54 and 1.84 for 1.05, 1.58
+  and 1.86. What Bistro still pays for its probes (0.46 ms of the pass) is their rays and update.
+  - **What moves, checked** (`resources/test-models/gltf/MovingInterior.gltf`, `scripts/test-assets/movinginterior.ps1`:
+    a room lit through a skylight at one end, a sphere flying its length at 4.5 m/s, a cube turning, a small box darting
+    across by the floor; `SPEEDO_REPEATABLE=1` starts the animation over where its count starts, so that with
+    `SPEEDO_ANIMATION_FRAME_SECONDS=0.015625` frame 700 is the same pose in every run, and `SPEEDO_ANIMATION_TIME=10.9375`
+    holds that pose still, which the client prints at exit): the frame against every voxel's 0.49 of 255 (0.30 on
+    D3D12), and against the pose held still, settled, 1.94 where every voxel's is 2.34. With no probes at all, after
+    2816 frames, 1.12 from every voxel's.
+  Seen on the way, as it was before and not looked into: salle_de_bain's frontal frame brightens by 5 of 120 between
+  frames 2600 and 14000, with the probes resolved either way (at 600 it is 9 to 12 under).
 - **A neural radiance cache in plain compute is affordable, and learns too slowly for this** (`tools/neuralbench.cpp`,
   `neuralbench.slang`: the gate of the plan to try one; the user asked for Slang's neural features to be looked at, and
   for hardware such as tensor cores to stay an opt in beside a portable default that is practically useful). A

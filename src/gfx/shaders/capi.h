@@ -1415,10 +1415,13 @@ struct CullView
 // pools grow to hold (see Renderer::InternalPlanGi)
 #define GI_STATISTIC_CACHE_BLOCKS 17u
 #define GI_STATISTIC_CACHE_ACTIVE_BLOCKS 18u
-// and per clip (two words each from here: its probes traced, and its blocks wanting a page), since a frame updates only
-// some of the clips (see GiData::updated): the ray budget and the cache's pool go by every clip's, as each last counted
+// and per clip (GI_STATISTIC_CLIP_WORD_COUNT words each from here: its probes traced, its blocks wanting a page, and
+// the voxels its probes were resolved into, a sixteenth of them counted, see GiResolve and GiData::probes), since a
+// frame updates only some of the clips (see GiData::updated): the ray budget and the cache's pool go by every clip's, as
+// each last counted
 #define GI_STATISTIC_CLIP_FIRST 20u
-#define GI_STATISTIC_COUNT (GI_STATISTIC_CLIP_FIRST + 2u * SHADER_TYPES_GI_CLIP_COUNT)
+#define GI_STATISTIC_CLIP_WORD_COUNT 3u
+#define GI_STATISTIC_COUNT (GI_STATISTIC_CLIP_FIRST + GI_STATISTIC_CLIP_WORD_COUNT * SHADER_TYPES_GI_CLIP_COUNT)
 // a probe dumped for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the probe nearest the point writes its state after
 // gGiStatistics[frame]'s statistics, GI_DUMP_FLOAT_COUNT floats per clip: its position (3), offset (3), age, inside, the
 // rays that met a surface's back, the rays, then its depth map's texels' means; the resolve at the point's voxel; and
@@ -1650,7 +1653,12 @@ struct GiData
 	// whether the voxels' kept light (gGiKept) was carried with them when the clip moved (ComputeGiShift, into gGiRadiance),
 	// for ComputeGiLightStatic to keep: a voxelizing that isn't a reset's, nor after the emitters changed
 	alignas(4) UINT1(keptCarried);
-	alignas(4) UINT1(padding0); // std430's tail, to the struct's 16 byte alignment, explicit (see the top of the file)
+	// which voxels the probes are resolved into (SPEEDO_GI_PROBES, the low 8 bits): 1, those whose light they can change
+	// (not the ones whose surface cache entries are settled; the air's every so many frames, the upper bits, 1 while the
+	// lights change: see GiResolve); to compare, 2, every voxel near a surface every frame, as it was, and 0, none (they
+	// don't trace: the voxels hold the surface cache's light alone, the fog the sky's). the last member, the struct's 16
+	// byte alignment's tail
+	alignas(4) UINT1(probes);
 };
 
 struct PushConstants
