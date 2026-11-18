@@ -135,6 +135,17 @@ PipelineLayout<kVk>::PipelineLayout(
 {}
 
 template <>
+void PipelineLayout<kVk>::ReplaceShaders(const ShaderSet& shaderSet)
+{
+	ENSUREF(shaderSet.shaders.size() == myShaderModules.size(), "{}: {} shaders replacing {}", GetName(), shaderSet.shaders.size(), myShaderModules.size());
+	std::vector<ShaderModule<kVk>> shaderModules;
+	shaderModules.reserve(shaderSet.shaders.size());
+	for (const auto& shader : shaderSet.shaders)
+		shaderModules.emplace_back(ShaderModuleCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("ShaderModule"), shader});
+	myShaderModules = std::move(shaderModules);
+}
+
+template <>
 PipelineLayout<kVk>::~PipelineLayout()
 {
 	if (IsValid())

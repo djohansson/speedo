@@ -121,6 +121,17 @@ PipelineLayout<kMetal>::PipelineLayout(CreateDescType&& desc, const ShaderSet& s
 {}
 
 template <>
+void PipelineLayout<kMetal>::ReplaceShaders(const ShaderSet& shaderSet)
+{
+	ENSUREF(shaderSet.shaders.size() == myShaderModules.size(), "{}: {} shaders replacing {}", GetName(), shaderSet.shaders.size(), myShaderModules.size());
+	std::vector<ShaderModule<kMetal>> shaderModules;
+	shaderModules.reserve(shaderSet.shaders.size());
+	for (const auto& shader : shaderSet.shaders)
+		shaderModules.emplace_back(ShaderModuleCreateDesc<kMetal>{SuperType::CreateDeviceObjectCreateDesc("ShaderModule"), shader});
+	myShaderModules = std::move(shaderModules);
+}
+
+template <>
 PipelineLayout<kMetal>::~PipelineLayout()
 {
 	delete myLayout;

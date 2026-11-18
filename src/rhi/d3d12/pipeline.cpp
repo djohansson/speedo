@@ -533,11 +533,8 @@ Pipeline<kD3D12>::Pipeline(CreateDescType&& desc)
 // (Swap and the moves are every backend's, in pipeline.inl)
 
 template <>
-Pipeline<kD3D12>::~Pipeline()
+void Pipeline<kD3D12>::InternalDestroyPipelines()
 {
-	if (!IsValid())
-		return;
-
 	for (const auto& [key, handle] : myPipelineMap)
 	{
 		// null: requested (see RequestGraphicsPipeline), but its job never ran
@@ -548,6 +545,16 @@ Pipeline<kD3D12>::~Pipeline()
 			d3d12::Release(state);
 		delete handle;
 	}
+	myPipelineMap.clear();
+}
+
+template <>
+Pipeline<kD3D12>::~Pipeline()
+{
+	if (!IsValid())
+		return;
+
+	InternalDestroyPipelines();
 
 	myDescriptorMap.clear();
 	d3d12::pipelinecache::Close(myCache, d3d12::pipelinecache::PathOf(GetDesc().cachePath));

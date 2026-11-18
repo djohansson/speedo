@@ -346,6 +346,9 @@ public:
 	// it makes submits to the queue). until then the scene isn't ready: it draws the output cleared with the ui over it
 	// (Record), its loads import but wait to install (LoadModels and the others), and it has no renderer
 	bool Prepare();
+	// whether the scene reloads its shaders when their sources change, between frames (in Prepare), keeping its state (a
+	// checkout's window: see docs/shader-compile-plan.md, step 6). off by default
+	void WatchShaders(bool watch) noexcept;
 	[[nodiscard]] bool IsReady() const noexcept;
 	// how far the shaders' compile is, 0 to 1: the layouts done, and an estimate for those compiling (by how long the
 	// last cold compile took)

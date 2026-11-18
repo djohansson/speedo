@@ -108,10 +108,9 @@ static std::string RandomHex()
 	return std::format("{:08x}{:08x}", device(), device());
 }
 
-// runs each request in a worker process of its own, all at once, in jobs (removed after); their responses, a hard
-// failure where a worker or its compile fails (the compile's diagnostics in the message, as a compile in this process
-// gives them)
-static std::vector<shadercompiler::Response> RunWorkers(
+// runs each request in a worker process of its own, all at once, in jobs (removed after); their responses, or where a
+// worker or its compile fails, why (the compile's diagnostics)
+static std::expected<std::vector<shadercompiler::Response>, std::string> RunWorkers(
 	std::span<const shadercompiler::Request> requests, const std::filesystem::path& jobs, const std::filesystem::path& file)
 {
 	auto executable = core::file::GetExecutablePath();
@@ -142,25 +141,30 @@ static std::vector<shadercompiler::Response> RunWorkers(
 		processes.push_back(std::move(*process));
 	}
 	std::vector<shadercompiler::Response> results(requests.size());
+	std::string failure;
 	for (size_t requestIt = 0; requestIt < requests.size(); requestIt++)
 	{
+		// (every worker waited for, whichever failed)
 		auto exitCode = processes[requestIt].Wait();
-		ENSUREF(
-			exitCode && *exitCode == 0,
-			"the shader compiler's worker failed on {} ({})",
-			file.string(),
-			exitCode ? std::format("exit code {}", *exitCode) : exitCode.error().message());
+		if (!failure.empty())
+			continue;
+		if (!exitCode || *exitCode != 0)
+		{
+			failure = std::format(
+				"the shader compiler's worker failed on {} ({})", file.string(), exitCode ? std::format("exit code {}", *exitCode) : exitCode.error().message());
+			continue;
+		}
 		auto mapped = core::file::Map(responses[requestIt]);
-		ENSUREF(mapped, "failed to read {}", responses[requestIt].string());
-		ENSUREF(
-			!zpp::bits::failure(zpp::bits::in(std::span<const std::byte>(mapped->data(), mapped->size()))(results[requestIt])),
-			"failed to read the compile of {}",
-			file.string());
-		// (a failure's diagnostics in its message: see Compile)
-		ENSUREF(results[requestIt].ok, "Failed to compile slang file {}:\n{}", file.string(), results[requestIt].diagnostics);
+		if (!mapped ||
+			zpp::bits::failure(zpp::bits::in(std::span<const std::byte>(mapped->data(), mapped->size()))(results[requestIt])))
+			failure = std::format("failed to read the compile of {} ({})", file.string(), responses[requestIt].string());
+		else if (!results[requestIt].ok)
+			failure = std::format("Failed to compile slang file {}:\n{}", file.string(), results[requestIt].diagnostics);
 	}
 	processes.clear();
 	std::filesystem::remove_all(jobs, error);
+	if (!failure.empty())
+		return std::unexpected(failure);
 	return results;
 }
 
@@ -238,7 +242,7 @@ static void WriteCosts(const std::filesystem::path& path, const core::UnorderedM
 // the entry points whose code the cache holds by their keys are taken from it; round two compiles the others (and for
 // DXIL each specialization of the entry points that read the constant) in the workers at once, divided by what each
 // took the last time (or by the size of its source), and puts them in the cache
-static rhi::ShaderSet CompileInWorkers(
+static std::expected<rhi::ShaderSet, std::string> CompileInWorkers(
 	const std::filesystem::path& file,
 	const ShaderLoader::SlangConfiguration& config,
 	shadercompiler::Request request,
@@ -260,7 +264,10 @@ static rhi::ShaderSet CompileInWorkers(
 		for (size_t entryPointIt = workerIt; entryPointIt < entryCount; entryPointIt += keyWorkerCount)
 			keyRequests[workerIt].keyEntryPoints.push_back(static_cast<uint32_t>(entryPointIt));
 	}
-	auto keyResponses = RunWorkers(keyRequests, jobs / "keys", file);
+	auto keysRun = RunWorkers(keyRequests, jobs / "keys", file);
+	if (!keysRun)
+		return std::unexpected(keysRun.error());
+	auto& keyResponses = *keysRun;
 	const auto keyed = std::chrono::steady_clock::now();
 	auto& reflected = keyResponses[0];
 	if (!reflected.diagnostics.empty())
@@ -344,7 +351,10 @@ static rhi::ShaderSet CompileInWorkers(
 	}
 	if (!codeRequests.empty())
 	{
-		auto codeResponses = RunWorkers(codeRequests, jobs / "code", file);
+		auto codeRun = RunWorkers(codeRequests, jobs / "code", file);
+		if (!codeRun)
+			return std::unexpected(codeRun.error());
+		auto& codeResponses = *codeRun;
 		for (size_t workerIt = 0; workerIt < codeWorkerCount; workerIt++)
 		{
 			auto& response = codeResponses[workerIt];
@@ -406,14 +416,17 @@ ShaderLoader::ShaderLoader(std::vector<std::filesystem::path>&& includePaths, st
 	: myIncludePaths(std::move(includePaths))
 	, myIntermediatePath(std::move(intermediatePath))
 {
-	ENSUREF(
-		shaderloader::gLoaderCount.fetch_add(1, std::memory_order_acq_rel) == 0,
-		"two ShaderLoaders alive at once: slang isn't thread safe, its users must take turns (see ShaderLoader)");
+	// (where it compiles in this process: in worker processes, as many as compile at once)
+	if (shaderloader::WorkerCount() == 0)
+		ENSUREF(
+			shaderloader::gLoaderCount.fetch_add(1, std::memory_order_acq_rel) == 0,
+			"two ShaderLoaders alive at once: slang isn't thread safe, its users must take turns (see ShaderLoader)");
 }
 
 ShaderLoader::~ShaderLoader()
 {
-	shaderloader::gLoaderCount.fetch_sub(1, std::memory_order_acq_rel);
+	if (shaderloader::WorkerCount() == 0)
+		shaderloader::gLoaderCount.fetch_sub(1, std::memory_order_acq_rel);
 }
 
 std::string ShaderLoader::SlangConfiguration::ToString() const
@@ -476,6 +489,20 @@ rhi::ShaderSet ShaderLoader::Compile(
 	const std::optional<std::filesystem::path>& intermediatePath,
 	std::vector<std::filesystem::path>* dependencies)
 {
+	auto shaderSet = TryCompile(file, config, includePaths, intermediatePath, dependencies);
+	// (a failure's diagnostics in the message: printed before it, to a piped stdout, they were lost when the assert
+	// trapped before the buffer was flushed, a client's log in assettest)
+	ENSUREF(shaderSet, "{}", shaderSet ? std::string() : shaderSet.error());
+	return std::move(*shaderSet);
+}
+
+std::expected<rhi::ShaderSet, std::string> ShaderLoader::TryCompile(
+	const std::filesystem::path& file,
+	const SlangConfiguration& config,
+	const std::vector<std::filesystem::path>& includePaths,
+	const std::optional<std::filesystem::path>& intermediatePath,
+	std::vector<std::filesystem::path>* dependencies)
+{
 	shadercompiler::Request request{
 		.format = config.format,
 		.file = file.generic_string(),
@@ -520,9 +547,8 @@ rhi::ShaderSet ShaderLoader::Compile(
 	compiler.free(responseBytes);
 	ENSUREF(!zpp::bits::failure(deserialized), "failed to read the compile of {}", file.string());
 
-	// a failure's diagnostics in its message: printed before it, to a piped stdout, they were lost when the assert trapped
-	// before the buffer was flushed (a client's log in assettest)
-	ENSUREF(response.ok, "Failed to compile slang file {}:\n{}", file.string(), response.diagnostics);
+	if (!response.ok)
+		return std::unexpected(std::format("Failed to compile slang file {}:\n{}", file.string(), response.diagnostics));
 	if (!response.diagnostics.empty())
 	{
 		std::print("{}", response.diagnostics);
@@ -556,6 +582,13 @@ void ShaderLoader::SavePrecompiled(const std::filesystem::path& path, const rhi:
 
 rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const SlangConfiguration& config)
 {
+	auto shaderSet = TryLoad(file, config);
+	ENSUREF(shaderSet, "{}", shaderSet ? std::string() : shaderSet.error());
+	return std::move(*shaderSet);
+}
+
+std::expected<rhi::ShaderSet, std::string> ShaderLoader::TryLoad(const std::filesystem::path& file, const SlangConfiguration& config)
+{
 	auto shaderSet = rhi::ShaderSet{};
 
 	auto loadBin = [&shaderSet](auto& inStream) -> std::error_code
@@ -582,15 +615,24 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 	};
 
 	std::vector<std::filesystem::path> dependencies;
-	auto compile = [this, &shaderSet, &dependencies, &file, &config](auto& /*todo: use me: in*/) -> std::error_code
+	std::string failure;
+	auto compile = [this, &shaderSet, &dependencies, &file, &config, &failure](auto& /*todo: use me: in*/) -> std::error_code
 	{
-		shaderSet = Compile(file, config, myIncludePaths, myIntermediatePath, &dependencies);
+		auto compiled = TryCompile(file, config, myIncludePaths, myIntermediatePath, &dependencies);
+		if (!compiled)
+		{
+			failure = compiled.error();
+			return std::make_error_code(std::errc::invalid_argument);
+		}
+		shaderSet = std::move(*compiled);
 		return {};
 	};
 
 	auto loadResult = core::file::LoadAsset(
 		file, compile, loadBin, saveBin, ParametersHash(config), [&dependencies] { return dependencies; });
 
+	if (!failure.empty())
+		return std::unexpected(failure);
 	ENSUREF(loadResult && !shaderSet.shaders.empty(), "Failed to load shaders.");
 
 	return shaderSet;

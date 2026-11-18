@@ -431,6 +431,9 @@ WindowedApplication::WindowedApplication(
 		myOutput = std::make_unique<gfx::SwapchainOutput>(rhi, GetCurrentWindow());
 	}
 	myScene = std::make_unique<Scene>(rhi, pipeline, *myViews, *myOutput);
+	// its shaders reloaded when their sources change (a checkout's: see Scene::WatchShaders), unless SPEEDO_SHADER_RELOAD=0
+	const char* reload = std::getenv("SPEEDO_SHADER_RELOAD");
+	myScene->WatchShaders(reload == nullptr || std::string_view(reload) != "0");
 }
 
 WindowedApplication::~WindowedApplication()

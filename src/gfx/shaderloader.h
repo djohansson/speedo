@@ -4,6 +4,7 @@
 
 #include <rhi/shaderset.h>
 
+#include <expected>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -55,10 +56,12 @@ public:
 		[[nodiscard]] std::string ToString() const;
 	};
 
-	// one at a time in the process (a hard failure if another is alive): slang isn't thread safe, even across global
-	// sessions, which share state (e.g. the embedded SPIR-V grammar, a static reference counted without atomics: sessions
-	// made and destroyed on several threads freed it, and a later ~Session crashed). its users take turns by design (the
-	// scene's compiles in the background, after the ImGui renderer's; the preview's once the window's scene is ready)
+	// one at a time in the process (a hard failure if another is alive) where it compiles in the process
+	// (SPEEDO_SHADER_WORKER_COUNT=0): slang isn't thread safe, even across global sessions, which share state (e.g. the
+	// embedded SPIR-V grammar, a static reference counted without atomics: sessions made and destroyed on several threads
+	// freed it, and a later ~Session crashed). its users take turns by design (the scene's compiles in the background,
+	// after the ImGui renderer's; the preview's once the window's scene is ready). in worker processes (the default), any
+	// number, as a shader reload's beside a preview's
 	constexpr ShaderLoader() noexcept = delete;
 	explicit ShaderLoader(
 		std::vector<std::filesystem::path>&& includePaths, std::optional<std::filesystem::path>&& intermediatePath = std::nullopt);
@@ -70,6 +73,9 @@ public:
 	ShaderLoader& operator=(ShaderLoader&&) noexcept = delete;
 
 	[[nodiscard]] rhi::ShaderSet Load(const std::filesystem::path& file, const SlangConfiguration& config);
+	// as Load, but a compile that fails gives why (its diagnostics) rather than failing hard: a shader reload's (see
+	// gfx::Scene), which keeps the shaders it has
+	[[nodiscard]] std::expected<rhi::ShaderSet, std::string> TryLoad(const std::filesystem::path& file, const SlangConfiguration& config);
 
 	// what identifies a compile of a file: slang's version, the shader format and the configuration (a hash, hex)
 	[[nodiscard]] static std::string ParametersHash(const SlangConfiguration& config);
@@ -78,6 +84,13 @@ public:
 	// compiles file through the shader compiler library (a hard failure if it isn't there, or the compile fails), with the
 	// include paths and where slang dumps its intermediates; the files it included in dependencies
 	[[nodiscard]] static rhi::ShaderSet Compile(
+		const std::filesystem::path& file,
+		const SlangConfiguration& config,
+		const std::vector<std::filesystem::path>& includePaths,
+		const std::optional<std::filesystem::path>& intermediatePath,
+		std::vector<std::filesystem::path>* dependencies = nullptr);
+	// as Compile, but a compile that fails gives why (see TryLoad)
+	[[nodiscard]] static std::expected<rhi::ShaderSet, std::string> TryCompile(
 		const std::filesystem::path& file,
 		const SlangConfiguration& config,
 		const std::vector<std::filesystem::path>& includePaths,

@@ -63,6 +63,12 @@ public:
 	[[nodiscard]] const DescriptorSetLayout<G>& GetDescriptorSetLayout(uint32_t set) const noexcept;
 	[[nodiscard]] const auto& GetPushConstantRanges() const noexcept { return myPushConstantRanges; }
 
+	// the layout's shader modules made again from shaderSet (a shader reload, see Pipeline::ReplaceShaders), its other
+	// state kept: its descriptor set layouts and push constants, and with them everything bound through them, so the set's
+	// resources must be the layout's own (and its entry points as many). the gpu idle, no pipeline of the old modules in
+	// use or being made
+	void ReplaceShaders(const ShaderSet& shaderSet);
+
 private:
 	friend Pipeline<G>;
 	explicit PipelineLayout(
@@ -174,6 +180,11 @@ public:
 	[[maybe_unused]] PipelineLayoutHandle<G> CreateLayout(
 		std::string_view name, const ShaderSet& shaderSet, std::span<const uint32_t> pushDescriptorSets = {});
 	[[nodiscard]] PipelineLayoutHandle<G> GetLayoutHandle(std::string_view name) const;
+	// a shader reload: each named layout's shader modules made again from its set (see PipelineLayout::ReplaceShaders: its
+	// resources the layout's own, so that nothing bound changes), and every pipeline destroyed, to be made again from them
+	// as they are asked for (the pipeline cache gives back what didn't change). the gpu idle; false, and nothing done, while
+	// a pipeline is being made (a request's task: try again once it has run). the bound layout bound again
+	[[nodiscard]] bool ReplaceShaders(std::span<const std::pair<std::string, ShaderSet>> layouts);
 
 	// "manual" api
 
@@ -285,6 +296,8 @@ private:
 	void InternalResetDescriptorPool();
 	void InternalResetGraphicsState();
 	void InternalResetComputeState();
+	// destroys every pipeline made (none being made: see ReplaceShaders), and empties the map. the destructor's too
+	void InternalDestroyPipelines();
 	//
 
 	void InternalPrepareDescriptorSets();

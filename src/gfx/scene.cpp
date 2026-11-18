@@ -41,6 +41,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <expected>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -573,6 +574,24 @@ struct Scene::Impl
 	bool myPipelinesRequested = false;
 	std::vector<core::Future<void>> myPipelineFutures;
 	std::atomic_uint32_t myPipelineCount{0};
+	// a shader reload (see InternalWatchShaders, Scene::WatchShaders): whether the scene watches its shaders' sources, their
+	// fingerprint (their files' times and sizes) and when it was last taken, the reload compiling (its task's future and
+	// what it compiled, each layout's set or why it failed) and when it started, and each layout's resources as loaded
+	// (serialized: a reload whose resources differ needs a restart, see Pipeline::ReplaceShaders)
+	bool myWatchShaders = false;
+	uint64_t myShaderFingerprint = 0;
+	std::chrono::steady_clock::time_point myShaderWatchTime{};
+	struct ShaderReload
+	{
+		std::vector<std::pair<std::string, std::expected<rhi::ShaderSet, std::string>>> layouts;
+		std::chrono::steady_clock::time_point start;
+		uint64_t fingerprint = 0;
+	};
+	std::unique_ptr<ShaderReload> myShaderReload;
+	core::Future<void> myShaderReloadFuture;
+	core::UnorderedMap<std::string, std::vector<std::byte>> myShaderLayoutResources;
+	// how often the sources are looked at
+	static constexpr std::chrono::milliseconds kShaderWatchInterval{500};
 	std::atomic_uint32_t myPipelinesCreated{0};
 	std::chrono::steady_clock::time_point myPipelineRequestStart;
 	std::atomic_bool myReady{false};
@@ -2881,6 +2900,8 @@ struct Scene::Impl
 		// (WindowedApplication::Shutdown), a preview's scene waits for its own
 		if (myShaderCompileFuture.Valid())
 			myShaderCompileFuture.Wait();
+		if (myShaderReloadFuture.Valid())
+			myShaderReloadFuture.Wait();
 		for (const auto& future : myPipelineFutures)
 			future.Wait();
 	}
@@ -2955,7 +2976,11 @@ struct Scene::Impl
 	bool Prepare()
 	{
 		if (myReady.load(std::memory_order_relaxed))
+		{
+			if (myWatchShaders)
+				InternalWatchShaders();
 			return true;
+		}
 		if (!myShaderCompileFuture.IsReady())
 			return false;
 
@@ -2992,6 +3017,7 @@ struct Scene::Impl
 			std::println(
 				"{} compute pipelines created ahead in {:.2f} s", myPipelineFutures.size(),
 				std::chrono::duration<double>(std::chrono::steady_clock::now() - myPipelineRequestStart).count());
+		std::fflush(stdout); // (a piped stdout: tests wait for it)
 		myPipelineFutures.clear();
 		myReady.store(true, std::memory_order_release);
 		return true;
@@ -3042,6 +3068,133 @@ struct Scene::Impl
 				core::AddDependency(handles[taskIt - chainCount], handles[taskIt]);
 		}
 		executor.Submit(heads);
+	}
+
+	// a layout's resources serialized (rhi::ShaderSet::layouts: its descriptor sets' bindings and push constants), to tell
+	// whether a reload's are the same
+	[[nodiscard]] static std::vector<std::byte> SerializedResources(const rhi::ShaderSet& shaderSet)
+	{
+		std::vector<std::byte> bytes;
+		ENSUREF(!zpp::bits::failure(zpp::bits::out(bytes)(shaderSet.layouts)), "failed to serialize a shader set's resources");
+		return bytes;
+	}
+
+	// the shaders' sources' fingerprint: each file of the shader directory, its name, time and size hashed (an install's
+	// precompiled sets there are files too, which never change)
+	[[nodiscard]] uint64_t ShaderFingerprint() const
+	{
+		uint64_t fingerprint = 0;
+		std::error_code error;
+		for (const auto& entry : std::filesystem::directory_iterator(myShaderCompiles->includePath, error))
+		{
+			if (!entry.is_regular_file(error))
+				continue;
+			const auto name = entry.path().filename().string();
+			const auto time = static_cast<uint64_t>(entry.last_write_time(error).time_since_epoch().count());
+			const auto size = static_cast<uint64_t>(entry.file_size(error));
+			const uint64_t words[2] = {time, size};
+			fingerprint ^= XXH3_64bits(name.data(), name.size()) ^ XXH3_64bits(words, sizeof(words));
+		}
+		return fingerprint;
+	}
+
+	// a shader reload (docs/shader-compile-plan.md, step 6), where the scene watches its shaders (Scene::WatchShaders: the
+	// window's, in a checkout): every kShaderWatchInterval the sources' fingerprint taken, and when it changed, the
+	// layouts compiled again on the executor (in the shader compiler's workers, the entry points that didn't change taken
+	// from their cache: seconds). once they have, between frames (draw thread, in Prepare): a failed compile keeps the
+	// shaders as they are (its diagnostics printed), as do resources that differ (bindings, push constants: a restart
+	// loads them, since what is bound through them would change), otherwise the graphics queues waited for and the
+	// pipeline's layouts given the new shaders (Pipeline::ReplaceShaders: every pipeline made again as it is asked for,
+	// the compute ones ahead as at the start), the scene, its views and the indirect lighting's state kept
+	void InternalWatchShaders()
+	{
+		auto now = std::chrono::steady_clock::now();
+		if (myShaderReloadFuture.Valid())
+		{
+			if (!myShaderReloadFuture.IsReady())
+				return;
+			if (!InternalFinishShaderReload())
+				return; // (pipelines being made: again next frame)
+			myShaderReloadFuture = {};
+			myShaderReload.reset();
+		}
+		if (now - myShaderWatchTime < kShaderWatchInterval)
+			return;
+		myShaderWatchTime = now;
+		auto fingerprint = ShaderFingerprint();
+		if (myShaderFingerprint == 0)
+		{
+			myShaderFingerprint = fingerprint;
+			return;
+		}
+		if (fingerprint == myShaderFingerprint)
+			return;
+		myShaderFingerprint = fingerprint;
+		std::println("shaders changed: compiling them again");
+		myShaderReload = std::make_unique<ShaderReload>();
+		myShaderReload->start = now;
+		myShaderReload->fingerprint = fingerprint;
+		auto task = core::CreateTask(
+			[this]
+			{
+				ZoneScopedN("Scene::ShaderReload");
+				const auto& compiles = *myShaderCompiles;
+				ShaderLoader loader({std::filesystem::path(compiles.includePath)}, std::filesystem::path(compiles.intermediatePath));
+				for (auto [name, compile] : std::array{
+						 std::pair{"VertexZPrepass", &compiles.zPrepass},
+						 std::pair{"Main", &compiles.main},
+						 std::pair{"Flare", &compiles.flare},
+						 std::pair{"Environment", &compiles.environment}})
+					myShaderReload->layouts.emplace_back(name, loader.TryLoad(compile->file, compile->config));
+			});
+		myShaderReloadFuture = std::move(task.future);
+		core::Application::Get()->GetExecutor().Submit(std::span(&task.handle, 1));
+	}
+
+	// the reload's sets into the pipeline's layouts, or why not (see InternalWatchShaders). false while the pipeline is
+	// making pipelines (try again)
+	bool InternalFinishShaderReload()
+	{
+		auto& reload = *myShaderReload;
+		for (const auto& [name, shaderSet] : reload.layouts)
+			if (!shaderSet)
+			{
+				std::println(stderr, "shader reload failed, the shaders kept as they were:\n{}", shaderSet.error());
+				std::println("shader reload failed (see the error output), the shaders kept as they were");
+				std::fflush(stdout);
+				return true;
+			}
+		for (const auto& [name, shaderSet] : reload.layouts)
+			if (SerializedResources(*shaderSet) != myShaderLayoutResources[name])
+			{
+				std::println("shader reload: the {} layout's resources changed (bindings or push constants): restart to load them", name);
+				std::fflush(stdout);
+				return true;
+			}
+		// the pipelines made ahead done (a reload's own, or the start's), so that none is being made
+		for (const auto& future : myPipelineFutures)
+			if (!future.IsReady())
+				return false;
+		myPipelineFutures.clear();
+		{
+			auto graphics = myRHI.GetPrimaryDevice().GetQueue(kQueueTypeGraphics).Write();
+			for (auto& [queue, submits] : graphics->queues)
+				queue.WaitIdle();
+		}
+		std::vector<std::pair<std::string, rhi::ShaderSet>> layouts;
+		for (auto& [name, shaderSet] : reload.layouts)
+			layouts.emplace_back(name, std::move(*shaderSet));
+		if (!myPipeline.ReplaceShaders(layouts))
+		{
+			for (size_t layoutIt = 0; layoutIt < layouts.size(); layoutIt++)
+				reload.layouts[layoutIt].second = std::move(layouts[layoutIt].second);
+			return false;
+		}
+		InternalRequestPipelines();
+		std::println(
+			"shaders reloaded {:.2f} s after the change was seen", std::chrono::duration<double>(std::chrono::steady_clock::now() - reload.start).count());
+		std::fflush(stdout);
+		return true;
 	}
 
 	// how far the compiles are, 0 to 1 (see Scene::GetShaderProgress): the entry points of the layouts done, or the time
@@ -3127,7 +3280,9 @@ struct Scene::Impl
 		const auto& compiles = *myShaderCompiles;
 		ShaderLoader shaderLoader({std::filesystem::path(compiles.includePath)}, std::filesystem::path(compiles.intermediatePath));
 
-		auto zPrepassLayout = pipeline.CreateLayout("VertexZPrepass", shaderLoader.Load(compiles.zPrepass.file, compiles.zPrepass.config));
+		auto zPrepassSet = shaderLoader.Load(compiles.zPrepass.file, compiles.zPrepass.config);
+		myShaderLayoutResources["VertexZPrepass"] = SerializedResources(zPrepassSet);
+		auto zPrepassLayout = pipeline.CreateLayout("VertexZPrepass", zPrepassSet);
 
 		pipeline.BindLayoutAuto(zPrepassLayout, PipelineBindPoint::kGraphics);
 
@@ -3176,8 +3331,14 @@ struct Scene::Impl
 				i);
 		}
 
-		auto mainLayout = pipeline.CreateLayout("Main", shaderLoader.Load(compiles.main.file, compiles.main.config));
-		[[maybe_unused]] auto flareLayout = pipeline.CreateLayout("Flare", shaderLoader.Load(compiles.flare.file, compiles.flare.config));
+		auto mainSet = shaderLoader.Load(compiles.main.file, compiles.main.config);
+		myShaderLayoutResources["Main"] = SerializedResources(mainSet);
+		auto mainLayout = pipeline.CreateLayout("Main", mainSet);
+		auto flareSet = shaderLoader.Load(compiles.flare.file, compiles.flare.config);
+		myShaderLayoutResources["Flare"] = SerializedResources(flareSet);
+		[[maybe_unused]] auto flareLayout = pipeline.CreateLayout("Flare", flareSet);
+		// (the environment filter loads its own: the same configuration, a cache hit)
+		myShaderLayoutResources["Environment"] = SerializedResources(shaderLoader.Load(compiles.environment.file, compiles.environment.config));
 
 		pipeline.BindLayoutAuto(mainLayout, PipelineBindPoint::kGraphics);
 
@@ -3550,6 +3711,13 @@ void Scene::LoadEnvironment(std::optional<std::string> filePath, std::atomic_uin
 bool Scene::Prepare()
 {
 	return myImpl->Prepare();
+}
+
+void Scene::WatchShaders(bool watch) noexcept
+{
+	// (only where the sources are: a checkout's, not an install's precompiled sets)
+	std::error_code error;
+	myImpl->myWatchShaders = watch && std::filesystem::exists(myImpl->myShaderCompiles->includePath / "shaders.slang", error);
 }
 
 bool Scene::IsReady() const noexcept

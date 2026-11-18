@@ -1,7 +1,7 @@
 # Faster shader compiles: the plan
 
 Status: written 2026-11-17; started 2026-11-17 (the user's call: before the plan's step 3 on the probes, since the
-compiles slow down all other work). Steps 0 to 4 done, 5 dropped by its gate, 6 to do. Each step has a gate, and each is measured before and after on the
+compiles slow down all other work). Steps 0 to 4 and 6 done, 5 dropped by its gate. Each step has a gate, and each is measured before and after on the
 same machine, interleaving the runs compared (CLAUDE.md, "Workflow").
 
 ## Why
@@ -132,14 +132,34 @@ recompiles what is after it (correctly: its debug information would be wrong oth
 **Dropped (2026-11-18)**, by its gate: neither costs. Through `shaderprecompile` (SPIR-V, the layout without ray queries)
 the code took 15.0 s optimized and 15.0 unoptimized, 15.6 with full debug information; with ray queries 31.0 and 31.8.
 
-### 6. Reload shaders while the client runs (later)
+### 6. Reload shaders while the client runs
 
-Watch the shader sources, recompile in the background on a change (steps 1 and 2 make that seconds), and swap the
-layouts and pipelines between frames, keeping the scene, the camera and the indirect lighting's state. Removes the
-restart and the scene's load; a capture still needs its settle frames. The largest change here, so last.
+**Done (2026-11-18).** The window's scene (`Scene::WatchShaders`, in a checkout: where `shaders.slang` is; off with
+`SPEEDO_SHADER_RELOAD=0`) takes the shader directory's fingerprint (its files' names, times and sizes) every half
+second between frames (in `Scene::Prepare`, the draw thread); on a change it compiles its four layouts again on the
+executor (`ShaderLoader::TryLoad`: through the workers, the unchanged entry points from the cache; a failed compile
+gives its diagnostics rather than trapping). Once they have:
+- a failed compile is printed (the diagnostics to the error output) and the shaders are kept;
+- resources that differ from the layout's as loaded (bindings, push constants: compared serialized) need a restart,
+  said so, and the shaders are kept: what is bound through them would change;
+- otherwise, once no pipeline is being made (the ones made ahead done; else again next frame), the graphics queues are
+  waited for under their lock and `Pipeline::ReplaceShaders` gives each layout new shader modules
+  (`PipelineLayout::ReplaceShaders`, each backend's: the pipeline layout, its descriptor set layouts and push constants
+  kept, so every descriptor written stays) and destroys every pipeline (`InternalDestroyPipelines`, which the
+  destructors use too: they are made again as asked for, the pipeline cache giving back what didn't change); the
+  compute pipelines are asked for ahead again. The scene, its views and the indirect lighting's state are kept.
 
-Gate: an edit is on screen without a restart, nothing leaks over repeated reloads (validation clean), and a reload that
-fails to compile keeps the old shaders with the error shown.
+Measured (RTX 4070 Ti SUPER's machine, salle_de_bain, headless): a constant changed in `gi.slang` on screen 12.3 s after
+the edit on Vulkan (its 3 entry points compiled, their pipelines made), 7.6 s on D3D12; a syntax error reported 1.1 to
+1.3 s after it, the client running on; put back, 4.2 to 4.5 s (all from the cache). Validation clean (Vulkan's layer,
+D3D12's debug layer). The tonemapper's input quartered while running: the frame 69.7 of 255 from the one before (62.0 on
+D3D12) and 0.35 (0.11) from a client started with the edit, the noise between runs. Thirty reloads in a release client:
+private memory 2.56 GB ready, 2.71 after two, about 2.85 from the eighth on (2.79 to 2.89). The Metal backend's
+`ReplaceShaders` and `InternalDestroyPipelines` are written as its constructor and destructor have them, not built
+(Windows).
+
+Not done: the error is in the output, not the ui; the preview's scene and the ImGui renderer don't reload; a reload
+while frames run on the draw thread waits for the graphics queues (the frame before is done; the next starts after).
 
 ## Also worth looking at
 

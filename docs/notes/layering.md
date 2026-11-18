@@ -339,7 +339,10 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   cache, `shader-cache` beside the executable, is shared by every profile of the build. A cold start 38.8 s on Vulkan
   and 31.8 on D3D12 (70 and 213 before), a constant changed in `gi.slang` 13.7 s, a fresh profile with the cache warm
   21.9 and 8.1 s. The client then loads no slang (`SPEEDO_SHADER_WORKER_COUNT=0` compiles in its process as before).
-  SPIR-V's binaries are byte identical to the one compile's; DXIL's aren't (see the plan).
+  SPIR-V's binaries are byte identical to the one compile's; DXIL's aren't (see the plan). And the window's scene reloads
+  its shaders when their sources change (`Scene::WatchShaders`, `SPEEDO_SHADER_RELOAD`): compiled on the executor, then
+  between frames the layouts' shader modules replaced and the pipelines made again (`Pipeline::ReplaceShaders`),
+  everything bound kept; a failed compile keeps the shaders, changed resources need a restart (the plan's step 6).
   Slang is used by one thread at a time: it isn't thread safe, even across global sessions, which share state. The
   compile was parallel at first (the layouts at once, and the main layout's 78 entry points in 4 groups, each a session
   and compile request of its own: the cold first load 17.5 s rather than 28.8, its resident peak 2.0 GB rather than 0.85),

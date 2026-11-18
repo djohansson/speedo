@@ -274,6 +274,29 @@ PipelineLayoutHandle<G> Pipeline<G>::CreateLayout(std::string_view name, const S
 }
 
 template <GraphicsApi G>
+bool Pipeline<G>::ReplaceShaders(std::span<const std::pair<std::string, ShaderSet>> layouts)
+{
+	{
+		std::scoped_lock lock(myPipelineMapSync->mutex);
+		if (std::ranges::any_of(myPipelineMap, [](const auto& entry) { return entry.second == PipelineHandle<G>{}; }))
+			return false;
+		InternalDestroyPipelines();
+	}
+	for (const auto& [name, shaderSet] : layouts)
+	{
+		auto handle = GetLayoutHandle(name);
+		auto layoutIt = myPipelineLayouts.find(handle);
+		ENSURE(layoutIt != myPipelineLayouts.end());
+		// (the set's elements are hashed and compared by the layout's handle, which this keeps)
+		const_cast<PipelineLayout<G>&>(*layoutIt).ReplaceShaders(shaderSet);
+	}
+	// (the bound layout's stages name its modules: bound again, to the new ones)
+	if (auto bound = GetLayout())
+		BindLayoutAuto(bound, myBindPoint);
+	return true;
+}
+
+template <GraphicsApi G>
 PipelineLayoutHandle<G> Pipeline<G>::GetLayoutHandle(std::string_view name) const
 {
 	auto nameIt = myLayoutNames.find(std::string(name));

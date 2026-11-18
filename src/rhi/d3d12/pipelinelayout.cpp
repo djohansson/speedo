@@ -238,6 +238,23 @@ PipelineLayout<kD3D12>::PipelineLayout(CreateDescType&& desc, const ShaderSet& s
 {}
 
 template <>
+void PipelineLayout<kD3D12>::ReplaceShaders(const ShaderSet& shaderSet)
+{
+	ENSUREF(shaderSet.shaders.size() == myShaderModules.size(), "{}: {} shaders replacing {}", GetName(), shaderSet.shaders.size(), myShaderModules.size());
+	std::vector<ShaderModule<kD3D12>> shaderModules;
+	shaderModules.reserve(shaderSet.shaders.size());
+	for (const auto& shader : shaderSet.shaders)
+		shaderModules.emplace_back(ShaderModuleCreateDesc<kD3D12>{SuperType::CreateDeviceObjectCreateDesc("ShaderModule"), shader});
+	// each module's binaries of the specialization constant's other values (as the constructor's)
+	for (const auto& specialization : shaderSet.specializations)
+	{
+		ShaderModuleHandle<kD3D12> module = shaderModules.at(specialization.shader);
+		module->specializations.emplace_back(specialization.value, specialization.code);
+	}
+	myShaderModules = std::move(shaderModules);
+}
+
+template <>
 PipelineLayout<kD3D12>::~PipelineLayout()
 {
 	if (myLayout == nullptr)

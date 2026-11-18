@@ -380,11 +380,8 @@ Pipeline<kMetal>::Pipeline(CreateDescType&& desc)
 // (Swap and the moves are every backend's, in pipeline.inl)
 
 template <>
-Pipeline<kMetal>::~Pipeline()
+void Pipeline<kMetal>::InternalDestroyPipelines()
 {
-	if (!IsValid())
-		return;
-
 	for (const auto& [key, handle] : myPipelineMap)
 	{
 		// null: requested (see RequestGraphicsPipeline), but its job never ran
@@ -395,6 +392,16 @@ Pipeline<kMetal>::~Pipeline()
 				object->release();
 		delete handle;
 	}
+	myPipelineMap.clear();
+}
+
+template <>
+Pipeline<kMetal>::~Pipeline()
+{
+	if (!IsValid())
+		return;
+
+	InternalDestroyPipelines();
 
 	myDescriptorMap.clear();
 }

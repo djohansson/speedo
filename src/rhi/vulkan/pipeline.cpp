@@ -558,6 +558,23 @@ Pipeline<kVk>::Pipeline(CreateDescType&& desc)
 // (Swap and the moves are every backend's, in pipeline.inl)
 
 template <>
+void Pipeline<kVk>::InternalDestroyPipelines()
+{
+	for (const auto& pipelineIt : myPipelineMap)
+	{
+		// null: requested (see RequestGraphicsPipeline), but its job never ran
+		if (pipelineIt.second == VK_NULL_HANDLE)
+			continue;
+		Untrack(VK_OBJECT_TYPE_PIPELINE, pipelineIt.second);
+		vkDestroyPipeline(
+			GetDevice(),
+			pipelineIt.second,
+			&GetInstance().GetHostAllocationCallbacks());
+	}
+	myPipelineMap.clear();
+}
+
+template <>
 Pipeline<kVk>::~Pipeline()
 {
 	if (!IsValid())
@@ -577,17 +594,7 @@ Pipeline<kVk>::~Pipeline()
 		std::println("Failed to save pipeline cache, error: {}", fileInfo.error().message());
 	}
 
-	for (const auto& pipelineIt : myPipelineMap)
-	{
-		// null: requested (see RequestGraphicsPipeline), but its job never ran
-		if (pipelineIt.second == VK_NULL_HANDLE)
-			continue;
-		Untrack(VK_OBJECT_TYPE_PIPELINE, pipelineIt.second);
-		vkDestroyPipeline(
-			GetDevice(),
-			pipelineIt.second,
-			&GetInstance().GetHostAllocationCallbacks());
-	}
+	InternalDestroyPipelines();
 
 	Untrack(VK_OBJECT_TYPE_PIPELINE_CACHE, myCache);
 	vkDestroyPipelineCache(
