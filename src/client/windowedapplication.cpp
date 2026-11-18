@@ -488,6 +488,15 @@ void WindowedApplication::Shutdown()
 			exposure.shutter < 1.0F ? std::format("1/{:.0f}", 1.0 / static_cast<double>(exposure.shutter)) : std::format("{:.3g}", static_cast<double>(exposure.shutter)),
 			static_cast<double>(exposure.iso), static_cast<double>(exposure.Ev100()));
 	}
+	// and where the model's animation got to, to capture what moves where it was, paused (SPEEDO_ANIMATION_TIME=<seconds>;
+	// with SPEEDO_ANIMATION_FRAME_SECONDS the same from run to run)
+	if (myScene)
+	{
+		auto animation = myScene->GetAnimation().Read();
+		const auto& state = animation.Get();
+		if (state.selected && *state.selected < state.names.size())
+			std::println("animation: '{}' at {:.6f} s{}", state.names[*state.selected], state.time, state.playing ? "" : ", paused");
+	}
 
 	auto& rhi = GetRHI();
 	auto& device = rhi.GetPrimaryDevice();

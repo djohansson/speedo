@@ -533,7 +533,14 @@ buffer"; `FogHall.gltf`: a closed hall 202 m long, 40 m wide and 48 m tall, dark
 slots across its roof, placed so that their sheets of light cross the camera's height 10, 20 and 30 m either side of
 it, the camera at eye height by one wall looking across at the other, the whole turned so that the hall runs along the
 default sun's azimuth: light shafts seen from the side in dense fog, see "Fog near the ground" under "The sky"; made by a
-small C program, the sheets' geometry worked out in its comments), and is always part
+small C program, the sheets' geometry worked out in its comments; `MovingInterior.gltf`: a closed room 12 m long, its
+walls boxes 0.3 m thick, lit through a skylight near one end alone, with a pillar, a crate and three things moving in a
+loop of 4 s (a sphere flying its length at 4.5 m/s, a cube turning in place, a small box darting across by the floor),
+its camera at the dark end: what moves through a dim interior, lit by the probes while its surface cache entries are
+young, see "The probes, resolved where they show" in indirect-lighting.md; made by
+`scripts/test-assets/movinginterior.ps1`, compared frame for frame with `SPEEDO_REPEATABLE=1` and
+`SPEEDO_ANIMATION_FRAME_SECONDS=0.015625`, and against the same pose held still with `SPEEDO_ANIMATION_TIME`), and is
+always part
 of the printed paths, as is `resources/test-models/obj` (`BumpDomes`: a quad with a bump map of four domes, as is and with
 its texture mirrored, which must both come out raised and lit from above, i.e. from the default light's side). Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
 and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are

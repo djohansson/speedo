@@ -3797,6 +3797,17 @@ void Scene::RestartSequences()
 	if (myImpl->myRenderer)
 		myImpl->myRenderer->RestartSequences();
 	myImpl->myLensFrame = 0;
+	// and what plays starts over (a paused one stays where it is): with a fixed step a frame
+	// (SPEEDO_ANIMATION_FRAME_SECONDS) what moves is then where it was in every run, however many frames the load and
+	// the shaders' compile took
+	auto animation = myImpl->myAnimation.Write();
+	auto& state = animation.Get();
+	if (state.playing)
+	{
+		state.time = 0.0;
+		state.previous.reset();
+		state.fade = AnimationState::kCrossfade;
+	}
 }
 
 } // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

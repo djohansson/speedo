@@ -52,7 +52,7 @@ This loads Sponza, places the camera in its gallery at half past two, renders he
 |---|---|---|
 | `SPEEDO_AUTOLOAD_EXIT` | A count of drawn frames. Default: the client keeps running. | Exits that many frames after the loads are installed, the pipelines made, the camera placed and any camera path finished (a model that never installs is given up after 600 frames). Also skips the first launch's offer of the test assets. |
 | `SPEEDO_CAPTURE` | A `.bmp` file; its folder must exist. Needs `SPEEDO_AUTOLOAD_EXIT`. Default: none. | Saves the frame the autoload exit ends on (with the interface unless `SPEEDO_UI=0`). |
-| `SPEEDO_REPEATABLE` | Any value but `0` on. Only with `SPEEDO_AUTOLOAD_EXIT`. Default: off. | When the exit's count starts, restarts the frames' sequences and histories (noise, jitter, temporal histories, the indirect lighting), so that a capture is the same from run to run as far as the driver allows (see [visual testing](visual-testing-plan.md)). |
+| `SPEEDO_REPEATABLE` | Any value but `0` on. Only with `SPEEDO_AUTOLOAD_EXIT`. Default: off. | When the exit's count starts, restarts the frames' sequences and histories (noise, jitter, temporal histories, the indirect lighting) and the animation that plays, so that a capture is the same from run to run as far as the driver allows (see [visual testing](visual-testing-plan.md)). |
 | `SPEEDO_CAPTURE_PATH` | A folder; it must exist. Default: none. | Saves `pose-NNNN.bmp` for the frame that first draws each of `SPEEDO_CAMERA_PATH`'s poses. |
 | `SPEEDO_CAPTURE_PATH_FIRST` | A pose's index, from 0. Default: 0. | With `SPEEDO_CAPTURE_PATH`, captures from that pose on (e.g. after still poses let the lighting settle). |
 | `SPEEDO_CAPTURE_PATH_STRIDE` | A count, at least 1. Default: 1. | With `SPEEDO_CAPTURE_PATH`, captures every n-th pose from `SPEEDO_CAPTURE_PATH_FIRST`. |
@@ -63,7 +63,7 @@ This loads Sponza, places the camera in its gallery at half past two, renders he
 |---|---|---|
 | `SPEEDO_TIME_FRAME_SECONDS` | Seconds per drawn frame. Default: real time. | Counts each frame as this long, so that runs match frame for frame: the time of day's advance, the motion blur's shutter and the indirect lighting's blending (which keeps it within 1/480 to 0.25 s). |
 | `SPEEDO_ANIMATION_TIME` | Seconds. Default: animations play from 0. | Pauses each model's first animation at that time (View > Animation > Play off). |
-| `SPEEDO_ANIMATION_FRAME_SECONDS` | Seconds of animation per drawn frame. Default: real time. | Advances animations by a fixed step a frame, so that two runs show moving things in the same place on the same frame. |
+| `SPEEDO_ANIMATION_FRAME_SECONDS` | Seconds of animation per drawn frame. Default: real time. | Advances animations by a fixed step a frame, so that two runs show moving things in the same place on the same frame (with `SPEEDO_REPEATABLE`, which starts the animation over where the count starts: frame n is n steps in). At exit the client prints where the animation got to (`animation: '<name>' at <seconds> s`). |
 
 ## The camera and lens
 
