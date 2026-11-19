@@ -3103,7 +3103,43 @@ void GiCacheUnpackFaces(uint4 words[3], out float3 faces[SHADER_TYPES_GI_IRRADIA
 		faces[faceIt] = float3(halves[faceIt * 3u], halves[faceIt * 3u + 1u], halves[faceIt * 3u + 2u]);
 }
 
-void GiCachePackFaces(float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT], out uint packed[9])
+// a light's value as a half (its bits), rounded down or up at random by where it lies between the two halves around it
+// (seed: any number that differs from store to store), so that a running mean kept in halves is the mean of its
+// samples. rounded to the nearest, a step of the mean under half a step of a half is lost: past 2048 samples a sample
+// moves a mean by less than that unless it is far brighter than the mean, so the dark samples' steps down were lost
+// and the bright ones' up kept, and the mean climbed without end (MovingInterior's far wall with a window of 4096, its
+// entry's face along the open side 3 times its samples' mean after 9000 frames, the wall 2.5 of 255 brighter every
+// 1000 frames; kept in 32 bit floats, the same face held its samples' mean). from the float's bits alone: rounded by
+// comparing floats (the half back as a float against the value), the shader compiler folded the half's round trip
+// away, and the faces were rounded to the nearest still (tried 2026-11-18 and 19, no change to the digit)
+uint GiHalfDithered(float value, uint seed)
+{
+	if (!(value > 0.0))
+		return 0u;
+	uint bits = asuint(value);
+	// the half's biased exponent; its greatest past what a half holds, none far under its least
+	int exponent = int(bits >> 23) - 112;
+	if (exponent >= 31)
+		return 0x7BFFu;
+	if (exponent < -10)
+		return 0u;
+	// the mantissa with its leading one, and the bits a half drops of it: 13 where the half is normal, more where it
+	// isn't (a subnormal's step is the least normal's)
+	uint mantissa = (bits & 0x7FFFFFu) | 0x800000u;
+	uint shift = uint(14 - min(exponent, 1));
+	uint half = (uint(max(exponent, 1) - 1) << 10) + (mantissa >> shift);
+	uint remainder = mantissa & ((1u << shift) - 1u);
+	seed ^= seed >> 16;
+	seed *= 0x7feb352du;
+	seed ^= seed >> 15;
+	seed *= 0x846ca68bu;
+	seed ^= seed >> 16;
+	// up by the dropped bits' share of a step (a carry past the mantissa is the next exponent's least, as a half has it)
+	return (seed & ((1u << shift) - 1u)) < remainder ? min(half + 1u, 0x7BFFu) : half;
+}
+
+// (dither: 0 to the nearest half, a filter pass's record; else a seed for GiHalfDithered, an entry's faces)
+void GiCachePackFaces(float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT], out uint packed[9], uint dither = 0u)
 {
 	float halves[2 * 9];
 	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
@@ -3113,7 +3149,8 @@ void GiCachePackFaces(float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT], out uint p
 		halves[faceIt * 3u + 2u] = faces[faceIt].b;
 	}
 	for (uint wordIt = 0; wordIt < 9; wordIt++)
-		packed[wordIt] = GiPackHalf2(float2(halves[wordIt * 2u], halves[wordIt * 2u + 1u]));
+		packed[wordIt] = dither == 0u ? GiPackHalf2(float2(halves[wordIt * 2u], halves[wordIt * 2u + 1u]))
+									  : GiHalfDithered(halves[wordIt * 2u], dither + wordIt * 2u) | (GiHalfDithered(halves[wordIt * 2u + 1u], dither + wordIt * 2u + 1u) << 16);
 }
 
 GiCacheEntry GiCacheLoad(uint index)
@@ -3159,7 +3196,8 @@ uint4 GiCachePackEmitters(float3 light, float3 toward, uint count)
 void GiCacheStore(uint index, GiCacheEntry entry)
 {
 	uint packed[9];
-	GiCachePackFaces(entry.faces, packed);
+	// (the faces rounded at random, by the entry and its rays' count: see GiHalfDithered)
+	GiCachePackFaces(entry.faces, packed, ((index * 0x9E3779B1u) ^ (entry.sequence * 0x85EBCA6Bu)) | 1u);
 	gGiCache[index * 4u] = uint4(packed[0], packed[1], packed[2], packed[3]);
 	gGiCache[index * 4u + 1u] = uint4(packed[4], packed[5], packed[6], packed[7]);
 	gGiCache[index * 4u + 2u] = uint4(packed[8], min(entry.count, 0xFFFFu) | ((entry.sequence & 0xFFFFu) << 16), asuint(entry.moment),

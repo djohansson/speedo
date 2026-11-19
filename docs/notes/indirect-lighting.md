@@ -372,6 +372,35 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
     right is open. (Without the time limit the window is the setting; with it, at most half the updates since the
     cache started, and the last clip, which lights the far wall, updates every other frame: 4096 and 2048 were 1500
     at frame 6000, which is why they first measured the same as 1024.)
+    Past 8000 frames it isn't a level but a climb (2026-11-19, the static room to frame 16000, a capture every 1000,
+    clients in parallel, `curve.ps1`): with a window of 4096 (`SPEEDO_GI_TIME_BASED=0`) the far wall rises 2.5 of 255
+    every 1000 frames from about frame 4000, without end (53 at 1000, 61.8 at 5000, 91.8 at 16000), where 1024 levels
+    at 65.5 by frame 6000 and the default (the time limit) holds 65.5 throughout; 2048 holds, 8192 climbs as 4096 does
+    from the same frame. The same with the bounce off and the fast mean off (no light of the cache's reaches what the
+    rays read, `GiHitLit`: 11.7 to 27.3, where 1024 holds 13.5), with the probes, the near field, the thin test or
+    two of the filter's passes off, settled early or never (`SPEEDO_GI_CACHE_SETTLED_FRAMES`); faster per frame
+    without the stagger (per update, then). By the rays an update (`SPEEDO_GI_CACHE_RAYS`): 1, the climb; 4, 13.7 to 14.5; 8, flat at 12.5. The entry itself
+    climbs (`SPEEDO_GI_DUMP=5.92,1.92,-0.36`, the wall's voxel from the first pose: its face along the open side
+    0.00135 at frame 3000, 0.00314 at 9000, 0.0047 at 15000 with a ray an update; 0.00096 and 0.0012 with 8), where
+    512 rays more a frame for the dumped voxel alone, into a copy of its entry, put their mean at 0.0015 and 0.0009:
+    its samples didn't rise, its mean drifted off them. It was the halves after all: that face kept in 32 bit floats
+    (in the fourth words, which hold the emitters' light where there are emitters) stayed at its samples' mean (0.0013,
+    0.0011, 0.0008 at frames 3000, 9000, 16000) and the wall flat (12.2 to 13.4). Past 2048 samples a sample moves the
+    mean by less than half a step of a half unless it is far brighter than the mean (the face is 0.002, a step of a
+    half there 1.9e-6, a dark sample's step down 4.9e-7): rounded to the nearest, the dark samples' steps were lost and
+    the bright ones' kept, a few rays an update adding their steps in floats before the store. Rounding at random
+    (`GiHalfDithered`) should have taken it out, and twice changed nothing, to the digit: it compared floats (the half
+    back as a float against the value, `f16tof32(f32tof16(v)) > v`), which the compiler folds, so it rounded to the
+    nearest still. From the float's bits alone (the half's bits are its exponent less 112 and its mantissa's top 10;
+    the 13 bits dropped, more for a subnormal, decide by a random number of as many bits) it is the mean: the climb
+    flat (12.2 to 12.6 to frame 16000), 4096 with the bounce settled at 64.0 where it climbed past 90, 1024 at 64.5,
+    the default 64.8 where it was 65.5 (rounded, the means were off below 2048 too). The regression set against the
+    halves rounded to the nearest (`ab.ps1`, settled 1500 frames) 0.15 to 1.7 of 255 brighter a scene (Sponza's
+    corridor at exposure 10 the most), by eye the same. With the window working past 2048 the default is 4096 (see the
+    far wall below).
+    And a bias found on the way: where the bounce is off, the fast mean's lead (`gGiAhead`) is all a hit's bounced
+    light, which `GiHitLit` clamps to none below 0, so only its positive half arrives (1024 without the bounce: 23.4
+    with the fast mean, 13.5 without).
   - what the mottling is, measured (`temp/gi-disocclusion/wallpattern.ps1`: two captures' blotches, each pixel less
     the mean of the 33x33 around it, and their correlation): settled, the wall's blotches are 0.95 to 0.99 the same
     12000 frames apart, from run to run, and between resolutions 96, 128 and 160, so most of that measure is the
