@@ -3579,7 +3579,18 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			}
 			if (bvh)
 			{
-				if (hit.backface && hit.distance < insideReach)
+				// a ray that met a surface's back started inside something: within a voxel and a half (insideReach) where
+				// the rays start at the voxel, at any distance where they start on the surface itself (anchored), which is
+				// in the open or isn't. by the reach alone, a surface hidden inside a solid more than that from the solid's
+				// faces held valid entries: the walls of MovingInterior are boxes 0.3 m thick that overlap at the corners,
+				// so the +x wall's inner face goes on 0.3 m inside the +z wall, and its voxels there held 20 times the
+				// room's light (their rays met the +z wall's outer shell, lit by the sun, from inside), a fifth of their
+				// rays inside (those that met the coplanar face of the +z wall's end at once). they face the same way as
+				// the visible wall's, which the filter's wider passes took them for, and the wall's last voxels before the
+				// corner showed a bright line (the user's report, 2026-11-19: "this bright while static line here, that
+				// changes in size as you move farther&closer to it"; the finest clip's voxels there 0.56 and 0.61 where
+				// the wall's are 0.46)
+				if (hit.backface && (anchored || hit.distance < insideReach))
 				{
 					entry.inside += uint(round(float(kGiCacheInsideScale) * estimate));
 					continue;

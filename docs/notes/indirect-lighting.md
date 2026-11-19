@@ -238,6 +238,24 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
   pixels brighter than both neighbours 630 a million pixels to 0, GI Seen 0.03 ms at 1920x1080, the frame the same
   within the runs' noise (Sponza 4.56 ms, Bistro 6.21). Left there: for about 15 frames after, the wall is faintly
   patchy where the finest clip's entries, begun from the middle clip's coarser ones, take their own samples.
+  - **A surface hidden inside a solid held light of the solid's outside** (the user's report, 2026-11-19, at
+    `5.1480,0.7274,1.5497,16.221,-251.868`: "this bright while static line here, that changes in size as you move
+    farther&closer to it"): a line along the +x wall a few centimetres before its corner with the +z wall, 64 of 255
+    where the wall is 50 (`temp/gi-disocclusion/row.ps1`), gone with the cache off, there with the near field, the
+    upscaler or `SPEEDO_GI_CACHE_THIN` off, and from the finest clip alone (`SPEEDO_GI_LOOKUP_LEVEL=1` hides it). The
+    walls are boxes 0.3 m thick that overlap at the corners, so the +x wall's inner face goes on 0.3 m inside the +z
+    wall, coplanar with that wall's end. The finest clip's voxels along that hidden part held valid entries of 20 times
+    the room's light (`SPEEDO_GI_DUMP=5.977,0.51,2.045`: -x 0.088 where the wall's are 0.0035): their rays started inside
+    the +z wall and met its outer shell, lit by the sun, from inside, beyond the inside test's reach (a voxel and a
+    half), and only a fifth of them were caught (those toward the coplanar end face, met at once). They face -x as the
+    visible wall's voxels do, so the filter's passes 2 and 4 voxels apart took them as the same surface: the wall's last
+    two voxels before the corner came out 0.56 and 0.61 (scaled) where the rest of it is 0.46 (their own entries no
+    brighter). An anchored entry's rays start on the surface itself, so a back face met at any distance means it is
+    inside something (or sees a single sided surface from behind); counted inside at any distance there, those entries
+    are no light, and the line is gone (the wall flat at 50, falling to 43 into the corner as the probes alone have it),
+    from 0.6 and 1.6 m further back too. The regression set against HEAD (`temp/gi-disocclusion/ab.ps1`, settled 1500
+    frames: salle_de_bain framed, at the user's two poses, Sponza's columns and corridor, Bistro by day and night,
+    CornellBox) within 0.74 of 255 a strip everywhere, by eye the same.
   - **A clip's scroll and the bounce.** The specks weren't all of it (the user, 2026-11-18, after GI Seen: "It does
     not look correct... Moving forwards and backwards a couple of times makes bright lines along the edges pop in
     sharply"). Walking the same 1.2 m to and fro four times (`forward.ps1 -Move 40 -Cycles 4`; each step of the walk is
@@ -979,8 +997,9 @@ most `SPEEDO_GI_CACHE_SAMPLES` (1024; 32 where something moves), and at most hal
 bounce build up and overshoot, then fall out sooner (Sponza from a cold start within 10% of settled after 280 frames
 rather than 840, 460 with one ray; 4 rays throughout, 240 but 4.8 ms a frame and noisier;
 the tail, a mean of a light still settling, fades as 1 over the frames either way: Sponza's still changed 2% 2000 frames
-in, see docs/performance-plan.md); a ray meeting a back face within a voxel and a half started inside something, and a
-voxel with more than a quarter of those is no light (the probes' alone). The samples and those rays are kept over one
+in, see docs/performance-plan.md); a ray meeting a back face within a voxel and a half started inside something (at any
+distance where the rays start on the surface itself, anchored, see below), and a voxel with more than a quarter of
+those is no light (the probes' alone). The samples and those rays are kept over one
 window, scaled down together past the cap (the inside rays in sixteenths): clamped apart, the samples stopped at the cap
 while the inside rays went on to it, so a voxel with a tenth of its rays inside crossed a quarter after 3400 frames. Lights changing
 or a new buffer start it over. `ComputeGiCacheFilter` then filters it as SVGF filters a frame (Schied et al. 2017): a pass
