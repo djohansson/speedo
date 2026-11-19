@@ -127,10 +127,11 @@ Clipmap MakeClipmap(
 		}
 		auto layout = MakeLayout(origin, clipVoxelSize, clipSize, probeSpacing, first, min);
 		// the box around its center it holds wherever it snapped to: half its size, less half a snap (how far from the
-		// center it snaps); the shading's weight fades a point out over the probe spacing inside the clip's edges besides
-		// (GiClipWeight), which the box needn't (a spacing and a voxel more of margin left Sponza's thin clips a box a
-		// third of their height).
-		// faded over a third of its half size: a snap then changes a point's weight by little, and smoothly as the eye moves
+		// center it snaps; a spacing and a voxel more of margin left Sponza's thin clips a box a third of their height).
+		// the shading fades the clip out over 8 of its voxels inside that box less a probe spacing (GiClipWeight), where
+		// it holds the point well inside wherever it snapped to, so that a snap changes no point's weight. over a third of
+		// its half size inside the box itself, with the clip's edges' own fade besides, a snap moved the edges' fade a
+		// snap at once (walking toward MovingInterior's corner, the far wall came into the middle clip whole)
 		auto& data = layout.data;
 		data.fadeCenter[0] = center.x;
 		data.fadeCenter[1] = center.y;
@@ -144,7 +145,7 @@ Clipmap MakeClipmap(
 			data.fadeExtent[0] = extent.x;
 			data.fadeExtent[1] = extent.y;
 			data.fadeExtent[2] = extent.z;
-			data.fadeExtent[3] = std::min({half.x, half.y, half.z}) / 3.0F;
+			data.fadeExtent[3] = clipVoxelSize * 8.0F;
 		}
 		else
 		{

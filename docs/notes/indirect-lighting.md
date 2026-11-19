@@ -301,6 +301,24 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
     the other. What would take it out: less of that noise, or the clip's weight eased in over some frames after a
     scroll rather than at once (`GiClipWeight` by the clip's place a few frames back: a change to what Renderer
     hands the shaders).
+    Why the weight switched at once at all (2026-11-19): `GiClipWeight` was the smaller of the box's fade (the box
+    around the clip's center, which moves with the eye smoothly: half the clip's size less half a snap, faded over a
+    third of its half size) and the edges' (0 at a probe spacing inside the clip's edges, 1 at 8 voxels more). The box
+    is 0 to a snap (8 voxels) inside the edges, wherever the clip snapped to, the edges' fade 16 voxels deep: within
+    the box's fade band the edges' was mostly the smaller, and it moves with the clip, a snap at once, on the side it
+    moves toward (what comes in, at full weight) and the side it leaves (a weight of up to 0.8 to none). An ease in
+    time couldn't help the side it leaves (those voxels are gone). The weight is now the box's alone, less a probe
+    spacing and faded over 8 voxels (`GiData::fadeExtent.w`) inside that, which a clip that isn't clamped holds
+    wherever it snapped to, so a snap changes no point's weight; the edges' fade only on the sides a clip is clamped
+    to the last clip's (found in the shader by the clip's place against the last's, `SHADER_TYPES_GI_SNAP_PROBE_COUNT`
+    shared with `gi::MakeClipmap`), which stay put while it is. The rays still leave a clip at the whole box
+    (`GiFadeBoxExit`). The region a clip lights in full is the same as the edges left it at worst before (MovingInterior's
+    finest clip, 68 voxels a side: 14 voxels around its center). Walking to and fro (`forward.ps1 -Move 40 -Cycles 4`,
+    `temp/gi-disocclusion/pops.ps1`: per frame the change of the blurred frame from the one before, over the median of
+    the 4 around it, per million pixels): the scrolls' steps (8 of them, 40000 to 103000) gone, the worst frame 8800,
+    the walk's total 615000 to 130000; the far wall at the step 63.34 to 59.98 before, 60.01 to 59.85 now
+    (`temp/review/clip-entry-pop-before-after.png`: the frames and their change, red darker, green brighter). The
+    regression set against HEAD (`ab.ps1`) within 0.66 of 255 a strip.
 - **The dark walls converge slowly, not only noisily** (MovingInterior without its animation, the user's first pose, the
   far wall against 12000 frames with a window of 16384: SPEEDO_GI_CACHE_SAMPLES): -22 of 255 at frame 300, -11 at
   1500, -3.5 at 6000, darker all the way. Each bounce reaches the wall through the cache's mean, which a window of half
@@ -396,10 +414,11 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
   inside (`GiData::fadeCenter`, `fadeExtent`: half its size less half a snap; with a snap of 4 probes and a spacing and
   a voxel more of margin, Sponza's thin clips, 68 voxels tall, kept a box a third of their height, and the finest clips
   lit nothing on its ground floor: everything there was the last clip's, 23 cm voxels and 1.9 m probes), which
-  the shading fades it out toward over a third of its half size (`GiClipWeight`) and rays leave it at
-  (`GiFadeBoxExit`), so what changes as a clip snaps changes with the eye, smoothly. The shading takes each clip by its
-  weight of what the finer ones leave (`GiSampleAt`). Under a still camera with the clips moving 6 m through Sponza's
-  arcade (`SPEEDO_GI_EYE_PATH`, 120 frames), the frames' means differ from the still run's by 0.1% at most.
+  the shading fades it out toward (over 8 voxels, a probe spacing inside it, `GiClipWeight`; over a third of its half
+  size until 2026-11-19, see "A clip's scroll and the bounce") and rays leave it at (`GiFadeBoxExit`), so what changes
+  as a clip snaps changes with the eye, smoothly. The shading takes each clip by its weight of what the finer ones leave
+  (`GiSampleAt`). Under a still camera with the clips moving 6 m through Sponza's arcade (`SPEEDO_GI_EYE_PATH`, 120 frames),
+  the frames' means differ from the still run's by 0.1% at most.
 - **The coarser clips in turn** (`GiData::updated`, `Renderer::InternalPlanGi`; `SPEEDO_GI_STAGGER=0` updates every clip
   every frame): the finest level's clips are updated every frame, the coarser levels' a level a frame (with 3 levels the
   second's every other frame and the last's in the frames between), since a clip costs about as much as another (its

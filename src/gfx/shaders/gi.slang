@@ -287,9 +287,9 @@ GiClipView GiClipViewAt(uint clip)
 }
 
 // how much a clip lights a point, where the finer ones don't (see GiSampleAt): the last clip all of what it holds; one that
-// follows the eye 1 in the box around the eye it always holds (GiData::fadeCenter), fading to 0 toward the box's edges, and
-// at most as much as it holds the point (more than a probe spacing inside it, fading over 8 voxels: where it is
-// clamped to the last clip's edges, the box needn't be inside it)
+// follows the eye 1 in the box around the eye it always holds (GiData::fadeCenter) less a probe spacing, fading to 0
+// toward that box's edges, and on the sides it is clamped to the last clip's edges (where the box needn't be inside it)
+// as much as it holds the point there (more than a probe spacing inside it, fading over 8 voxels)
 float GiClipWeight(GiClipView clip, float3 position)
 {
 	// the levels finer than the one asked for light nothing (GiData::lookupLevel: a diagnostic)
@@ -304,9 +304,35 @@ float GiClipWeight(GiClipView clip, float3 position)
 	// light then takes without a seam)
 	if (clip.clip + 1 >= clip.clipCount)
 		return saturate(edge / clip.probeSpacing);
-	float3 beyond = abs(position - clip.fadeCenter.xyz) - (clip.fadeExtent.xyz - clip.fadeExtent.w);
-	float fade = 1.0 - smoothstep(0.0, clip.fadeExtent.w, max(beyond.x, max(beyond.y, beyond.z)));
-	return min(fade, saturate((edge - clip.probeSpacing) / 8.0));
+	// by the box around its center, less a probe spacing (where the clip holds the point well inside wherever it snapped
+	// to), fading over GiData::fadeExtent.w inside that; by the clip's edges only on the sides it is clamped to the last
+	// clip's, which don't move as the eye does. by both on every side, the edges' fade (from a probe spacing inside them
+	// over 8 voxels) was narrower than the box's margin to them (0 to a snap), so it took over where the box hadn't faded
+	// the clip out yet and moved with the clip, a snap at once: walking toward MovingInterior's corner, the far wall came
+	// into the middle clip at full weight in a frame, blotchy (the two clips' caches' noise differ), and points behind
+	// the eye left it as abruptly (the user's report, 2026-11-19)
+	GiClipView last = GiClipViewAt(clip.clipCount - 1u);
+	float3 lastLow = (last.volumeOrigin.xyz - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+	float3 lastHigh = lastLow + float3(last.volumeSize.xyz) * (last.volumeOrigin.w / clip.volumeOrigin.w);
+	// clamped low: at the last clip's corner; high: within a snap of its far side (gi::MakeClipmap clamps to whole snaps)
+	float snap = clip.probeSpacing * float(SHADER_TYPES_GI_SNAP_PROBE_COUNT);
+	bool3 lowClamped = lastLow > -0.5;
+	bool3 highClamped = lastHigh < size + snap - 0.5;
+	float clampedEdge = 1e30;
+	for (uint axisIt = 0; axisIt < 3u; axisIt++)
+	{
+		if (lowClamped[axisIt])
+			clampedEdge = min(clampedEdge, coordinate[axisIt]);
+		if (highClamped[axisIt])
+			clampedEdge = min(clampedEdge, size[axisIt] - coordinate[axisIt]);
+	}
+	float width = clip.fadeExtent.w;
+	float3 beyond = abs(position - clip.fadeCenter.xyz) - (clip.fadeExtent.xyz - (clip.probeSpacing * clip.volumeOrigin.w + width));
+	float fade = 1.0 - smoothstep(0.0, width, max(beyond.x, max(beyond.y, beyond.z)));
+	// nothing within a probe spacing of any edge (the box is there only by rounding)
+	if (edge <= clip.probeSpacing)
+		return 0.0;
+	return min(fade, saturate((clampedEdge - clip.probeSpacing) * clip.volumeOrigin.w / width));
 }
 
 // a clip's voxel (level 0)

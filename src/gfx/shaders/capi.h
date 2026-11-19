@@ -1311,6 +1311,9 @@ struct CullView
 // clips a point is in, finest first, are those of a lower index (see GiData::coarser). at most this many levels
 #define SHADER_TYPES_GI_LEVEL_COUNT 4u
 #define SHADER_TYPES_GI_CLIP_COUNT (1u + (SHADER_TYPES_GI_LEVEL_COUNT - 1u) * SHADER_TYPES_SPLIT_VIEW_COUNT)
+// how far a clip that follows the eye moves at a time: this many of its probes (gi::kSnapProbes; the shading knows by it
+// which of a clip's sides are clamped to the last clip's, see GiClipWeight)
+#define SHADER_TYPES_GI_SNAP_PROBE_COUNT 1u
 // the probes' irradiance over pi along +x, -x, +y, -y, +z and -z (an ambient cube, see GiIrradianceBasis and
 // GiEvaluate) per probe and color
 #define SHADER_TYPES_GI_IRRADIANCE_COUNT 6u
@@ -1460,7 +1463,8 @@ struct GiData
 	alignas(16) UINT4(probeSize);
 	// a clip that follows the eye: the box around its center (xyz, world space: ahead of the eye, toward what the camera
 	// looks at, see gi::MakeClipmap) that it always holds well inside wherever it snapped to, of half its size per axis
-	// (fadeExtent.xyz), its weight fading to 0 over the outermost fadeExtent.w of it (see GiClipWeight). by the center,
+	// (fadeExtent.xyz; rays leave the clip there, GiFadeBoxExit), its weight fading to 0 over fadeExtent.w inside that box less
+	// a probe spacing, where the clip holds a point well inside wherever it snapped to (see GiClipWeight). by the center,
 	// which moves smoothly, rather than by the clip's snapped edges:
 	// fading over 8 voxels from them, narrower than a snap (16), points switched from one clip to the next at once as it
 	// snapped, and the clips' lighting differs (a coarser clip's voxels are thicker, its lookups further off the surface:

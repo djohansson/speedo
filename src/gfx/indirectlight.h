@@ -18,7 +18,7 @@ namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::gi
 // how far a clip that follows the eye moves at a time: this many of its probes (see MakeClipmap; one of 8 voxels: the box
 // around its center a clip holds is its half size less half a snap, and Sponza's thin clips lost all of their height to a
 // snap of 4, so the finest clips lit nothing there)
-inline constexpr uint32_t kSnapProbes = 1;
+inline constexpr uint32_t kSnapProbes = SHADER_TYPES_GI_SNAP_PROBE_COUNT;
 
 // the last clip's voxels along the scene's longest axis (see MakeClipmap): by default, and what View > Rendering Features > Indirect Lighting
 // Resolution offers. finer resolves light through narrower openings (the sky under Sponza's curtains, which 128 drew as
