@@ -40,6 +40,8 @@ static const float kGiWorldSquareScale = 1048576.0;
 // policy, the cells least lately used given up, not a capacity: linear probing clusters, and 8 cells in a row were in
 // use in Sponza's corridor with a million cells, a sample in 900 frames)
 static const uint kGiWorldProbeCount = 16u;
+// the rays a surface cache entry has traced before its samples go to the world cache (see GiCacheUpdate's toWorld)
+static const uint kGiWorldFromRayCount = 16u;
 // the sums' fixed point: a sample's value at the frame's exposure (PushConstants::exposure, about what the screen shows
 // as white) in steps of 1 / kGiWorldFixedScale, at most kGiWorldSampleMax of them (a thousand times white: what the
 // cache's rays meet is bounced light; the emitters' reaches the cache through their samples, not its rays' hits), so
@@ -366,9 +368,14 @@ static const float kGiWorldEdgeSigma = 2.0;
 // a cell's samples' variance of the light along its bucket's face (see kGiWorldMoment)
 float GiWorldVariance(uint cell, uint face)
 {
-	float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT];
-	GiWorldLoadFaces(cell, faces);
-	float light = dot(faces[face], kGiCacheLuminance);
+	// (the face's three halves alone, of the two words that hold them: the 9 of every face, a tap's twice over, were most
+	// of the filter's reads)
+	uint half = face * 3u;
+	uint first = gGiWorld[GiWorldCellWord(cell, kGiWorldFaces + half / 2u)];
+	uint second = gGiWorld[GiWorldCellWord(cell, kGiWorldFaces + half / 2u + 1u)];
+	float3 color = (half & 1u) == 0u ? float3(f16tof32(first & 0xFFFFu), f16tof32(first >> 16), f16tof32(second & 0xFFFFu))
+									 : float3(f16tof32(first >> 16), f16tof32(second & 0xFFFFu), f16tof32(second >> 16));
+	float light = dot(color, kGiCacheLuminance);
 	float moment = asfloat(gGiWorld[GiWorldCellWord(cell, kGiWorldMoment)]);
 	return isnan(moment) || isinf(moment) ? 0.0 : max(moment - light * light, 0.0);
 }

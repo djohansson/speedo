@@ -240,6 +240,24 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
   Costs as they stand, beside the clipmap (Sponza's corridor, 1080p): the frame 4.94 ms against 4.11, of which the
   lookups 0.25, the samples added 0.3, the fold and filter 0.54; 161 MB. What the grid would take of the clipmap's
   (the cache's entries, filter and volumes, steps 3 and 4) is what pays for it.
+  - **Beyond Sponza** (the regression set, `ab.ps1` A the clipmap, B the grid, lit, settled 1500 frames): every scene's
+    mean within half a level of 255 (the bathroom framed and at the user's two poses, Sponza's columns and corridor,
+    Bistro by day and night, CornellBox), every strip within 1.6. By eye the same, but in the bathroom the niches and
+    under the window a little darker and a faint band down the back wall beside each shelf (where the wall's cells meet
+    the shelf sides' of another facing), and at night Bistro's lamp's pool on the wall smaller. MovingInterior's to and
+    fro walk (`pops.ps1`): the steps 96 thousand a million pixels over the walk against the clipmap's 109, the worst
+    frame 5.6 against 4.9; but the frames change more from one to the next (9048 against 6250), the grid's noise from
+    frame to frame (settled against itself 16 frames on, `noisefloor.ps1`: 0.16 of 255, the clipmap's 0.06).
+  - **The corner's bright line came back with the grid**: the entries of MovingInterior's +x wall's hidden part (inside
+    the +z wall), which the cache marks inside, gave the grid their rays' samples of the sunlit outside. A sample now goes
+    to the grid only from an entry the cache holds valid (no more than a quarter of its rays inside something) once it
+    has traced 16 rays (`toWorld` in `GiCacheUpdate`): the line gone, the corridor the same (still 1.33 and 3.36, the
+    walk 1.17, 1.37, 1.13).
+  - Tried for the cost, not kept: the lookups blended with the next level only in the last quarter before it (Main
+    Visibility 0.63 to 0.55 ms, but the walk 1.25, 1.43, 1.21: the levels don't agree well enough for a short hand-over);
+    the filter's variance read from the face's two words rather than all nine (no change, 0.54 ms: its cost is the
+    hash searches, 3 passes of 9 taps a touched cell). Frame times of single runs vary by a few tenths of a
+    millisecond here: the performance work wants interleaved runs.
 
 ## Step 1's design, before it is built
 

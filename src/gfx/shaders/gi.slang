@@ -3588,6 +3588,13 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 				gGiStatistics[gPushConstants.frameIndex][dumpFirst + 2 + valueIt] = asuint(values[valueIt]);
 			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 21] = asuint(float(walk.clip));
 		}
+		// whether its rays' samples go to the world cache (GiWorldAdd): an entry the cache holds valid (no more than
+		// kGiInsideShare of its rays inside something), once it has rays enough to tell (kGiWorldFromRayCount). every
+		// entry's, the hidden part of MovingInterior's +x wall inside the +z wall (whose entries the cache marks inside)
+		// gave its cells the sunlit outside's light, and the bright line at the corner was back
+		float insideRays = float(entry.inside) / float(kGiCacheInsideScale);
+		float entryRays = float(entry.count) + insideRays;
+		bool toWorld = entryRays >= float(kGiWorldFromRayCount) && insideRays <= kGiInsideShare * entryRays;
 		for (uint rayIt = 0; rayIt < rayCount; rayIt++)
 		{
 			float3 direction = GiCacheDirection(world, entry.sequence++, normal);
@@ -3676,7 +3683,8 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			if (any(isnan(radiance)) || any(isinf(radiance)))
 				continue;
 			// (and the world cache's, where it is on, from the point the ray starts at, see GiWorldAdd)
-			GiWorldAdd(origin, normal, direction, radiance, estimate, (uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u) + entry.sequence * 0x27d4eb2fu, gi.level);
+			if (toWorld)
+				GiWorldAdd(origin, normal, direction, radiance, estimate, (uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u) + entry.sequence * 0x27d4eb2fu, gi.level);
 			float basis[SHADER_TYPES_GI_IRRADIANCE_COUNT];
 			GiIrradianceBasis(direction, basis);
 			entry.count = min(entry.count + 1u, cap);
