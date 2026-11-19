@@ -290,9 +290,17 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
     on, the same with it off) and smooths over the next 15 or so. The same with GI Seen or without, before this fix
     and after; not there with every block read (`SPEEDO_GI_CACHE_EVERYWHERE=1`). With the cache off the probes do
     the same there (a layer of probes new to the clip, begun from the last clip's: 66.8 to 63.0), not where the rays
-    walk the voxels (64.9 to 64.0). What it wants: the new entries begun from what the coarser clip showed (its
-    filtered light) rather than from its entries, or shown by how many rays of their own they hold. The volumes can't
-    be read for it in the resolve (the coarser clip's resolve may be writing them, see `GiHitLit`).
+    walk the voxels (64.9 to 64.0). Looked at again (2026-11-19, with the corner fix below in): 62.4 to 60.1. Not the
+    new entries' seeds: the voxels that pop were in the middle clip already, their entries seeded 18 frames before
+    and holding about 70 rays of their own besides (`SPEEDO_GI_DUMP=pixel:300,250` at steps 16 and 17), they only come
+    into its weight at the scroll; begun from what the coarser clip showed (its volumes read by hand where it isn't
+    updated that frame, which the middle clip's scroll always is not, counted as a settled entry's 256 samples:
+    tried, not kept) the step was the same (61.8 to 59.8, the same patches). The same with the probes off
+    (`SPEEDO_GI_PROBES=0`: 59.1 to 56.9, the same patches). So it is the two clips' caches disagreeing: each holds its
+    own residual noise, which changes over tens of seconds (see the far wall's below), and the switch shows one for
+    the other. What would take it out: less of that noise, or the clip's weight eased in over some frames after a
+    scroll rather than at once (`GiClipWeight` by the clip's place a few frames back: a change to what Renderer
+    hands the shaders).
 - **The dark walls converge slowly, not only noisily** (MovingInterior without its animation, the user's first pose, the
   far wall against 12000 frames with a window of 16384: SPEEDO_GI_CACHE_SAMPLES): -22 of 255 at frame 300, -11 at
   1500, -3.5 at 6000, darker all the way. Each bounce reaches the wall through the cache's mean, which a window of half
@@ -335,13 +343,43 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
     of thousands' small steps away, but the faces rounded up or down at random by where the value lies between two
     halves (tried in `GiCacheStore`, 2026-11-18, not kept) changed neither the drift nor anything at 1024 (the wall
     the same to 0.13 of 255), nor did rounding up whenever between two, though a step up at every store ran away at
-    once: what drifts past 1024 samples is still to find before a longer window can be had.
+    once: what drifts past 1024 samples is still to find before a longer window can be had. Tried again
+    (2026-11-19), the rounding shader-only and checked to be on (the captures differ in 8.6% of their bytes): at 4
+    rays a voxel without the window's time limit (`SPEEDO_GI_TIME_BASED=0`, `SPEEDO_GI_CACHE_RAYS=4`, frames 2000 to
+    8000 of the static room) the wall the same to 0.1 of 255 with and without it, 64.0 to 64.2 with 1024 and 62.7 to
+    62.6 with 4096 either way, and with the bounce off (where 4096 creeps up, 21.2 to 22.6, and 1024 holds at 21.8)
+    the creep the same to the digit: not the halves. Nor the filter's edge test (`SPEEDO_GI_CACHE_SIGMA=1000`: the
+    same to 0.1). With the fast mean off both windows are far slower (1024: 54.2 at 2000, 62.0 at 8000; 4096: 49.0
+    and 55.4), so the gap between 64.3 and 62.8 with it on may be where each settles, not a bias; which of them is
+    right is open. (Without the time limit the window is the setting; with it, at most half the updates since the
+    cache started, and the last clip, which lights the far wall, updates every other frame: 4096 and 2048 were 1500
+    at frame 6000, which is why they first measured the same as 1024.)
   - what the mottling is, measured (`temp/gi-disocclusion/wallpattern.ps1`: two captures' blotches, each pixel less
     the mean of the 33x33 around it, and their correlation): settled, the wall's blotches are 0.95 to 0.99 the same
     12000 frames apart, from run to run, and between resolutions 96, 128 and 160, so most of that measure is the
     wall's own light (brighter in the middle, darker to the corners and by the boxes); what differs between
     independent frames is 0.44 to 0.49 of 255, the noise proper (5.7 with a window of 64). It shows more at a finer
     resolution (160) and less at a coarser (96), as the filter's reach in the world goes.
+    Measured again (2026-11-19, the user: the pattern "stays put"), on the wall alone this time (the crop above held
+    the boxes' and the wall's edges, which made those correlations; now its inside, 0.333 to 0.542 across and 0.370 to
+    0.574 down, at the 120 pixel scale the blotches have, `wallpattern.ps1 -Reach 60`, `detail.ps1` to see them):
+    - it isn't the cache rays' fixed sequences (each voxel's offset of its R2 sequence, a hash of its place, which
+      would leave each voxel its own fixed error): with another seed for the hash the pattern at frame 3000 is 0.68
+      the same, at 6000 0.90, and at one filter pass the entries' own noise 0.14 the same (it is the seed's);
+    - the pattern both seeds share is the wall's light: with 4 times the samples and 4 rays a voxel (window 4096
+      without the time limit, frame 4000) it is the same at resolutions 96, 128 and 160 (0.93 to 0.95), brighter at
+      the top and darker toward the floor between the boxes, about 1.8 of 255 off the 120 pixels' mean; the probes
+      alone (`SPEEDO_GI_CACHE=0`) draw another, bright upper corners and a ring low in the middle (0.64);
+    - on top, the cache's own noise: two seeds differ by 1.0 to 1.2 of 255 at that scale with the window of 1024 (each
+      about 0.75 off), 0.55 to 0.63 with 4096; it changes over the window's span (a ray every other frame once settled:
+      2048 frames, half a minute), so it looks fixed. Most of it is the sun's patch on the floor under the skylight,
+      which lights the room: one ray of the wall's in about 40 meets it, at 30 times the mean
+      (`SPEEDO_GI_DUMP=5.977,0.51,1.989` with `SPEEDO_GI_CACHE_RAYS=8`). Less of it wants more samples (the window, see
+      above) or rays sent toward the patch;
+    - the near field, the upscaler and the animation add none (the animated room between the sphere's passes the same
+      shape as the static one, 0.82, and no noisier).
+    `temp/review/far-wall-window-seeds.png` (window 1024 two seeds, window 4096 two seeds, the wall's detail times 12)
+    and `far-wall-resolutions-4096.png` (96, 128, 160, the probes alone).
   - one more pass of the filter at the coarser levels does (`Renderer`: two for the last level and one more per level
     finer, at most `SPEEDO_GI_CACHE_FILTER_PASSES`'s 3; it was one for the last): 5.0 to 3.2 at frame 500, as smooth
     as it used to be settled, and 3.2 to 2.7 settled (two more: 2.8 and 2.7). The reach at the last level is 3 voxels
