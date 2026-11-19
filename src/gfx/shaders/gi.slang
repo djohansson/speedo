@@ -1034,7 +1034,11 @@ float3 GiHitLit(GiData walk, float3 position, BvhHit hit, float random, out floa
 		// the voxel's albedo, as ComputeGiLight bounces the volumes' light)
 		float ahead = walk.cacheFastCount != 0u && walk.reset == 0u ? gGiAhead[index] : 0.0;
 		ahead = isnan(ahead) || isinf(ahead) ? 0.0 : ahead;
-		float3 reflected = max(radiance.rgb - voxelEmission - lights - emitters + GiUnpackRgba8(voxel.albedo).rgb * ahead, 0.0) +
+		// (the lead as it is, below 0 too: it is a correction of none on average. clamped with the voxel's bounced light, a
+		// lead further below 0 than that light was dropped and a lead above kept: with the bounce off, where that light
+		// is none, the far wall of MovingInterior's room came out 23.4 of 255 with the fast mean and 13.5 without it,
+		// 12.9 with it since; with the bounce, the same)
+		float3 reflected = max(radiance.rgb - voxelEmission - lights - emitters, 0.0) + GiUnpackRgba8(voxel.albedo).rgb * ahead +
 						   albedo * (GiHitIrradiance(walk, position, hit.normal, random) + GiKeptIrradiance(keptLight, hit.normal));
 		emission = 0.0;
 		if (EmittersLight())
