@@ -12,7 +12,7 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
 
 ## Larger
 
-- **The indirect lighting's light anchored in the world** rather than per clip of the clipmap: the clip levels disagree
+- **The indirect lighting's light anchored in the world** rather than per clip of the clipmap (docs/world-cache-plan.md, side by side with the clipmap until shown better, the user's call 2026-11-19): the clip levels disagree
   about the same place by 4 to 5 of 255, which shows while walking as darker patches on Sponza's corridor floor beside
   the columns (moving against settled 1.19, 1.52 and 1.65 of 255 at the walk's three poses, 2026-11-19,
   `temp/gi-disocclusion/walkp.ps1`). The user chose a world-anchored replacement (multi-resolution cells of means) over
