@@ -779,6 +779,24 @@ private:
 	Buffer myGiCacheGrowPages;
 	Buffer myGiCacheGrowFree;
 	FrameGraph::PassId myGiCacheGrowPass;
+	// the world cache (docs/world-cache-plan.md; GiData::worldOn): on (SPEEDO_GI_WORLD=1), its storage (gGiWorld, only while
+	// it is on), its cells (SPEEDO_GI_WORLD_CELLS, a power of two), the frame's slots of sums and its levels
+	// (SPEEDO_GI_WORLD_LEVELS); whether it is made anew this frame (all of it zeroed: GI World Clear), its frame count
+	// (the cells' stamps), and over the frames timed, what it counted (GI_WORLD_COUNTER_*): summed, and the most slots a
+	// frame took
+	bool myGiWorldOn = false;
+	Buffer myGiWorldBuffer;
+	FrameGraph::BufferId myGiWorld;
+	uint32_t myGiWorldCellCount = 1U << 20;
+	uint32_t myGiWorldSlotCount = 0;
+	uint32_t myGiWorldLevelCount = 5;
+	bool myGiWorldInit = false;
+	uint32_t myGiWorldFrame = 0;
+	FrameGraph::PassId myGiWorldClearPass;
+	FrameGraph::PassId myGiWorldFoldPass;
+	std::array<uint64_t, GI_WORLD_COUNTER_COUNT> myGiWorldCounterSums{};
+	uint32_t myGiWorldMostSlots = 0;
+	uint32_t myGiWorldFrameCount = 0;
 	uint32_t myGiCacheRayCount = 1;
 	// SPEEDO_GI_CACHE_SAMPLES: see GiData::cacheSampleCount. 4096: the far wall of MovingInterior's room, lit by the sun's patch on
 	// the floor that few of its rays meet, held a blotchy noise of 0.9 of 255 between two seeds of the rays' directions

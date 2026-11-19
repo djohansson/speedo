@@ -478,6 +478,7 @@ std::vector<ShaderLayout> SceneShaderLayouts(const std::filesystem::path& shader
 			{"ComputeStreakScan", SLANG_STAGE_COMPUTE}, // see the Streak Scan pass
 			{"ComputeEmitterNew", SLANG_STAGE_COMPUTE}, // see the Emitter New pass
 			{"ComputeGiSeen", SLANG_STAGE_COMPUTE}, // see the GI Seen pass
+			{"ComputeGiWorldFold", SLANG_STAGE_COMPUTE}, // see the GI World Fold pass
 		},
 		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 		.debugInfoLevel = kShaderDebugInfoLevel,

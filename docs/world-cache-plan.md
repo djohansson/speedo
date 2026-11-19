@@ -150,6 +150,34 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
   the window of 4096 (`curve.ps1`, `wallpattern.ps1`); Bistro's night turn's leading strip 14.5 to 17.9 of 255 in the
   emitters' view, 8.6 to 11.1 lit (`turnp.ps1`).
 
+- 2026-11-19, **step 1, the grid filled and shown** (`giworld.slang`, `SPEEDO_GI_WORLD=1`, `SPEEDO_GI_WORLD_CELLS`,
+  `SPEEDO_GI_WORLD_LEVELS`; the `gi-world` debug view; the passes GI World Clear and GI World Fold; the exit report's
+  `indirect lighting, world cache:` line). As designed below, with what the first runs changed:
+  - **A sample feeds the levels from its clip's up** (its ray's voxel's level: a cell no finer than the voxel). Every
+    clip's rays at every level, the coarse clips' rays from over the whole building made cells of the finest level
+    everywhere: in Sponza's corridor 609 cells made and 6131 taken back a frame, still, with a million.
+  - **The table is a policy**: a search probes 16 cells and takes back the stalest not added to this frame where none is
+    free; a level without a cell is counted, not failed (linear probing clusters: 8 in a row were in use in Sponza
+    with a million cells, a sample in 900 frames, before the fix above).
+  - **Slots**: a quarter of the cells (the busiest frame took 90 thousand at the gate's poses).
+
+  The gate (resolution 128, settled 1500 frames, the grid on against off, one client at a time, the runs of a scene
+  back to back):
+
+  | scene | the GI passes, off and on (ms) | samples a frame | cells' slots a frame (most) | cells made a frame |
+  |---|---|---|---|---|
+  | the bathroom | 1.69, 1.89 | 17600 | 27000 (51600) | 87 |
+  | Sponza's corridor | 2.01, 2.40 | 44500 | 68900 (87100) | 229 |
+  | Bistro | 2.70, 3.22 | 32500 | 53200 (81300) | 222 |
+  | Bistro at night | 2.61, 3.20 | 37600 | 59200 (87300) | 225 |
+  | MovingInterior | 1.51, 1.59 | 14300 | 24600 (28200) | 95 |
+
+  84 MB (a million cells of 64 bytes, 262 thousand slots of 80), a third of the cells made by the run's end, none taken
+  back, no level without a cell. Adding the samples (5 levels' finds and atomic adds a ray) costs 0.1 to 0.6 ms beside
+  the clipmap; what it replaces (the cache's entries and filter, the volumes) is steps 2 and 3. The debug view shows the
+  cells unfiltered, blocky and noisy where the finest hold few samples, the light where the clipmap has it (the sky's
+  blue along Sponza's curtains, `temp/review/world-step1-sponza.png`).
+
 ## Step 1's design, before it is built
 
 - **Many rays add to a cell at once** (every coarse level's cell takes samples from many voxels' rays in a frame), so

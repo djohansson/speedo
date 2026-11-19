@@ -219,6 +219,9 @@ struct ModelInstancesSet
 	RWStructuredBuffer<uint2> gGiKept;
 	// and how far a voxel's surface cache entry's last samples are ahead of its whole mean (see GiCacheUpdate): a float each
 	RWStructuredBuffer<float> gGiAhead;
+	// the world cache (docs/world-cache-plan.md, GiData::worldOn): its counters, cells and a frame's slots of sums, uints (see
+	// GiWorldCellWord, GiWorldSlotWord)
+	RWStructuredBuffer<uint> gGiWorld;
 	RWStructuredBuffer<uint2> gGiRays;
 	RWStructuredBuffer<float4> gGiIrradiance;
 	// what the voxelizer reads (a uint4 per run of triangles: its first triangle of all, first index, DrawRecord and
@@ -319,6 +322,7 @@ ParameterBlock<ModelInstancesSet> gSetModelInstances;
 #define gGiDirect gSetModelInstances.gGiDirect
 #define gGiKept gSetModelInstances.gGiKept
 #define gGiAhead gSetModelInstances.gGiAhead
+#define gGiWorld gSetModelInstances.gGiWorld
 #define gGiRays gSetModelInstances.gGiRays
 #define gGiIrradiance gSetModelInstances.gGiIrradiance
 #define gGiJobs gSetModelInstances.gGiJobs

@@ -413,24 +413,25 @@ extern "C"
 // where the rays trace the triangles (no depth maps), by a ray from each probe to the point as the resolve's: green the
 // share behind a surface's back, blue the share a surface's front hides
 #define DEBUG_VIEW_GI_PROBE_STATE 29u
-#define DEBUG_VIEW_GI_END 30u
+#define DEBUG_VIEW_GI_WORLD 30u // the world cache's light (docs/world-cache-plan.md), as a white surface reflects it (magenta: no cell)
+#define DEBUG_VIEW_GI_END 31u
 // the traced shadows (see ShadowTraceData) of the first traced light (data): as the main pass takes them, filtered over
 // the penumbra's width; the rays' visibility as traced, a ray a pixel; and a reference, many rays a pixel over the
 // light's disk, unfiltered (SHADER_TYPES_SHADOW_REFERENCE_RAY_COUNT). magenta where no light's are traced
-#define DEBUG_VIEW_TRACED_SHADOW 30u
-#define DEBUG_VIEW_TRACED_SHADOW_RAW 31u
-#define DEBUG_VIEW_TRACED_SHADOW_REFERENCE 32u
+#define DEBUG_VIEW_TRACED_SHADOW 31u
+#define DEBUG_VIEW_TRACED_SHADOW_RAW 32u
+#define DEBUG_VIEW_TRACED_SHADOW_REFERENCE 33u
 // the emissive surfaces' light (see EmitterData) a white surface reflects: as the main pass takes it, filtered and
 // accumulated over frames; and the traced pixels' rays alone (a ray every EmitterData::stride-th pixel each way,
 // unfiltered); and a reference, many independent estimates a traced pixel (SHADER_TYPES_EMITTER_REFERENCE_SAMPLE_COUNT,
 // accumulated while the camera is still), nothing reused or filtered. magenta where it isn't traced
-#define DEBUG_VIEW_EMITTERS 33u
-#define DEBUG_VIEW_EMITTERS_RAW 34u
-#define DEBUG_VIEW_EMITTERS_REFERENCE 35u
+#define DEBUG_VIEW_EMITTERS 34u
+#define DEBUG_VIEW_EMITTERS_RAW 35u
+#define DEBUG_VIEW_EMITTERS_REFERENCE 36u
 // the radiance along a surface's reflection where it is traced (see TracedReflection), before the specular takes its
 // share of it; magenta where it isn't (too rough, or nothing traced)
-#define DEBUG_VIEW_TRACED_REFLECTIONS 36u
-#define DEBUG_VIEW_COUNT 37u
+#define DEBUG_VIEW_TRACED_REFLECTIONS 37u
+#define DEBUG_VIEW_COUNT 38u
 #define SHADER_TYPES_EMITTER_REFERENCE_SAMPLE_COUNT 64u
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
@@ -1426,7 +1427,27 @@ struct CullView
 // each last counted
 #define GI_STATISTIC_CLIP_FIRST 20u
 #define GI_STATISTIC_CLIP_WORD_COUNT 3u
-#define GI_STATISTIC_COUNT (GI_STATISTIC_CLIP_FIRST + GI_STATISTIC_CLIP_WORD_COUNT * SHADER_TYPES_GI_CLIP_COUNT)
+// and the world cache's counters of the frame (gGiWorld's, copied by ComputeGiWorldFold: GI_WORLD_COUNTER_*)
+#define GI_STATISTIC_WORLD_FIRST (GI_STATISTIC_CLIP_FIRST + GI_STATISTIC_CLIP_WORD_COUNT * SHADER_TYPES_GI_CLIP_COUNT)
+#define GI_STATISTIC_COUNT (GI_STATISTIC_WORLD_FIRST + GI_WORLD_COUNTER_COUNT)
+// the world cache's storage (gGiWorld, uints): its counters of the frame (from 0, cleared each frame: the slots of sums
+// taken, the samples added, the cells made, the cells taken back from what wasn't added to lately, the samples a level
+// found no cell for (every one probed added to this frame: a policy's, reported), that found no slot (the slots'
+// capacity) and that a cell's sums couldn't hold (more than GI_WORLD_SLOT_SAMPLE_COUNT a frame), the last two failing
+// hard), then the cells (GI_WORLD_CELL_WORD_COUNT each), then the slots
+// (GI_WORLD_SLOT_WORD_COUNT each)
+#define GI_WORLD_COUNTER_SLOTS 0u
+#define GI_WORLD_COUNTER_SAMPLES 1u
+#define GI_WORLD_COUNTER_CELLS_MADE 2u
+#define GI_WORLD_COUNTER_CELLS_TAKEN 3u
+#define GI_WORLD_COUNTER_NO_CELL 4u
+#define GI_WORLD_COUNTER_NO_SLOT 5u
+#define GI_WORLD_COUNTER_SLOT_FULL 6u
+#define GI_WORLD_COUNTER_COUNT 8u
+#define GI_WORLD_CELL_WORD_COUNT 16u
+#define GI_WORLD_SLOT_WORD_COUNT 20u
+// the most samples a slot's sums hold in a frame (each at most GI_WORLD_SAMPLE_MAX of 32 bits' fixed point)
+#define GI_WORLD_SLOT_SAMPLE_COUNT 4096u
 // a probe dumped for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the probe nearest the point writes its state after
 // gGiStatistics[frame]'s statistics, GI_DUMP_FLOAT_COUNT floats per clip: its position (3), offset (3), age, inside, the
 // rays that met a surface's back, the rays, then its depth map's texels' means; the resolve at the point's voxel; and
@@ -1672,10 +1693,17 @@ struct GiData
 	// the samples of a surface cache entry's fast mean (Renderer: SPEEDO_GI_CACHE_FAST_SAMPLES, 16; 0: none), whose lead
 	// over the whole mean the cache's rays bounce on (gGiAhead, see GiCacheUpdate)
 	alignas(4) UINT1(cacheFastCount);
-	// the struct's 16 byte alignment's tail
-	alignas(4) UINT1(padding0);
-	alignas(4) UINT1(padding1);
-	alignas(4) UINT1(padding2);
+	// the world cache (docs/world-cache-plan.md; SPEEDO_GI_WORLD: 0 none, the clipmap's light alone), the same in every
+	// clip: whether it is on, its table's cells (a power of two) and the frame's slots of sums (gGiWorld: its counters,
+	// then the cells, then the slots, see GiWorldCellFirst), its levels, its finest cell's side (world units: each level's
+	// twice the one below's), the most samples a cell's mean is of, and the frame it is (the cells' stamps)
+	alignas(4) UINT1(worldOn);
+	alignas(4) UINT1(worldCellCount);
+	alignas(4) UINT1(worldSlotCount);
+	alignas(4) UINT1(worldLevelCount);
+	alignas(4) FLOAT1(worldCellSide);
+	alignas(4) UINT1(worldWindow);
+	alignas(4) UINT1(worldFrame);
 };
 
 struct PushConstants

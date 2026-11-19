@@ -127,6 +127,8 @@ constexpr uint8_t kStreakScanEntryPoint = 70;
 constexpr uint8_t kEmitterNewEntryPoint = 71;
 // the surface cache's blocks the frame's pixels will read, before the resolve (see ComputeGiSeen)
 constexpr uint8_t kGiSeenEntryPoint = 72;
+// the world cache's frame of sums folded into its cells' means (see ComputeGiWorldFold)
+constexpr uint8_t kGiWorldFoldEntryPoint = 73;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -592,6 +594,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myGiCacheRecords = myGraph.ImportBuffer("GI Cache Records");
 	myGiCacheTables = myGraph.ImportBuffer("GI Cache Tables");
 	myGiCacheFree = myGraph.ImportBuffer("GI Cache Free");
+	myGiWorld = myGraph.ImportBuffer("GI World");
 	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		myGiVolumes[volumeIt] = myGraph.ImportImage(std::format("GI Volume {}", volumeIt));
 	myGiStaticVoxels = myGraph.ImportBuffer("GI Static Voxels");
@@ -610,7 +613,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			 std::tuple{&myGiCacheBuffer, "GI Cache", 4 * 4 * sizeof(uint32_t)},
 			 std::tuple{&myGiCacheRecordBuffer, "GI Cache Records", 3 * 4 * sizeof(uint32_t)},
 			 std::tuple{&myGiCacheTableBuffer, "GI Cache Tables", sizeof(uint32_t)},
-			 std::tuple{&myGiCacheFreeBuffer, "GI Cache Free", 2 * sizeof(uint32_t)}})
+			 std::tuple{&myGiCacheFreeBuffer, "GI Cache Free", 2 * sizeof(uint32_t)},
+			 std::tuple{&myGiWorldBuffer, "GI World", GI_WORLD_COUNTER_COUNT * sizeof(uint32_t)}})
 		*buffer = Buffer(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(name),
 			size,
@@ -1121,6 +1125,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				// sampled in the general layout the resolve writes them in (see gGiVolumes)
 				for (auto volume : myGiVolumes)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
+				builder.Use(myGiWorld, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				// the air between a surface and what its rays and its glass show (see AerialPerspectiveBetween), and the sky
 				// from the eye in mirrors (SkyRadiance)
 				for (auto volume : myAerialPerspective)
@@ -1356,10 +1361,21 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			auto extent = myGraph.GetExtent();
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kGiSeenEntryPoint}, extent.width, extent.height);
 		});
+	// the world cache (docs/world-cache-plan.md): the frame's counters emptied, and all of it where it is made anew, before
+	// the GI pass's surface cache rays add their samples to it (see GiWorldAdd)
+	myGiWorldClearPass = myGraph.AddPass(
+		"GI World Clear",
+		[this](FrameGraph::PassBuilder& builder) { builder.Use(myGiWorld, ResourceUse::TransferDestination()); },
+		[this](FrameGraph::PassContext& context)
+		{
+			CommandEncoder encoder(context.cmd);
+			encoder.FillBuffer(context.graph.GetBuffer(myGiWorld), 0, myGiWorldInit ? 0 : GI_WORLD_COUNTER_COUNT * sizeof(uint32_t), 0);
+		});
 	myGiPass = myGraph.AddPass(
 		"GI",
 		[this](FrameGraph::PassBuilder& builder)
 		{
+			builder.Use(myGiWorld, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiDirect, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
@@ -1431,6 +1447,16 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				}
 			}
 		});
+
+	// and the world cache's frame of sums folded into its cells' means, a thread a slot (see ComputeGiWorldFold)
+	myGiWorldFoldPass = myGraph.AddPass(
+		"GI World Fold",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myGiWorld, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myGiStatisticsId, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		},
+		[this, giKernel](FrameGraph::PassContext& context) { giKernel(context.cmd, kGiWorldFoldEntryPoint, myGiWorldSlotCount, 0); });
 
 	// diagnostic (SPEEDO_RAY_QUERY_REPLAY, see gfx/rayquerywatch.h): the rays replayed, each so many times a frame, after
 	// the indirect lighting's (whose rays they were)
@@ -1563,6 +1589,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			for (auto volume : myGiVolumes)
 				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiWorld, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiNearRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this, kernel](FrameGraph::PassContext& context)
@@ -1776,6 +1803,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			for (auto volume : myGiVolumes)
 				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiWorld, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myShadowTransmittance, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kComputeShader));
@@ -1879,6 +1907,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				for (auto volume : myGiVolumes)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				builder.Use(myGiWorld, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
 				builder.Use(myShadowTransmittance, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			},
@@ -1951,6 +1980,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			for (auto volume : myAerialPerspective)
 				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiWorld, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{
@@ -2036,6 +2066,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		builder.Use(myExposureHistogram, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		for (auto volume : myAerialPerspective)
 			builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+		builder.Use(myGiWorld, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 		builder.Use(mySkyEyeView, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead)); // the backdrop's sky
 	};
 	myComputeMainPass = myGraph.AddPass(
@@ -2507,6 +2538,14 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheFilterPassCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(passes, nullptr, 10)), 1U, 4U);
 	if (const char* sigma = std::getenv("SPEEDO_GI_CACHE_SIGMA"); sigma != nullptr && *sigma != '\0')
 		myGiCacheSigma = std::max(std::strtof(sigma, nullptr), 0.0F);
+	// the world cache (docs/world-cache-plan.md): on (SPEEDO_GI_WORLD=1), beside the clipmap's light, its cells (a power of
+	// two, SPEEDO_GI_WORLD_CELLS, rounded down) and levels (SPEEDO_GI_WORLD_LEVELS)
+	if (const char* world = std::getenv("SPEEDO_GI_WORLD"); world != nullptr)
+		myGiWorldOn = std::string_view(world) == "1";
+	if (const char* cells = std::getenv("SPEEDO_GI_WORLD_CELLS"); cells != nullptr && *cells != '\0')
+		myGiWorldCellCount = std::bit_floor(std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(cells, nullptr, 10)), 1024U, 1U << 24));
+	if (const char* levels = std::getenv("SPEEDO_GI_WORLD_LEVELS"); levels != nullptr && *levels != '\0')
+		myGiWorldLevelCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(levels, nullptr, 10)), 1U, 8U);
 	if (const char* settled = std::getenv("SPEEDO_GI_CACHE_SETTLED_FRAMES"); settled != nullptr && *settled != '\0')
 		myGiCacheSettledFrameCount = static_cast<uint32_t>(std::strtoul(settled, nullptr, 10));
 	if (const char* everywhere = std::getenv("SPEEDO_GI_CACHE_EVERYWHERE"); everywhere != nullptr)
@@ -2777,6 +2816,19 @@ Renderer::~Renderer()
 			"tables, free list)",
 			static_cast<double>(voxels + probes + volumes + cache) / kMiB, static_cast<double>(voxels) / kMiB, static_cast<double>(probes) / kMiB,
 			static_cast<double>(volumes) / kMiB, static_cast<double>(cache) / kMiB);
+		// the world cache's (docs/world-cache-plan.md), apart: it runs beside the clipmap's, not in its place yet
+		if (myGiWorldSlotCount != 0)
+		{
+			auto frames = static_cast<double>(std::max(myGiWorldFrameCount, 1U));
+			std::println(
+				"indirect lighting, world cache: {:.1f} MB ({} cells, {} slots, {} levels), a frame {:.0f} samples into {:.0f} cells' slots (at most {}), "
+				"{:.1f} cells made and {:.1f} taken back, {:.2f} samples' levels without a cell",
+				static_cast<double>(bytes(myGiWorldBuffer)) / kMiB, myGiWorldCellCount, myGiWorldSlotCount, myGiWorldLevelCount,
+				static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_SAMPLES]) / frames, static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_SLOTS]) / frames,
+				myGiWorldMostSlots, static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_CELLS_MADE]) / frames,
+				static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_CELLS_TAKEN]) / frames,
+				static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_NO_CELL]) / frames);
+		}
 	}
 	// and the dumped probes (SPEEDO_GI_DUMP), as they were last
 	if (myGiDump)
@@ -3231,6 +3283,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			 std::pair{"gGiCacheRecords", &myGiCacheRecordBuffer},
 			 std::pair{"gGiCacheBlocks", &myGiCacheTableBuffer},
 			 std::pair{"gGiCacheFree", &myGiCacheFreeBuffer},
+			 std::pair{"gGiWorld", &myGiWorldBuffer},
 			 std::pair{"gGiStaticVoxels", &myGiStaticVoxelBuffer}})
 		pipeline.SetDescriptorData(name, BufferBinding{.buffer = *buffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	// a voxel each until a model is voxelized (a depth of 2: a volume)
@@ -3641,6 +3694,22 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myGiCacheBlocksCounted = std::accumulate(myGiClipCacheBlockCounts.begin(), myGiClipCacheBlockCounts.end(), 0U);
 		if (!staleStatistics)
 			myGiCacheActiveBlocksCounted = statistics[GI_STATISTIC_CACHE_ACTIVE_BLOCKS];
+		// the world cache's counters (GI World Fold's copy of them): what its capacities couldn't hold fails hard
+		if (myGiWorldSlotCount != 0)
+		{
+			const uint32_t* world = &statistics[GI_STATISTIC_WORLD_FIRST];
+			ENSUREF(world[GI_WORLD_COUNTER_NO_SLOT] == 0, "{} of the world cache's samples found no slot: more than its {} slots' cells a frame",
+					world[GI_WORLD_COUNTER_NO_SLOT], myGiWorldSlotCount);
+			ENSUREF(world[GI_WORLD_COUNTER_SLOT_FULL] == 0, "{} of the world cache's samples went to a cell that had {} a frame already",
+					world[GI_WORLD_COUNTER_SLOT_FULL], GI_WORLD_SLOT_SAMPLE_COUNT);
+			if (myCollectTimings && world[GI_WORLD_COUNTER_SAMPLES] != 0)
+			{
+				for (uint32_t counterIt = 0; counterIt < GI_WORLD_COUNTER_COUNT; counterIt++)
+					myGiWorldCounterSums[counterIt] += world[counterIt];
+				myGiWorldMostSlots = std::max(myGiWorldMostSlots, world[GI_WORLD_COUNTER_SLOTS]);
+				myGiWorldFrameCount++;
+			}
+		}
 		if (statistics[GI_STATISTIC_CAPPED_RAYS] != 0)
 		{
 			auto f = [&](uint32_t index) { return std::bit_cast<float>(statistics[index]); };
@@ -4251,6 +4320,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myGiCacheRecords, myGiCacheRecordBuffer);
 	myGraph.Bind(myGiCacheTables, myGiCacheTableBuffer);
 	myGraph.Bind(myGiCacheFree, myGiCacheFreeBuffer);
+	myGraph.Bind(myGiWorld, myGiWorldBuffer);
 	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		myGraph.Bind(myGiVolumes[volumeIt], *myGiVolumeImages[volumeIt].image);
 	for (uint32_t volumeIt = 0; volumeIt < myAerialPerspectiveImages.size(); volumeIt++)
@@ -4824,6 +4894,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	for (auto pass : {myGiClearPass, myGiShiftPass, myGiVoxelizePass, myGiKeepPass, myGiLightStaticPass, myGiRestorePass, myGiVoxelizeMovingPass, myGiCacheGrowPass, myGiPass})
 		myGraph.SetEnabled(pass, enabled);
 	myGraph.SetEnabled(myGiSeenPass, enabled && frame.giSurfaceCache);
+	// the world cache (docs/world-cache-plan.md) where it is on: its samples are the surface cache's rays'
+	for (auto pass : {myGiWorldClearPass, myGiWorldFoldPass})
+		myGraph.SetEnabled(pass, enabled && frame.giSurfaceCache && myGiWorldOn);
 	// the near field (see GiData::nearReach), where the rays trace the model's BVHs
 	bool hasBvh = frame.model != nullptr && frame.model->HasBvh();
 	myGiNearOn = enabled && frame.giNearField && frame.traceTriangles && hasBvh && myGiNearReach > 0.0F;
@@ -5104,6 +5177,35 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		myGiCachePrepareThreadCount = std::max(myGiCacheInit ? 5 * myGiCacheBlockCount : 0U, myGiCachePageCapacity);
 		myGraph.SetEnabled(myGiCacheGrowPass, myGiCacheGrowFirst != 0);
 	}
+	// the world cache's storage (docs/world-cache-plan.md), only while it is on (its samples are the surface cache's rays'):
+	// its counters, its cells and a frame's slots of sums, made when it is turned on and with each clipmap (another model,
+	// another resolution), and zeroed then and when the lights change at once (its light is theirs; where they change
+	// gradually its cells follow them as the cache's entries do, by the window, GiData::worldWindow). a slot a cell a
+	// frame at most, and a quarter of the cells touched in a frame at most (Sponza's corridor took 90 thousand of a million in its busiest frame) (what the frame takes more fails hard: GI World Fold's
+	// counters, GI_WORLD_COUNTER_NO_SLOT)
+	{
+		bool worldOn = myGiWorldOn && frame.giSurfaceCache;
+		myGiWorldInit = false;
+		if (worldOn != (myGiWorldSlotCount != 0) || (worldOn && changed))
+		{
+			myGiWorldSlotCount = worldOn ? myGiWorldCellCount / 4 : 0;
+			uint64_t words = GI_WORLD_COUNTER_COUNT +
+							 (worldOn ? (static_cast<uint64_t>(myGiWorldCellCount) * GI_WORLD_CELL_WORD_COUNT) +
+											(static_cast<uint64_t>(myGiWorldSlotCount) * GI_WORLD_SLOT_WORD_COUNT)
+									  : 0);
+			InternalReplaceBuffer(
+				myGiWorldBuffer, pipeline, "GI World", "gGiWorld", words * sizeof(uint32_t),
+				BufferUsage::kStorage | BufferUsage::kTransferSource | BufferUsage::kTransferDestination);
+			myGiWorldInit = worldOn;
+		}
+		if (worldOn && myGiLightsChanged && !myGiLightsGradual)
+			myGiWorldInit = true;
+		// (counted from its zeroing: its cells' stamps, and its window's time limit, as the cache's)
+		if (myGiWorldInit)
+			myGiWorldFrame = 0;
+		if (worldOn)
+			myGiWorldFrame++;
+	}
 	bool voxelize = std::ranges::any_of(myGiClipJobs, [](const auto& jobs) { return jobs.voxelize; });
 
 	// what the voxelizer reads, when it runs: the main list's triangles of what doesn't move (opaque or alpha masked), a
@@ -5304,6 +5406,19 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.restoreStamp = clock.restoreStamp;
 		clip.cacheSeenFrameCount = static_cast<uint32_t>(std::clamp(myGiCacheSeenSeconds / (myGiFrameSeconds * interval), 2.0, 1024.0));
 		clip.cacheFastCount = myGiCacheFastSampleCount;
+		// the world cache's, the same in every clip: its finest cell the finest clip's voxel, its window the surface
+		// cache's (at most half the frames since it started, at least 32; where lights change gradually, as few as the
+		// cache follows them with)
+		clip.worldOn = myGiWorldSlotCount != 0 ? 1U : 0U;
+		clip.worldCellCount = myGiWorldCellCount;
+		clip.worldSlotCount = myGiWorldSlotCount;
+		clip.worldLevelCount = myGiWorldLevelCount;
+		clip.worldCellSide = myGiClipmap.clips.front().data.volumeOrigin[3];
+		{
+			uint32_t window = myGiTimeBased ? std::clamp(myGiWorldFrame / 2, std::min(32U, myGiCacheSampleCount), myGiCacheSampleCount) : myGiCacheSampleCount;
+			clip.worldWindow = myGiLightsFollowFrames > 0 ? std::min(window, myGiLightsFollowSampleCount) : window;
+		}
+		clip.worldFrame = myGiWorldFrame;
 		uint32_t clipFirst = clip.probeFirst;
 		clip.probeFirst = clock.probeHalf * probeTotal + clipFirst;
 		clip.probePreviousFirst = (1 - clock.probeHalf) * probeTotal + clipFirst;

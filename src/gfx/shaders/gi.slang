@@ -2923,6 +2923,8 @@ float3 GiIrradiance(float3 position, float3 normal, uint debug, float3 view = 0.
 		return GiProbesDebug(position, normal);
 	if (debug == 14u)
 		return GiProbeStateDebug(position, normal);
+	if (debug == 15u)
+		return GiWorldIrradiance(position, normal, length(position - gViewData[gPushConstants.frameIndex][0].eyePosition.xyz));
 	if (debug < 2u || debug > 5u)
 	{
 		// as the shading looks it up, given the eye's direction
@@ -3152,6 +3154,9 @@ void GiCachePackFaces(float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT], out uint p
 		packed[wordIt] = dither == 0u ? GiPackHalf2(float2(halves[wordIt * 2u], halves[wordIt * 2u + 1u]))
 									  : GiHalfDithered(halves[wordIt * 2u], dither + wordIt * 2u) | (GiHalfDithered(halves[wordIt * 2u + 1u], dither + wordIt * 2u + 1u) << 16);
 }
+
+// the world cache (docs/world-cache-plan.md), beside the clipmap's light: its samples are the surface cache's rays'
+#include "giworld.slang"
 
 GiCacheEntry GiCacheLoad(uint index)
 {
@@ -3670,6 +3675,8 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6);
 			if (any(isnan(radiance)) || any(isinf(radiance)))
 				continue;
+			// (and the world cache's, where it is on, from the point the ray starts at, see GiWorldAdd)
+			GiWorldAdd(origin, normal, direction, radiance, estimate, (uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u) + entry.sequence * 0x27d4eb2fu, gi.level);
 			float basis[SHADER_TYPES_GI_IRRADIANCE_COUNT];
 			GiIrradianceBasis(direction, basis);
 			entry.count = min(entry.count + 1u, cap);
