@@ -6,13 +6,9 @@ when it is done (its plan or note says how), and add one when a plan or a report
 
 ## Smaller
 
-- **rhitest's Vulkan draw check loses the device on the RTX 4070 Ti SUPER**: a dynamic rendering pass that only clears a
-  color and a depth attachment is enough, with no validation message; the client's passes are fine on the same driver.
-  docs/backends-plan.md, "Progress (D3D12)".
-- **A shader reload waits for the graphics queues** while frames run on the draw thread. docs/shader-compile-plan.md,
-  step 6.
-- **The file browser's preview reloading its shaders** is built (it takes the window's reloads) but untried in a window.
-  docs/shader-compile-plan.md, step 6.
+None open (2026-11-19: the preview's reload confirmed by the user; rhitest's NVIDIA device loss was fixed on 2026-11-15,
+its draw recorded on a queue without graphics, and passes 10 of 10 and under validation on driver 610.88; a reload's
+wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
 
 ## Larger
 

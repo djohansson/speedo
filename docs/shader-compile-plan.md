@@ -165,10 +165,14 @@ layout compiled with the scene's, one compile at a time, `Scene::AddReloadedLayo
 `ImGuiRenderer::ReplaceShaders`), and the file browser's preview takes the window's reloads (`Scene::FollowShaders`).
 Measured headless with the ui drawn, ShadowScene under Vulkan's validation layer: `gi.slang` broken, the window up 1.3 s
 after the edit; put back, reloaded 3.9 s after it was seen; `imgui.slang` tinted red, the ui red 0.5 s after; no
-validation message. The preview's reload is untried (it needs the file browser in a window).
+validation message. The preview's reload works (the user, 2026-11-19, in a window with the file browser).
 
-Not done: a reload while frames run on the draw thread waits for the graphics queues (the frame before is done; the
-next starts after).
+Not done, by its measure: a reload waits for the graphics queues before it replaces the shaders, rather than retiring
+the old pipelines and modules until the frames using them are done. Bistro's (2026-11-19): the wait 13.8 to 14.1 ms, the
+replacement after it 52.7 to 57.4 ms (the pipelines destroyed, the shader modules made again), so a reload is a hitch of
+about 70 ms once, after a compile of seconds; retiring rather than waiting would take a fifth of it, and the rest only
+by retiring the destruction too, in `Pipeline` and each backend's `PipelineLayout`. Not worth rhi's change for a
+checkout's reload.
 
 ## Also worth looking at
 
