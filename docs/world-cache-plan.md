@@ -213,6 +213,33 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
   two copies of the filtered faces, 36 MB more); and what the walk's difference on the near wall is (the grid's own
   noise, its footprint, or the clipmap's light blended where the cells cover little). The plan stops here, as its step 2
   says, until the user decides whether to go on with those or to leave the clipmap as it is.
+- 2026-11-19, **step 2 again, on the user's word** ("continue with those three, and brainstorm for other things to try"):
+  - **What the walk's difference was.** Through the grid's own view (`walkp.ps1 -View gi-world`) moving against settled
+    was 2.75 to 3.95 of 255: the floor ahead strewn with bright cells, new ones of a few samples, one that met the sun's
+    band all of its light. Not the hits' light depending on where the clips are (every hit lit by the last clip: the
+    same, 1.64, 1.70, 1.52), nor the frames' noise (settled against itself 16 frames on: the grid 0.38, the clipmap
+    0.06). The difference maps (`temp/review/walk-grid-diff-47.png` against `walk-clip-diff-47.png`) showed cell sized
+    patches everywhere: each run's own blotches, slow to change, which a moving run and its settled reference hold
+    differently. So the grid's spatial noise, not motion.
+  - **New cells begun from their parent's light** (`GiWorldSeed`: the cell of the next level up holding it, of its
+    bucket, as 64 samples; the samples added coarse first so the parent is there; as the clipmap's cache begins an entry
+    new to a clip from the coarser clip's): the grid's view 2.83, 3.56, 3.39; shaded 1.45, 1.71, 1.46.
+  - **The filter a-trous, three passes** (taps 1, 2 and 4 cells apart, reaching 7 each way, as the cache's; two copies
+    of the filtered faces, the passes taking turns; a cell 34 words): shaded 1.53, 1.63, 1.36, the still image 1.46
+    and 3.57 but spotted (bright cells on the vault, blue ones in the floor's band) and 6% darker; 0.77 ms.
+  - **The edge test by the cells' variance** (each cell keeps the mean of its samples' squares, of the light along its
+    bucket's face, from a sum of squares in the slot; a tap's noise the root of its variance over the samples it stands
+    for, as the cache's filter has it): a cell that caught a rare bright sample has the variance to take its neighbours,
+    where by its light alone it stood apart as an edge and kept it. The still image 1.33 and 3.37 (the clipmap 1.44 and
+    3.43), the walk 1.29, 1.39, 1.11 (the clipmap 1.16, 1.47, 1.63).
+  - **The filter along the surface alone** (the 3 by 3 taps across the bucket's axis, not the 27 around: those in front
+    and behind are other surfaces facing the same way): the still image 1.32 and 3.38, mean 6.83 (the clipmap 7.14),
+    the walk **1.19, 1.31, 1.12**; the fold and filter 0.54 ms rather than 0.77. In Sponza's corridor the grid now
+    matches or beats the clipmap settled and walking (the same at 31, better by a tenth at 47, a third at 63).
+    `temp/review/world-step2-sheet.png` (the indirect diffuse three times brighter, the clipmap above).
+  Costs as they stand, beside the clipmap (Sponza's corridor, 1080p): the frame 4.94 ms against 4.11, of which the
+  lookups 0.25, the samples added 0.3, the fold and filter 0.54; 161 MB. What the grid would take of the clipmap's
+  (the cache's entries, filter and volumes, steps 3 and 4) is what pays for it.
 
 ## Step 1's design, before it is built
 

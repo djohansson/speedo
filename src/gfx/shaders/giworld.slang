@@ -13,7 +13,8 @@
 // a cell's words (GI_WORLD_CELL_WORD_COUNT): its key (0: empty), the frame it was last added to (GiData::worldFrame), the
 // samples its mean is of, the samples its filtered light stands for (see ComputeGiWorldFilter), its faces as halves (9
 // words, as a cache entry's: an ambient cube's light along the axes, GiCachePackFaces), its slot of the frame's sums + 1
-// (0: none), two spares, and its filtered faces (9 words), which the lookups read
+// (0: none), the samples its second filter pass's faces stand for, a spare, its filtered faces (9 words, the last pass's,
+// which the lookups read) and its second pass's (9 words: the passes take turns, see ComputeGiWorldFilter)
 static const uint kGiWorldKey = 0u;
 static const uint kGiWorldStamp = 1u;
 static const uint kGiWorldCount = 2u;
@@ -21,12 +22,20 @@ static const uint kGiWorldFilteredCount = 3u;
 static const uint kGiWorldFaces = 4u;
 static const uint kGiWorldSlot = 13u;
 static const uint kGiWorldFiltered = 16u;
+static const uint kGiWorldPassCount = 14u;
+static const uint kGiWorldPass = 25u;
+// (the spare word after kGiWorldPassCount: the mean of its samples' squares, a float, of the light along its bucket's face,
+// for the filter's edge test, as the surface cache's entries keep theirs)
+static const uint kGiWorldMoment = 15u;
 // a slot's (GI_WORLD_SLOT_WORD_COUNT): face f's color c's sum at f * 3 + c, then the samples, its cell + 1, and the cell's
 // place (3 words, ints) and its level and bucket (level << 8 | bucket), for the filter to find its neighbours
 static const uint kGiWorldSlotSamples = 18u;
 static const uint kGiWorldSlotCell = 19u;
 static const uint kGiWorldSlotPlace = 20u;
 static const uint kGiWorldSlotLevel = 23u;
+// and the sum of its samples' squares (the light along the bucket's face, in fixed point, squared, over kGiWorldSquareScale)
+static const uint kGiWorldSlotSquares = 24u;
+static const float kGiWorldSquareScale = 1048576.0;
 // the cells a search probes, linearly, before it takes back the stalest of them not added to this frame (the table is a
 // policy, the cells least lately used given up, not a capacity: linear probing clusters, and 8 cells in a row were in
 // use in Sponza's corridor with a million cells, a sample in 900 frames)
@@ -76,6 +85,52 @@ int3 GiWorldCellOf(float3 position, uint level)
 	return int3(floor(position / side));
 }
 
+// the samples a cell new to the table takes its parent's light as (the cell of the next level up holding it, of its
+// bucket; GiWorldSeed): new, a cell held the few samples of its first frames alone, one that met a bright surface all of
+// its light, and walking along Sponza's corridor the floor ahead was strewn with bright cells (moving against settled
+// 2.75 to 3.95 of 255 through the grid's own view, where settled it is smooth): as the clipmap's cache begins an entry
+// new to a clip from the coarser clip's (kGiCacheAnchoredSeedCount)
+static const uint kGiWorldSeedCount = 64u;
+
+// a cell new to the table begun from its parent's light (see kGiWorldSeedCount), where its parent holds any (the samples
+// are added coarse first, GiWorldAdd, so a sample's parent cell is there before its child)
+void GiWorldSeed(uint cell, int3 place, uint level, uint bucket)
+{
+	uint frameIndex = gPushConstants.frameIndex;
+	if (level + 1u >= gGi[frameIndex][0].worldLevelCount)
+		return;
+	// (found along its probe by its key alone: GiWorldFind, which seeds, can't be called from here, recursion)
+	int3 parentPlace = place >> 1;
+	uint parentLevel = level + 1u;
+	uint hash = GiWorldMix(uint(parentPlace.x) * 73856093u ^
+						   GiWorldMix(uint(parentPlace.y) * 19349663u ^ GiWorldMix(uint(parentPlace.z) * 83492791u ^ (parentLevel << 3) ^ bucket)));
+	uint key = GiWorldMix(hash ^ 0x9E3779B9u) | 1u;
+	uint capacity = gGi[frameIndex][0].worldCellCount;
+	uint parent = ~0u;
+	for (uint probeIt = 0; probeIt < kGiWorldProbeCount && parent == ~0u; probeIt++)
+	{
+		uint index = (hash + probeIt) & (capacity - 1u);
+		uint found = gGiWorld[GiWorldCellWord(index, kGiWorldKey)];
+		if (found == 0u)
+			break;
+		if (found == key)
+			parent = index;
+	}
+	if (parent == ~0u)
+		return;
+	uint count = gGiWorld[GiWorldCellWord(parent, kGiWorldCount)];
+	if (count == 0u)
+		return;
+	for (uint wordIt = 0; wordIt < 9u; wordIt++)
+	{
+		gGiWorld[GiWorldCellWord(cell, kGiWorldFaces + wordIt)] = gGiWorld[GiWorldCellWord(parent, kGiWorldFaces + wordIt)];
+		gGiWorld[GiWorldCellWord(cell, kGiWorldFiltered + wordIt)] = gGiWorld[GiWorldCellWord(parent, kGiWorldFiltered + wordIt)];
+	}
+	gGiWorld[GiWorldCellWord(cell, kGiWorldCount)] = min(count, kGiWorldSeedCount);
+	gGiWorld[GiWorldCellWord(cell, kGiWorldMoment)] = gGiWorld[GiWorldCellWord(parent, kGiWorldMoment)];
+	gGiWorld[GiWorldCellWord(cell, kGiWorldFilteredCount)] = min(gGiWorld[GiWorldCellWord(parent, kGiWorldFilteredCount)], kGiWorldSeedCount);
+}
+
 // a cell's index in the table, ~0 where there is none: found by its key along the probe from its hash, or made (insert)
 // in the first empty one, or in the stalest probed if none is empty and that wasn't added to this frame (emptied: its
 // mean was another place's, GI_WORLD_COUNTER_CELLS_TAKEN); none, counted (GI_WORLD_COUNTER_NO_CELL: the sample isn't
@@ -105,6 +160,7 @@ uint GiWorldFind(int3 place, uint level, uint bucket, bool insert)
 			if (previous == 0u)
 			{
 				InterlockedAdd(gGiWorld[GI_WORLD_COUNTER_CELLS_MADE], 1u);
+				GiWorldSeed(index, place, level, bucket);
 				return index;
 			}
 			if (previous == key)
@@ -131,9 +187,12 @@ uint GiWorldFind(int3 place, uint level, uint bucket, bool insert)
 			gGiWorld[GiWorldCellWord(stalest, kGiWorldStamp)] = frame;
 			gGiWorld[GiWorldCellWord(stalest, kGiWorldCount)] = 0u;
 			gGiWorld[GiWorldCellWord(stalest, kGiWorldFilteredCount)] = 0u;
+			gGiWorld[GiWorldCellWord(stalest, kGiWorldPassCount)] = 0u;
+			gGiWorld[GiWorldCellWord(stalest, kGiWorldMoment)] = 0u;
 			for (uint wordIt = 0; wordIt < 9u; wordIt++)
 				gGiWorld[GiWorldCellWord(stalest, kGiWorldFaces + wordIt)] = 0u;
 			InterlockedAdd(gGiWorld[GI_WORLD_COUNTER_CELLS_TAKEN], 1u);
+			GiWorldSeed(stalest, place, level, bucket);
 			return stalest;
 		}
 		if (previous == key)
@@ -177,9 +236,20 @@ void GiWorldAdd(float3 position, float3 normal, float3 direction, float3 radianc
 		}
 	InterlockedAdd(gGiWorld[GI_WORLD_COUNTER_SAMPLES], 1u);
 	uint bucket = GiWorldBucket(normal);
+	// its light along the bucket's face, squared (for the cells' variance: kGiWorldMoment), rounded at random as the values
+	uint square = 0u;
+	{
+		uint face = min(bucket, SHADER_TYPES_GI_IRRADIANCE_COUNT - 1u);
+		float light = dot(float3(values[face * 3u], values[face * 3u + 1u], values[face * 3u + 2u]), kGiCacheLuminance);
+		float scaled = min(light * light / kGiWorldSquareScale, kGiWorldSampleMax);
+		float whole = floor(scaled);
+		float threshold = float(GiWorldMix(random ^ 0x51ed270bu) & 0xFFFFFFu) / 16777216.0;
+		square = uint(whole) + (scaled - whole > threshold ? 1u : 0u);
+	}
 	uint frame = gGi[frameIndex][0].worldFrame;
 	uint slotCount = gGi[frameIndex][0].worldSlotCount;
-	for (uint levelIt = firstLevel; levelIt < gGi[frameIndex][0].worldLevelCount; levelIt++)
+	// (coarse first: a cell new to the table begins from its parent's light, GiWorldSeed)
+	for (uint levelIt = gGi[frameIndex][0].worldLevelCount - 1u; levelIt + 1u > firstLevel; levelIt--)
 	{
 		int3 place = GiWorldCellOf(position, levelIt);
 		uint cell = GiWorldFind(place, levelIt, bucket, true);
@@ -222,6 +292,8 @@ void GiWorldAdd(float3 position, float3 normal, float3 direction, float3 radianc
 		for (uint channelIt = 0; channelIt < 3u * SHADER_TYPES_GI_IRRADIANCE_COUNT; channelIt++)
 			if (values[channelIt] != 0u)
 				InterlockedAdd(gGiWorld[GiWorldSlotWord(slot - 1u, channelIt)], values[channelIt]);
+		if (square != 0u)
+			InterlockedAdd(gGiWorld[GiWorldSlotWord(slot - 1u, kGiWorldSlotSquares)], square);
 	}
 }
 
@@ -276,22 +348,45 @@ void ComputeGiWorldFold(uint3 dispatchId: SV_DispatchThreadID)
 		for (uint wordIt = 0; wordIt < 9u; wordIt++)
 			gGiWorld[GiWorldCellWord(cell, kGiWorldFaces + wordIt)] = packed[wordIt];
 		gGiWorld[GiWorldCellWord(cell, kGiWorldCount)] = total;
+		// (and the mean of the squares, likewise: the sum's in the fixed point's units squared, see kGiWorldSlotSquares)
+		float meanSquare = float(gGiWorld[GiWorldSlotWord(slot, kGiWorldSlotSquares)]) * kGiWorldSquareScale * unit / (exposure * kGiWorldFixedScale);
+		float moment = asfloat(gGiWorld[GiWorldCellWord(cell, kGiWorldMoment)]);
+		moment = isnan(moment) || isinf(moment) ? 0.0 : moment;
+		gGiWorld[GiWorldCellWord(cell, kGiWorldMoment)] = asuint(moment + (meanSquare - moment) * share);
 	}
 }
 
 // the edge test of the filter's taps: how many deviations of the two means' noise apart their light may be and still be
-// taken (as the surface cache's filter's, GiData::cacheSigma), each mean's noise its light times kGiWorldSampleSpread over
-// the root of its samples (a sample's spread about its mean, relative: about 2 where a small bright source lights it)
+// taken (as the surface cache's filter's, GiData::cacheSigma), each mean's variance its samples' (kGiWorldMoment less its
+// mean's square) over the samples it stands for. by its light times 2 over the root of its samples, a cell that caught a
+// rare bright sample (the sun's band) stood apart from its neighbours as an edge, and kept it: bright spots on Sponza's
+// vault and walls, blue ones in the floor's band
 static const float kGiWorldEdgeSigma = 2.0;
-static const float kGiWorldSampleSpread = 2.0;
 
-// the cells the frame added to filtered (after GI World Fold's folds, a thread a slot; step 2 of the plan): each the mean
-// of its 26 neighbours at its level and of its bucket and itself, each by its place (1 itself, a half beside, a quarter
-// along an edge, an eighth at a corner), by how sure its mean is (its samples over kGiWorldShownSampleCount, at most 1)
-// and by the edge test (kGiWorldEdgeSigma), into its filtered faces (kGiWorldFiltered) and the samples those stand for
-// (kGiWorldFilteredCount: the taps' samples by their weights), which the lookups read. unfiltered, the cells' light was
-// mottled where the clipmap's, its entries filtered over about 7 voxels each way, was smooth (the cells hold only the
-// rays that start in them). then the slot and the cell's mark of it emptied for the next frame
+// a cell's samples' variance of the light along its bucket's face (see kGiWorldMoment)
+float GiWorldVariance(uint cell, uint face)
+{
+	float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+	GiWorldLoadFaces(cell, faces);
+	float light = dot(faces[face], kGiCacheLuminance);
+	float moment = asfloat(gGiWorld[GiWorldCellWord(cell, kGiWorldMoment)]);
+	return isnan(moment) || isinf(moment) ? 0.0 : max(moment - light * light, 0.0);
+}
+
+// the passes of the filter (GiData's step, PushConstants::giStep: 0 to kGiWorldFilterPassCount - 1), a-trous as the surface
+// cache's (ComputeGiCacheFilter): its taps 1, 2, 4 cells apart, so that three passes reach 7 cells each way
+static const uint kGiWorldFilterPassCount = 3u;
+
+// the cells the frame added to filtered (after GI World Fold's folds, a thread a slot; step 2 of the plan), a pass at a
+// time: each the mean of its 26 neighbours at its level and of its bucket, the pass's step apart, and itself, each by its
+// place (1 itself, a half beside, a quarter along an edge, an eighth at a corner), by how sure it is (its samples over
+// kGiWorldShownSampleCount, at most 1) and by the edge test (kGiWorldEdgeSigma, each tap's noise by the samples it stands
+// for), from the pass before's faces (the means, then kGiWorldFiltered, then kGiWorldPass) into the next's (kGiWorldFiltered,
+// kGiWorldPass, kGiWorldFiltered: the last the lookups read) with the samples those stand for (the taps' by their
+// weights). unfiltered, the cells' light was mottled where the clipmap's, its entries filtered over about 7 voxels each way,
+// was smooth (the cells hold only the rays that start in them); filtered over their 26 neighbours alone, the walk along
+// Sponza's corridor differed from its settled frames by each run's own blotches (2.83 to 3.56 of 255 through the grid's
+// view). after the last pass the slot and the cell's mark of it are emptied for the next frame
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
 void ComputeGiWorldFilter(uint3 dispatchId: SV_DispatchThreadID)
@@ -301,6 +396,13 @@ void ComputeGiWorldFilter(uint3 dispatchId: SV_DispatchThreadID)
 	uint slotCount = gGi[frameIndex][0].worldSlotCount;
 	if (slot >= min(gGiWorld[GI_WORLD_COUNTER_SLOTS], slotCount))
 		return;
+	uint pass = gPushConstants.giStep;
+	bool last = pass + 1u >= kGiWorldFilterPassCount;
+	uint from = pass == 0u ? kGiWorldFaces : (pass % 2u == 1u ? kGiWorldFiltered : kGiWorldPass);
+	uint fromCount = pass == 0u ? kGiWorldCount : (pass % 2u == 1u ? kGiWorldFilteredCount : kGiWorldPassCount);
+	uint to = pass % 2u == 0u ? kGiWorldFiltered : kGiWorldPass;
+	uint toCount = pass % 2u == 0u ? kGiWorldFilteredCount : kGiWorldPassCount;
+	int stride = 1 << pass;
 	uint cellPlus = gGiWorld[GiWorldSlotWord(slot, kGiWorldSlotCell)];
 	if (cellPlus != 0u)
 	{
@@ -311,11 +413,11 @@ void ComputeGiWorldFilter(uint3 dispatchId: SV_DispatchThreadID)
 		uint level = levelBucket >> 8;
 		uint bucket = levelBucket & 0xFFu;
 		float3 own[SHADER_TYPES_GI_IRRADIANCE_COUNT];
-		GiWorldLoadFaces(cell, own);
-		float ownCount = float(gGiWorld[GiWorldCellWord(cell, kGiWorldCount)]);
+		GiWorldLoadFaces(cell, own, from);
+		float ownCount = float(gGiWorld[GiWorldCellWord(cell, fromCount)]);
 		uint face = min(bucket, SHADER_TYPES_GI_IRRADIANCE_COUNT - 1u);
 		float ownLight = dot(own[face], kGiCacheLuminance);
-		float ownNoise = ownLight * kGiWorldSampleSpread * rsqrt(max(ownCount, 1.0));
+		float ownVariance = GiWorldVariance(cell, face) / max(ownCount, 1.0);
 		float3 sum[SHADER_TYPES_GI_IRRADIANCE_COUNT];
 		for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
 			sum[faceIt] = 0.0;
@@ -325,20 +427,24 @@ void ComputeGiWorldFilter(uint3 dispatchId: SV_DispatchThreadID)
 			for (int y = -1; y <= 1; y++)
 				for (int x = -1; x <= 1; x++)
 				{
+					// (along the surface alone: the taps across its bucket's axis are of other surfaces facing the same way, and 9
+					// taps a pass rather than 27)
+					if (int3(x, y, z)[face / 2u] != 0)
+						continue;
 					bool self = x == 0 && y == 0 && z == 0;
-					uint tap = self ? cell : GiWorldFind(place + int3(x, y, z), level, bucket, false);
+					uint tap = self ? cell : GiWorldFind(place + int3(x, y, z) * stride, level, bucket, false);
 					if (tap == ~0u)
 						continue;
-					float count = self ? ownCount : float(gGiWorld[GiWorldCellWord(tap, kGiWorldCount)]);
+					float count = self ? ownCount : float(gGiWorld[GiWorldCellWord(tap, fromCount)]);
 					if (count <= 0.0)
 						continue;
 					float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT];
-					GiWorldLoadFaces(tap, faces);
+					GiWorldLoadFaces(tap, faces, from);
 					float light = dot(faces[face], kGiCacheLuminance);
-					float noise = light * kGiWorldSampleSpread * rsqrt(count);
+					float variance = (self ? GiWorldVariance(cell, face) : GiWorldVariance(tap, face)) / count;
 					float kernel = (x == 0 ? 1.0 : 0.5) * (y == 0 ? 1.0 : 0.5) * (z == 0 ? 1.0 : 0.5);
 					float weight = kernel * min(count / float(kGiWorldShownSampleCount), 1.0) *
-								   exp(-abs(light - ownLight) / (kGiWorldEdgeSigma * (ownNoise + noise) + 1e-12));
+								   exp(-abs(light - ownLight) / (kGiWorldEdgeSigma * sqrt(ownVariance + variance) + 1e-12));
 					for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
 						sum[faceIt] += faces[faceIt] * weight;
 					weightSum += weight;
@@ -351,13 +457,15 @@ void ComputeGiWorldFilter(uint3 dispatchId: SV_DispatchThreadID)
 			uint packed[9];
 			GiCachePackFaces(sum, packed, (cell * 0x85EBCA6Bu ^ gGi[frameIndex][0].worldFrame * 0x9E3779B1u) | 1u);
 			for (uint wordIt = 0; wordIt < 9u; wordIt++)
-				gGiWorld[GiWorldCellWord(cell, kGiWorldFiltered + wordIt)] = packed[wordIt];
-			gGiWorld[GiWorldCellWord(cell, kGiWorldFilteredCount)] = uint(min(samples, 65535.0));
+				gGiWorld[GiWorldCellWord(cell, to + wordIt)] = packed[wordIt];
+			gGiWorld[GiWorldCellWord(cell, toCount)] = uint(min(samples, 65535.0));
 		}
-		gGiWorld[GiWorldCellWord(cell, kGiWorldSlot)] = 0u;
+		if (last)
+			gGiWorld[GiWorldCellWord(cell, kGiWorldSlot)] = 0u;
 	}
-	for (uint wordIt = 0; wordIt < GI_WORLD_SLOT_WORD_COUNT; wordIt++)
-		gGiWorld[GiWorldSlotWord(slot, wordIt)] = 0u;
+	if (last)
+		for (uint wordIt = 0; wordIt < GI_WORLD_SLOT_WORD_COUNT; wordIt++)
+			gGiWorld[GiWorldSlotWord(slot, wordIt)] = 0u;
 }
 
 // the world cache's light about a point, as a white surface facing normal reflects it (as GiEvaluate's), for the debug

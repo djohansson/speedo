@@ -1462,7 +1462,12 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{
 			giKernel(context.cmd, kGiWorldFoldEntryPoint, myGiWorldSlotCount, 0);
 			computeBarrier(context.cmd);
-			giKernel(context.cmd, kGiWorldFilterEntryPoint, myGiWorldSlotCount, 0);
+			// (its passes a-trous, each reading the one before's: see ComputeGiWorldFilter)
+			for (uint32_t passIt = 0; passIt < 3; passIt++)
+			{
+				giKernel(context.cmd, kGiWorldFilterEntryPoint, myGiWorldSlotCount, 0, passIt);
+				computeBarrier(context.cmd);
+			}
 		});
 
 	// diagnostic (SPEEDO_RAY_QUERY_REPLAY, see gfx/rayquerywatch.h): the rays replayed, each so many times a frame, after
