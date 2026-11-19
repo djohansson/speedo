@@ -129,6 +129,8 @@ constexpr uint8_t kEmitterNewEntryPoint = 71;
 constexpr uint8_t kGiSeenEntryPoint = 72;
 // the world cache's frame of sums folded into its cells' means (see ComputeGiWorldFold)
 constexpr uint8_t kGiWorldFoldEntryPoint = 73;
+// and the cells it added to filtered (see ComputeGiWorldFilter)
+constexpr uint8_t kGiWorldFilterEntryPoint = 74;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -1456,7 +1458,12 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiWorld, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiStatisticsId, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
-		[this, giKernel](FrameGraph::PassContext& context) { giKernel(context.cmd, kGiWorldFoldEntryPoint, myGiWorldSlotCount, 0); });
+		[this, giKernel, computeBarrier](FrameGraph::PassContext& context)
+		{
+			giKernel(context.cmd, kGiWorldFoldEntryPoint, myGiWorldSlotCount, 0);
+			computeBarrier(context.cmd);
+			giKernel(context.cmd, kGiWorldFilterEntryPoint, myGiWorldSlotCount, 0);
+		});
 
 	// diagnostic (SPEEDO_RAY_QUERY_REPLAY, see gfx/rayquerywatch.h): the rays replayed, each so many times a frame, after
 	// the indirect lighting's (whose rays they were)

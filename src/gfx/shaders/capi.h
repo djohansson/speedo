@@ -1444,8 +1444,8 @@ struct CullView
 #define GI_WORLD_COUNTER_NO_SLOT 5u
 #define GI_WORLD_COUNTER_SLOT_FULL 6u
 #define GI_WORLD_COUNTER_COUNT 8u
-#define GI_WORLD_CELL_WORD_COUNT 16u
-#define GI_WORLD_SLOT_WORD_COUNT 20u
+#define GI_WORLD_CELL_WORD_COUNT 25u
+#define GI_WORLD_SLOT_WORD_COUNT 24u
 // the most samples a slot's sums hold in a frame (each at most GI_WORLD_SAMPLE_MAX of 32 bits' fixed point)
 #define GI_WORLD_SLOT_SAMPLE_COUNT 4096u
 // a probe dumped for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the probe nearest the point writes its state after

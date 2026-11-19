@@ -178,6 +178,42 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
   cells unfiltered, blocky and noisy where the finest hold few samples, the light where the clipmap has it (the sky's
   blue along Sponza's curtains, `temp/review/world-step1-sponza.png`).
 
+- 2026-11-19, **step 2 begun, the surfaces shaded from the grid** (`GiWorldFaces`, `GiWorldBlend` in `GiSampleSurface`: the
+  level whose cell is a twentieth of the distance, blended with the next by the fraction, trilinear over 8 cells of the
+  surface's bucket, each by its samples over 16; the clipmap's light for what the cells don't cover and on what moves).
+  The lookups cost Main Visibility 0.38 to 0.62 ms at Sponza's corridor (the plan's estimate 0.3 to 1). But unfiltered,
+  the cells' light is mottled where the clipmap's is smooth (`temp/review/world-step2-sheet.png`, the indirect diffuse
+  three times brighter: the near wall, the vault, the floor's blue band in patches): a cache entry is filtered over about
+  7 voxels each way, edge aware, and a cell holds only the rays that start in it. Tried, not kept:
+  - the sample spread along the surface by up to a cell either way at random before its cell is found (a box filter for
+    nothing): blotchier and brighter (`temp/gi-disocclusion/worldspread.ps1`: the lower half's mean |pixel - the 33x33's
+    mean| 1.55 to 1.65 and 1.87 at 1 and 2 cells, its mean 6.99 to 7.67 and 8.64 of 255): spread in cells, the coarse
+    levels' spread a metre and more, the curtains' light across the floor;
+  - the level by the samples (coarser by half the log2 of how far under 2048 the distance's level's cell is): the
+    blotches larger and softer, still there (1.56; at 121 pixels 3.84 where the clipmap is 3.43), the image 7% brighter
+    (the coarse cells' footprints take other surfaces of the same facing).
+  So step 2 needs a filter of the cells' own, edge aware as the cache's:
+  - **the cells filtered** (`ComputeGiWorldFilter`, in GI World Fold's pass after the folds: each cell the frame added to
+    the mean of its 26 neighbours at its level and of its bucket and itself, by place, samples and an edge test of their
+    noise, into filtered faces the lookups read; a cell 25 words, a slot 24 with its cell's place, level and bucket):
+    the fold and the filter 0.31 ms, 124 MB. With the level by distance alone (a twentieth), Sponza's corridor settled
+    against the clipmap: the mean 6.95 to 7.14 of 255, the lower half's blotchiness 1.49 to 1.44, at 121 pixels 3.71 to
+    3.43 (`temp/gi-disocclusion/worldlookup.ps1`). Coarser cells (a tenth) were brighter (7.87): a coarse cell's
+    footprint takes other surfaces of the same facing (the floor's sunlit band beside its shade), the levels agreeing
+    on their samples but not on what a lookup needs of them.
+  - **The go or no-go: no go, as built.** The corridor walk, moving against settled at the walk's three poses
+    (`walkp.ps1`, each run the clipmap or the grid throughout): the clipmap 1.16, 1.47 and 1.63 of 255, the grid
+    1.48, 1.75 and 1.53, worse at two of three, mostly on the near wall (its strips 0.8 to 1.4 where the clipmap's are
+    0.4 to 0.8). Trusting a cell only from 256 samples rather than 16 (so that new cells give way to the clipmap's
+    light) changed nothing (1.58, 1.73, 1.49): it isn't the fresh cells taken too soon. For 0.25 ms more of lookups,
+    0.4 of filling and 0.3 of folding and filtering, and 124 MB, it is no better settled nor walking.
+  What could still change that, untried: the lookups' footprint (a coarse cell takes other surfaces: cells keyed by
+  the surface's plane as well as its facing, or a lookup weighting the cells by how far its point is from the samples
+  they hold, which a cell would have to keep); a filter as wide as the cache's (three passes, about 7 cells each way:
+  two copies of the filtered faces, 36 MB more); and what the walk's difference on the near wall is (the grid's own
+  noise, its footprint, or the clipmap's light blended where the cells cover little). The plan stops here, as its step 2
+  says, until the user decides whether to go on with those or to leave the clipmap as it is.
+
 ## Step 1's design, before it is built
 
 - **Many rays add to a cell at once** (every coarse level's cell takes samples from many voxels' rays in a frame), so

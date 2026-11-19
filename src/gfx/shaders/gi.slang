@@ -5106,6 +5106,10 @@ GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry
 	GiSample sample = GiSampleAt(position, normal, bias);
 	if (retry && !sample.valid && sample.inside)
 		sample = GiSampleAt(position, normal, bias * 2.0);
+	// the world cache's light where it is on and covers the point (docs/world-cache-plan.md, step 2), the clipmap's for the
+	// rest and on what moves (see GiWorldBlend)
+	if (!moving)
+		sample = GiWorldBlend(sample, position, normal);
 	return sample;
 }
 

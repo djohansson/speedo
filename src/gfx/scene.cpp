@@ -479,6 +479,7 @@ std::vector<ShaderLayout> SceneShaderLayouts(const std::filesystem::path& shader
 			{"ComputeEmitterNew", SLANG_STAGE_COMPUTE}, // see the Emitter New pass
 			{"ComputeGiSeen", SLANG_STAGE_COMPUTE}, // see the GI Seen pass
 			{"ComputeGiWorldFold", SLANG_STAGE_COMPUTE}, // see the GI World Fold pass
+			{"ComputeGiWorldFilter", SLANG_STAGE_COMPUTE}, // and its filter, in the same pass
 		},
 		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 		.debugInfoLevel = kShaderDebugInfoLevel,
