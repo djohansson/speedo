@@ -123,3 +123,46 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
 ## Progress
 
 - 2026-11-19: the plan written; nothing built.
+- 2026-11-19, **step 0, the baseline**. The memory report: `indirect lighting, memory: ...` in the exit report with
+  `SPEEDO_GPU_TIMINGS=1` (`Renderer`: the buffers' sizes and the volumes' packed texels, by structure; what the driver
+  pads isn't counted). `temp/gi-disocclusion/baseline.ps1` (settled 1500 frames, 1080p, Vulkan, RTX 4070 Ti SUPER, one
+  client at a time; the GI passes summed over those run in most frames, Main Visibility the shading with the lookups):
+
+  | scene, resolution | frame (ms) | GI passes (ms) | Main Visibility (ms) | memory (MB): all, voxels, probes, volumes, surface cache |
+  |---|---|---|---|---|
+  | the bathroom, 128 | 3.47 | 1.67 | 0.36 | 465: 217, 57, 153, 37 |
+  | Sponza's corridor, 128 | 4.20 | 2.01 | 0.46 | 332: 118, 30, 112, 73 |
+  | Bistro, 128 | 6.01 | 2.68 | 0.50 | 337: 121, 31, 125, 61 |
+  | Bistro at night, 128 | 5.39 | 2.64 | 0.51 | 341: 121, 31, 125, 65 |
+  | MovingInterior, 128 | 3.00 | 1.50 | 0.37 | 170: 56, 15, 64, 34 |
+  | the bathroom, 384 | 13.67 | 20.27 | 0.38 | 11151: 5457, 1393, 3870, 431 |
+  | Sponza's corridor, 384 | 29.53 | 22.54 | 0.51 | 6736: 2662, 675, 2685, 715 |
+  | Bistro, 384 | 36.80 | 25.18 | 0.80 | 7161: 2723, 698, 3099, 641 |
+  | Bistro at night, 384 | 35.64 | 25.64 | 0.88 | 7165: 2723, 698, 3099, 645 |
+  | MovingInterior, 384 | 12.48 | 10.96 | 0.38 | 3155: 1169, 302, 1451, 232 |
+
+  The clipmap's memory is its dense structures, the voxels and the volumes, cubic in the resolution (27 times from 128
+  to 384: the bathroom's 11 GB of a 16 GB gpu); the surface cache, paged, is a tenth of it. So the world cache's
+  memory gain is in what it can take of the volumes (step 2 onwards) and of the voxels and probes (steps 3 and 4), not
+  in the cache it replaces first. The quality baselines, measured the same day: Sponza's corridor walk moving against
+  settled 1.19, 1.52 and 1.65 of 255 (`walkp.ps1`); MovingInterior's to-and-fro walk's steps 130000 a million pixels
+  over the walk, the worst frame 8800 (`pops.ps1`); its far wall's noise between seeds 0.44 of 255 at frame 20000 with
+  the window of 4096 (`curve.ps1`, `wallpattern.ps1`); Bistro's night turn's leading strip 14.5 to 17.9 of 255 in the
+  emitters' view, 8.6 to 11.1 lit (`turnp.ps1`).
+
+## Step 1's design, before it is built
+
+- **Many rays add to a cell at once** (every coarse level's cell takes samples from many voxels' rays in a frame), so
+  a cell's mean can't be updated in place as an entry's is by the one thread that owns it. Each frame's samples go into
+  fixed point sums by 32 bit atomic adds (every backend has them; NVIDIA's SHaRC sums its radiance so), rounded at
+  random from the value's bits before the add (a sum rounded toward zero, or to the nearest by a float compare the
+  compiler folds, is biased: the half rounding of the cache's faces climbed without end, see the notes), then a pass
+  over the cells touched that frame folds each sum into the running mean (its window, as the cache's: up to
+  `SPEEDO_GI_CACHE_SAMPLES` samples).
+- **The sums aren't kept per cell** (19 words more a cell, 2^21 cells: 150 MB more): a cell touched in a frame takes a
+  slot of the frame's sums (its index in the cell, tagged with the frame, set by compare and exchange), from a buffer
+  sized by the most cells the frame's rays can touch (the cache's rays a frame times the levels): a capacity, failing
+  hard where it runs out, as the others do.
+- **Per ray**: a cell at each level found or inserted (a hash, a probe of up to 8 slots), and 9 atomic adds and a count
+  in each (the three faces a direction lights, in rgb): 50 atomics a ray at 5 levels, a few million a frame. Its cost
+  is step 1's gate, beside the table's memory.

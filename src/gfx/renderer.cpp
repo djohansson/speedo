@@ -2756,6 +2756,28 @@ Renderer::~Renderer()
 				static_cast<double>(data.fadeExtent[2]),
 				static_cast<double>(data.fadeExtent[3]));
 		}
+	// and the gpu memory the indirect lighting's world structures hold, by structure (docs/world-cache-plan.md, step 0: the
+	// clipmap's against the world cache's), as they were last: the buffers' sizes and the volumes' texels (packed, as
+	// uploaded; what the driver pads or aligns them to isn't counted)
+	if (myCollectTimings && myGiStatisticFrameCount > 0)
+	{
+		auto bytes = [](const Buffer& buffer) { return static_cast<uint64_t>(buffer.GetDesc().size); };
+		uint64_t voxels = bytes(myGiVoxelBuffer) + bytes(myGiStaticVoxelBuffer) + bytes(myGiRadianceBuffer) + bytes(myGiDirectBuffer) +
+						  bytes(myGiKeptBuffer) + bytes(myGiAheadBuffer) + bytes(myGiFlagBuffer);
+		uint64_t probes = bytes(myGiRayBuffer) + bytes(myGiIrradianceBuffer) + bytes(myGiProbeDepthBuffer) + bytes(myGiVisibilityBuffer);
+		uint64_t volumes = 0;
+		for (const auto& volume : myGiVolumeImages)
+			if (volume.image)
+				volumes += rhi::PackedByteCount(volume.image->GetDesc().format, volume.image->GetDesc().extent);
+		uint64_t cache = bytes(myGiCacheBuffer) + bytes(myGiCacheRecordBuffer) + bytes(myGiCacheTableBuffer) + bytes(myGiCacheFreeBuffer);
+		constexpr double kMiB = 1024.0 * 1024.0;
+		std::println(
+			"indirect lighting, memory: {:.1f} MB, the voxels {:.1f} (their radiance, direct and kept light, leads, flags), the probes "
+			"{:.1f} (rays, irradiance, depth, visibility), the volumes {:.1f}, the surface cache {:.1f} (pages, the filter's records, "
+			"tables, free list)",
+			static_cast<double>(voxels + probes + volumes + cache) / kMiB, static_cast<double>(voxels) / kMiB, static_cast<double>(probes) / kMiB,
+			static_cast<double>(volumes) / kMiB, static_cast<double>(cache) / kMiB);
+	}
 	// and the dumped probes (SPEEDO_GI_DUMP), as they were last
 	if (myGiDump)
 		for (size_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
