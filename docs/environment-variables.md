@@ -160,12 +160,12 @@ On macOS ray queries are opt in (`SPEEDO_RAY_QUERY=1`, see [the gpu and drivers]
 | `SPEEDO_GI_RELIGHT_PHASE_COUNT` | Updates, 1 to 64. Default: 4. | When the lights change gradually (the sun moving), the static voxels are lit again over this many updates. |
 | `SPEEDO_GI_CACHE` | `0` off. Default: on. | Scene. The surface cache: rays from each voxel, accumulated and filtered along surfaces, which resolve light at the voxels' size. View > Rendering Features > Indirect Lighting... > Surface Cache. |
 | `SPEEDO_GI_CACHE_RAYS` | Rays per voxel an update, 1 to 64. Default: 1. | The cache's rays (at least 4 for its first 256 updates, where the blending is time based). |
-| `SPEEDO_GI_CACHE_SAMPLES` | 1 to 65535. Default: 1024. | The most samples a voxel's average covers. |
+| `SPEEDO_GI_CACHE_SAMPLES` | 1 to 65535. Default: 4096. | The most samples a voxel's average covers. |
 | `SPEEDO_GI_CACHE_FAST_SAMPLES` | 0 to 1024 (0 off). Default: 16. | The samples of a voxel's fast average, whose lead over the whole one the cache's rays bounce on: how soon each bounce follows the one before it (a dim interior settles in seconds rather than minutes). |
 | `SPEEDO_GI_CACHE_SEEN_SECONDS` | 0 to 60. Default: 1. | How long after a lookup last read a block its filter still runs (at least 2 updates): what something passing hid is still filtered when it shows again. 0 to compare (as it was: about 0.1 ms less of the GI pass in a fast turn, and a frame of blotches where something uncovers what it hid). |
 | `SPEEDO_GI_CACHE_FILTER_PASSES` | 1 to 4. Default: 3. | The most passes of the filter along surfaces: the last level takes two and each finer level one more, up to this. |
 | `SPEEDO_GI_CACHE_SIGMA` | 0 or more. Default: 8. | How many deviations of the noise a neighbour's light may differ by and still be averaged in. |
-| `SPEEDO_GI_CACHE_SETTLED_FRAMES` | Updates. Default: twice `SPEEDO_GI_CACHE_SAMPLES`. | After this many updates the cache is settled, and its voxels trace every other frame. |
+| `SPEEDO_GI_CACHE_SETTLED_FRAMES` | Updates. Default: 2048. | After this many updates the cache is settled, and its voxels trace every other frame. |
 | `SPEEDO_GI_CACHE_KEEP_FRAMES` | Frames. Default: 1024. | How long a block of voxels keeps its cache page after a lookup last read it. Not where the rays trace the triangles (the entries the light at the surface), where every block of surface voxels keeps its page. |
 | `SPEEDO_GI_CACHE_EVERYWHERE` | Exactly `1` on. Default: off. | Traces and filters every voxel near a surface, not only those around what the view reads: for comparisons. |
 | `SPEEDO_GI_NEAR` | `0` off. Default: on. | Scene. The near field: near other surfaces, short rays from the pixels light them instead of the voxels, so that contacts darken smoothly. Needs triangles. View > Rendering Features > Indirect Lighting... > Near Field. |

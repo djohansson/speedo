@@ -780,7 +780,11 @@ private:
 	Buffer myGiCacheGrowFree;
 	FrameGraph::PassId myGiCacheGrowPass;
 	uint32_t myGiCacheRayCount = 1;
-	uint32_t myGiCacheSampleCount = 1024;
+	// SPEEDO_GI_CACHE_SAMPLES: see GiData::cacheSampleCount. 4096: the far wall of MovingInterior's room, lit by the sun's patch on
+	// the floor that few of its rays meet, held a blotchy noise of 0.9 of 255 between two seeds of the rays' directions
+	// with 1024 that changed over half a minute, a pattern that stayed put (the user's report, 2026-11-19), 0.44 with
+	// 4096. past 2048 the faces' halves rounded to the nearest climbed without end, see GiHalfDithered
+	uint32_t myGiCacheSampleCount = 4096;
 	uint32_t myGiCacheFastSampleCount = 16; // SPEEDO_GI_CACHE_FAST_SAMPLES: see GiData::cacheFastCount
 	// how long after a lookup last read a block of the surface cache its filter still runs in it (SPEEDO_GI_CACHE_SEEN_SECONDS;
 	// GiData::cacheSeenFrameCount, in the clip's updates by the frames' length): what something passing hides is back
@@ -790,7 +794,8 @@ private:
 	uint32_t myGiCacheFilterPassCount = 3;
 	float myGiCacheSigma = 8.0F;
 	// the frames since the cache started over after which it is settled (see GiData::cacheSettled):
-	// SPEEDO_GI_CACHE_SETTLED_FRAMES, by default twice its samples, when its window has them all
+	// SPEEDO_GI_CACHE_SETTLED_FRAMES, by default kGiCacheSettledUpdateCount (when a window of 1024 has them all: a
+	// longer window goes on filling after, its cap rising half a sample an update as its rays come every other frame)
 	uint32_t myGiCacheSettledFrameCount = 0;
 	bool myGiCacheEverywhere = false; // SPEEDO_GI_CACHE_EVERYWHERE=1: see GiData::cacheEverywhere
 	uint32_t myGiCacheKeepFrameCount = 1024; // SPEEDO_GI_CACHE_KEEP_FRAMES: see GiData::cacheKeepFrameCount

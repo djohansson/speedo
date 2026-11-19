@@ -169,6 +169,10 @@ constexpr uint32_t kGiCachePageStep = 1024;
 constexpr uint32_t kGiBounceDelayFrameCount = 32;
 // the frames after the surface cache starts over during which it traces 4 rays a voxel (see cacheRayCount in InternalPlanGi)
 constexpr uint32_t kGiCacheWarmFrameCount = 256;
+// the updates after the surface cache starts over after which it is settled, its voxels tracing every other frame where
+// nothing moves (see GiData::cacheSettled; SPEEDO_GI_CACHE_SETTLED_FRAMES): twice a window of 1024, which the time limit
+// fills by then (a longer window, the default 4096, goes on filling at the settled rate)
+constexpr uint32_t kGiCacheSettledUpdateCount = 2048;
 // the frames after lights last changed gradually (see Renderer::myGiLightsGradual) for which the surface cache samples
 // as where something moves, so that it follows them: about a second
 constexpr uint32_t kGiLightsFollowFrameCount = 64;
@@ -5304,7 +5308,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// (kGiCacheIdleFrameCount: a voxel no lookup reads traces a ray every 8 frames)
 		clip.cacheIdleSampleCount = myGiLightsFollowFrames > 0 ? std::max(clip.cacheSampleCount / 8, 32U) : clip.cacheSampleCount;
 		clip.cacheReset = clock.updated && clock.cacheReset ? 1U : 0U;
-		uint32_t settledFrameCount = myGiCacheSettledFrameCount > 0 ? myGiCacheSettledFrameCount : 2 * myGiCacheSampleCount;
+		uint32_t settledFrameCount = myGiCacheSettledFrameCount > 0 ? myGiCacheSettledFrameCount : kGiCacheSettledUpdateCount;
 		clip.cacheSettled = myGiTimeBased && myGiLightsFollowFrames == 0 && clock.updatesSinceCacheReset >= settledFrameCount ? 1U : 0U;
 		clip.cacheShow = myGiCacheShow ? 1U : 0U;
 		clip.lookupLevel = myGiLookupLevel;

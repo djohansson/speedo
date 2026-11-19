@@ -422,11 +422,24 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
       2048 frames, half a minute), so it looks fixed. Most of it is the sun's patch on the floor under the skylight,
       which lights the room: one ray of the wall's in about 40 meets it, at 30 times the mean
       (`SPEEDO_GI_DUMP=5.977,0.51,1.989` with `SPEEDO_GI_CACHE_RAYS=8`). Less of it wants more samples (the window, see
-      above) or rays sent toward the patch;
+      above) or rays sent toward the patch. Sent toward where the entry's own faces say its light comes from (their
+      first moment: each face's luminance less the opposite one's; a quarter of the rays in a 26 degree cone around it,
+      each sample weighed by the mixture's density, where the moment is more than 0.4 of the faces' sum: tried
+      2026-11-19, not kept), nothing changed, to the digit: the wall's entries see their light nearly evenly (the faces
+      0.0033 to 0.0053, the brightest along the open side, the moment 0.07 of their sum: `SPEEDO_GI_DUMP=5.92,1.92,-0.36`
+      from the first pose), so the patch is no direction the faces can tell. Guiding toward it would want a direction
+      kept per entry (its fifth uint4: a quarter more of the cache's pool);
     - the near field, the upscaler and the animation add none (the animated room between the sphere's passes the same
       shape as the static one, 0.82, and no noisier).
     `temp/review/far-wall-window-seeds.png` (window 1024 two seeds, window 4096 two seeds, the wall's detail times 12)
     and `far-wall-resolutions-4096.png` (96, 128, 160, the probes alone).
+    With the faces rounded at random (see the window above), two seeds at frame 20000 of the static room (the time
+    limit on, as by default) differ on the wall by 0.88 of 255 with a window of 1024, 0.44 with 4096 and 0.57 with 8192
+    (which the time limit still held to 5000 there), the level the same (64.6 to 65.2): the default is 4096 since, the
+    cache settled after 2048 updates still (`kGiCacheSettledUpdateCount`; it was twice the window), so that it costs
+    what it did, its window filling at the settled rate after. Half the noise takes the time limit's 8192 updates of
+    the last clip to come (4.5 minutes at 60 frames a second), and what both seeds share, 1.7 of 255, is the wall's
+    light.
   - one more pass of the filter at the coarser levels does (`Renderer`: two for the last level and one more per level
     finer, at most `SPEEDO_GI_CACHE_FILTER_PASSES`'s 3; it was one for the last): 5.0 to 3.2 at frame 500, as smooth
     as it used to be settled, and 3.2 to 2.7 settled (two more: 2.8 and 2.7). The reach at the last level is 3 voxels
@@ -1077,7 +1090,7 @@ further than halfway to a surface facing back at it there, `GiCacheOrigin`: Corn
 the voxel out along the wall's open side inside it, the entries were inside, and the wall drew a black crescent along
 the sphere, stepped at the voxels, at the user's pose `0.1488,-1.1952,0.7514,12.998,14.697` at resolution 192), as the
 probes' rays are traced, into a running mean of at
-most `SPEEDO_GI_CACHE_SAMPLES` (1024; 32 where something moves), and at most half the frames since it started over
+most `SPEEDO_GI_CACHE_SAMPLES` (4096 since 2026-11-19, 1024 before; 32 where something moves), and at most half the frames since it started over
 (at least 32; `SPEEDO_GI_TIME_BASED=0` without), tracing 4 rays a voxel for its first 256 frames
 (`kGiCacheWarmFrameCount`, then `SPEEDO_GI_CACHE_RAYS`): its first frames' samples, read while the probes and the
 bounce build up and overshoot, then fall out sooner (Sponza from a cold start within 10% of settled after 280 frames
