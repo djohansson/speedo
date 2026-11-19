@@ -62,3 +62,4 @@ Each as deep as the subsystem's history: what was tried, what it cost, the user'
 - docs/visual-testing-plan.md: checks of what the client draws (repeatable captures, `imagecompare`, references).
 - docs/backends-plan.md: the second graphics backend (Metal, then D3D12): what the shaders and rhi need of each, the plan and its progress.
 - docs/shader-compile-plan.md: faster shader compiles: where a cold compile's time goes (step 0), the entry points keyed by their HLSL source and cached beside the executable, compiled in worker processes at once (steps 1 to 4), reloaded while the client runs (step 6).
+- docs/backlog.md: what is open across the plans and the notes, smaller items first (the user's order, 2026-11-19).
