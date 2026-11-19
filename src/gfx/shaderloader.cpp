@@ -567,6 +567,13 @@ std::expected<rhi::ShaderSet, std::string> ShaderLoader::TryCompile(
 	return std::move(response.shaderSet);
 }
 
+std::vector<std::byte> ShaderLoader::SerializedResources(const rhi::ShaderSet& shaderSet)
+{
+	std::vector<std::byte> bytes;
+	ENSUREF(!zpp::bits::failure(zpp::bits::out(bytes)(shaderSet.layouts)), "failed to serialize a shader set's resources");
+	return bytes;
+}
+
 void ShaderLoader::SavePrecompiled(const std::filesystem::path& path, const rhi::ShaderSet& shaderSet)
 {
 	auto saved = core::file::SaveBinary<false>(

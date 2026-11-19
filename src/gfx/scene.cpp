@@ -51,6 +51,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <print>
 #include <span>
@@ -587,10 +588,23 @@ struct Scene::Impl
 		std::vector<std::pair<std::string, std::expected<rhi::ShaderSet, std::string>>> layouts;
 		std::chrono::steady_clock::time_point start;
 		uint64_t fingerprint = 0;
+		// its sets once they all compiled, to hand out (see InternalFinishShaderReload)
+		std::shared_ptr<Scene::ReloadedShaders> published;
 	};
 	std::unique_ptr<ShaderReload> myShaderReload;
 	core::Future<void> myShaderReloadFuture;
 	core::UnorderedMap<std::string, std::vector<std::byte>> myShaderLayoutResources;
+	// the layouts others draw with, compiled with the scene's (Scene::AddReloadedLayout); the sets of the last reload that
+	// compiled, the scene's layouts first (Scene::GetReloadedShaders), and how many reloads started; where the scene takes
+	// another's reloads instead (Scene::FollowShaders), that scene, and the last of its reloads taken
+	std::vector<std::pair<std::string, ShaderLayout>> myAddedReloadLayouts;
+	std::shared_ptr<const Scene::ReloadedShaders> myReloadedShaders;
+	uint64_t myReloadGeneration = 0;
+	const Scene* myShaderSource = nullptr;
+	uint64_t myFollowedGeneration = 0;
+	// what the last reload came to (Scene::GetShaderReloadStatus), for the ui thread
+	mutable std::mutex myReloadStatusMutex;
+	Scene::ShaderReloadStatus myReloadStatus; // guarded by myReloadStatusMutex
 	// how often the sources are looked at
 	static constexpr std::chrono::milliseconds kShaderWatchInterval{500};
 	std::atomic_uint32_t myPipelinesCreated{0};
@@ -2994,6 +3008,8 @@ struct Scene::Impl
 		{
 			if (myWatchShaders)
 				InternalWatchShaders();
+			else if (myShaderSource != nullptr)
+				InternalFollowShaders();
 			return true;
 		}
 		if (!myShaderCompileFuture.IsReady())
@@ -3085,15 +3101,6 @@ struct Scene::Impl
 		executor.Submit(heads);
 	}
 
-	// a layout's resources serialized (rhi::ShaderSet::layouts: its descriptor sets' bindings and push constants), to tell
-	// whether a reload's are the same
-	[[nodiscard]] static std::vector<std::byte> SerializedResources(const rhi::ShaderSet& shaderSet)
-	{
-		std::vector<std::byte> bytes;
-		ENSUREF(!zpp::bits::failure(zpp::bits::out(bytes)(shaderSet.layouts)), "failed to serialize a shader set's resources");
-		return bytes;
-	}
-
 	// the shaders' sources' fingerprint: each file of the shader directory, its name, time and size hashed (an install's
 	// precompiled sets there are files too, which never change)
 	[[nodiscard]] uint64_t ShaderFingerprint() const
@@ -3149,6 +3156,7 @@ struct Scene::Impl
 		myShaderReload = std::make_unique<ShaderReload>();
 		myShaderReload->start = now;
 		myShaderReload->fingerprint = fingerprint;
+		InternalSetReloadStatus(ShaderReloadStatus::State::kCompiling, {}, ++myReloadGeneration);
 		auto task = core::CreateTask(
 			[this]
 			{
@@ -3161,55 +3169,127 @@ struct Scene::Impl
 						 std::pair{"Flare", &compiles.flare},
 						 std::pair{"Environment", &compiles.environment}})
 					myShaderReload->layouts.emplace_back(name, loader.TryLoad(compile->file, compile->config));
+				// (and the layouts others draw with, after the scene's: see Scene::GetReloadedShaders)
+				for (const auto& [name, layout] : myAddedReloadLayouts)
+					myShaderReload->layouts.emplace_back(name, loader.TryLoad(layout.file, layout.config));
 			});
 		myShaderReloadFuture = std::move(task.future);
 		core::Application::Get()->GetExecutor().Submit(std::span(&task.handle, 1));
 	}
 
-	// the reload's sets into the pipeline's layouts, or why not (see InternalWatchShaders). false while the pipeline is
-	// making pipelines (try again)
+	using ShaderReloadStatus = Scene::ShaderReloadStatus;
+
+	void InternalSetReloadStatus(ShaderReloadStatus::State state, std::string message, uint64_t generation)
+	{
+		std::scoped_lock lock(myReloadStatusMutex);
+		myReloadStatus = {.state = state, .message = std::move(message), .time = std::chrono::steady_clock::now(), .generation = generation};
+	}
+
+	// the reload's sets into the pipeline's layouts, or why not (see InternalWatchShaders), and handed out to whoever
+	// takes them (GetReloadedShaders: what failed or was refused isn't). false while the pipeline is making pipelines (try
+	// again). what it comes to is said in the output and in the status the ui shows (Scene::GetShaderReloadStatus): the
+	// output alone, a failed compile's diagnostics were where a windowed client's user doesn't look, and the shaders
+	// seemed not to reload
 	bool InternalFinishShaderReload()
 	{
 		auto& reload = *myShaderReload;
+		// (each error once, with the layouts that met it: an error in a file they all include is every layout's, the same)
+		std::vector<std::pair<std::string, std::string>> errors; // the layouts' names, the error
 		for (const auto& [name, shaderSet] : reload.layouts)
 			if (!shaderSet)
 			{
-				std::println(stderr, "shader reload failed, the shaders kept as they were:\n{}", shaderSet.error());
-				std::println("shader reload failed (see the error output), the shaders kept as they were");
-				std::fflush(stdout);
-				return true;
+				auto same = std::ranges::find(errors, shaderSet.error(), &std::pair<std::string, std::string>::second);
+				if (same != errors.end())
+					same->first += std::format(", {}", name);
+				else
+					errors.emplace_back(name, shaderSet.error());
 			}
-		for (const auto& [name, shaderSet] : reload.layouts)
-			if (SerializedResources(*shaderSet) != myShaderLayoutResources[name])
+		std::string failures;
+		for (const auto& [names, error] : errors)
+			failures += std::format("{}{}:\n{}", failures.empty() ? "" : "\n", names, error);
+		if (!failures.empty())
+		{
+			std::println(stderr, "shader reload failed, the shaders kept as they were:\n{}", failures);
+			std::println("shader reload failed (see the error output), the shaders kept as they were");
+			std::fflush(stdout);
+			InternalSetReloadStatus(ShaderReloadStatus::State::kFailed, std::move(failures), myReloadGeneration);
+			return true;
+		}
+		if (!reload.published)
+		{
+			auto published = std::make_shared<Scene::ReloadedShaders>();
+			published->generation = myReloadGeneration;
+			for (auto& [name, shaderSet] : reload.layouts)
+				published->layouts.emplace_back(name, std::move(*shaderSet));
+			reload.published = std::move(published);
+		}
+		auto applied = InternalApplyShaders(*reload.published);
+		if (applied == ApplyResult::kBusy)
+			return false;
+		if (applied == ApplyResult::kApplied)
+		{
+			auto seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - reload.start).count();
+			std::println("shaders reloaded {:.2f} s after the change was seen", seconds);
+			std::fflush(stdout);
+			InternalSetReloadStatus(ShaderReloadStatus::State::kReloaded, std::format("in {:.1f} s", seconds), myReloadGeneration);
+		}
+		else
+			InternalSetReloadStatus(ShaderReloadStatus::State::kNeedsRestart, std::move(myApplyRefusal), myReloadGeneration);
+		// (the others take what their layouts' resources allow, as this scene did: see InternalFollowShaders)
+		myReloadedShaders = std::move(reload.published);
+		return true;
+	}
+
+	enum class ApplyResult : uint8_t
+	{
+		kApplied,
+		kBusy, // pipelines being made: again next frame
+		kRefused, // a layout's resources changed (myApplyRefusal says which)
+	};
+	std::string myApplyRefusal;
+
+	// a reload's sets of the scene's layouts (the leading ones: the scene's come first, see InternalWatchShaders) given to
+	// its pipeline, once none is being made and the graphics queues are idle; the compute pipelines asked for again
+	ApplyResult InternalApplyShaders(const Scene::ReloadedShaders& reloaded)
+	{
+		size_t ownCount = 0;
+		while (ownCount < reloaded.layouts.size() && myShaderLayoutResources.contains(reloaded.layouts[ownCount].first))
+			ownCount++;
+		std::span own(reloaded.layouts.data(), ownCount);
+		for (const auto& [name, shaderSet] : own)
+			if (ShaderLoader::SerializedResources(shaderSet) != myShaderLayoutResources[name])
 			{
-				std::println("shader reload: the {} layout's resources changed (bindings or push constants): restart to load them", name);
+				myApplyRefusal = std::format("the {} layout's resources changed (bindings or push constants): restart to load them", name);
+				std::println("shader reload: {}", myApplyRefusal);
 				std::fflush(stdout);
-				return true;
+				return ApplyResult::kRefused;
 			}
 		// the pipelines made ahead done (a reload's own, or the start's), so that none is being made
 		for (const auto& future : myPipelineFutures)
 			if (!future.IsReady())
-				return false;
+				return ApplyResult::kBusy;
 		myPipelineFutures.clear();
 		{
 			auto graphics = myRHI.GetPrimaryDevice().GetQueue(kQueueTypeGraphics).Write();
 			for (auto& [queue, submits] : graphics->queues)
 				queue.WaitIdle();
 		}
-		std::vector<std::pair<std::string, rhi::ShaderSet>> layouts;
-		for (auto& [name, shaderSet] : reload.layouts)
-			layouts.emplace_back(name, std::move(*shaderSet));
-		if (!myPipeline.ReplaceShaders(layouts))
-		{
-			for (size_t layoutIt = 0; layoutIt < layouts.size(); layoutIt++)
-				reload.layouts[layoutIt].second = std::move(layouts[layoutIt].second);
-			return false;
-		}
+		if (!myPipeline.ReplaceShaders(own))
+			return ApplyResult::kBusy;
 		InternalRequestPipelines();
-		std::println(
-			"shaders reloaded {:.2f} s after the change was seen", std::chrono::duration<double>(std::chrono::steady_clock::now() - reload.start).count());
-		std::fflush(stdout);
-		return true;
+		return ApplyResult::kApplied;
+	}
+
+	// where the scene takes another's reloads (Scene::FollowShaders: the file browser's preview, the window's), each
+	// once, in Prepare: watching the sources itself, it compiled every changed entry point again, at the same time
+	void InternalFollowShaders()
+	{
+		auto reloaded = myShaderSource->GetReloadedShaders();
+		if (!reloaded || reloaded->generation <= myFollowedGeneration)
+			return;
+		if (InternalApplyShaders(*reloaded) == ApplyResult::kBusy)
+			return;
+		myFollowedGeneration = reloaded->generation;
 	}
 
 	// how far the compiles are, 0 to 1 (see Scene::GetShaderProgress): the entry points of the layouts done, or the time
@@ -3296,7 +3376,7 @@ struct Scene::Impl
 		ShaderLoader shaderLoader({std::filesystem::path(compiles.includePath)}, std::filesystem::path(compiles.intermediatePath));
 
 		auto zPrepassSet = shaderLoader.Load(compiles.zPrepass.file, compiles.zPrepass.config);
-		myShaderLayoutResources["VertexZPrepass"] = SerializedResources(zPrepassSet);
+		myShaderLayoutResources["VertexZPrepass"] = ShaderLoader::SerializedResources(zPrepassSet);
 		auto zPrepassLayout = pipeline.CreateLayout("VertexZPrepass", zPrepassSet);
 
 		pipeline.BindLayoutAuto(zPrepassLayout, PipelineBindPoint::kGraphics);
@@ -3347,13 +3427,13 @@ struct Scene::Impl
 		}
 
 		auto mainSet = shaderLoader.Load(compiles.main.file, compiles.main.config);
-		myShaderLayoutResources["Main"] = SerializedResources(mainSet);
+		myShaderLayoutResources["Main"] = ShaderLoader::SerializedResources(mainSet);
 		auto mainLayout = pipeline.CreateLayout("Main", mainSet);
 		auto flareSet = shaderLoader.Load(compiles.flare.file, compiles.flare.config);
-		myShaderLayoutResources["Flare"] = SerializedResources(flareSet);
+		myShaderLayoutResources["Flare"] = ShaderLoader::SerializedResources(flareSet);
 		[[maybe_unused]] auto flareLayout = pipeline.CreateLayout("Flare", flareSet);
 		// (the environment filter loads its own: the same configuration, a cache hit)
-		myShaderLayoutResources["Environment"] = SerializedResources(shaderLoader.Load(compiles.environment.file, compiles.environment.config));
+		myShaderLayoutResources["Environment"] = ShaderLoader::SerializedResources(shaderLoader.Load(compiles.environment.file, compiles.environment.config));
 
 		pipeline.BindLayoutAuto(mainLayout, PipelineBindPoint::kGraphics);
 
@@ -3733,6 +3813,31 @@ void Scene::WatchShaders(bool watch) noexcept
 	// (only where the sources are: a checkout's, not an install's precompiled sets)
 	std::error_code error;
 	myImpl->myWatchShaders = watch && std::filesystem::exists(myImpl->myShaderCompiles->includePath / "shaders.slang", error);
+}
+
+Scene::ShaderReloadStatus Scene::GetShaderReloadStatus() const
+{
+	std::scoped_lock lock(myImpl->myReloadStatusMutex);
+	return myImpl->myReloadStatus;
+}
+
+void Scene::AddReloadedLayout(std::string name, ShaderLayout layout)
+{
+	ENSUREF(!myImpl->myShaderReload, "a layout added to the shader reload while one is compiling");
+	myImpl->myAddedReloadLayouts.emplace_back(std::move(name), std::move(layout));
+}
+
+std::shared_ptr<const Scene::ReloadedShaders> Scene::GetReloadedShaders() const noexcept
+{
+	return myImpl->myReloadedShaders;
+}
+
+void Scene::FollowShaders(const Scene& source) noexcept
+{
+	// (from its next reload on: what it reloaded before this scene compiled its own was there already)
+	auto reloaded = source.GetReloadedShaders();
+	myImpl->myShaderSource = &source;
+	myImpl->myFollowedGeneration = reloaded ? reloaded->generation : 0;
 }
 
 bool Scene::IsReady() const noexcept

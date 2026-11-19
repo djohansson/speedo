@@ -134,6 +134,7 @@ private:
 	std::unique_ptr<gfx::Scene> myScene; // drawn through the views
 	std::unique_ptr<platform::ImGuiLayer> myImGui; // the user interface: imgui's context and frames
 	std::unique_ptr<gfx::ImGuiRenderer> myImGuiRenderer; // which draws them
+	uint64_t myImGuiShaderGeneration = 0; // the scene's last shader reload its shaders took (see InternalPrepare)
 	std::vector<UiBlurRect> myUiBlurRects; // the ui frame drawn's frosted panels (see Draw), draw thread only
 	FrameStats myFrameStats; // the frame rate, submits per frame and frame times (see Draw), draw thread only
 	std::unique_ptr<Preview> myPreview; // made on the draw thread once requested (see RequestPreview)

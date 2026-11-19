@@ -158,8 +158,17 @@ private memory 2.56 GB ready, 2.71 after two, about 2.85 from the eighth on (2.7
 `ReplaceShaders` and `InternalDestroyPipelines` are written as its constructor and destructor have them, not built
 (Windows).
 
-Not done: the error is in the output, not the ui; the preview's scene and the ImGui renderer don't reload; a reload
-while frames run on the draw thread waits for the graphics queues (the frame before is done; the next starts after).
+Since (2026-11-19): the ui shows a reload (a row in the loading overlay while it compiles, then for 3 s how long it
+took; a failed compile's diagnostics, each error once with the layouts that met it, or a refusal, in a window with a
+Copy button until closed or the next reload starts: `Scene::GetShaderReloadStatus`), the ImGui renderer reloads (its
+layout compiled with the scene's, one compile at a time, `Scene::AddReloadedLayout`, and replaced between frames,
+`ImGuiRenderer::ReplaceShaders`), and the file browser's preview takes the window's reloads (`Scene::FollowShaders`).
+Measured headless with the ui drawn, ShadowScene under Vulkan's validation layer: `gi.slang` broken, the window up 1.3 s
+after the edit; put back, reloaded 3.9 s after it was seen; `imgui.slang` tinted red, the ui red 0.5 s after; no
+validation message. The preview's reload is untried (it needs the file browser in a window).
+
+Not done: a reload while frames run on the draw thread waits for the graphics queues (the frame before is done; the
+next starts after).
 
 ## Also worth looking at
 

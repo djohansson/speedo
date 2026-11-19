@@ -46,6 +46,11 @@ public:
 		std::vector<core::TaskHandle>& callbacks);
 	// records drawData (as PrepareFrame copied it) into cmd, inside target, begun on one of its frames. draw thread
 	void Draw(CommandBufferHandle cmd, const ImDrawData& drawData, uint32_t frameIndex, IRenderTarget& target);
+	// a shader reload's set of its layout ("ImGui", ImGuiShaderLayout: see Scene::AddReloadedLayout), given to its pipeline
+	// once the graphics queues are idle, or refused where its resources changed (a restart loads them; said in the
+	// output). false while a pipeline is being made (try again next frame). draw thread, between frames, outside the
+	// graphics queue's lock
+	[[nodiscard]] bool ReplaceShaders(const rhi::ShaderSet& shaderSet);
 
 	// an image the caller owns, shown in imgui (ImGui::Image) through the texture id returned: view must be in
 	// kShaderReadOnly whenever a frame drawing it runs, and outlive the frames that do. RemoveTexture releases the id: the

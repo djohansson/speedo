@@ -20,6 +20,7 @@
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -1081,7 +1082,14 @@ void WindowedApplication::PrepareDraw()
 	// once ready, the graphics pipelines its passes wait for (a first launch's, cold, take seconds each)
 	auto [graphicsCreated, graphicsCount] = myScene ? myScene->GetGraphicsPipelineProgress() : std::pair<uint32_t, uint32_t>{0, 0};
 	bool creatingPipelines = graphicsCreated < graphicsCount;
-	if (bool loading = (compilingShaders || creatingPipelines || !gLoads.Empty()) &&
+	// and a shader reload (a checkout's, see Scene::WatchShaders): compiling, then for a moment how long it took
+	using ReloadState = Scene::ShaderReloadStatus::State;
+	auto reload = myScene ? myScene->GetShaderReloadStatus() : Scene::ShaderReloadStatus{};
+	auto reloadSeconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - reload.time).count();
+	constexpr float kReloadedShownSeconds = 3.0F;
+	bool reloading = reload.state == ReloadState::kCompiling;
+	bool reloaded = reload.state == ReloadState::kReloaded && reloadSeconds < kReloadedShownSeconds;
+	if (bool loading = (compilingShaders || creatingPipelines || reloading || reloaded || !gLoads.Empty()) &&
 				 Begin(
 					 "Loading",
 					 &loading,
@@ -1118,6 +1126,15 @@ void WindowedApplication::PrepareDraw()
 			SameLine();
 			TextUnformatted("Creating pipelines");
 		}
+		if (reloading)
+		{
+			// (slang says nothing of a compile's progress: the bar moves to show it is running)
+			ProgressBar(-1.0F * static_cast<float>(GetTime()), ImVec2(kProgressBarWidth, 0), "");
+			SameLine();
+			Text("Reloading shaders (%.0f s)", reloadSeconds);
+		}
+		else if (reloaded)
+			Text("Shaders reloaded %s", reload.message.c_str());
 		gLoads.ForEach([](const core::LoadQueue::Load& load)
 		{
 			ProgressBar((1.F / kProgressMax) * static_cast<float>(load.progress), ImVec2(kProgressBarWidth, 0));
@@ -1125,6 +1142,40 @@ void WindowedApplication::PrepareDraw()
 			TextUnformatted(load.name.c_str());
 		});
 		End();
+	}
+
+	// a shader reload that failed (the compiler's diagnostics) or was refused (its resources changed: a restart loads
+	// them), in a window until closed or the next reload starts: in the output alone, a windowed client's user didn't
+	// see why an edit wasn't taken
+	if (reload.state == ReloadState::kFailed || reload.state == ReloadState::kNeedsRestart)
+	{
+		static uint64_t gClosedReload = 0; // the reload whose window was closed
+		if (gClosedReload != reload.generation)
+		{
+			bool open = true;
+			const auto* viewport = GetMainViewport();
+			SetNextWindowPos(ImVec2(viewport->WorkPos.x + (0.5F * viewport->WorkSize.x), viewport->WorkPos.y + (0.5F * viewport->WorkSize.y)), ImGuiCond_Appearing, ImVec2(0.5F, 0.5F));
+			SetNextWindowSize(ImVec2(0.6F * viewport->WorkSize.x, 0.4F * viewport->WorkSize.y), ImGuiCond_Appearing);
+			if (Begin("Shader Reload", &open, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing))
+			{
+				constexpr ImVec4 kFailureColor{1.0F, 0.45F, 0.4F, 1.0F};
+				if (reload.state == ReloadState::kFailed)
+				{
+					TextColored(kFailureColor, "The shaders failed to compile; the ones running are kept. Fix the error and save to reload.");
+					if (Button("Copy"))
+						mainCalls.enqueue([text = reload.message] { ImGui::SetClipboardText(text.c_str()); });
+					Separator();
+					if (BeginChild("Diagnostics", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar))
+						TextUnformatted(reload.message.c_str(), reload.message.c_str() + reload.message.size());
+					EndChild();
+				}
+				else
+					TextColored(kFailureColor, "Shader reload: %s.", reload.message.c_str());
+			}
+			End();
+			if (!open)
+				gClosedReload = reload.generation;
+		}
 	}
 
 	static float gMenuBarHeight = 0.0F; // in imgui's coordinates, as the menu bar drew last frame

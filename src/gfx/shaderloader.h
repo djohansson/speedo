@@ -4,6 +4,7 @@
 
 #include <rhi/shaderset.h>
 
+#include <cstddef>
 #include <expected>
 #include <filesystem>
 #include <memory>
@@ -98,6 +99,9 @@ public:
 		std::vector<std::filesystem::path>* dependencies = nullptr);
 	// writes shaders where a precompiled set is read from (see tools/shaderprecompile.cpp)
 	static void SavePrecompiled(const std::filesystem::path& path, const rhi::ShaderSet& shaderSet);
+	// a set's resources serialized (its descriptor sets' bindings and push constants, ShaderSet::layouts), to tell whether a
+	// reload's are the same as those loaded (what is bound through them would change: see Pipeline::ReplaceShaders)
+	[[nodiscard]] static std::vector<std::byte> SerializedResources(const rhi::ShaderSet& shaderSet);
 
 private:
 	std::vector<std::filesystem::path> myIncludePaths;

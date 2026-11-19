@@ -289,10 +289,20 @@ bool WindowedApplication::InternalPrepare(gfx::Swapchain* swapchain)
 	{
 		constexpr rhi::Extent2d kPreviewExtent{.width = 768, .height = 768};
 		myPreview = std::make_unique<Preview>(GetRHI(), kPreviewExtent);
+		// its shaders reloaded with the window's (the same layouts, compiled once: see Scene::FollowShaders)
+		myPreview->GetScene().FollowShaders(*myScene);
 		myPreviewReady.store(true, std::memory_order_release);
 	}
 	if (myPreview)
 		myPreview->GetScene().Prepare();
+
+	// and the ui's, once the window's scene reloaded them (see Scene::AddReloadedLayout), between frames
+	if (auto reloaded = myScene->GetReloadedShaders(); reloaded && reloaded->generation > myImGuiShaderGeneration)
+	{
+		auto layout = std::ranges::find(reloaded->layouts, std::string_view("ImGui"), [](const auto& entry) { return std::string_view(entry.first); });
+		if (layout == reloaded->layouts.end() || myImGuiRenderer->ReplaceShaders(layout->second))
+			myImGuiShaderGeneration = reloaded->generation;
+	}
 
 	return true;
 }
@@ -433,6 +443,8 @@ WindowedApplication::WindowedApplication(
 	// its shaders reloaded when their sources change (a checkout's: see Scene::WatchShaders), unless SPEEDO_SHADER_RELOAD=0
 	const char* reload = std::getenv("SPEEDO_SHADER_RELOAD");
 	myScene->WatchShaders(reload == nullptr || std::string_view(reload) != "0");
+	// and the ui's with them (one compile at a time, see gfx::ShaderLoader), which InternalPrepare gives the ImGui renderer
+	myScene->AddReloadedLayout("ImGui", gfx::ImGuiShaderLayout(std::get<std::filesystem::path>(GetEnv().variables["ShaderPath"])));
 }
 
 WindowedApplication::~WindowedApplication()

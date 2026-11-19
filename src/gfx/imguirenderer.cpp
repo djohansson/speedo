@@ -13,10 +13,13 @@
 #include <array>
 #include <bit>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <print>
 #include <span>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -150,6 +153,7 @@ struct ImGuiRenderer::State
 	Device& device;
 	Pipeline pipeline;
 	PipelineLayoutHandle layout{};
+	std::vector<std::byte> layoutResources; // as loaded (see ReplaceShaders)
 	SamplerVector sampler;
 	std::unique_ptr<imguirenderer::Texture> defaultTexture;
 
@@ -335,7 +339,9 @@ ImGuiRenderer::ImGuiRenderer(Device& device)
 	auto shaderIncludePath = std::get<std::filesystem::path>(variables["ShaderPath"]);
 	ShaderLoader loader({shaderIncludePath}, std::get<std::filesystem::path>(variables["UserProfilePath"]) / ".slang.intermediate");
 	auto layout = ImGuiShaderLayout(shaderIncludePath);
-	state.layout = state.pipeline.CreateLayout("ImGui", loader.Load(layout.file, layout.config));
+	auto shaderSet = loader.Load(layout.file, layout.config);
+	state.layoutResources = ShaderLoader::SerializedResources(shaderSet);
+	state.layout = state.pipeline.CreateLayout("ImGui", std::move(shaderSet));
 	state.pipeline.BindLayoutAuto(state.layout, PipelineBindPoint::kGraphics);
 	state.pipeline.SetDescriptorData("gImGuiSampler", ImageBinding{.sampler = state.sampler[0]}, kSet);
 
@@ -693,6 +699,25 @@ void ImGuiRenderer::Draw(CommandBufferHandle cmd, const ImDrawData& drawData, ui
 		vertexBase += listVertexCount;
 		indexBase += listIndexCount;
 	}
+}
+
+bool ImGuiRenderer::ReplaceShaders(const ShaderSet& shaderSet)
+{
+	auto& state = *myState;
+	// (what is bound through the layout would change: its descriptor set is written once, at the start)
+	if (ShaderLoader::SerializedResources(shaderSet) != state.layoutResources)
+	{
+		std::println("shader reload: the ImGui layout's resources changed (bindings or push constants): restart to load them");
+		std::fflush(stdout);
+		return true;
+	}
+	{
+		auto graphics = state.device.GetQueue(kQueueTypeGraphics).Write();
+		for (auto& [queue, submits] : graphics->queues)
+			queue.WaitIdle();
+	}
+	const std::pair<std::string, ShaderSet> layout{"ImGui", shaderSet};
+	return state.pipeline.ReplaceShaders(std::span(&layout, 1));
 }
 
 ImTextureID ImGuiRenderer::AddTexture(ImageViewHandle view)

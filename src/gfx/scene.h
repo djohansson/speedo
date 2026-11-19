@@ -7,6 +7,7 @@
 #include <gfx/model.h>
 #include <gfx/physicalcamera.h>
 #include <gfx/renderoutput.h>
+#include <gfx/shaderlayouts.h>
 #include <gfx/shaders/capi.h>
 #include <gfx/upscaling.h>
 
@@ -350,6 +351,39 @@ public:
 	// whether the scene reloads its shaders when their sources change, between frames (in Prepare), keeping its state (a
 	// checkout's window: see docs/shader-compile-plan.md, step 6). off by default
 	void WatchShaders(bool watch) noexcept;
+	// what the last reload came to, for the ui: compiling, failed (message: the compiler's diagnostics), refused (its
+	// layouts' resources changed: a restart loads them), or reloaded; at time (when it started compiling, else when it
+	// ended); generation counts the reloads started. none where the scene doesn't watch its shaders. any thread
+	struct ShaderReloadStatus
+	{
+		enum class State : uint8_t
+		{
+			kNone,
+			kCompiling,
+			kFailed,
+			kNeedsRestart,
+			kReloaded,
+		};
+		State state = State::kNone;
+		std::string message;
+		std::chrono::steady_clock::time_point time{};
+		uint64_t generation = 0;
+	};
+	[[nodiscard]] ShaderReloadStatus GetShaderReloadStatus() const;
+	// a layout others draw with (the ImGui renderer's), compiled with the scene's at each reload (one compile at a time,
+	// see ShaderLoader) and handed out with them (GetReloadedShaders). before WatchShaders' first reload, draw thread
+	void AddReloadedLayout(std::string name, ShaderLayout layout);
+	// the sets of the last reload that compiled, by their layouts' names (the scene's and those added), and which it was
+	// (generation, from 1; null before the first). draw thread
+	struct ReloadedShaders
+	{
+		uint64_t generation = 0;
+		std::vector<std::pair<std::string, rhi::ShaderSet>> layouts;
+	};
+	[[nodiscard]] std::shared_ptr<const ReloadedShaders> GetReloadedShaders() const noexcept;
+	// takes source's reloads from now on, rather than watching the sources itself (a second scene drawn in the same window,
+	// the file browser's preview: its layouts the same, compiled once), in Prepare. source outlives it. draw thread
+	void FollowShaders(const Scene& source) noexcept;
 	[[nodiscard]] bool IsReady() const noexcept;
 	// how far the shaders' compile is, 0 to 1: the layouts done, and an estimate for those compiling (by how long the
 	// last cold compile took)

@@ -365,6 +365,12 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   its shaders when their sources change (`Scene::WatchShaders`, `SPEEDO_SHADER_RELOAD`): compiled on the executor, then
   between frames the layouts' shader modules replaced and the pipelines made again (`Pipeline::ReplaceShaders`),
   everything bound kept; a failed compile keeps the shaders, changed resources need a restart (the plan's step 6).
+  What it comes to is shown in the ui as well (2026-11-19, `Scene::GetShaderReloadStatus`): a row "Reloading shaders"
+  in the loading overlay while it compiles and "Shaders reloaded in ... s" after, and a failed compile's diagnostics
+  (each error once, with the layouts that met it) or a refusal in a window of their own until it is closed or the next
+  reload starts. The ImGui renderer's layout is compiled with the scene's (`Scene::AddReloadedLayout`: one compile at a
+  time) and given to it between frames (`ImGuiRenderer::ReplaceShaders`); the file browser's preview, a scene of its
+  own, takes the window's reloads (`Scene::FollowShaders`, `GetReloadedShaders`) rather than compiling them again.
   Slang is used by one thread at a time: it isn't thread safe, even across global sessions, which share state. The
   compile was parallel at first (the layouts at once, and the main layout's 78 entry points in 4 groups, each a session
   and compile request of its own: the cold first load 17.5 s rather than 28.8, its resident peak 2.0 GB rather than 0.85),
