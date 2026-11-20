@@ -62,8 +62,8 @@ clipmap's probes stay, beside the grid.
 
 ## Side by side
 
-`SPEEDO_GI_WORLD` (0, the default: the clipmap as now; 1: the grid's light where its step has it), and a row in View >
-Rendering Features > Indirect Lighting. The clipmap stays built and run whatever the switch says until step 5, so that
+`SPEEDO_GI_WORLD` (0: the clipmap as before; 1, the default since the user's word of 2026-11-20: the grid's light where
+its step has it), and a row in View > Rendering Features > Indirect Lighting. The clipmap stays built and run whatever the switch says until step 5, so that
 an A/B is one variable and a capture of either is the same build. The grid's passes run only with the switch on, and its
 memory is allocated only then.
 
@@ -307,9 +307,26 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
     against 1.43 and 3.51); a level's uncovered share filled from the next coarser and so on (1.47 and 3.58 against
     1.41 and 3.51); the grid fed only from the finest clip holding an entry (no change to the spots); the reach to the
     cells' nearest points (the line back: a cell across the foot holds the room's floor and the outside's, its nearest
-    point in the room); voxels the march runs along left out (the line back: corner voxels keep one surface's normal).
+    point in the room); voxels the march runs along left out (the line back: corner voxels keep one surface's normal);
+    a cell weighed also by how far its samples lie off the point's plane, along its normal (no change to the glow).
   - Costs: a cell 37 words rather than 34, a slot 28 rather than 25 (about 177 MB with a million cells); the lookups 8
     reach marches of a few voxels a level (to measure with interleaved runs).
+  - The regression set (`ab.ps1`, the clipmap against the grid): every scene's mean within 0.74 of 255. The user
+    confirmed the fixes (2026-11-20, committed 572de917).
+- 2026-11-20, **the grid the default, on the user's word** ("I am happy with ... the results of the new GI grid. Lets
+  make SPEEDO_GI_WORLD=1 the default now"): `SPEEDO_GI_WORLD=0` turns it off. The surfaces take its light where its
+  cells cover them and the clipmap's for the rest, as in step 2; the clipmap and its cache stay, as steps 3 to 5 say,
+  until the grid takes their parts. Pushing waits for step 5 still. The validated quick tier passed with it on (122
+  clients).
+- 2026-11-20, **step 3 laid out.** The cache's light reaches the image three ways: the voxels' bounce
+  (`ComputeGiLight` lights each voxel from the volumes, `GiSampleClip`, which the cache's rays then see at their hits
+  through `GiHitLit`); the volumes (the cache filter's last pass blends the entries' filtered light into the probes'
+  resolve); and the entries themselves, which are also the rays' sources (the anchoring, the emitters' samples, the
+  inside counts) and can't go as they are. So in parts, each measured and committed: **3a** the bounce from the grid
+  (`ComputeGiLight` takes the grid's light at the voxel, by the voxel's size, the volumes' for the rest), so the rays'
+  hits see what the surfaces show; **3b** the cache filter's blend into the volumes left out where the grid covers (its
+  time; the volumes keep the probes' light for the air and the near field); **3c** the entries cut to what a ray's source
+  needs (their own means gone: the memory step 3's gate asks for).
 
 ## Step 1's design, before it is built
 

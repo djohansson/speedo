@@ -784,7 +784,7 @@ private:
 	// (SPEEDO_GI_WORLD_LEVELS); whether it is made anew this frame (all of it zeroed: GI World Clear), its frame count
 	// (the cells' stamps), and over the frames timed, what it counted (GI_WORLD_COUNTER_*): summed, and the most slots a
 	// frame took
-	bool myGiWorldOn = false;
+	bool myGiWorldOn = true;
 	Buffer myGiWorldBuffer;
 	FrameGraph::BufferId myGiWorld;
 	uint32_t myGiWorldCellCount = 1U << 20;
