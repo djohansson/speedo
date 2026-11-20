@@ -64,7 +64,19 @@ authored emission is that dim; CarConcept's rims, mirror, brake, trim and interi
 near black field for their emissive texture with a factor of 1, glowed at 3e-4, a thousandth of a sunlit white, and the
 night's auto exposure, +7.7 at its headlights' pools, showed them as a mid gray against the black paint (the user's
 white rims and interior, 2026-11-05; the glTF folder's png, 4 of 255 through BC1, drew them purple gray, the GLB's
-KTX2 neutral). Occlusion maps (gltf `occlusionTexture`,
+KTX2 neutral). An obj's glass is an illumination model of transparency (`illum` 4, 6, 7 or 9) with a transmission
+filter (`Tf`) that lets some of the light through: gltf's transmission by the filter's largest component (tinted by Kd,
+thin walled), its ior `Ni` where above 1 (`objimport-v10`). San Miguel's lanterns are a bulb (`Ke 1 1 1`, about 49000
+cd/m^2 in the renderer's units, a lux being `SHADER_TYPES_ATMOSPHERE_LUX`) in panes of `illum 4` and `Tf 0.3`; with the
+panes opaque the emitters' shadow rays met them, and the arcade took the bulbs' light only as the indirect lighting's
+voxels leaked it (the wall by a lamp 24.5 of 255 at a fixed exposure, 80.4 with the emissive lights off; with the
+panes transmissive, out of the scene's BVH as glass is, 140.3 and 140.7: the user's report that the lamps lit too
+little, 2026-11-20). Not a filter of all ones nor of all zeros: an exporter writes `Tf 1 1 1` with `illum 4` on every
+material (roadBike's paint and metal), and tinyobjloader's default, none written, is 0. It changed Bistro by night (the
+streetlights' glass, `illum 7 Tf 0.3`: the facades across the street lit), CornellBox-Water's and -Sphere's water and
+sphere, Rungholt's water (`Tf 0.91`: the riverbed's blocks seen through it), and by less than one of 255 on average
+Bistro by day and inside, Sibenik, the sports car and vokselia. Not yet: the glass's share on the light through it (the
+shadow rays skip glass, so the panes pass all of the bulbs' light rather than `Tf`'s 30%). Occlusion maps (gltf `occlusionTexture`,
 by its strength) darken only the ambient term, the stand-in for the indirect light gltf applies them to; they are
 imported as `image::Usage::kOcclusion` (the red channel, linear, BC4), since gltf often packs occlusion, roughness and
 metallic into one texture's r, g and b, which kMask's luminance would mix. Each texture is a `TextureRef` (`gfx/textureref.h`: path, texcoord set, `KHR_texture_transform` as a 2x3 matrix, and its

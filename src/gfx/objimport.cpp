@@ -311,6 +311,21 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 		// Ks scales the specular (0: matte), and the Blinn-Phong exponent Ns gives the roughness
 		material.specular = std::clamp(std::max({objMaterial.specular[0], objMaterial.specular[1], objMaterial.specular[2]}), 0.0F, 1.0F);
 		material.roughness = material.specular > 0.0F ? std::clamp(std::sqrt(2.0F / (std::max(objMaterial.shininess, 0.0F) + 2.0F)), 0.0F, 1.0F) : 1.0F;
+		// glass: an illumination model of transparency (illum 4, 6, 7 or 9) with a transmission filter (Tf) that lets
+		// some of the light through, the share its largest component says, as gltf's transmission (tinted by Kd, thin
+		// walled) and Ni its ior. San Miguel's lanterns' panes (illum 4, Tf 0.3) were opaque, and their bulbs' light (Ke)
+		// reached the arcade only through the indirect lighting's voxels, which leaked it, not through its glass (the
+		// user's report, 2026-11-20). not a filter of all ones nor all zeros: exporters write Tf 1 1 1 with illum 4 on
+		// every material whatever it is (roadBike's paint and metal), and Tf 0 is tinyobjloader's default, none written
+		const glm::vec3 filter = glm::make_vec3(objMaterial.transmittance);
+		const bool transparency = objMaterial.illum == 4 || objMaterial.illum == 6 || objMaterial.illum == 7 || objMaterial.illum == 9;
+		const float share = std::max({filter.x, filter.y, filter.z});
+		if (transparency && share > 0.0F && glm::any(glm::lessThan(filter, glm::vec3(1.0F))))
+		{
+			material.transmission = std::clamp(share, 0.0F, 1.0F);
+			if (objMaterial.ior > 1.0F)
+				material.ior = objMaterial.ior;
+		}
 	}
 
 	const auto positionCount = attrib.vertices.size() / 3;
