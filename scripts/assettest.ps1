@@ -136,9 +136,14 @@ $check = -not $ClientOnly
 function Get-ClientJobs
 {
 	$kCoresPerClient = 2
-	$kMemoryPerClientGB = 4.0
+	# (a client peaks at about 7 GB, the user saw on Windows, 2026-11-19, not all at once: at 4.0, 11 clients at once on a
+	# 63 GB machine were too many for it; at 5.5, 10)
+	$kMemoryPerClientGB = 5.5
 	$kMemoryReserveGB = 8.0 # the system's and the other processes'
-	$kGpuMemoryPerClientGB = 1.2
+	# (a client of Sponza alone peaks at 1.8 GB of gpu memory and 0.2 shared; 10 at once of the quick set took 29 GB, twice
+	# a 16 GB gpu's, and crawled, paged, till they timed out, and 5 at once 23.3: the user's measures, 2026-11-19, who
+	# chose 4 at once there. at 1.2, 11 at once)
+	$kGpuMemoryPerClientGB = 3.4
 	$kGpuMemoryReserveGB = 2.0 # the desktop's and the other processes'
 
 	$cores = [Environment]::ProcessorCount
