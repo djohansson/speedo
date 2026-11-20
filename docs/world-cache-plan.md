@@ -62,8 +62,8 @@ clipmap's probes stay, beside the grid.
 
 ## Side by side
 
-`SPEEDO_GI_WORLD` (0: the clipmap as before; 1, the default since the user's word of 2026-11-20: the grid's light where
-its step has it), and a row in View > Rendering Features > Indirect Lighting. The clipmap stays built and run whatever the switch says until step 5, so that
+`SPEEDO_GI_WORLD` (0, the default again since step 5's measures of 2026-11-20: the clipmap as before; 1: the grid's
+light where its step has it; the default from 0b7fd5ba to then), and a row in View > Rendering Features > Indirect Lighting. The clipmap stays built and run whatever the switch says until step 5, so that
 an A/B is one variable and a capture of either is the same build. The grid's passes run only with the switch on, and its
 memory is allocated only then.
 
@@ -412,6 +412,16 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
     at most 130491 a frame in the flight (of 262144), 128492 in CornellBox settled.
   - So what shrinking it could take is the filter's second copy of each cell's light (9 words of 37: its passes could
     alternate in the slots, which the cells filtered a frame have): 36 MB of the 176.
+- 2026-11-20, **step 5 decided: the grid off by default, at the main pass alone when on.** The user's word was to
+  measure what of the lookups' cost could go and turn the grid off if it couldn't come to about 1 ms. Sponza's corridor
+  and Bistro at night settled (1200 frames), serial, each variant warmed, the second round's frames: the grid off 4.38
+  and 7.59 ms; everywhere 6.78 and 10.97; at the main pass alone, the traced rays' hits (the reflections', the
+  refractions' in Main Transmissive) taking the clipmap's light, 6.09 and 9.67; that without the reach marches 5.70 and
+  9.05 (the marches 0.35 ms of the main pass's, and what keeps the cells' light from coming through walls). So at
+  least 1.3 to 1.5 ms: the samples added (0.5 to 0.6) and the fold and filter (0.5) are the same whatever reads the
+  cells. What it buys is the walk at the far pose (1.13 of 255 against the clipmap's 1.59, the still image the same).
+  `SPEEDO_GI_WORLD=1` keeps it, at the main pass alone. The clip levels' disagreement it was begun for goes back to
+  the backlog, to be met in the clipmap (a fade between the levels, which the user passed over for this plan).
 
 ## Step 1's design, before it is built
 

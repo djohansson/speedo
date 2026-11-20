@@ -12,11 +12,12 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
 
 ## Larger
 
-- **The indirect lighting's light anchored in the world** rather than per clip of the clipmap (docs/world-cache-plan.md, side by side with the clipmap until shown better, the user's call 2026-11-19): the clip levels disagree
-  about the same place by 4 to 5 of 255, which shows while walking as darker patches on Sponza's corridor floor beside
-  the columns (moving against settled 1.19, 1.52 and 1.65 of 255 at the walk's three poses, 2026-11-19,
-  `temp/gi-disocclusion/walkp.ps1`). The user chose a world-anchored replacement (multi-resolution cells of means) over
-  a fade between the levels. docs/notes/indirect-lighting.md.
+- **The clip levels' disagreement**: the levels disagree about the same place by 4 to 5 of 255, which shows while
+  walking as darker patches on Sponza's corridor floor beside the columns (moving against settled 1.19, 1.52 and 1.65
+  of 255 at the walk's three poses, 2026-11-19, `temp/gi-disocclusion/walkp.ps1`). The world-anchored grid built for it
+  (docs/world-cache-plan.md) steadied the walk (1.13 at the far pose against 1.59) but costs 1.3 to 3.4 ms a frame and
+  176 MB, so it is off by default (2026-11-20, step 5); next, a fade between the levels in the clipmap.
+  docs/notes/indirect-lighting.md.
 - **The surface cache's remaining noise**: MovingInterior's far wall, 0.44 of 255 between seeds with the window of 4096
   once settled; Bistro at night, the leading strip of a fast turn about twice the rest (more samples for new pixels: 32
   gives 15.6 in the emitters' view against 18.1). docs/notes/indirect-lighting.md.

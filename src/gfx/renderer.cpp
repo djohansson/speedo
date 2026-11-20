@@ -2550,11 +2550,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheFilterPassCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(passes, nullptr, 10)), 1U, 4U);
 	if (const char* sigma = std::getenv("SPEEDO_GI_CACHE_SIGMA"); sigma != nullptr && *sigma != '\0')
 		myGiCacheSigma = std::max(std::strtof(sigma, nullptr), 0.0F);
-	// the world cache (docs/world-cache-plan.md): on unless SPEEDO_GI_WORLD=0 (the default since the user's word,
-	// 2026-11-20), the clipmap's light where its cells don't cover a surface, its cells (a power of two,
-	// SPEEDO_GI_WORLD_CELLS, rounded down) and levels (SPEEDO_GI_WORLD_LEVELS)
+	// the world cache (docs/world-cache-plan.md): on with SPEEDO_GI_WORLD=1 (off by default since its step 5, 2026-11-20:
+	// 1.3 to 3.4 ms a frame at 1080p for steadier walks), the clipmap's light where its cells don't cover a surface, its
+	// cells (a power of two, SPEEDO_GI_WORLD_CELLS, rounded down) and levels (SPEEDO_GI_WORLD_LEVELS)
 	if (const char* world = std::getenv("SPEEDO_GI_WORLD"); world != nullptr)
-		myGiWorldOn = std::string_view(world) != "0";
+		myGiWorldOn = std::string_view(world) == "1";
 	if (const char* cells = std::getenv("SPEEDO_GI_WORLD_CELLS"); cells != nullptr && *cells != '\0')
 		myGiWorldCellCount = std::bit_floor(std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(cells, nullptr, 10)), 1024U, 1U << 24));
 	if (const char* levels = std::getenv("SPEEDO_GI_WORLD_LEVELS"); levels != nullptr && *levels != '\0')

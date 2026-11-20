@@ -399,7 +399,10 @@ void TracedIndirect(
 	specularRadiance = EnvironmentRadiance(environment, reflected, roughness);
 	GiData gi = GiClip(0);
 	float voxel = nearBias > 0.0 && gi.enabled != 0u && gi.nearReach > 0.0 && GiTracesBvh(gi) ? GiNearVoxelSize(position) : 0.0;
-	GiSample sample = GiSampleSurface(position, normal, -direction, voxel <= 0.0);
+	// (the clipmap's light alone, not the world cache's: at the reflections' and the refractions' hits its lookups took
+	// 0.6 and 0.9 ms more a frame in Bistro at night, for a light they show blurred; docs/world-cache-plan.md, step 5)
+	bool moving;
+	GiSample sample = GiSampleSurface(position, normal, -direction, voxel <= 0.0, moving, false);
 	float trust = voxel > 0.0 ? GiLookupTrust(sample) : 1.0;
 	indirect = sample.valid ? GiEvaluate(sample, normal) : (sample.inside ? 0.0 : -1.0);
 	if (indirect.x >= 0.0)

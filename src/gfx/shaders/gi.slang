@@ -5114,15 +5114,16 @@ float3 GiSurfaceBias(float3 position, float3 normal, float3 view)
 // sight, which is clear: at a concave edge the normal alone leads into the other surface's voxels, whose probes are the
 // other surface's), and twice as far where that finds no probes (retry; not where the near field's light stands in, see
 // GiNearIrradiance)
-GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry, out bool moving)
+GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry, out bool moving, bool world = true)
 {
 	float3 bias = GiSurfaceBias(position, normal, view, moving);
 	GiSample sample = GiSampleAt(position, normal, bias);
 	if (retry && !sample.valid && sample.inside)
 		sample = GiSampleAt(position, normal, bias * 2.0);
 	// the world cache's light where it is on and covers the point (docs/world-cache-plan.md, step 2), the clipmap's for the
-	// rest and on what moves (see GiWorldBlend)
-	if (!moving)
+	// rest and on what moves (see GiWorldBlend); world: whether to look it up (not at the traced rays' hits, see
+	// TracedHitRadiance)
+	if (world && !moving)
 		sample = GiWorldBlend(sample, position, normal);
 	return sample;
 }
