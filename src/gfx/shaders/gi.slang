@@ -4070,10 +4070,16 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 				int3 neighbour = int3(at) + offset;
 				if (!GiInside(neighbour, size))
 					continue;
-				GiCacheTap tap = (x == 0 && y == 0 && z == 0) ? self : GiCacheReadTap(gi, source, uint3(neighbour), blocks);
+				bool isSelf = x == 0 && y == 0 && z == 0;
+				GiCacheTap tap = isSelf ? self : GiCacheReadTap(gi, source, uint3(neighbour), blocks);
 				if (tap.confidence <= 0.0)
 					continue;
-				if (sides && (dot(float3(offset), self.normal) < ownPlane - kGiFilterBehind || GiVoxelAcross(drawnFacings, float3(offset), tap.normal)))
+				// (never the voxel itself: where its surface is more than kGiFilterBehind in front of its center, it and the taps
+				// in its plane are that far behind the surface, and in a pass stepping two voxels or more, whose taps along the
+				// open side are in the air, every tap was left out and its light was 0 over 0: black patches the size of the
+				// coarsest level's voxels on salle_de_bain's niche wall beside its sculpture since that level took a second pass,
+				// 716a67d5; the user's report, 2026-11-20)
+				if (sides && !isSelf && (dot(float3(offset), self.normal) < ownPlane - kGiFilterBehind || GiVoxelAcross(drawnFacings, float3(offset), tap.normal)))
 					continue;
 				float kernel = (x == 0 ? 0.5 : 0.25) * (y == 0 ? 0.5 : 0.25) * (z == 0 ? 0.5 : 0.25);
 				float plane = dot(float3(offset), self.normal);

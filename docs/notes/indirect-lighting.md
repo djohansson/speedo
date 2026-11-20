@@ -1643,7 +1643,15 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   far, so the patch came with the finer levels as the camera neared (the user's report after the first fixes,
   2026-11-17, poses `-2.8617,10.4162,-13.6560,-2.513,1.407`, a bright patch on the niche's back wall and a bright
   corner behind the statues, and `-3.5675,15.3023,-5.2263,-5.696,0.256`, lighter patches on the window frame's lower
-  bar);
+  bar). The rule never leaves out the voxel itself: where its surface is more than a quarter voxel in front of its
+  center (its plane runs from -1.5 to 0.5 voxels), it and the taps in its plane are that far behind the surface, and
+  in a pass that steps two voxels or more, whose taps along the open side are in the air, every tap was left out and
+  the voxel's light was 0 over 0. Once the last level took a second pass (716a67d5, 2026-11-18), the niche's wall beside
+  its sculpture showed black squares of that level's voxels, three rows by the sculpture's hook (within 0.19 of the
+  wall), in a darker band where the lookups and the near field took them in, and the sculpture's edges black marks
+  (the user's report, 2026-11-20: walking forward from `-11.8867,18.0784,-4.1059,-0.239,0.298`; found by bisecting
+  in a worktree whose `install/` was a junction to the checkout's, vcpkg's manifest install off in its user presets;
+  the walk's frames as the 11-16 build's since);
   the emitters' light the voxels share (above) isn't shared across a surface either (`GiVoxelAcross`, the filter's
   rule, and not from behind the voxel's own): the voxel past the niche's end, under the plane of its top and facing
   the same way, keeps the light of the window's plane (94), and the niche's corner voxel took it across the end's
