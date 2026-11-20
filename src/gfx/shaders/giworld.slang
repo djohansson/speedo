@@ -14,7 +14,8 @@
 // samples its mean is of, the samples its filtered light stands for (see ComputeGiWorldFilter), its faces as halves (9
 // words, as a cache entry's: an ambient cube's light along the axes, GiCachePackFaces), its slot of the frame's sums + 1
 // (0: none), the samples its second filter pass's faces stand for, a spare, its filtered faces (9 words, the last pass's,
-// which the lookups read) and its second pass's (9 words: the passes take turns, see ComputeGiWorldFilter)
+// which the lookups read), its second pass's (9 words: the passes take turns, see ComputeGiWorldFilter) and where its
+// samples lie (kGiWorldWhere, 3 words)
 static const uint kGiWorldKey = 0u;
 static const uint kGiWorldStamp = 1u;
 static const uint kGiWorldCount = 2u;
@@ -27,6 +28,14 @@ static const uint kGiWorldPass = 25u;
 // (the spare word after kGiWorldPassCount: the mean of its samples' squares, a float, of the light along its bucket's face,
 // for the filter's edge test, as the surface cache's entries keep theirs)
 static const uint kGiWorldMoment = 15u;
+// where its samples lie in the cell: their mean position from its corner over its side (0 to 1 each way), 3 floats each
+// plus 1 (0: none yet; GiWorldWhereOf). along its bucket's axis that is where the surface they are of lies (its depth),
+// where the cell's place is only where the level's grid cuts the world: a lookup takes the two cells across the surface
+// by how near their samples lie to the point (GiWorldLevelFaces), where the trilinear's weights took the cells of other
+// surfaces facing the same way a layer off (MovingInterior's floor the ground's outside, under the sky). and along the
+// surface it is where a lookup marches to, to tell whether the cell's light is of its side of what is between
+// (GiWorldReach)
+static const uint kGiWorldWhere = 34u;
 // a slot's (GI_WORLD_SLOT_WORD_COUNT): face f's color c's sum at f * 3 + c, then the samples, its cell + 1, and the cell's
 // place (3 words, ints) and its level and bucket (level << 8 | bucket), for the filter to find its neighbours
 static const uint kGiWorldSlotSamples = 18u;
@@ -35,6 +44,9 @@ static const uint kGiWorldSlotPlace = 20u;
 static const uint kGiWorldSlotLevel = 23u;
 // and the sum of its samples' squares (the light along the bucket's face, in fixed point, squared, over kGiWorldSquareScale)
 static const uint kGiWorldSlotSquares = 24u;
+// and the sums of where its samples lie in the cell (3 words, see kGiWorldWhere), in 1 / kGiWorldWhereScale of its side
+static const uint kGiWorldSlotWhere = 25u;
+static const float kGiWorldWhereScale = 256.0;
 static const float kGiWorldSquareScale = 1048576.0;
 // the cells a search probes, linearly, before it takes back the stalest of them not added to this frame (the table is a
 // policy, the cells least lately used given up, not a capacity: linear probing clusters, and 8 cells in a row were in
@@ -71,6 +83,22 @@ uint GiWorldMix(uint h)
 	return h;
 }
 
+// where a cell's probe begins (its hash) and the key it is told apart by: two hashes of its place, level and bucket,
+// independent of each other. the key was the hash's own mix, so two places of the same hash (32 bits: about a hundred
+// pairs among a million cells) had the same key too and were one cell, of both places' samples: a cell of a sunlit
+// place's light here and there in the shade (the samples a cell under Sponza's vault took averaged 4e-5 along its face,
+// its sums 0.0177: bright diamonds on the vaults and walls, the user's report, 2026-11-19). now two places are one cell
+// only where both hashes agree and their probes meet: about one pair in a hundred tables
+uint GiWorldHash(int3 place, uint level, uint bucket)
+{
+	return GiWorldMix(uint(place.x) * 73856093u ^ GiWorldMix(uint(place.y) * 19349663u ^ GiWorldMix(uint(place.z) * 83492791u ^ (level << 3) ^ bucket)));
+}
+
+uint GiWorldKey(int3 place, uint level, uint bucket)
+{
+	return GiWorldMix(uint(place.z) * 0x632BE59Bu ^ GiWorldMix(uint(place.x) * 0x85157AF5u ^ GiWorldMix(uint(place.y) * 0x9E3779B1u ^ (bucket << 5) ^ level ^ 0xA511E9B3u))) | 1u;
+}
+
 // a surface's normal bucket: the axis it faces most, and which way (0 to 5); 6 for a point in the air (no normal)
 uint GiWorldBucket(float3 normal)
 {
@@ -85,6 +113,22 @@ int3 GiWorldCellOf(float3 position, uint level)
 {
 	float side = gGi[gPushConstants.frameIndex][0].worldCellSide * float(1u << level);
 	return int3(floor(position / side));
+}
+
+// where a position lies in its cell of a level (0 to 1 of the cell's side each way, see kGiWorldWhere)
+float3 GiWorldWhereIn(float3 position, uint level)
+{
+	float3 along = position / (gGi[gPushConstants.frameIndex][0].worldCellSide * float(1u << level));
+	return along - floor(along);
+}
+
+// where a cell's samples lie (kGiWorldWhere), -2 where it has none yet
+float3 GiWorldWhereOf(uint cell)
+{
+	uint first = gGiWorld[GiWorldCellWord(cell, kGiWorldWhere)];
+	if (first == 0u)
+		return -2.0;
+	return float3(asfloat(first), asfloat(gGiWorld[GiWorldCellWord(cell, kGiWorldWhere + 1u)]), asfloat(gGiWorld[GiWorldCellWord(cell, kGiWorldWhere + 2u)])) - 1.0;
 }
 
 // the samples a cell new to the table takes its parent's light as (the cell of the next level up holding it, of its
@@ -104,9 +148,8 @@ void GiWorldSeed(uint cell, int3 place, uint level, uint bucket)
 	// (found along its probe by its key alone: GiWorldFind, which seeds, can't be called from here, recursion)
 	int3 parentPlace = place >> 1;
 	uint parentLevel = level + 1u;
-	uint hash = GiWorldMix(uint(parentPlace.x) * 73856093u ^
-						   GiWorldMix(uint(parentPlace.y) * 19349663u ^ GiWorldMix(uint(parentPlace.z) * 83492791u ^ (parentLevel << 3) ^ bucket)));
-	uint key = GiWorldMix(hash ^ 0x9E3779B9u) | 1u;
+	uint hash = GiWorldHash(parentPlace, parentLevel, bucket);
+	uint key = GiWorldKey(parentPlace, parentLevel, bucket);
 	uint capacity = gGi[frameIndex][0].worldCellCount;
 	uint parent = ~0u;
 	for (uint probeIt = 0; probeIt < kGiWorldProbeCount && parent == ~0u; probeIt++)
@@ -142,8 +185,8 @@ uint GiWorldFind(int3 place, uint level, uint bucket, bool insert)
 	uint frameIndex = gPushConstants.frameIndex;
 	uint capacity = gGi[frameIndex][0].worldCellCount;
 	uint frame = gGi[frameIndex][0].worldFrame;
-	uint hash = GiWorldMix(uint(place.x) * 73856093u ^ GiWorldMix(uint(place.y) * 19349663u ^ GiWorldMix(uint(place.z) * 83492791u ^ (level << 3) ^ bucket)));
-	uint key = GiWorldMix(hash ^ 0x9E3779B9u) | 1u;
+	uint hash = GiWorldHash(place, level, bucket);
+	uint key = GiWorldKey(place, level, bucket);
 	uint stalest = ~0u;
 	uint stalestAge = 0u;
 	for (uint probeIt = 0; probeIt < kGiWorldProbeCount; probeIt++)
@@ -191,6 +234,8 @@ uint GiWorldFind(int3 place, uint level, uint bucket, bool insert)
 			gGiWorld[GiWorldCellWord(stalest, kGiWorldFilteredCount)] = 0u;
 			gGiWorld[GiWorldCellWord(stalest, kGiWorldPassCount)] = 0u;
 			gGiWorld[GiWorldCellWord(stalest, kGiWorldMoment)] = 0u;
+			for (uint axisIt = 0; axisIt < 3u; axisIt++)
+				gGiWorld[GiWorldCellWord(stalest, kGiWorldWhere + axisIt)] = 0u;
 			for (uint wordIt = 0; wordIt < 9u; wordIt++)
 				gGiWorld[GiWorldCellWord(stalest, kGiWorldFaces + wordIt)] = 0u;
 			InterlockedAdd(gGiWorld[GI_WORLD_COUNTER_CELLS_TAKEN], 1u);
@@ -254,6 +299,7 @@ void GiWorldAdd(float3 position, float3 normal, float3 direction, float3 radianc
 	for (uint levelIt = gGi[frameIndex][0].worldLevelCount - 1u; levelIt + 1u > firstLevel; levelIt--)
 	{
 		int3 place = GiWorldCellOf(position, levelIt);
+		float3 where = GiWorldWhereIn(position, levelIt);
 		uint cell = GiWorldFind(place, levelIt, bucket, true);
 		if (cell == ~0u)
 			continue;
@@ -296,6 +342,8 @@ void GiWorldAdd(float3 position, float3 normal, float3 direction, float3 radianc
 				InterlockedAdd(gGiWorld[GiWorldSlotWord(slot - 1u, channelIt)], values[channelIt]);
 		if (square != 0u)
 			InterlockedAdd(gGiWorld[GiWorldSlotWord(slot - 1u, kGiWorldSlotSquares)], square);
+		for (uint axisIt = 0; axisIt < 3u; axisIt++)
+			InterlockedAdd(gGiWorld[GiWorldSlotWord(slot - 1u, kGiWorldSlotWhere + axisIt)], uint(round(where[axisIt] * kGiWorldWhereScale)));
 	}
 }
 
@@ -355,8 +403,29 @@ void ComputeGiWorldFold(uint3 dispatchId: SV_DispatchThreadID)
 		float moment = asfloat(gGiWorld[GiWorldCellWord(cell, kGiWorldMoment)]);
 		moment = isnan(moment) || isinf(moment) ? 0.0 : moment;
 		gGiWorld[GiWorldCellWord(cell, kGiWorldMoment)] = asuint(moment + (meanSquare - moment) * share);
+		// (and where its samples lie, likewise; its first frame's where it had none: its seed is its parent's light, not
+		// where its samples are)
+		float3 frameWhere = float3(gGiWorld[GiWorldSlotWord(slot, kGiWorldSlotWhere)], gGiWorld[GiWorldSlotWord(slot, kGiWorldSlotWhere + 1u)],
+								   gGiWorld[GiWorldSlotWord(slot, kGiWorldSlotWhere + 2u)]) / (float(sampleCount) * kGiWorldWhereScale);
+		float3 where = GiWorldWhereOf(cell);
+		where = where.x < -1.0 ? frameWhere : where + (frameWhere - where) * share;
+		for (uint axisIt = 0; axisIt < 3u; axisIt++)
+			gGiWorld[GiWorldCellWord(cell, kGiWorldWhere + axisIt)] = asuint(saturate(where[axisIt]) + 1.0);
 	}
 }
+
+// how many frames since a cell was last added to it keeps all of its weight, in the lookups and as a filter's tap, and
+// at how many none (see GiWorldLevelFaces, ComputeGiWorldFilter): a cell no longer added to is of what isn't traced
+// now, out of view or behind something, and holds what was, sure of it. after a flight through Sponza (the user's,
+// 2026-11-19), the top of a capital under the arcade's vault took the sky's light of cells the camera had passed in the
+// courtyard (bluish white; the lookup's ledge 20.4 of 255 against the clipmap's 14.2, 13.9 with the old cells left
+// out), and the cells of the walls under the vaults the light of the walls' cells over the vaults, of the sunlit
+// gallery, through the filter's taps (1, 2 and 4 cells apart along the surface, past what is between: a cell's mean
+// 6.8e-5 and 7.9e-5 after a tour of the model and fresh, its filtered light 3.6e-4 and 8.6e-5), a glow along the walls'
+// tops that grew with the places visited before. an entry in use traces a ray every frame or two, and one in a block
+// no lookup reads every 8 (kGiCacheIdleFrameCount), settled half as often
+static const float kGiWorldStaleNear = 64.0;
+static const float kGiWorldStaleReach = 192.0;
 
 // the edge test of the filter's taps: how many deviations of the two means' noise apart their light may be and still be
 // taken (as the surface cache's filter's, GiData::cacheSigma), each mean's variance its samples' (kGiWorldMoment less its
@@ -452,6 +521,9 @@ void ComputeGiWorldFilter(uint3 dispatchId: SV_DispatchThreadID)
 					float kernel = (x == 0 ? 1.0 : 0.5) * (y == 0 ? 1.0 : 0.5) * (z == 0 ? 1.0 : 0.5);
 					float weight = kernel * min(count / float(kGiWorldShownSampleCount), 1.0) *
 								   exp(-abs(light - ownLight) / (kGiWorldEdgeSigma * sqrt(ownVariance + variance) + 1e-12));
+					// (and by how lately it was added to, see kGiWorldStaleNear)
+					if (!self)
+						weight *= saturate((kGiWorldStaleReach - float(gGi[frameIndex][0].worldFrame - gGiWorld[GiWorldCellWord(tap, kGiWorldStamp)])) / (kGiWorldStaleReach - kGiWorldStaleNear));
 					for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
 						sum[faceIt] += faces[faceIt] * weight;
 					weightSum += weight;
@@ -510,11 +582,150 @@ float3 GiWorldIrradiance(float3 position, float3 normal, float distance)
 // about where each lights (the finest clip's voxel lights up to about 20 of them from the eye)
 static const float kGiWorldLookupShare = 1.0 / 20.0;
 
+// how far a lookup's point and its cells' centers are lifted off the surface for GiWorldReach, in the clip's voxels: a
+// surface's own voxel is up to 2 in front of it (its center 0.5 to 1.5, see GiVoxelPlane), and a march along the surface
+// within those ran into it everywhere
+static const float kGiWorldReachLift = 2.0;
+
+// how squarely a voxel's surface faces back along a march for the march to have gone into it, among the voxels it starts
+// in (GiWorldReach)
+static const float kGiWorldReachFacing = 0.5;
+
+// how much of the way between two points is clear of a clip's voxels (those from is in left out, see below): the share of
+// the way to the first voxel met, 1 where none is met before to. a lookup's cell where its samples lie (kGiWorldWhere)
+// the point can't reach holds another side's light: MovingInterior's floor by the far wall took the light of the
+// floor outside, sunlit and under the sky, in a blue line along the wall's foot (the user's report, 2026-11-19). by the
+// share rather than whether it is all clear, so that a cell fades as what is between comes nearer the point: taken or
+// left whole, the cells of Sponza's end wall behind the arch before it (which the marches, 2 of clip 2's voxels off the
+// wall, met) were left by blocks, as the voxels the marches passed decided
+float GiWorldReach(GiClipView clip, float3 from, float3 to)
+{
+	uint3 size = clip.volumeSize.xyz;
+	float3 start = (from - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+	float3 delta = (to - from) / clip.volumeOrigin.w;
+	float end = length(delta);
+	if (end <= 1e-6)
+		return 1.0;
+	float3 direction = delta / end;
+	int3 voxel = int3(floor(start));
+	int3 stepDirection = int3(select(direction >= 0.0, 1, -1));
+	float3 inverse = 1.0 / max(abs(direction), 1e-8);
+	float3 next = select(direction >= 0.0, float3(voxel + 1) - start, start - float3(voxel)) * inverse;
+	// (until the next boundary is past to, by the distance along the ray; the voxels it starts in left out until it is
+	// clear of them, but one whose surface it goes into (facing back along it, kGiWorldReachFacing): by an edge the lifted
+	// point is within the other surface's voxels, and the marches along the edge met them, in stripes a cell apart; but
+	// by MovingInterior's far wall's foot it was within the wall's, and the marches went through the wall)
+	bool clear = !GiInside(voxel, size) || (gGiVoxels[clip.voxelFirst + GiVoxelIndex(uint3(voxel), size)].albedo >> 24) == 0u;
+	for (uint stepIt = 0; stepIt < 16u; stepIt++)
+	{
+		float t = min(next.x, min(next.y, next.z));
+		if (t >= end)
+			break;
+		if (next.x < next.y && next.x < next.z)
+		{
+			next.x += inverse.x;
+			voxel.x += stepDirection.x;
+		}
+		else if (next.y < next.z)
+		{
+			next.y += inverse.y;
+			voxel.y += stepDirection.y;
+		}
+		else
+		{
+			next.z += inverse.z;
+			voxel.z += stepDirection.z;
+		}
+		if (!GiInside(voxel, size))
+			return 1.0;
+		GiVoxel found = gGiVoxels[clip.voxelFirst + GiVoxelIndex(uint3(voxel), size)];
+		if ((found.albedo >> 24) != 0u)
+		{
+			if (!clear && dot(GiVoxelNormal(found.normal), direction) > -kGiWorldReachFacing)
+				continue;
+			return t / end;
+		}
+		clear = true;
+	}
+	return 1.0;
+}
+
+// how near a cell's samples lie to a lookup's point across its surface for all of its weight, and how far for none, in
+// its cells (see GiWorldFaces)
+static const float kGiWorldDepthNear = 0.25;
+static const float kGiWorldDepthReach = 0.75;
+
+// a level's light about a point of a surface facing normal (see GiWorldFaces), added to sum by share: trilinear over its
+// 8 cells about the point of the surface's bucket, each by its weight and how sure its mean is (its samples over
+// kGiWorldShownSampleCount, at most 1); across the surface (along its bucket's axis) the two cells' weights are how near
+// their samples lie to the point (kGiWorldWhere, kGiWorldDepthReach), not how near their centers are (the layers are where
+// the grid cuts the world); and by how much of the way to them is clear (GiWorldReach, from lifted, lift off the
+// surface). returns how much of the point the level covers (its weights' sum, at most 1), its light the mean of what it
+// covers
+float GiWorldLevelFaces(float3 position, float3 normal, uint bucket, uint level, GiClipView clip, float3 lifted, float lift, float share,
+						inout float3 sum[SHADER_TYPES_GI_IRRADIANCE_COUNT])
+{
+	float side = gGi[gPushConstants.frameIndex][0].worldCellSide * float(1u << level);
+	float3 coordinate = position / side - 0.5;
+	int3 base = int3(floor(coordinate));
+	float3 fraction = coordinate - float3(base);
+	uint axis = min(bucket, 5u) / 2u;
+	float3 levelSum[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+		levelSum[faceIt] = 0.0;
+	float weightSum = 0.0;
+	for (uint cornerIt = 0; cornerIt < 8u; cornerIt++)
+	{
+		int3 corner = int3(cornerIt & 1u, (cornerIt >> 1) & 1u, cornerIt >> 2);
+		float3 weights = lerp(1.0 - fraction, fraction, float3(corner));
+		weights[axis] = 1.0;
+		float weight = weights.x * weights.y * weights.z;
+		if (weight <= 0.0)
+			continue;
+		uint cell = GiWorldFind(base + corner, level, bucket, false);
+		if (cell == ~0u)
+			continue;
+		float3 where = GiWorldWhereOf(cell);
+		where = where.x < -1.0 ? 0.5 : where;
+		float apart = abs(coordinate[axis] + 0.5 - float(base[axis] + corner[axis]) - where[axis]);
+		weight *= saturate((kGiWorldDepthReach - apart) / (kGiWorldDepthReach - kGiWorldDepthNear));
+		if (weight <= 0.0)
+			continue;
+		uint count = gGiWorld[GiWorldCellWord(cell, kGiWorldFilteredCount)];
+		weight *= min(float(count) / float(kGiWorldShownSampleCount), 1.0);
+		// and by how lately it was added to (see kGiWorldStaleNear)
+		weight *= saturate((kGiWorldStaleReach - float(gGi[gPushConstants.frameIndex][0].worldFrame - gGiWorld[GiWorldCellWord(cell, kGiWorldStamp)])) / (kGiWorldStaleReach - kGiWorldStaleNear));
+		if (weight <= 0.0)
+			continue;
+		// (to where its samples lie, lifted as the point is: to its center, the cells along an edge whose centers are past
+		// the other surface, which hold this one's strip by the edge, were left in a checker along every edge of
+		// MovingInterior's room, by the voxels the marches met; to its point nearest the point, the cells across the far
+		// wall's foot, which hold the room's floor by the wall and the sunlit floor outside, were taken, and the blue line
+		// was back)
+		float3 target = (float3(base + corner) + where) * side;
+		weight *= GiWorldReach(clip, lifted, target + normal * (lift - dot(target - position, normal)));
+		if (weight <= 0.0)
+			continue;
+		float3 cellFaces[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+		GiWorldLoadFaces(cell, cellFaces, kGiWorldFiltered);
+		for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+			levelSum[faceIt] += cellFaces[faceIt] * weight;
+		weightSum += weight;
+	}
+	if (!(weightSum > 1e-4))
+		return 0.0;
+	float covered = saturate(weightSum);
+	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+		sum[faceIt] += levelSum[faceIt] * (share * covered / weightSum);
+	return covered;
+}
+
 // the world cache's light about a point of a surface facing normal (its faces, as an entry's), for the shading: at the
 // level whose cell is kGiWorldLookupShare of the distance from the eye, blended with the next by the fraction (no level
-// is taken at once: nothing snaps), each trilinear over its 8 cells about the point of the surface's normal bucket; each
-// cell by its weight and how sure its mean is (its samples over kGiWorldShownSampleCount, at most 1). confidence: how
-// much of the point that covers, 0 to 1 (cells missing or of few samples cover less); false where it covers none
+// is taken at once: nothing snaps), each level's light by how much of the point it covers (GiWorldLevelFaces).
+// confidence: how much of the point the two cover, 0 to 1; false where they cover none (the clipmap's light the rest).
+// (what a level leaves filled from the next coarser, and so on, as the clipmap's clips fill what the finer ones leave:
+// Sponza's corridor blotchier, 1.47 and 3.58 of 255 rather than 1.41 and 3.51, see world-cache-plan.md)
 bool GiWorldFaces(float3 position, float3 normal, out float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT], out float confidence)
 {
 	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
@@ -530,42 +741,24 @@ bool GiWorldFaces(float3 position, float3 normal, out float3 faces[SHADER_TYPES_
 	uint bucket = GiWorldBucket(normal);
 	uint lower = uint(floor(level));
 	float upperShare = level - float(lower);
-	float weightSum = 0.0;
+	// the cells' reach is marched in the finest clip holding the point (its voxels about the cells' size, see
+	// kGiWorldLookupShare), from the point lifted off its surface (kGiWorldReachLift)
+	GiClipView clip = GiClipViewAt(GiFinestClipHolding(position, gGi[frameIndex][0].clipCount - 1u));
+	float lift = kGiWorldReachLift * clip.volumeOrigin.w;
+	float3 lifted = position + normal * lift;
 	for (uint passIt = 0; passIt < 2u; passIt++)
 	{
 		uint levelIt = min(lower + passIt, levelCount - 1u);
 		float share = passIt == 0u ? 1.0 - upperShare : upperShare;
 		if (share <= 0.0)
 			continue;
-		float3 coordinate = position / (side * float(1u << levelIt)) - 0.5;
-		int3 base = int3(floor(coordinate));
-		float3 fraction = coordinate - float3(base);
-		for (uint cornerIt = 0; cornerIt < 8u; cornerIt++)
-		{
-			int3 corner = int3(cornerIt & 1u, (cornerIt >> 1) & 1u, cornerIt >> 2);
-			float3 weights = lerp(1.0 - fraction, fraction, float3(corner));
-			float weight = share * weights.x * weights.y * weights.z;
-			if (weight <= 0.0)
-				continue;
-			uint cell = GiWorldFind(base + corner, levelIt, bucket, false);
-			if (cell == ~0u)
-				continue;
-			uint count = gGiWorld[GiWorldCellWord(cell, kGiWorldFilteredCount)];
-			weight *= min(float(count) / float(kGiWorldShownSampleCount), 1.0);
-			if (weight <= 0.0)
-				continue;
-			float3 cellFaces[SHADER_TYPES_GI_IRRADIANCE_COUNT];
-			GiWorldLoadFaces(cell, cellFaces, kGiWorldFiltered);
-			for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
-				faces[faceIt] += cellFaces[faceIt] * weight;
-			weightSum += weight;
-		}
+		confidence += share * GiWorldLevelFaces(position, normal, bucket, levelIt, clip, lifted, lift, share, faces);
 	}
-	if (!(weightSum > 1e-4))
+	if (!(confidence > 1e-4))
 		return false;
 	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
-		faces[faceIt] /= weightSum;
-	confidence = saturate(weightSum);
+		faces[faceIt] /= confidence;
+	confidence = saturate(confidence);
 	return true;
 }
 

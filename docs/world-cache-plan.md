@@ -258,6 +258,58 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
     the filter's variance read from the face's two words rather than all nine (no change, 0.54 ms: its cost is the
     hash searches, 3 passes of 9 taps a touched cell). Frame times of single runs vary by a few tenths of a
     millisecond here: the performance work wants interleaved runs.
+- 2026-11-19, **step 2, the user's artifacts** (with `SPEEDO_GI_WORLD=1`): a bright line along the foot of
+  MovingInterior's far wall, a bright spot in the shadow of Sponza's blue curtain ("not visible from all view
+  distances"), then bright diamonds on Sponza's vaults and walls at six more poses.
+  - **The spots: two places in one cell.** A cell's key was a mix of the 32 bit hash its probe begins at, so two places
+    of the same hash had the same key, and were one cell, of both places' samples. Among a million cells that is about a
+    hundred pairs: a sunlit place's light in a cell in the shade, one cell's diamond in the lookups. Found by the dump:
+    the samples a cell under the vault took averaged 4e-5 along its face, and the slot sums it folded 0.0177. The key now
+    a second hash, independent of the first (`GiWorldHash`, `GiWorldKey`): two places are one cell only where both agree
+    and their probes meet, about one pair in a hundred tables. Every spot gone, the curtain's and the six poses' (the
+    brightest pixel of each the clipmap's, at the same place). Which places collide depends on which cells a run has
+    made, so the spots came and went with a run's first frames: a cold start (the first run after a shader edit, or a
+    deleted profile) showed the curtain's where a warm one often didn't.
+  - **The line: the floor took the light of the floor outside**, sunlit and under the sky ((56,65,82) where the
+    clipmap has (35,26,14)): the lookup's trilinear reached cells across the wall, and across the floor's own layer the
+    cells of the ground outside, a layer lower. Each cell keeps where its samples lie (their mean position in the cell,
+    3 words, `kGiWorldWhere`); across the surface the lookup takes the two cells by how near their samples lie to the
+    point rather than by their centers (the layers are where the grid cuts the world, not where the surface is); and each
+    cell by how much of the way to where its samples lie is clear of the voxels of the finest clip holding the point
+    (`GiWorldReach`, from the point lifted 2 voxels off its surface). The reach first went to the cells' centers, taken
+    or left whole: Sponza's end wall in blocks behind its arch, MovingInterior's room's every edge in a checker (an edge's
+    cell holds this side's strip while its center is past the other surface); by the share of the way clear and to where
+    the samples lie, with the voxels it starts in left out until it is clear of them (but one it goes into), both are
+    smooth. The foot now (31,27,26): the faintest dark line where the wall meets the floor.
+  - **What the collisions hid.** Before the key was found, the curtain's spot looked like a cell of a few stray samples
+    (the floor 2 cm under y = 0, where every level's cells begin, rising over it here and there) begun from its parent's
+    light and sure of it, and three changes each seemed to fix it: the seed counted apart from a cell's own samples, a
+    sample by a cut going to the cell across it, and the two cells across a surface weighed by their samples. With the
+    key fixed none was needed (the committed grid with only the key: no spot in any run), and all three are out.
+  - **After a flight through the model** (the user's: down through the courtyard to the ground floor, then around the
+    corridors): a glow along the tops of the arcade's walls under the vaults, and the top of a capital bluish white.
+    Neither showed in a fresh capture of the pose; a camera path through the user's poses (`SPEEDO_CAMERA_PATH`)
+    reproduced both, the glow the stronger the more places visited before (a path from its last stop 15.9 of 255, from
+    its first 25.3; the clipmap 15.9 either way). Not the table (4 million cells, none taken back: the same), nor time
+    (3000 frames at the pose: the same). A cell's own mean the same after the path and fresh (6.8e-5, 7.9e-5), its
+    filtered light four times brighter: the filter's taps, along the surface 1, 2 and 4 cells apart, reached the wall's
+    cells over the vault, of the sunlit gallery the camera had passed, which no longer took samples. And the capital's
+    ledge took, in the lookups themselves, the sky's light of cells passed in the courtyard. Both take a cell by how
+    lately it was added to now (`kGiWorldStaleNear`: all of its weight to 64 frames, none from 192; an entry in use
+    traces a ray every frame or two, one no lookup reads every 8): the glow 16.6, the ledge 14.0 (the clipmap 14.2).
+    Open: where both sides of a vault are in view and taking samples, the filter's taps still reach across (a march per
+    tap would tell, at a cost); not seen yet.
+  - **Measuring**: a single run of the walk varies by a quarter of a level (the same shader 1.27, 1.35, 1.13 and 1.52,
+    1.53, 1.23), more than most changes; `SPEEDO_REPEATABLE=1` makes it repeat to a hundredth (`walkp.ps1` and
+    `worldlookup.ps1 -Env`). Repeatable, still and walk: the committed grid 1.35 and 3.44, 1.08, 1.31, 1.06; now 1.35
+    and 3.45, 1.13, 1.37, 1.13; the clipmap 1.46 and 3.47, 1.02, 1.43, 1.59.
+  - Tried, not kept: the samples keyed by the surface the anchor found rather than the voxel's (blotchier, 1.47 and 3.58
+    against 1.43 and 3.51); a level's uncovered share filled from the next coarser and so on (1.47 and 3.58 against
+    1.41 and 3.51); the grid fed only from the finest clip holding an entry (no change to the spots); the reach to the
+    cells' nearest points (the line back: a cell across the foot holds the room's floor and the outside's, its nearest
+    point in the room); voxels the march runs along left out (the line back: corner voxels keep one surface's normal).
+  - Costs: a cell 37 words rather than 34, a slot 28 rather than 25 (about 177 MB with a million cells); the lookups 8
+    reach marches of a few voxels a level (to measure with interleaved runs).
 
 ## Step 1's design, before it is built
 
