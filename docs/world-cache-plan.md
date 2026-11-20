@@ -339,6 +339,33 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
     doesn't, the near field's rays that meet nothing within their reach (`GiNearTrace`'s miss reads `GiSampleAt` at a
     point in the air) first. The filter, and with it the volumes' cache light, can go only once the air's light is the
     grid's: step 4's air cells come before 3b. 3c waits on 3b.
+- 2026-11-20, **step 4's first role, the near field's misses, tried and not kept: it doesn't pass its gate, and the
+  misses weren't what the cache filter gave.** Sponza's corridor, as above. Air cells (bucket 6: no depth gate across an
+  axis, trilinear; their faces the mean of the radiance by the basis's weights, kept apart in the slot, 6 more words;
+  filtered by nothing but themselves) read by `GiNearTrace`'s misses through `GiWorldBlend`. The patch is in
+  `temp/gi-disocclusion/air-cells-step4-with-3a.patch` (3a's edit with it). What was learned:
+  - **Fed along the surface cache's rays** (a point at random within the near field's reach): the still image's mean 7
+    to 11.3 without the cache filter. The air took the light of the ways out of what the camera sees (the arcade's
+    openings to the sunlit courtyard), little of the ways back in. At a surface's levels the air cells filled the table
+    (1912 cells taken back a frame) and their filter took the fold from 0.5 to 4.5 ms: at 3 levels coarser (about a
+    probe's spacing), filtered by themselves alone.
+  - **Fed from the probes' rays** (they leave a probe evenly over the sphere): one add a ray ran out of slots (the 120
+    rays of a probe come to the same new cell at once, each counting a slot, one claiming it: more than 262144 slots a
+    frame). Summed a probe at a time (one thread of `ComputeGiProbeUpdate` over its rays, one add of all of them) it runs:
+    195771 samples a frame into 62816 slots, against 40329 into 61267.
+  - **The image**: with the cache filter, the mean 6.97 to 7.20 and the blotchiness 1.35 and 3.45 to 1.38 and 3.55, the
+    walk the same (1.15, 1.32, 1.19); the right wall and the floor by it a little brighter, nothing else. At the misses the
+    air cells give 1.28 times the volumes' light (1.20 without the filter), an estimate without the probes' visibility
+    weighting, of a point among the probes of a cell. No reference says which is right.
+  - **The cost**: the frame 6.98 to 7.21 ms, interleaved three times; the near field 0.09 to 0.23 ms (its lookups: two
+    levels of eight cells' finds and their reach marches a miss), the fold and the probes' adds 0.01 each.
+  - **The cache filter's role, corrected**: skipping it brightens the image's mean from 7.0 to 10.2 with the air not read
+    at all, while the misses' light rises 15% (the volumes' alone): the brightening comes through the voxels' bounce
+    (`ComputeGiLight` reads the volumes, which hold the probes' light alone without the filter), which 3a takes from the
+    grid instead (3a without the filter: 7.33). With 3a and the air, without the filter: the still image 1.41 and 4.08
+    (3a alone 1.36 and 3.89), the walk 1.64, 1.82, 1.59 (1.61, 1.82, 1.42). So the misses aren't what the filter's
+    absence degrades either; what is, after the bounce, is open (the lookups' fallback to the volumes during the walk,
+    where new cells' confidence is below 1, is the candidate left).
 
 ## Step 1's design, before it is built
 
