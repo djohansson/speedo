@@ -797,6 +797,12 @@ private:
 	std::array<uint64_t, GI_WORLD_COUNTER_COUNT> myGiWorldCounterSums{};
 	uint32_t myGiWorldMostSlots = 0;
 	uint32_t myGiWorldFrameCount = 0;
+	// the table's occupancy, the last GI_WORLD_OCCUPANCY_SWEEP_COUNT frames' parts of it (their sum a sweep of the whole),
+	// and the most live cells a sweep counted
+	std::array<uint32_t, GI_WORLD_OCCUPANCY_SWEEP_COUNT> myGiWorldHeld{};
+	std::array<uint32_t, GI_WORLD_OCCUPANCY_SWEEP_COUNT> myGiWorldLive{};
+	uint32_t myGiWorldSweepFrameCount = 0;
+	uint32_t myGiWorldMostLive = 0;
 	uint32_t myGiCacheRayCount = 1;
 	// SPEEDO_GI_CACHE_SAMPLES: see GiData::cacheSampleCount. 4096: the far wall of MovingInterior's room, lit by the sun's patch on
 	// the floor that few of its rays meet, held a blotchy noise of 0.9 of 255 between two seeds of the rays' directions

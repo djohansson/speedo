@@ -1429,7 +1429,13 @@ struct CullView
 #define GI_STATISTIC_CLIP_WORD_COUNT 3u
 // and the world cache's counters of the frame (gGiWorld's, copied by ComputeGiWorldFold: GI_WORLD_COUNTER_*)
 #define GI_STATISTIC_WORLD_FIRST (GI_STATISTIC_CLIP_FIRST + GI_STATISTIC_CLIP_WORD_COUNT * SHADER_TYPES_GI_CLIP_COUNT)
-#define GI_STATISTIC_COUNT (GI_STATISTIC_WORLD_FIRST + GI_WORLD_COUNTER_COUNT)
+// and its table's occupancy, a 32nd of its cells a frame in turn (GI_WORLD_OCCUPANCY_SWEEP_COUNT, by ComputeGiWorldFold):
+// the cells that hold a key (the table only fills: a cell is made where none was or taken back from the stalest
+// probed) and those of them added to within kGiWorldStaleReach frames, which the lookups and the filter still take
+#define GI_STATISTIC_WORLD_HELD (GI_STATISTIC_WORLD_FIRST + GI_WORLD_COUNTER_COUNT)
+#define GI_STATISTIC_WORLD_LIVE (GI_STATISTIC_WORLD_HELD + 1u)
+#define GI_WORLD_OCCUPANCY_SWEEP_COUNT 32u
+#define GI_STATISTIC_COUNT (GI_STATISTIC_WORLD_LIVE + 1u)
 // the world cache's storage (gGiWorld, uints): its counters of the frame (from 0, cleared each frame: the slots of sums
 // taken, the samples added, the cells made, the cells taken back from what wasn't added to lately, the samples a level
 // found no cell for (every one probed added to this frame: a policy's, reported), that found no slot (the slots'

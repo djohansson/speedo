@@ -371,6 +371,27 @@ void ComputeGiWorldFold(uint3 dispatchId: SV_DispatchThreadID)
 		for (uint counterIt = 0; counterIt < GI_WORLD_COUNTER_COUNT; counterIt++)
 			gGiStatistics[frameIndex][GI_STATISTIC_WORLD_FIRST + counterIt] = gGiWorld[counterIt];
 	uint slotCount = gGi[frameIndex][0].worldSlotCount;
+	// and the table's occupancy (see GI_STATISTIC_WORLD_HELD): a 32nd of the cells, a thread each, counted a wave at a
+	// time
+	{
+		uint share = gGi[frameIndex][0].worldCellCount / GI_WORLD_OCCUPANCY_SWEEP_COUNT;
+		uint frame = gGi[frameIndex][0].worldFrame;
+		bool held = false;
+		bool live = false;
+		if (slot < share)
+		{
+			uint cell = (frame % GI_WORLD_OCCUPANCY_SWEEP_COUNT) * share + slot;
+			held = gGiWorld[GiWorldCellWord(cell, kGiWorldKey)] != 0u;
+			live = held && float(frame - gGiWorld[GiWorldCellWord(cell, kGiWorldStamp)]) < kGiWorldStaleReach;
+		}
+		uint heldCount = WaveActiveCountBits(held);
+		uint liveCount = WaveActiveCountBits(live);
+		if (WaveGetLaneIndex() == WaveActiveMin(WaveGetLaneIndex()) && heldCount != 0u)
+		{
+			InterlockedAdd(gGiStatistics[frameIndex][GI_STATISTIC_WORLD_HELD], heldCount);
+			InterlockedAdd(gGiStatistics[frameIndex][GI_STATISTIC_WORLD_LIVE], liveCount);
+		}
+	}
 	if (slot >= min(gGiWorld[GI_WORLD_COUNTER_SLOTS], slotCount))
 		return;
 	uint cellPlus = gGiWorld[GiWorldSlotWord(slot, kGiWorldSlotCell)];

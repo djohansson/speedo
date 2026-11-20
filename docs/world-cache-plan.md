@@ -391,6 +391,27 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
     and what lets light through the volumes'. The cache filter stays (it puts the cache's light into the volumes the air
     is read from), and with it the entries' means (3c). Step 5's decision is the grid as the surfaces' light beside the
     clipmap (its 182 MB in Sponza; the default since 0b7fd5ba), or the clipmap's alone.
+- 2026-11-20, **step 5's measures: the grid's cost and its table's occupancy.** 1080p, Vulkan, warm, the grid on
+  (`SPEEDO_GI_WORLD`) against off, interleaved, two rounds (within 0.1 ms of each other but Bistro by day's clipmap,
+  6.94 and 8.12). The exit report counts the table's occupancy now (a 32nd of its cells a frame, in the fold: the cells
+  held, and those added to within `kGiWorldStaleReach`, which the lookups still take).
+  - **The frame, settled** (1500 frames): the bathroom 3.21 to 4.21 ms (from the front 3.46 to 4.49), Sponza's columns
+    4.30 to 6.44, its corridor 4.31 to 6.55, Bistro 6.94/8.12 to 10.92, at night 7.36 to 10.65, CornellBox 3.40 to
+    3.88. Of Bistro at night's 3.27: the transmissive surfaces' lookups 0.87, the main pass's 0.72, the reflections'
+    hits 0.64, the GI pass (the cache's samples added) 0.58, the fold and filter 0.47; of Sponza's corridor's 2.23: the
+    main pass 0.65, the reflections 0.62, the fold 0.51, the GI pass 0.32; of the bathroom's 1.04: the main pass 0.55,
+    the GI pass 0.20, the fold 0.15. Step 2's 0.83 ms (Sponza's corridor) was before the depth gate, the reach marches
+    and the stale weights, and counted the main pass, the samples and the fold alone.
+  - **The frame, moving**: Sponza flown through the user's six poses into the vault (`tour-vault.txt`, 1601 frames)
+    4.21 to 7.07 ms (the reflections 0.33 to 1.35, the main pass 0.45 to 1.28); Bistro walked 8 cm a frame turning 0.4
+    degrees (1500 frames) 6.97 to 8.97.
+  - **The table** (1048576 cells): settled, 10 to 27% held and 10 to 25% live (the bathroom 11%, CornellBox 10%,
+    Sponza 25%, Bistro 22 to 24%). Moving, Sponza's flight held 79% (6.4 cells taken back a frame) with 23.5% live at
+    the end and 39.6% at most (414751); Bistro's walk 48% held, 22% live, 31% at most. A table of half the cells would
+    have held Sponza's flight's live cells at 79%, its 16 probes taking back live ones: the million stays. The slots:
+    at most 130491 a frame in the flight (of 262144), 128492 in CornellBox settled.
+  - So what shrinking it could take is the filter's second copy of each cell's light (9 words of 37: its passes could
+    alternate in the slots, which the cells filtered a frame have): 36 MB of the 176.
 
 ## Step 1's design, before it is built
 

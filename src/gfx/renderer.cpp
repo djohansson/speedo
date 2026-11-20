@@ -2841,6 +2841,14 @@ Renderer::~Renderer()
 				myGiWorldMostSlots, static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_CELLS_MADE]) / frames,
 				static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_CELLS_TAKEN]) / frames,
 				static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_NO_CELL]) / frames);
+			if (myGiWorldSweepFrameCount >= GI_WORLD_OCCUPANCY_SWEEP_COUNT)
+			{
+				uint32_t held = std::accumulate(myGiWorldHeld.begin(), myGiWorldHeld.end(), 0U);
+				uint32_t live = std::accumulate(myGiWorldLive.begin(), myGiWorldLive.end(), 0U);
+				auto share = [&](uint32_t cells) { return 100.0 * static_cast<double>(cells) / static_cast<double>(myGiWorldCellCount); };
+				std::println("indirect lighting, world cache's table: {} cells held ({:.1f}%), {} of them live (still taken by the lookups, kGiWorldStaleReach: {:.1f}%; at most {}, {:.1f}%)",
+							 held, share(held), live, share(live), myGiWorldMostLive, share(myGiWorldMostLive));
+			}
 		}
 	}
 	// and the dumped probes (SPEEDO_GI_DUMP), as they were last
@@ -3721,6 +3729,14 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 					myGiWorldCounterSums[counterIt] += world[counterIt];
 				myGiWorldMostSlots = std::max(myGiWorldMostSlots, world[GI_WORLD_COUNTER_SLOTS]);
 				myGiWorldFrameCount++;
+			}
+			if (myCollectTimings)
+			{
+				uint32_t part = myGiWorldSweepFrameCount++ % GI_WORLD_OCCUPANCY_SWEEP_COUNT;
+				myGiWorldHeld[part] = statistics[GI_STATISTIC_WORLD_HELD];
+				myGiWorldLive[part] = statistics[GI_STATISTIC_WORLD_LIVE];
+				if (myGiWorldSweepFrameCount >= GI_WORLD_OCCUPANCY_SWEEP_COUNT)
+					myGiWorldMostLive = std::max(myGiWorldMostLive, std::accumulate(myGiWorldLive.begin(), myGiWorldLive.end(), 0U));
 			}
 		}
 		if (statistics[GI_STATISTIC_CAPPED_RAYS] != 0)
