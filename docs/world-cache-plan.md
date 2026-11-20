@@ -327,6 +327,18 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
   hits see what the surfaces show; **3b** the cache filter's blend into the volumes left out where the grid covers (its
   time; the volumes keep the probes' light for the air and the near field); **3c** the entries cut to what a ray's source
   needs (their own means gone: the memory step 3's gate asks for).
+- 2026-11-20, **3a and 3b tried, neither kept; step 4's air before 3b.** Sponza's corridor at 1080p, warm, interleaved,
+  repeatable where measuring the image:
+  - **3a, the bounce from the grid** (`ComputeGiLight` blending `GiWorldBlend` in at the voxel's plane, at its clip's
+    level): the GI pass 2.36 to 2.65 and 2.35 to 2.56 ms, the still image and the walk the same (1.34 and 3.43; 1.18,
+    1.38, 1.11). A cost with nothing to show until the cache's own light goes.
+  - **The cache filter's cost** (`SPEEDO_SKIP_PASSES='GI Cache Filter'`): the GI pass 2.55 to 1.97 ms, the frame 7.07 to
+    6.40. But without it (3a in) the still image 1.36 and 3.89 at 121 pixels (3.43 with it) and the walk 1.61, 1.82,
+    1.42 (1.18, 1.38, 1.11); with the next coarser levels filling what a level doesn't cover, the same (3.88; 1.61,
+    1.81, 1.39). So not the surfaces' lookups: the volumes the filter writes the cache's light into serve what the grid
+    doesn't, the near field's rays that meet nothing within their reach (`GiNearTrace`'s miss reads `GiSampleAt` at a
+    point in the air) first. The filter, and with it the volumes' cache light, can go only once the air's light is the
+    grid's: step 4's air cells come before 3b. 3c waits on 3b.
 
 ## Step 1's design, before it is built
 
