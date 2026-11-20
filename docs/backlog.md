@@ -26,3 +26,6 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
 - **Performance**: the shadow maps of static casters cached (virtual shadow maps longer term), and step 5's rich
   worlds (model instances, streaming and level of detail, async compute, recording on several threads, quality presets
   aimed at a frame time). docs/performance-plan.md.
+- **Volumetric effects**: clouds and fog banks (the user's wish, 2026-11-20). Their light in the air from the clipmap's
+  volumes (the probes' light and the cache's, trilinear in hardware), which is why the world cache leaves the air to
+  them (docs/world-cache-plan.md, step 4); clouds mostly the sun's and the sky's (docs/notes/sky.md).

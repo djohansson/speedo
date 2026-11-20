@@ -114,6 +114,10 @@ runner and sphere, the green box), the near field's misses and what lets light t
 things (Bistro's shadowed facade at `564,170,-2436,0,30`, the bathroom's recess at `-0.8,17.0,-6.5,0,1.2`). Gate: each
 as good as the probes', or better, by the measures and the user's eye. The probes stay for a role until its gate passes.
 
+Closed 2026-11-20 with the air left to the clipmap (see Progress): the near field's misses from air cells cost 0.24 ms
+for nothing, and the volumes are what the volumetric effects the user plans (clouds, fog banks) will sample. The grid
+is the surfaces' light; the clipmap's volumes, probes and cache filter the air's.
+
 ### 5. The user's decision
 
 With every measure side by side: the default, and later whether the clipmap's light (the cache, the volumes, the
@@ -366,6 +370,27 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
     (3a alone 1.36 and 3.89), the walk 1.64, 1.82, 1.59 (1.61, 1.82, 1.42). So the misses aren't what the filter's
     absence degrades either; what is, after the bounce, is open (the lookups' fallback to the volumes during the walk,
     where new cells' confidence is below 1, is the candidate left).
+- 2026-11-20, **the air stays the clipmap's; step 4 closed, 3b and 3c dropped.** The user's word: volumetric effects
+  (clouds, fog banks) are wanted later. Those sample the light at every point of the air, per froxel: the clipmap's
+  volumes are that already (3D images in the world, trilinear in hardware, the probes' light with their visibility
+  weighting and the cache's light blended in by the filter, read by the fog now through `AerialPerspectiveAmbient`).
+  Air cells would need a visibility of their own and lookups by hand (the near field's 0.14 ms above) to stand in for
+  them. Measured before deciding, Sponza's corridor as above:
+  - **The lookups' fallback isn't the filter's loss either**: with 3a, without the filter, the surfaces taking the grid's
+    light wholly wherever it holds any (no volumes' share by its confidence), the still image 1.35 and 3.88 and the walk
+    1.60, 1.80, 1.43, as with the fallback (with the filter that change alone made the walk 1.22, 1.41, 1.17: the
+    fallback helps). What the frames show: without the filter the settled frames' vault and upper walls are brighter and
+    blotchy and the walking frames darker and smoother. The light bounced through the grid (3a: the voxels lit from
+    cells at their clip's level, the rays' hits lit from the voxels) settles slowly and unevenly, and a walk doesn't
+    catch up with it; through the volumes, filtered over 7 voxels each way, it does.
+  - **The thin things, the grid's surfaces against the clipmap** (`SPEEDO_GI_WORLD` 1 against 0, settled, Vulkan):
+    Bistro's shadowed facade 0.09 of 255 apart, the bathroom's recess from the front 0.72 (the left wall's top a
+    little brighter, 1.4); the probes left out of settled blocks made 10 to 20 and 10 to 27. Passed: the surfaces'
+    lookups beside thin things are the grid's where it covers, and the volumes' (the air voxels', the probes') where not.
+  - So the clipmap's light stays: what moves and the fog keep the probes' (they have them now), the near field's misses
+    and what lets light through the volumes'. The cache filter stays (it puts the cache's light into the volumes the air
+    is read from), and with it the entries' means (3c). Step 5's decision is the grid as the surfaces' light beside the
+    clipmap (its 182 MB in Sponza; the default since 0b7fd5ba), or the clipmap's alone.
 
 ## Step 1's design, before it is built
 
