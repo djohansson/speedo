@@ -5495,10 +5495,14 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// |pixel - the 33 pixels' mean around it| 5.0 of 255 at frame 500, 3.2 settled; the user's report, 2026-11-18:
 		// "general noise levels in the dark areas"), 3.2 and 2.7 with two (3 voxels: 0.7 m at Sponza's last level, where
 		// the curtains' light on the floor is as it was, by eye and within 0.5 of 255). the GI pass 0.58 to 0.67 ms there,
-		// Sponza's 1.96 to 1.99, Bistro's 2.40 to 2.42, at night 2.28 to 2.32
-		uint32_t levelsCoarser = static_cast<uint32_t>(myGiClipmap.clips.back().data.level) - clip.level;
+		// Sponza's 1.96 to 1.99, Bistro's 2.40 to 2.42, at night 2.28 to 2.32. now every level's SPEEDO_GI_CACHE_FILTER_PASSES
+		// again (2026-11-20): the curtains' light spread along the floor through the taps that crossed under the arcade's
+		// bases, which the taps past something crossing their way leave out now (GiCacheFilterBlocked), and with the last
+		// level's two MovingInterior's far wall stayed blotchy at its last level (where it is from 3 m), its blotches a
+		// pattern that more frames don't take away (the mean |pixel - the 33 pixels' mean around it| 0.49 of 255, 1.83 over
+		// 121 pixels, settled and repeatable; the grid's 0.29 and 0.66): 0.31 and 0.79 with three
+		clip.cacheFilterPassCount = myGiCacheFilterPassCount;
 		bool anchored = myGiTraceBvh; // as GiCacheAnchored
-		clip.cacheFilterPassCount = anchored ? std::min(2 + levelsCoarser, myGiCacheFilterPassCount) : myGiCacheFilterPassCount;
 		// the cache's tables (see GiData::cacheTableFirst): the clip's blocks from its first flag's
 		uint32_t blockFirst = clip.flagFirst / SHADER_TYPES_GI_FLAG_WORD_COUNT;
 		clip.cacheTableFirst = 2 * (clock.probeHalf * myGiCacheBlockCount + blockFirst);

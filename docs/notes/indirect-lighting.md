@@ -448,6 +448,15 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
     bathroom scene's shelves from the front and Bistro at night are as they were by eye and within 0.6 of 255 a strip
     (1.1 in one of the bathroom's, where a white speck by the window's handle went). The GI pass 0.58 to 0.62 ms in the
     room, Sponza's 1.96 to 1.99, Bistro's 2.40 to 2.42, at night 2.28 to 2.32.
+  - every level's three passes since (2026-11-20, the user's poses with the world cache off): MovingInterior's far wall
+    from `1.1616,1.5031,-0.5107,0.798,-256.876` is at its last level from 3 m, and with that level's two passes stayed
+    blotchy with a pattern 4000 frames don't take away (the mean |pixel - the 33 pixels' mean around it| 0.49 of 255,
+    1.83 over 121 pixels, settled, repeatable; 1.26 after 4000 frames; the world cache's 0.29 and 0.66). Not the
+    cache's noise alone (the probes alone are as blotchy over 121 pixels) nor the lookups' level (through the coarser
+    levels alone 1.45 and 1.59): the bounce makes a pattern the voxels hold to, and only the filter's reach takes it
+    out; four passes or a sigma of 16 changed nothing while the last level kept two. Three at every level: 0.31 and
+    0.79. The curtains' light, the reason for two, no longer spreads, since the taps past something crossing their way
+    are left out (`GiCacheFilterBlocked`, below): the regression set within 0.5 of 255 a strip against two.
   - and no tap two voxels away or more past something crossing its way (`GiCacheFilterBlocked`: one of the voxels a
     voxel out along the open side, between the voxel and the tap, holds a surface facing along the way to the tap).
     Sponza's arcade walls go on up behind the vaults into the sunlit gallery, the same plane facing the same way, and
