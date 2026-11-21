@@ -52,14 +52,22 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   voxels made the finest 14.7 m tall at 27.7 cm, Sponza's 4.9 m), the ground fell out of them from a high viewpoint
   (the user's over Bistro's square, 13 m up), and the square was lit by the last clip's probes, 8.9 m apart, of a cell
   half under the ground and one probe inside the building by its entrance. A clip's center is ahead of the eye, toward
-  what the camera looks at, by `SPEEDO_GI_LOOK_AHEAD` of its half size at most (0.5 by default; 0 centers it on the
+  what the camera looks at, by `SPEEDO_GI_LOOK_AHEAD` of its half size at most (0.75 by default, 0.5 before 2026-11-21; 0 centers it on the
   eye): how far the camera looks is the median distance of the frame's drawn pixels from the eye (`ComputeMain`
   unprojects the main depth into 64 bins of log2 distance after the exposure histogram's, `SHADER_TYPES_DISTANCE_BINS`,
   read back with it and smoothed as the exposure is: `FrameInputs::lookDistance`), and the centers lie along the view's
   forward, so each clip stays inside the next, and the eye stays in the finer clips, two thirds of the way to their
   fade. Centered on the eye, half of each clip was behind it, and from the roof over Bistro's square (27 m from the
   hotel's entrance) the square was the last clip's; with the look ahead the ground is clip 1's (4.4 m probes), the
-  entrance's facade still mostly the last's at 0.5 (its weight in clip 1 is 0.2 there). The buffers a new clipmap gets
+  entrance's facade still mostly the last's at 0.5 (its weight in clip 1 is 0.2 there). 0.75 since (2026-11-21): what
+  a clip takes in as the eye moves forward comes in further ahead, and has longer to settle before the eye is near:
+  walking Sponza's corridor (`-4.5893,0.8216,2.8666,-2.892,-268.574`, 56 frames at 5 cm), the floor's band along the
+  arcade's bases formed behind the clips' front, the walk's last frame 2.65 of 255 from its pose's settled frame (6.1
+  in the band's strip, the indirect view); 2.05 (3.4) at 0.75 and 1.99 (3.3) at 1, where the eye is at the clips'
+  back. What else was tried: every clip updated every frame (`SPEEDO_GI_STAGGER=0`) 2.50, 2 cache rays 2.67, the cache
+  never settled 2.71, a fourth level 3.61; `SPEEDO_GI_RESOLUTION` 192 2.22 (3.5) and 256 2.25 (2.8), but 192 took
+  Sponza's frame 4.72 to 7.34 ms and Bistro at night's 7.70 to 10.53, the indirect lighting's memory 336 to 955 MB.
+  A 60 degree turn 3.08 to 3.28 from settled; the regression set within 0.4 of 255 (a strip within 0.92). The buffers a new clipmap gets
   are cleared first (the GI Clear pass: every GI buffer and the volumes filled with 0 when they were replaced,
   `myGiClearBuffers`): the resolve writes only the blocks near a surface, and a lookup's filter reaches into the ones
   beside them, which held whatever their memory had (cyan and red over Bistro's square, in one run of two). Each has its own voxels, radiance, probes

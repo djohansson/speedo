@@ -2579,7 +2579,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// around the camera, each of split screen's views its own)
 	if (const char* clipCount = std::getenv("SPEEDO_GI_CLIP_COUNT"); clipCount != nullptr && *clipCount != '\0')
 		myGiLevelCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(clipCount, nullptr, 10)), 1, SHADER_TYPES_GI_LEVEL_COUNT);
-	// how far ahead of the eye the finer clips are centered, as a share of their half size (SPEEDO_GI_LOOK_AHEAD, 0.5 by
+	// how far ahead of the eye the finer clips are centered, as a share of their half size (SPEEDO_GI_LOOK_AHEAD, 0.75 by
 	// default; 0 centers them on the eye), toward what the camera looks at (see gi::MakeClipmap)
 	if (const char* lookAhead = std::getenv("SPEEDO_GI_LOOK_AHEAD"); lookAhead != nullptr && *lookAhead != '\0')
 		myGiLookAhead = std::clamp(static_cast<float>(std::strtod(lookAhead, nullptr)), 0.0F, 1.0F);

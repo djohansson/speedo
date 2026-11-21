@@ -145,7 +145,7 @@ On macOS ray queries are opt in (`SPEEDO_RAY_QUERY=1`, see [the gpu and drivers]
 | `SPEEDO_GI_RESOLUTION` | Voxels along the scene's longest axis, 8 to 512. Default: 128. | Scene. The last clip's resolution, which the finer clips follow: finer resolves light through narrower openings at a steep cost. View > Rendering Features > Indirect Lighting... > Resolution. |
 | `SPEEDO_GI_TRACE` | `voxels`, or anything else for triangles. Default: triangles. | Scene. What the rays meet: the model's triangles through its BVHs (where it has them), or the voxels. The near field needs triangles. View > Rendering Features > Indirect Lighting... > Rays. |
 | `SPEEDO_GI_CLIP_COUNT` | 1 to 4. Default: 3. | The clipmap's levels: the last covers the scene, each finer one has voxels half the size and follows the eye (a clip per split screen view). |
-| `SPEEDO_GI_LOOK_AHEAD` | A share of a clip's half size, 0 to 1. Default: 0.5. | How far ahead of the eye, along where it looks, the finer clips are centered. |
+| `SPEEDO_GI_LOOK_AHEAD` | A share of a clip's half size, 0 to 1. Default: 0.75. | How far ahead of the eye, along where it looks, the finer clips are centered. |
 | `SPEEDO_GI_PROBE_SPACING` | Voxels: 8, 16, 24 or 32 (another value fails at startup). Default: 8. | The probes' spacing, in each clip's voxels. |
 | `SPEEDO_GI_EMISSION_REACH` | Probe spacings, 0 to 8 (0 no limit). Default: 0.5. | A probe's ray meeting an emissive surface nearer than this takes its light as from this far, so that a lamp beside a probe doesn't flood its cell. Only with emissive lights off. |
 | `SPEEDO_GI_BOUNCE` | `0` off. Default: on. | The voxels reflect the probes' last light, so that light bounces on, a bounce a frame; off, they hold the lights' direct light alone. |

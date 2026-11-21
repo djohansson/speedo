@@ -612,7 +612,7 @@ private:
 	// last), and the device's largest 3D image, which the resolve's volumes stack the clips in (see gi::MakeClipmap)
 	uint32_t myGiLevelCount = 3;
 	uint32_t myGiMaxVolumeSide = 0;
-	float myGiLookAhead = 0.5F; // SPEEDO_GI_LOOK_AHEAD: how far ahead of the eye the finer clips are centered, see gi::MakeClipmap
+	float myGiLookAhead = 0.75F; // SPEEDO_GI_LOOK_AHEAD: how far ahead of the eye the finer clips are centered, see gi::MakeClipmap
 	float myGiEmissionReach = 0.5F; // SPEEDO_GI_EMISSION_REACH: see GiData::emissionReach
 	uint32_t myGiRayCount = 128; // at most: SPEEDO_GI_RAY_COUNT
 	uint32_t myGiRayBudget = 500000; // rays a frame over all probes (SPEEDO_GI_RAY_BUDGET): fewer per probe where more are traced
