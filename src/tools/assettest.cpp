@@ -329,8 +329,16 @@ void CheckBvh(const gfx::mesh::Mesh& mesh, core::TaskExecutor& executor, Report&
 			bool tiny = std::min({glm::distance(corners[0], corners[1]), glm::distance(corners[1], corners[2]), glm::distance(corners[2], corners[0])}) <
 						1e-4 * size;
 			bool distanceDiffers = std::abs(static_cast<double>(hit.t) - reference.t) > 1e-4 * (size + reference.t);
+			// (where on the triangle, by the points the two barycentrics give, within what the distance's test allows: by the
+			// barycentrics, within a twentieth, the glTF research scenes' triangles of a few millimetres in rooms of 7 and 14
+			// m, a little over the tiny ones' bound, failed by a few tenths of a millimetre, the distances the same)
+			auto at = [&](glm::dvec2 barycentrics)
+			{
+				return glm::dvec3(corners[0]) * (1.0 - barycentrics.x - barycentrics.y) + glm::dvec3(corners[1]) * barycentrics.x +
+					   glm::dvec3(corners[2]) * barycentrics.y;
+			};
 			bool whereDiffers = hit.primitive == reference.primitive &&
-								glm::any(glm::greaterThan(glm::abs(glm::dvec2(hit.barycentrics[0], hit.barycentrics[1]) - reference.barycentrics), glm::dvec2(5e-2)));
+								glm::distance(at(glm::dvec2(hit.barycentrics[0], hit.barycentrics[1])), at(reference.barycentrics)) > 1e-4 * (size + reference.t);
 			if (tiny && (distanceDiffers || whereDiffers))
 				tinyMismatches++;
 			else if (distanceDiffers)

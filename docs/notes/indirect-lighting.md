@@ -922,7 +922,11 @@ tinybvh's dev branch stores CWBVH triangles uncompressed (3 float4: edges and a 
 way), so moving the port to it means `BvhTraverse`'s triangle test follows (`bvh.cpp` doesn't compile without
 `CWBVH_COMPRESSED_TRIS`); they would also fix the compressed triangles' precision on tiny ones (under a millimetre in a room:
 living_room, salle_de_bain, San Miguel), whose barycentrics come out wrong by tens of percent and which a ray may miss for
-one behind, where the binary layout's test is right (`CheckBvh` counts those apart and warns). A hit's normal, side and flags are read once the traversal is done (`BvhFinish`): read at
+one behind, where the binary layout's test is right (`CheckBvh` counts those apart and warns). Where on a triangle a hit
+is, `CheckBvh` compares by the points its barycentrics give, within what the distance's test allows (1e-4 of the scene's
+size and the distance): by the barycentrics, within a twentieth, the glTF research scenes' triangles of a few
+millimetres (the bathroom's and the staircase's, in rooms of 14 and 7 m, a little over the tiny ones' bound) failed it,
+off by a few tenths of a millimetre, the compressed triangles' precision (2026-11-21). A hit's normal, side and flags are read once the traversal is done (`BvhFinish`): read at
 every accepted hit, the loop carried them all and Bistro's frame took 2 ms more. Bistro's cost tried and kept: the dev branch's stack of a uint an entry (no change); ordering the
 probes' threads by ray (no help: each probe turns its ray set by its own phase, so neighbors' rays don't share
 directions). Measured (Sponza's inside, Bistro's street, CornellBox-Sphere, as below, interleaved): the
