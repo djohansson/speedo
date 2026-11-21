@@ -768,6 +768,10 @@ struct FlareConstants
 // output's size (32 bit, so the difference of two far along a row with the sun in it keeps the dim light between)
 #define SHADER_TYPES_STREAK_SUM_TEXTURE 88u
 #define SHADER_TYPES_STREAK_SUM_RW_TEXTURE 77u
+// the indirect lighting's lookups' sides at every pixel of the pre-pass's depth (GI Sides, ComputeGiSides; RG32F, each
+// a clip's mask as a float's bits, see GiSidesMask), which the main pass's opaque fragments' lookups take (GiSidesHidden)
+#define SHADER_TYPES_GI_SIDES_TEXTURE 89u
+#define SHADER_TYPES_GI_SIDES_RW_TEXTURE 78u
 #define SHADER_TYPES_STREAK_SCAN_THREAD_COUNT 256u // a row's group's threads, each a run of the row
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,
@@ -1809,6 +1813,8 @@ struct PushConstants
 #define PREPASS_IMAGE_SHADOW_MASK 1u
 #define PREPASS_IMAGE_GI_NEAR 2u
 #define PREPASS_IMAGE_EMITTERS 4u
+// and the indirect lighting's lookups' sides (SHADER_TYPES_GI_SIDES_TEXTURE)
+#define PREPASS_IMAGE_GI_SIDES 8u
 // PushConstants::upscale: ComputeMain composites into SHADER_TYPES_COMPOSITE_TEXTURE at the render size rather than into
 // the output (the Upscale passes then reconstruct it at the output's); the last frame's history holds a frame at this size;
 // which of each pair of images kept from frame to frame is the frame's (the first, or the second if set)

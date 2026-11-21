@@ -12,6 +12,12 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
 
 ## Larger
 
+- **bathroom2's remaining light where it isn't** (the user's report, 2026-11-21): the line along the ceiling's right
+  edge, the space above the ceiling seen through a slot, which the last level lights through the bounce at 1.6 times the
+  ceiling (dark at resolution 256); the statuettes in the niche under the window 47 to 56 of 255 where the finer
+  voxels give 35 to 44 (the hits test only the voxels marked apart). And what testing where a voxel's light was
+  gathered costs: 0.4 ms at bathroom2's pose, 0.65 at Sponza's, 1.3 at Bistro's (the marks made once a voxelizing,
+  fewer rays at corners). docs/notes/indirect-lighting.md, "A voxel's light is taken only where it was gathered".
 - **The clip levels' disagreement**: the levels disagree about the same place by 4 to 5 of 255, which shows while
   walking as darker patches on Sponza's corridor floor beside the columns (moving against settled 1.19, 1.52 and 1.65
   of 255 at the walk's three poses, 2026-11-19, `temp/gi-disocclusion/walkp.ps1`). The world-anchored grid built for it

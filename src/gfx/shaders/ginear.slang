@@ -191,6 +191,32 @@ void ComputeGiNear(uint3 dispatchThreadId : SV_DispatchThreadID)
 	raw[pixel] = GiNearRay(pixel);
 }
 
+// the lookups' sides at every pixel of the pre-pass's depth (see GiSidesMask), for the main pass's opaque fragments'
+// lookups (GiSidesHidden): rays only where a voxel around the pixel's point is marked apart
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void ComputeGiSides(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+	RWTexture2D sides = gRWTextures[SHADER_TYPES_GI_SIDES_RW_TEXTURE];
+	uint2 extent;
+	sides.GetDimensions(extent.x, extent.y);
+	int2 pixel = int2(dispatchThreadId.xy);
+	if (any(pixel >= int2(extent)))
+		return;
+	uint masks[2] = {0u, 0u};
+	ViewData view;
+	ShadowSurface surface;
+	if (ViewAt(pixel, view) && ShadowSurfaceAt(pixel, view, surface))
+	{
+		uint clips[2];
+		GiSidesClips(surface.position, clips);
+		for (uint slotIt = 0; slotIt < 2u; slotIt++)
+			if (clips[slotIt] != ~0u)
+				masks[slotIt] = GiSidesMask(GiClipViewAt(clips[slotIt]), surface.position, surface.normal);
+	}
+	sides[pixel] = float4(asfloat(masks[0]), asfloat(masks[1]), 0.0, 0.0);
+}
+
 // a pass of the near field's filter: the rays' radiance and whether they met no contact (or the rows' result) averaged
 // along the row (or column) over the traced pixels within 16, by a tent of their distance (the same kernel whatever the
 // pixel's parity: a box of the 17 traced pixels around a traced one and the 16 around the others made neighbors' sums

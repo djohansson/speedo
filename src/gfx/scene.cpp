@@ -148,7 +148,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 89; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's, the motion blur's, the starburst's and the anamorphic streaks' (SHADER_TYPES_STREAK_SUM_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 90; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's, the motion blur's, the starburst's, the anamorphic streaks' (SHADER_TYPES_STREAK_SUM_TEXTURE) and the indirect lighting's lookups' sides (SHADER_TYPES_GI_SIDES_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -172,6 +172,7 @@ static_assert(
 	kMaterialTextureId != SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE && kMaterialTextureId != SHADER_TYPES_TRANSMISSION_TEXTURE &&
 	SHADER_TYPES_ENVIRONMENT_TEXTURE >= SHADER_TYPES_FRAME_COUNT && SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE >= SHADER_TYPES_FRAME_COUNT &&
 	kMaterialTextureId < kModelTextureFirstSlot);
+static_assert(SHADER_TYPES_GI_SIDES_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_GI_SIDES_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_UI_BLUR_ROWS_TEXTURE < kModelTextureFirstSlot);
 static_assert(SHADER_TYPES_PREPASS_NORMAL_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_SHADOW_MASK_TEXTURE < kModelTextureFirstSlot);
 static_assert(
@@ -480,6 +481,7 @@ std::vector<ShaderLayout> SceneShaderLayouts(const std::filesystem::path& shader
 			{"ComputeGiSeen", SLANG_STAGE_COMPUTE}, // see the GI Seen pass
 			{"ComputeGiWorldFold", SLANG_STAGE_COMPUTE}, // see the GI World Fold pass
 			{"ComputeGiWorldFilter", SLANG_STAGE_COMPUTE}, // and its filter, in the same pass
+			{"ComputeGiSides", SLANG_STAGE_COMPUTE}, // see the GI Sides pass
 		},
 		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 		.debugInfoLevel = kShaderDebugInfoLevel,

@@ -424,6 +424,7 @@ float4 MainColor(VertexOutput input, bool isFrontFace, uint2 pixel, uint viewId)
 	gFragmentPixel = pixel;
 	gFragmentShadowMask = (gPushConstants.prepassImages & PREPASS_IMAGE_SHADOW_MASK) != 0u;
 	gFragmentGiNear = (gPushConstants.prepassImages & PREPASS_IMAGE_GI_NEAR) != 0u;
+	gFragmentGiSides = (gPushConstants.prepassImages & PREPASS_IMAGE_GI_SIDES) != 0u;
 	gFragmentEmitters = (gPushConstants.prepassImages & PREPASS_IMAGE_EMITTERS) != 0u;
 	// the traced shadows' views: the first traced light's, as filtered or as traced
 	uint debugView = gPushConstants.debugView;
@@ -681,6 +682,7 @@ ScatterOutput FragmentScatter(VertexOutput input, bool isFrontFace : SV_IsFrontF
 	gFragmentPixel = uint2(input.hPos.xy);
 	gFragmentShadowMask = false;
 	gFragmentGiNear = false;
+	gFragmentGiSides = false;
 	gFragmentEmitters = false;
 	ScatterOutput output;
 	output.color = ShadeFragment(input, isFrontFace, true);
@@ -797,6 +799,7 @@ void FragmentTransparent(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
 	gFragmentPixel = uint2(input.hPos.xy);
 	gFragmentShadowMask = false;
 	gFragmentGiNear = false;
+	gFragmentGiSides = false;
 	gFragmentEmitters = false;
 	float4 color = ShadeFragment(input, isFrontFace);
 	if (color.a <= 0.0)

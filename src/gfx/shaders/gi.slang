@@ -750,6 +750,27 @@ float GiVisibility(GiData gi, float3 origin, float3 direction, float distance, b
 // kept light apart would be a read more a hit, in a buffer the near field's pass doesn't use)
 static const float kGiRadianceInside = 0.5;
 
+// the volumes' spare channel (their fifth's z, see ComputeGiCacheFilter) holds a voxel's weight where it is a thin
+// thing's far side (GiFarSides), and this many times it more where its light was gathered apart from a neighbour's: the
+// lookups read whether it is any (GiSample::last's z), a texel's own value which (GiMarkedApart). the far sides alone are
+// common (bathroom2's walls are double sided sheets, all of them)
+static const float kGiApartMark = 64.0;
+
+bool GiMarkedApart(float4 texel)
+{
+	return texel.z > 0.5 * kGiApartMark * texel.w;
+}
+
+// and a lit voxel's radiance's fourth component less this where it is marked apart (the volumes' mark, which
+// ComputeGiLight copies here for the hits that read the voxel, GiHitVoxel: the GI pass writes the volumes): 0.875 or
+// 0.375, which the tests above and below 0 and 0.75 take as before
+static const float kGiRadianceApart = 0.125;
+
+bool GiRadianceApart(float a)
+{
+	return (uint(round(a * 8.0)) & 1u) != 0u;
+}
+
 // how far off a voxel's surface (GiVoxelPlane), in voxels, a ray's hit may be for a voxel beside the hit's own to stand
 // for it (GiHitVoxel)
 static const float kGiHitBesideReach = 0.25;
@@ -789,6 +810,10 @@ bool GiHitVoxel(GiClipView clip, float3 coordinate, float3 normal, out uint inde
 	int3 first = int3(floor(point));
 	float3 within = point - float3(first) - 0.5;
 	float3 nearness = abs(within);
+	// the hit a tenth of a voxel off the triangle on the ray's side, for the voxels' apexes to see (GiApexSees), where the cache's
+	// entries are anchored (GiCacheAnchored), whose apexes they are
+	bool anchored = gGi[gPushConstants.frameIndex][0].trace == GI_TRACE_BVH && gGi[gPushConstants.frameIndex][0].cacheRayCount != 0u;
+	float3 seenAt = clip.volumeOrigin.xyz + (coordinate + normal * 0.1) * clip.volumeOrigin.w;
 	for (uint candidateIt = 0; candidateIt < 9; candidateIt++)
 	{
 		int3 at;
@@ -817,6 +842,18 @@ bool GiHitVoxel(GiClipView clip, float3 coordinate, float3 normal, out uint inde
 		if (found.a <= 0.0)
 			continue;
 		GiVoxel met = gGiVoxels[candidate];
+		// never one marked apart (kGiRadianceApart, see ComputeGiCacheFilter) whose light was gathered where the hit isn't
+		// seen (GiApexSees, a ray each): the other side of a sheet thinner than a voxel, or a place past it. bathroom2's
+		// niche under the window is a box of double sided sheets that stands out behind the back wall into the bright
+		// space there, and a hit on a sheet's inside took its voxel's light, which was the outside's (a drawn side's voxel
+		// is taken whatever way it faces): the statuettes in it and the niche's back lit blue, 61 of 255 where the voxels
+		// a quarter the size give 35 (47 to 58 since); the top of the pillar beside the window wall 74 to 82 for 53 to 58
+		// (the user's report, 2026-11-21). every voxel tested (the statuettes 42 to 48), the apexes of voxels in a corner
+		// of three surfaces, pushed along their normals, are behind the surface beside, and hits refused all of a
+		// corner's voxels: a dark speck in each of MovingInterior's top corners and the room 2.8 of 255 darker; and
+		// Bistro's indirect lighting 0.45 ms slower, its reflections 0.1
+		if (anchored && GiRadianceApart(found.a) && !GiApexSees(clip, candidate, met, at, seenAt))
+			continue;
 		bool drawn = (met.normal & kGiVoxelNormalDrawn) != 0u;
 		float3 facing = GiVoxelNormal(met.normal);
 		bool same = dot(normal, facing) >= 0.5;
@@ -1912,7 +1949,17 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 		if (!any(isnan(bounce)) && !any(isinf(bounce)))
 			radiance += albedo.rgb * max(bounce, 0.0);
 	}
-	gGiRadiance[gi.voxelFirst + threadId.x] = GiPackRgba16(float4(radiance, inside ? kGiRadianceInside : 1.0));
+	// and whether it is marked apart (the volumes' mark, the last filter's, at the voxel's place then: see
+	// ComputeGiCacheFilter), for the hits that would take it to test whether its apex sees them (GiHitVoxel)
+	bool apart = false;
+	if (GiCacheAnchored(gi) && gi.reset == 0u)
+	{
+		GiClipView marks = GiClipViewAt(gi.clip);
+		int3 then = int3(at) + gi.scroll.xyz;
+		if (GiInside(then, size))
+			apart = GiMarkedApart(gGiVolumes[4].Load(int4(then.x + int(marks.volumeImageX), then.y, then.z + int(marks.volumeImage.w), 0)));
+	}
+	gGiRadiance[gi.voxelFirst + threadId.x] = GiPackRgba16(float4(radiance, (inside ? kGiRadianceInside : 1.0) - (apart ? kGiRadianceApart : 0.0)));
 }
 
 // the flags (gGiFlags, see SHADER_TYPES_GI_FLAG_LEVEL): per block of voxels, after the voxels are lit (which stamps the
@@ -4241,7 +4288,47 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 	gGiVolumeImages[1][texel] = float4(sh[0].g, sh[1].g, sh[2].g, sh[3].g);
 	gGiVolumeImages[2][texel] = float4(sh[0].b, sh[1].b, sh[2].b, sh[3].b);
 	gGiVolumeImages[3][texel] = float4(sh[4].r, sh[5].r, sh[4].g, sh[5].g);
-	gGiVolumeImages[4][texel] = float4(sh[4].b, sh[5].b, sided ? seen : 0.0, seen);
+	// and one whose light was gathered apart from a neighbour's: at a junction (a voxel beside it of a surface more than
+	// 60 degrees from its own), one whose apex (GiVoxelApex) doesn't see the apex of a surface's voxel beside it (a ray
+	// each, at the junctions alone). the lookups near it leave out the voxels whose apex doesn't see their point, by hand
+	// (GiClipSees, traced in the GI Sides pass, see ComputeGiSides). every junction marked, without the rays, nearly
+	// every lookup went by hand, and traced in the main pass: Bistro's frame 11.3 ms for 9.1, Sponza's 5.26 for 4.52
+	bool apart = false;
+	if (GiCacheAnchored(gi) && (shown.albedo >> 24) != 0u)
+	{
+		float3 own = GiVoxelNormal(shown.normal);
+		bool junction = false;
+		for (uint faceIt = 0; faceIt < 6u && !junction; faceIt++)
+		{
+			int3 neighbour = int3(at) + int3(GiFacingAxis(faceIt));
+			if (!GiInside(neighbour, size))
+				continue;
+			GiVoxel beside = gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(neighbour), size)];
+			junction = (beside.albedo >> 24) != 0u && dot(GiVoxelNormal(beside.normal), own) < 0.5;
+		}
+		if (junction)
+		{
+			GiClipView view = GiClipViewAt(gi.clip);
+			uint ownIndex = gi.voxelFirst + GiVoxelIndex(at, size);
+			float3 apex = GiVoxelApex(view, ownIndex, shown, int3(at));
+			for (uint faceIt = 0; faceIt < 6u && !apart; faceIt++)
+			{
+				int3 neighbour = int3(at) + int3(GiFacingAxis(faceIt));
+				if (!GiInside(neighbour, size))
+					continue;
+				uint index = gi.voxelFirst + GiVoxelIndex(uint3(neighbour), size);
+				GiVoxel beside = gGiVoxels[index];
+				// (but a thin sheet's other side, the voxel behind it along its normal facing the other way, which is always
+				// apart and which GiFarSides sees to: marked too, every lookup by bathroom2's double sided walls traced. those of
+				// the same surface beside it alone left out a voxel at the pillar's face, whose normal is the face's, its apex
+				// outside the left wall: the wall beside the corner lit a band, 106 where its neighbours are 86)
+				if ((beside.albedo >> 24) == 0u || (dot(GiVoxelNormal(beside.normal), own) < -0.5 && dot(GiFacingAxis(faceIt), own) < -0.5))
+					continue;
+				apart = !GiApexSees(view, index, beside, neighbour, apex);
+			}
+		}
+	}
+	gGiVolumeImages[4][texel] = float4(sh[4].b, sh[5].b, (sided ? seen : 0.0) + (apart ? kGiApartMark * seen : 0.0), seen);
 	// and what the voxel's light is made of, for the next frame's resolve (GiResolve): the cache's alone, where the
 	// probes needn't be resolved into it, or a blend, where they are every frame (an air voxel's by the entries it took:
 	// their mean's rounding counts as settled)
@@ -4968,6 +5055,149 @@ uint GiFarSides(GiClipView gi, float3 coordinate)
 	return far;
 }
 
+// whether a lookup at a surface's point may take a voxel's light: whether the point (a tenth of a voxel off the
+// surface, along its normal) is seen from where the voxel's entry gathered it, the apex its rays find the surface from
+// (GiCacheAnchor: out from the voxel's center along its normal; an air voxel's center, whose light the filter brought
+// from the surfaces' voxels around it). a voxel holds the light of the place its apex is in, and where a surface between
+// the two isn't the voxel's (thinner than a voxel, or a voxel off the grid's planes), that is another place than the
+// lookup's: bathroom2's room (glTF research scenes) is of double sided sheets, a pillar in its back corner a hollow box of
+// them open at the back to the bright space behind the back wall, and at the last level (0.68 units) the back wall's
+// voxel at the pillar's side had its apex 0.003 units inside the pillar, the left wall's voxel behind the pillar's face
+// its apex in there too: the room's walls beside it read the pillar's inside, a column of blue light up the corner 1.4
+// times the wall's, and lines down the shelves' edges (the user's report, 2026-11-21). a march through the voxels, as the
+// world grid's lookups reach theirs (GiWorldReach), saw neither: the first apex is a twentieth of a voxel from the point
+// across the sheet, the other's march started in the pillar face's voxel. a short ray against the triangles sees both.
+// traced in a pass of its own before the main pass (ComputeGiSides), which reads what it found (GiSidesHidden): a ray
+// query in the main pass's shading, even where none was traced, made it slower (bathroom2's 0.66 ms for 0.48, Bistro's
+// 0.90 for 0.61), and the near field's and the reflections' passes, whose lookups are the same code
+bool GiClipSees(GiClipView gi, float3 position, float3 normal, int3 at)
+{
+	uint3 size = gi.volumeSize.xyz;
+	uint index = gi.voxelFirst + GiVoxelIndex(uint3(at), size);
+	return GiApexSees(gi, index, gGiVoxels[index], at, position + normal * (0.1 * gi.volumeOrigin.w));
+}
+
+// where a voxel's entry gathers its light (see GiClipSees; index: the voxel's in the buffers)
+float3 GiVoxelApex(GiClipView gi, uint index, GiVoxel voxel, int3 at)
+{
+	float3 apex = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
+	if ((voxel.albedo >> 24) != 0u)
+	{
+		float open = GiUnpackRgba16(gGiDirect[index]).a * gi.volumeOrigin.w;
+		apex += GiVoxelNormal(voxel.normal) * min(0.5 * gi.volumeOrigin.w, 0.5 * open);
+	}
+	return apex;
+}
+
+// whether a voxel's apex (GiVoxelApex) sees point: no triangle between them
+bool GiApexSees(GiClipView gi, uint index, GiVoxel voxel, int3 at, float3 point)
+{
+	float3 apex = GiVoxelApex(gi, index, voxel, at);
+	float3 way = point - apex;
+	float distance = length(way);
+	return distance <= 1e-5 || !BvhHitSomething(BvhTraceScene(apex, way / distance, distance, true, true, GiAlphaMask()));
+}
+
+// a pixel's lookups' sides (SHADER_TYPES_GI_SIDES_TEXTURE): per clip that lights its surface (the first two, by
+// GiClipWeight, as GiSampleAt takes them), which of the 27 voxels around the one its point is in (bit (z + 1) * 9 +
+// (y + 1) * 3 + x + 1) see it (GiClipSees; those its lookup doesn't read taken as seen), with kGiSidesComputed; 0 where
+// none of them is marked apart (the volumes' spare channel, see ComputeGiCacheFilter: the lookup goes by hand only for
+// the far sides then). kept as a float's bits (the storage images are float), kGiSidesComputed's bit in its exponent and
+// bit 30 never, so that it is neither a NaN, an infinity nor subnormal, which a store or a load may change
+static const uint kGiSidesComputed = 1u << 29;
+
+uint GiSidesMask(GiClipView clip, float3 position, float3 normal)
+{
+	// (the voxels the lookup reads tested whatever they are, where any of the 27 is marked apart: the air voxels inside
+	// bathroom2's pillar, whose light is the pillar's inside, are never marked, and a ray for each marked voxel alone left
+	// the corner's column as it was. where the far sides' marks counted too, which bathroom2's double sided walls have
+	// everywhere, the pass took 1.4 ms at its pose, 2.4 at Bistro's)
+	uint3 size = clip.volumeSize.xyz;
+	int3 voxel = int3(floor((position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w));
+	bool marked = false;
+	for (uint voxelIt = 0; voxelIt < 27u && !marked; voxelIt++)
+	{
+		int3 at = voxel + int3(voxelIt % 3u, (voxelIt / 3u) % 3u, voxelIt / 9u) - 1;
+		marked = GiInside(at, size) && GiMarkedApart(gGiVolumes[4].Load(int4(at.x + int(clip.volumeImageX), at.y, at.z + int(clip.volumeImage.w), 0)));
+	}
+	if (!marked)
+		return 0u;
+	// (the 8 the lookup reads off the surface along its normal, GiSurfaceBias's, the others taken as seen: all 27, the
+	// pass took 1.0 ms at bathroom2's pose and 2.1 at Bistro's)
+	uint mask = kGiSidesComputed | ((1u << 27u) - 1u);
+	float3 coordinate = (position + normal * (0.5 * clip.volumeOrigin.w) - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+	int3 base = int3(floor(clamp(coordinate, 0.5, float3(size) - 0.5) - 0.5));
+	for (uint cornerIt = 0; cornerIt < 8u; cornerIt++)
+	{
+		int3 at = base + int3(cornerIt & 1u, (cornerIt >> 1) & 1u, cornerIt >> 2);
+		int3 offset = at - voxel;
+		if (any(abs(offset) > 1) || !GiInside(at, size) || GiClipSees(clip, position, normal, at))
+			continue;
+		mask &= ~(1u << uint((offset.z + 1) * 9 + (offset.y + 1) * 3 + offset.x + 1));
+	}
+	return mask;
+}
+
+// the clips that light a point, as GiSampleAt goes through them: the first two, their index (~0u: none)
+void GiSidesClips(float3 position, out uint clips[2])
+{
+	clips[0] = ~0u;
+	clips[1] = ~0u;
+	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
+	float remaining = 1.0;
+	uint found = 0u;
+	for (uint clipIt = 0; clipIt < clipCount && remaining > 0.0 && found < 2u; clipIt++)
+	{
+		float weight = GiClipWeight(GiClipViewAt(clipIt), position);
+		if (weight <= 0.0)
+			continue;
+		clips[found++] = clipIt;
+		remaining -= remaining * weight;
+	}
+}
+
+// whether the fragment being shaded has its lookups' sides (the main pass's opaque fragments, where the pass ran:
+// PREPASS_IMAGE_GI_SIDES), set by the fragment entry points
+static bool gFragmentGiSides = false;
+
+// which of a lookup's 8 voxels (coordinate: in the clip's voxels; a bit each, as GiFarSides's) the fragment's point
+// doesn't see (its lookups' sides, ComputeGiSides). the pass's point and clips are its own, of the pre-pass's depth: the
+// same here, so the 27 voxels are the same ones. none where it has none, or a voxel is outside the 27
+uint GiSidesHidden(GiClipView clip, float3 coordinate)
+{
+	if (!gFragmentGiSides)
+		return 0u;
+	float4 masks = gTextures[SHADER_TYPES_GI_SIDES_TEXTURE].Load(int3(gFragmentPixel, 0));
+	if (((asuint(masks.x) | asuint(masks.y)) & kGiSidesComputed) == 0u)
+		return 0u;
+	ViewData view;
+	ShadowSurface surface;
+	if (!ViewAt(int2(gFragmentPixel), view) || !ShadowSurfaceAt(int2(gFragmentPixel), view, surface))
+		return 0u;
+	uint clips[2];
+	GiSidesClips(surface.position, clips);
+	uint slot = clips[0] == clip.clip ? 0u : (clips[1] == clip.clip ? 1u : 2u);
+	if (slot > 1u)
+		return 0u;
+	uint mask = asuint(masks[slot]);
+	if ((mask & kGiSidesComputed) == 0u)
+		return 0u;
+	int3 voxel = int3(floor((surface.position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w));
+	uint3 size = clip.volumeSize.xyz;
+	int3 base = int3(floor(clamp(coordinate, 0.5, float3(size) - 0.5) - 0.5));
+	uint hidden = 0u;
+	for (uint cornerIt = 0; cornerIt < 8u; cornerIt++)
+	{
+		int3 offset = base + int3(cornerIt & 1u, (cornerIt >> 1) & 1u, cornerIt >> 2) - voxel;
+		if (any(abs(offset) > 1))
+			continue;
+		uint bit = uint((offset.z + 1) * 9 + (offset.y + 1) * 3 + offset.x + 1);
+		if ((mask & (1u << bit)) == 0u)
+			hidden |= 1u << cornerIt;
+	}
+	return hidden;
+}
+
 // a clip's voxels' light around a point as GiSampleClipAt's, but for those of the 8 in without (GiFarSides's bits): the
 // others' by their shares, normalized by their weight. by hand (the volumes' texels, 5 a voxel), where a lookup reads
 // a far side's voxel: moved off it instead, by the voxel's share along its normal's axis, the lookup read no far side's
@@ -5019,9 +5249,14 @@ GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias
 	float3 biased = position + bias * gi.volumeOrigin.w;
 	float3 coordinate = (biased - gi.volumeOrigin.xyz) / gi.volumeOrigin.w;
 	GiSample result = GiSampleClipAt(gi, coordinate);
-	if (sides && result.last.z > 0.0)
+	if (sides)
 	{
-		uint far = GiFarSides(gi, coordinate);
+		// (by hand: the far sides left out where the lookup reads any, and near a voxel whose light was gathered apart from
+		// a neighbour's, the voxels whose light the point doesn't see gathered, whatever is marked among the 8: see
+		// ComputeGiCacheFilter and GiSidesHidden)
+		uint far = GiSidesHidden(gi, coordinate);
+		if (result.last.z > 0.0)
+			far |= GiFarSides(gi, coordinate);
 		if (far != 0u)
 			result = GiSampleClipWithout(gi, coordinate, far);
 	}

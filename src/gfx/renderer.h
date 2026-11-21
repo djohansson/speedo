@@ -351,6 +351,8 @@ private:
 	FrameGraph::ImageId myGiNearRaw;
 	FrameGraph::ImageId myGiNearRows;
 	FrameGraph::ImageId myGiNear;
+	// the indirect lighting's lookups' sides (see SHADER_TYPES_GI_SIDES_TEXTURE)
+	FrameGraph::ImageId myGiSides;
 	FrameGraph::ImageId myTransmission;
 	std::unique_ptr<ImageView> myTransmissionLevelView; // a storage view of its level 0, which the Transmission pass writes
 	FrameGraph::ImageId myScatter;
@@ -839,6 +841,8 @@ private:
 	float myGiNearPower = 2.0F;
 	uint32_t myGiNearShow = 0;
 	bool myGiNearOn = false;
+	// whether the lookups' sides are found this frame (the GI Sides pass), where the surface cache's entries are anchored
+	bool myGiSidesOn = false;
 	FrameGraph::PassId myGiNearPass;
 	FrameGraph::PassId myGiNearXPass;
 	FrameGraph::PassId myGiNearYPass;
@@ -870,6 +874,7 @@ private:
 	std::array<FrameGraph::ImageId, 2> myGiNearHistory{};
 	std::array<FrameGraph::ImageId, 2> myGiNearHistoryDistance{};
 	FrameGraph::PassId myGiNearTemporalPass;
+	FrameGraph::PassId myGiSidesPass;
 	float myGiNearBlend = 1.0F / 16.0F;
 	float myGiNearStillBlend = 1.0F / 256.0F; // 1 over SPEEDO_GI_NEAR_STILL_FRAME_COUNT (see GiData::nearStillBlend)
 	float myGiNearFrameBlend = 1.0F; // this frame's (GiData::nearBlend)

@@ -131,6 +131,8 @@ constexpr uint8_t kGiSeenEntryPoint = 72;
 constexpr uint8_t kGiWorldFoldEntryPoint = 73;
 // and the cells it added to filtered (see ComputeGiWorldFilter)
 constexpr uint8_t kGiWorldFilterEntryPoint = 74;
+// the lookups' sides (see ComputeGiSides)
+constexpr uint8_t kGiSidesEntryPoint = 75;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -246,6 +248,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myGiNearRaw = myGraph.CreateImage({.name = "GI Near Raw", .format = Format::kR16G16B16A16Sfloat});
 	myGiNearRows = myGraph.CreateImage({.name = "GI Near Rows", .format = Format::kR16G16B16A16Sfloat});
 	myGiNear = myGraph.CreateImage({.name = "GI Near", .format = Format::kR16G16B16A16Sfloat});
+	// and the lookups' sides (see SHADER_TYPES_GI_SIDES_TEXTURE)
+	myGiSides = myGraph.CreateImage({.name = "GI Sides", .format = Format::kR32G32Sfloat});
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
 		myGiNearHistory[historyIt] = myGraph.ImportImage(std::format("GI Near History {}", historyIt));
@@ -1144,6 +1148,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.Use(myShadowMask, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				for (auto image : myGiNearHistory)
 					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
+				builder.Use(myGiSides, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				for (auto image : myEmitterHistory)
 					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
@@ -1663,6 +1668,26 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			auto extent = myGraph.GetExtent();
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kGiNearTemporalEntryPoint}, extent.width, extent.height);
 		});
+	// the lookups' sides at every pixel of the pre-pass's depth (see ComputeGiSides): which voxels around it see its
+	// point, traced where one of them is marked apart, for the main pass's opaque fragments' lookups (a ray query in the
+	// main pass made it slower wherever it ran)
+	myGiSidesPass = myGraph.AddPass(
+		"GI Sides",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiDirect, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			for (auto volume : myGiVolumes)
+				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiSides, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			auto extent = myGraph.GetExtent();
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kGiSidesEntryPoint}, extent.width, extent.height);
+		});
 
 	// emissive surfaces as lights (see emitters.slang): every stride-th pixel each way of the pre-pass's depth resamples
 	// emitter points into its reservoir, reusing the last frame's (and its neighbors'), and traces the chosen one's shadow
@@ -1822,6 +1847,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myShadowMask, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			for (auto image : myGiNearHistory)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiSides, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			for (auto image : myEmitterHistory)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			// the traced reflections' rays, and what is predicted along the glossy one and its weight (see
@@ -1840,7 +1866,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		auto prepassImages = [this]
 		{
 			return (myShadowsTraced ? PREPASS_IMAGE_SHADOW_MASK : 0U) | (myGiNearOn ? PREPASS_IMAGE_GI_NEAR : 0U) |
-				   (myEmittersOn ? PREPASS_IMAGE_EMITTERS : 0U);
+				   (myGiSidesOn ? PREPASS_IMAGE_GI_SIDES : 0U) | (myEmittersOn ? PREPASS_IMAGE_EMITTERS : 0U);
 		};
 		// a list of tiles' shading, by its kernel: its thread group counts the list's first three words or the next three
 		auto shadeList = [this, bindKernel, prepassImages](FrameGraph::PassContext& context, uint32_t list, uint16_t specialization)
@@ -3096,6 +3122,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			 std::pair{myGiNearRaw, SHADER_TYPES_GI_NEAR_RAW_TEXTURE},
 			 std::pair{myGiNearRows, SHADER_TYPES_GI_NEAR_ROWS_TEXTURE},
 			 std::pair{myGiNear, SHADER_TYPES_GI_NEAR_TEXTURE},
+			 std::pair{myGiSides, SHADER_TYPES_GI_SIDES_TEXTURE},
 			 std::pair{myEmitterRaw, SHADER_TYPES_EMITTER_RAW_TEXTURE},
 			 std::pair{myEmitterRows, SHADER_TYPES_EMITTER_ROWS_TEXTURE},
 			 std::pair{myEmitterFiltered, SHADER_TYPES_EMITTER_FILTERED_TEXTURE},
@@ -3159,6 +3186,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			 std::pair{myGiNearRaw, SHADER_TYPES_GI_NEAR_RAW_RW_TEXTURE},
 			 std::pair{myGiNearRows, SHADER_TYPES_GI_NEAR_ROWS_RW_TEXTURE},
 			 std::pair{myGiNear, SHADER_TYPES_GI_NEAR_RW_TEXTURE},
+			 std::pair{myGiSides, SHADER_TYPES_GI_SIDES_RW_TEXTURE},
 			 std::pair{myEmitterRaw, SHADER_TYPES_EMITTER_RAW_RW_TEXTURE},
 			 std::pair{myEmitterRows, SHADER_TYPES_EMITTER_ROWS_RW_TEXTURE},
 			 std::pair{myEmitterFiltered, SHADER_TYPES_EMITTER_FILTERED_RW_TEXTURE},
@@ -4938,6 +4966,10 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	}
 	for (auto pass : {myGiNearPass, myGiNearXPass, myGiNearYPass})
 		myGraph.SetEnabled(pass, myGiNearOn);
+	// the lookups' sides, where the surface cache's entries are anchored (its rays trace the model's BVHs: see
+	// GiCacheAnchored), whose apexes the voxels' marks are of
+	myGiSidesOn = enabled && frame.giSurfaceCache && frame.traceTriangles && hasBvh;
+	myGraph.SetEnabled(myGiSidesPass, myGiSidesOn);
 	// and over frames: last frame's history counts if the frames are on and it ran then (at this size: Resize clears it),
 	// else this frame's rays alone start it over. the pass runs with the near field whether or not (the frame's alone:
 	// blended by 1), since the main pass upsamples its traced pixels' surfaces
@@ -5696,7 +5728,7 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	pushConstants.prepassImages = 0;
 	if (!prepass && listId == ListId::kMain)
 		pushConstants.prepassImages = (myShadowsTraced ? PREPASS_IMAGE_SHADOW_MASK : 0U) | (myGiNearOn ? PREPASS_IMAGE_GI_NEAR : 0U) |
-									   (myEmittersOn ? PREPASS_IMAGE_EMITTERS : 0U);
+									   (myGiSidesOn ? PREPASS_IMAGE_GI_SIDES : 0U) | (myEmittersOn ? PREPASS_IMAGE_EMITTERS : 0U);
 
 	for (uint32_t drawIt = 0; drawIt < viewCount; drawIt++)
 	{

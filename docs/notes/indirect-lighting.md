@@ -1749,6 +1749,55 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   The filter's cut behind the voxel's own surface, the sharing's and the marked voxels together (the second report's
   fixes): salle_de_bain 0.5 of 255 darker at a fixed exposure, the rest of the regression set within 0.03 (Vulkan);
   Bistro's frame the same (6.36 and 6.34 ms), Sponza's 4.25 to 4.32.
+- **A voxel's light is taken only where it was gathered** (`GiVoxelApex`, `GiApexSees`, `GiClipSees`, the GI Sides
+  pass and `ComputeGiSides`, `GiSidesMask`, `GiSidesHidden`, `kGiApartMark`, `GiHitVoxel`; the user's reports,
+  2026-11-21: light leaking along the edges of bathroom2's room, glTF research scenes, pose
+  `4.4431,16.9345,49.9102,-1.189,-8.257` at 10.5 h, focal length 36.95, then the top of its pillar, the statuettes in
+  the niche under the window and a line along the ceiling's right edge). The room is of double sided sheets, a hollow
+  pillar in its back left corner a box of them open at the back to the bright space behind the back wall (lit by an
+  emitter of radiance 125), the niche a box of them standing out into that space, and the camera sees it all at the
+  last level (0.68 units). An anchored entry's rays find its surface from its apex, half a voxel out from the voxel's
+  center along its normal (`GiCacheAnchor`), so its light is the light of where the apex is: the back wall's voxel at
+  the pillar's side has its center on the side's sheet (x -15.704, the sheet -15.701), its apex 0.003 inside the
+  pillar; the voxels of the niche's sheets hold their outer side's light. The walls beside the pillar read it (a column
+  of blue light up the corner, 101 of 255 against the wall's 72; a line down the right corner, 75 for 58; lines down
+  the shelves' edges), and the rays that met the niche's insides took it (the statuettes and the niche blue, 61 where
+  voxels a quarter the size give 35; the pillar's top 74 to 82 for 53 to 58).
+  Now a voxel's light is taken only where its apex sees the point taking it, by a short any-hit ray against the
+  triangles: a lookup, and a ray's hit (`GiHitVoxel`) on a voxel marked apart. The filter marks a voxel apart where,
+  at a junction (a voxel beside it of a surface more than 60 degrees from its own), its apex doesn't see a neighbour's
+  (every occupied neighbour but a thin sheet's other side, which `GiFarSides` sees to: a voxel at the pillar's face
+  keeps the face's normal and its apex is outside the left wall), as `kGiApartMark` times its weight in the volumes'
+  spare channel, which `ComputeGiLight` copies into the voxel's radiance for the hits (`kGiRadianceApart`). A lookup's
+  rays are traced before the main pass, in a pass of their own (GI Sides): at each pixel near a marked voxel
+  (any of the 27 around its point) the pass tests the 8 voxels its lookup reads and keeps which of the 27 its point
+  sees (RG32F, a clip's mask as a float's bits); the main pass's opaque fragments leave out the others, by hand, with
+  the point and the clips of the pre-pass's depth (`ShadowSurfaceAt`), so that the 27 are the same ones.
+  At the pose now: the corner 51 to 57 (the wall beside 55 to 60), the right corner 58, the shelves' lines gone, the
+  pillar's top 55 to 65, the statuettes 47 to 56 (42 to 48 with every hit tested, below); D3D12's frame within 0.01 of
+  255 of Vulkan's; the regression set within 0.15 of 255 of the build before (Vulkan, settled, repeatable). The
+  line along the ceiling's right edge is the space above the ceiling seen through a slot (the ceiling stops 0.09 short
+  of the right wall, the wall 0.3 under the ceiling): open, 0.54 high, lined with the outer shell's white (albedo 1),
+  it is lit at the last level through the bounce alone (dark with `SPEEDO_GI_BOUNCE=0`, as at resolution 256 and 512),
+  at 1.6 times the ceiling's light; open.
+  Tried: the rays in the lookup itself (`GiSampleClipWithout`): a ray query in the main pass's shading, even where none
+  was traced, made it slower (bathroom2's 0.66 ms for 0.48, Bistro's 0.90 for 0.61, and the near field and the
+  reflections, whose lookups are the same code), and an opaque only query no less; every junction marked, nearly every
+  lookup went by hand (Bistro's frame 11.3 ms for 9.1); the far sides' marks counted as apart (bathroom2's walls are
+  double sided sheets, all of them: the pass 1.4 ms, 2.4 at Bistro); a ray for the marked voxels alone (the air voxels
+  inside the pillar are never marked: the corner as it was); only a surface's own voxels beside it as the neighbours
+  marked against (a band on the left wall by the corner, 106 for 86); all 27 tested (the pass 1.0 ms, 2.1 at Bistro);
+  every candidate tested at the hits (the apexes of a corner of three surfaces' voxels, pushed along their normals, are
+  behind the surface beside: hits refused all of a corner's voxels, a dark speck in each of MovingInterior's top corners
+  and the room 2.8 of 255 darker; Bistro's GI pass 0.45 ms slower); a march through the voxels from the point to the
+  voxel's surface point, as the world grid's lookups reach theirs (`GiWorldReach`): nothing changed, since the first
+  apex is a twentieth of a voxel from the point across the sheet and the other's march starts in the pillar face's own
+  voxel.
+  Cost (RTX 4070 Ti SUPER, Vulkan, 1080p, settled, interleaved with the build before): bathroom2's frame 4.24 to 4.26 ms
+  for 3.84 (GI Sides 0.29, the GI pass +0.05 to 0.12, the main pass +0.08), Sponza's 5.28 to 5.29 for 4.63 (GI Sides
+  0.29, the GI pass +0.29, the main pass +0.08), Bistro's passes 1.3 ms more (GI Sides 0.62, the GI pass +0.44 to 0.54,
+  the main pass +0.09, the reflections +0.13). Next: the marks made once a voxelizing (they are of the static voxels),
+  and fewer rays where a mark is of a corner.
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows
