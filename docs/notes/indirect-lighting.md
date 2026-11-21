@@ -1172,7 +1172,14 @@ in a gap thinner than the voxels, which hold neither side's light there, and giv
 whatever the slope, the underside rose a fraction of that, the reads along its normal crossed the floor into its
 underside's voxels, lit by the gap below, and each sphere had a bright crescent around its contact, the user's pose
 `0.8869,-1.0542,1.2337,17.751,7.611`; reading the floor's own voxel there, the sun's patch beside a sphere lit its
-contact) or, where it meets nothing, the volume's light along it from its
+contact; and its lights' light taken at the point itself by a shadow ray, `GiHitLit` as the surface cache's rays'
+hits: a voxel takes it from a voxel out along its open side, which the sun coming down through MovingInterior's
+window lit higher up the walls than their sunlit band reaches, and the rays from either wall by a corner, meeting the
+other at once, read those voxels: a bright line up the corner over the band, 30 of 255 above the walls beside it, the
+user's report of 2026-11-20 at `-3.1333,1.2172,-0.5528,6.899,-68.277`, found by the near field's views,
+`SPEEDO_GI_NEAR_SHOW` 1 and 3, and its contact switched off, `SPEEDO_GI_NEAR_CONTACT=0`; the near field 0.049 to 0.077
+ms in Sponza's corridor, Bistro's shaded nooks beside sunlit surfaces up to 2.6 of 255 darker) or, where it meets
+nothing, the volume's light along it from its
 end. Emitters' light is the volume's, which averages it over its probes' rays and frames: with the voxels' emission, a
 ray meeting anything in an emitter's voxel took all of it, and Bistro's lanterns (a bulb of a few centimetres, 3.5, in
 voxels of 30 cm with their frames and glass) lit the walls around them yellow in blotches, a hundred times what the bulb

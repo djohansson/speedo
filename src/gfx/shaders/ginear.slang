@@ -125,7 +125,18 @@ float4 GiNearTrace(GiData gi, float3 position, float3 normal, float3 direction, 
 		// the light it reflects alone (GiHitReflected): an emitter's is the volume's, which averages it over its probes'
 		// rays and frames. a small one met by one ray in four pixels is a firefly: Bistro's lantern bulbs, a few
 		// centimetres of 3.5, speckled the walls around them white, where they give a hundredth of the daylight
-		return float4(GiHitReflected(0u, point, hit.normal), clear);
+		// and its lights' light taken at the point itself, by a shadow ray from it (GiHitLit, as the surface cache's rays'
+		// hits): a voxel's own takes it from a voxel out along its open side, which the sun coming down through
+		// MovingInterior's window lit higher up the walls than their sunlit band reaches (by about a fifth of the room's
+		// height), and the rays from either wall by the corner, meeting the other at once, read those voxels: a bright
+		// line up the corner over the band, 30 of 255 above the walls beside it (the user's report, 2026-11-20)
+		uint seed = (asuint(direction.x) * 0x9E3779B1u) ^ (asuint(direction.y) * 0x85EBCA6Bu) ^ (asuint(direction.z) * 0xC2B2AE35u);
+		seed ^= seed >> 15;
+		seed *= 0x2C1B3C6Du;
+		seed ^= seed >> 12;
+		float3 emission;
+		float3 lit = GiHitLit(gi, point, hit, float(seed & 0xFFFFFFu) / 16777216.0, emission);
+		return float4(max(lit - emission, 0.0), clear);
 	}
 	if (gi.nearShow == 3u)
 		return float4(0.0, 0.0, 0.0, 1.0);
