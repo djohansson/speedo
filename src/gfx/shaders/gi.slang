@@ -3896,6 +3896,31 @@ GiCacheTap GiCacheReadTap(GiData gi, uint half, uint3 at, uint3 blocks)
 
 // how much two voxels' open sides agree, for the filter: to the 8th, so that a floor's voxels don't take a wall's, nor a
 // thin wall's two sides each other's
+// whether a filter tap step voxels away along unit (its offset over the step) is past something in front of the surface
+// between: one of the voxels a voxel out along the open side (normal) between the voxel at and the tap is occupied. the
+// taps 2 and 4 voxels apart along a wall went on past where a thin shell meets it: Sponza's arcade walls go on up behind
+// its vaults into the sunlit gallery, the same plane facing the same way, and the corridor's top voxels of the middle
+// level (0.13 m) took the gallery's light through the taps 4 apart, a bright bar at the top of each bay under the vault
+// (their entries' own light 3.5e-5, the volumes 5.7e-4; the user's report, 2026-11-20). the shell is in front of the wall
+// where it meets it, and faces along the way to the tap (it crosses it); an open wall has air there. by anything there,
+// a vault's taps along a wall it springs from, which faces across the way, were left out too, and the vault's few
+// samples' noise showed (an orange blot over a corbel)
+bool GiCacheFilterBlocked(GiData gi, uint3 at, uint3 size, int3 unit, int step, float3 normal)
+{
+	int3 out = int3(round(normal));
+	float3 way = normalize(float3(unit));
+	for (int k = 1; k < step; k++)
+	{
+		int3 between = int3(at) + unit * k + out;
+		if (!GiInside(between, size))
+			continue;
+		GiVoxel voxel = gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(between), size)];
+		if ((voxel.albedo >> 24) != 0u && abs(dot(GiVoxelNormal(voxel.normal), way)) > 0.5)
+			return true;
+	}
+	return false;
+}
+
 float GiCacheAgreement(float3 a, float3 b)
 {
 	float agreement = saturate(dot(a, b));
@@ -4080,6 +4105,9 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 				// coarsest level's voxels on salle_de_bain's niche wall beside its sculpture since that level took a second pass,
 				// 716a67d5; the user's report, 2026-11-20)
 				if (sides && !isSelf && (dot(float3(offset), self.normal) < ownPlane - kGiFilterBehind || GiVoxelAcross(drawnFacings, float3(offset), tap.normal)))
+					continue;
+				// (nor a tap two voxels away or more past something in front of the surface between: GiCacheFilterBlocked)
+				if (step > 1 && !isSelf && GiCacheFilterBlocked(gi, at, size, int3(x, y, z), step, self.normal))
 					continue;
 				float kernel = (x == 0 ? 0.5 : 0.25) * (y == 0 ? 0.5 : 0.25) * (z == 0 ? 0.5 : 0.25);
 				float plane = dot(float3(offset), self.normal);

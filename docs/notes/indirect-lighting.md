@@ -448,6 +448,21 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
     bathroom scene's shelves from the front and Bistro at night are as they were by eye and within 0.6 of 255 a strip
     (1.1 in one of the bathroom's, where a white speck by the window's handle went). The GI pass 0.58 to 0.62 ms in the
     room, Sponza's 1.96 to 1.99, Bistro's 2.40 to 2.42, at night 2.28 to 2.32.
+  - and no tap two voxels away or more past something crossing its way (`GiCacheFilterBlocked`: one of the voxels a
+    voxel out along the open side, between the voxel and the tap, holds a surface facing along the way to the tap).
+    Sponza's arcade walls go on up behind the vaults into the sunlit gallery, the same plane facing the same way, and
+    the middle level's top voxels of each bay (0.13 m) took the gallery's light through the taps 4 apart: a bright
+    bar at the top of each bay under the vault (the user's report, 2026-11-20, `-10.0017,0.7484,1.3894,-19.073,-200.834`;
+    the entries' own light 3.5e-5 along the wall's normal, the volumes 5.7e-4, the corridor's below 2.6e-4: found by
+    the lookup's 8 voxels dumped at the pixel). By anything there rather than what crosses the way, a vault's taps along
+    the wall it springs from were left out too, and its few samples showed (an orange blot over a corbel). The
+    corridor's floor along the columns' bases is darker (20 of 255 against 27; the world cache's 23): its filter took the
+    courtyard floor's sky light through the taps under the bases. What it doesn't fix: the specks at the vaults'
+    springings (a wall's lookup reads a corbel's voxel, whose light is measured over its side facing the open arcade and
+    the sky; leaving such voxels out, or weighing them by how far their side faces the lookup's way, framed
+    MovingInterior's walls bright at every edge, or didn't move the specks), and the levels' disagreement at their
+    hand-over (the gallery floor's sky light by its balustrade, `1.1663,5.5013,2.8972,35.570,-988.359`: through the last
+    level alone it is far weaker; a fade twice as wide only spreads it).
 - **Moving clips**: a clip that follows the eye moves by whole snaps (`gi::kSnapProbes`, one probe: 8 voxels; clamped
   to whole snaps at the last clip's sides too), so everything a point inside it is lit by stays where it is in the
   world as it snaps: its probes are laid out from its corner (`GiData::probeOrigin`), a whole number of snaps from the
