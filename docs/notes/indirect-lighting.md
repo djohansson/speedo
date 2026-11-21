@@ -457,6 +457,21 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
     out; four passes or a sigma of 16 changed nothing while the last level kept two. Three at every level: 0.31 and
     0.79. The curtains' light, the reason for two, no longer spreads, since the taps past something crossing their way
     are left out (`GiCacheFilterBlocked`, below): the regression set within 0.5 of 255 a strip against two.
+  - but a reach in the world, not a count, since (2026-11-21): Sponza's last level's three passes (7 of its voxels of
+    0.27 m, 1.9 m) smoothed away the corridor floor's darker, bluish band along the arcade's bases (the sky's light
+    between them, the bases' shade), which the finer levels hold, and the hand-over between them was a line on the
+    floor that moved with the eye (the user's report, from `-4.5893,0.8216,2.8666,-2.892,-268.574` walking to
+    `-1.8188,0.9616,2.9356,-2.892,-268.574`; through the last level alone, `SPEEDO_GI_LOOKUP_LEVEL=2`, no band with
+    three, a band with two). The two for the last level and one more per level finer again, and as many more as keep
+    the reach (2^passes - 1 voxels) within a metre, `kGiCacheFilterReachMeters` by the scene's metres per unit: Sponza's
+    and Bistro's levels 3, 3 and 2 as before, MovingInterior's 3, 3 and 3 (its last level's voxels 0.11 m; the far
+    wall 0.30 of 255, as with three).
+  - and walking that way, the band still forms behind the eye's front: in the indirect view (upscaling off) the walk's
+    last frame is 2.65 of 255 from the settled frame of its pose, 6.1 in the band's strip, where the band ahead stops
+    short. Tried and not kept: an entry not settled yet blending from the next coarser clip's light rather than its
+    probes' (the voxels a finer clip takes in showing the coarser level's detail until they settle): 2.73, and settled
+    frames 0.9 apart. The floor ahead where the band is missing is the coarser clips' (1 and 2, the clip view), not the
+    finest's: their own light lags there as their boxes scroll, and blending from them gives what they lack.
   - and no tap two voxels away or more past something crossing its way (`GiCacheFilterBlocked`: one of the voxels a
     voxel out along the open side, between the voxel and the tap, holds a surface facing along the way to the tap).
     Sponza's arcade walls go on up behind the vaults into the sunlit gallery, the same plane facing the same way, and

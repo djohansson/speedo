@@ -5500,8 +5500,20 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// bases, which the taps past something crossing their way leave out now (GiCacheFilterBlocked), and with the last
 		// level's two MovingInterior's far wall stayed blotchy at its last level (where it is from 3 m), its blotches a
 		// pattern that more frames don't take away (the mean |pixel - the 33 pixels' mean around it| 0.49 of 255, 1.83 over
-		// 121 pixels, settled and repeatable; the grid's 0.29 and 0.66): 0.31 and 0.79 with three
-		clip.cacheFilterPassCount = myGiCacheFilterPassCount;
+		// 121 pixels, settled and repeatable; the grid's 0.29 and 0.66): 0.31 and 0.79 with three. but Sponza's last level's
+		// three (7 of its voxels of 0.27 m, 1.9 m) smoothed away the corridor floor's darker, bluish band along the arcade's
+		// bases (the sky's light between them, the bases' shade), which the finer levels hold: the hand-over between them a
+		// line on the floor that moved with the eye (the user's report, 2026-11-21). so the two for the last level and one
+		// more per level finer again, and as many more as keep the reach within a metre (kGiCacheFilterReachMeters: a
+		// scene's level of voxels under 0.14 m, MovingInterior's last level of 0.11 m): Sponza's and Bistro's levels 3, 3
+		// and 2, MovingInterior's 3, 3 and 3
+		constexpr float kGiCacheFilterReachMeters = 1.0F;
+		uint32_t levelsCoarser = static_cast<uint32_t>(myGiClipmap.clips.back().data.level) - clip.level;
+		uint32_t filterPassCount = std::min(2 + levelsCoarser, myGiCacheFilterPassCount);
+		float voxelMeters = clip.volumeOrigin[3] * (frame.metersPerUnit > 0.0F ? frame.metersPerUnit : 1.0F);
+		while (filterPassCount < myGiCacheFilterPassCount && static_cast<float>((2U << filterPassCount) - 1U) * voxelMeters <= kGiCacheFilterReachMeters)
+			filterPassCount++;
+		clip.cacheFilterPassCount = filterPassCount;
 		bool anchored = myGiTraceBvh; // as GiCacheAnchored
 		// the cache's tables (see GiData::cacheTableFirst): the clip's blocks from its first flag's
 		uint32_t blockFirst = clip.flagFirst / SHADER_TYPES_GI_FLAG_WORD_COUNT;
