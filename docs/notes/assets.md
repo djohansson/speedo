@@ -504,11 +504,14 @@ main loop sleeps in `glfwWaitEvents()`, so anything that must end it from anothe
 The test sets come from their sources, not from local copies: `scripts/fetch-test-assets.ps1` downloads Morgan McGuire's
 Computer Graphics Archive (obj, about 2.7 GB), the Khronos glTF-Sample-Assets models (at a pinned commit, 1.4 GB) and the
 Khronos glTF-Sample-Environments panoramas (about 400 MB; Git LFS files, from GitHub's LFS media server at a pinned commit;
-`assettest` checks each, and `assettest.ps1 -Client` runs the client once per panorama) into `resources/test-assets`
+`assettest` checks each, and `assettest.ps1 -Client` runs the client once per panorama) and the glTF research scenes
+(https://github.com/ErfanMo77/gltf-research-scenes: glTF 2.0 versions of the classic research scenes, Veach's, the Bitterli
+set's rooms, cars, the crown; its release's archive of .glb files at a pinned version, about 1.1 GB, its sha256 GitHub's
+digest of the asset, extracted into `gltf-research-scenes/scenes`; the user's ask, 2026-11-21) into `resources/test-assets`
 (gitignored; the client's file browser opens there; or `$SPEEDO_TEST_ASSETS`), and prints the paths to test:
 `scripts/assettest.ps1 -Client (scripts/fetch-test-assets.ps1)` (from pwsh; from another shell,
 `pwsh scripts/assettest.ps1 -Client $(pwsh scripts/fetch-test-assets.ps1)`). Each set is a manifest in
-`resources/test-asset-manifests` (`mcguire.txt`, `gltf.txt`, `environments.txt`; the client downloads the same): its
+`resources/test-asset-manifests` (`mcguire.txt`, `gltf.txt`, `environments.txt`, `research.txt`; the client downloads the same): its
 directory, the url its files are under, the zips to extract (Bistro's parts, side by side), and each file's size and sha256,
 tab separated, the path last (some glTF paths have spaces, one UTF-8; the url escapes each segment). A file is downloaded
 unless it is there with its size and sha256, 8 at once, and one that doesn't match is kept as `.unverified` and reported

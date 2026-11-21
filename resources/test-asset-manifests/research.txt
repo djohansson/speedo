@@ -1,0 +1,8 @@
+# the glTF research scenes (https://github.com/ErfanMo77/gltf-research-scenes): glTF 2.0 versions of the classic research
+# scenes (Veach's, the Bitterli set's rooms, cars, the crown, the Cornell boxes), as its release's archive of .glb files,
+# extracted into scenes/: <size>, <sha256> (GitHub's digest of the release asset), <local path> and <path under the
+# url>, tab separated. each scene's license is in its repository (CC0-1.0, CC-BY-3.0; the repository MIT)
+dir	gltf-research-scenes
+url	https://github.com/ErfanMo77/gltf-research-scenes/releases/download/v1.2.0
+extract	archive	scenes
+1084460332	9754e5ba2a57166fd2867943a81e9cf935d7a05477d71e73b9c09fb15502c026	archive/gltf_research_scenes_glb.zip	gltf_research_scenes_glb.zip

@@ -22,6 +22,11 @@ the .hdr files the glTF Sample Viewer lights with), at the commit environments.t
 <dir>/glTF-Sample-Environments. They are Git LFS files, downloaded from GitHub's LFS media server, their sizes and sha256s
 their LFS pointers'.
 
+-Research: the glTF research scenes (https://github.com/ErfanMo77/gltf-research-scenes, glTF 2.0 versions of the classic
+research scenes), its release's archive of .glb files at the version research.txt pins (about 1.1 GB, from GitHub's
+release downloads, its sha256 GitHub's digest of the asset), extracted into <dir>/gltf-research-scenes/scenes (the archive's
+scenes directory printed: a client run a scene).
+
 Without any of them, all are fetched. The hand-made models in resources/test-models/gltf and resources/test-models/obj (for
 what no downloaded model covers, e.g. sparse index accessors, or bump map tangents) are always printed too. The dir defaults to $env:SPEEDO_TEST_ASSETS, or
 resources/test-assets (which git ignores, and the client's file dialogs open in). Files already there (and verified)
@@ -30,7 +35,7 @@ are kept, so running it again only fetches what is missing.
 -Quick prints only the quick tier's paths (resources/test-asset-manifests/quick.txt: a model or two per feature, for
 iterating), after fetching the sets as above.
 -Minimal fetches only what the quick tier names (its McGuire archives, glTF models and panoramas, a few hundred MB rather
-than about 4.5 GB) and prints them as -Quick does: for CI (.github/workflows/ci.yml). It never narrows what is there.
+than about 5.6 GB) and prints them as -Quick does: for CI (.github/workflows/ci.yml). It never narrows what is there.
 
 Prints the paths to pass to scripts/assettest.ps1 (progress and errors go to stderr), e.g.
   scripts/assettest.ps1 -Client (scripts/fetch-test-assets.ps1)
@@ -44,6 +49,7 @@ param(
 	[switch] $McGuire,
 	[switch] $Gltf,
 	[switch] $Environments,
+	[switch] $Research,
 	[switch] $Quick,
 	[switch] $Minimal
 )
@@ -58,11 +64,12 @@ if (-not $Dir)
 {
 	$Dir = if ($env:SPEEDO_TEST_ASSETS) { $env:SPEEDO_TEST_ASSETS } else { Join-Path $root 'resources/test-assets' }
 }
-if (-not $McGuire -and -not $Gltf -and -not $Environments)
+if (-not $McGuire -and -not $Gltf -and -not $Environments -and -not $Research)
 {
 	$McGuire = $true
 	$Gltf = $true
 	$Environments = $true
+	$Research = $true
 }
 
 # the quick tier's entries (paths under the test asset dir: files, or directories of them), which -Minimal fetches alone
@@ -251,6 +258,19 @@ if ($Environments)
 	if ($complete)
 	{
 		$paths.Add((Join-Path $Dir $manifest.Dir))
+	}
+}
+
+if ($Research)
+{
+	$manifest = Read-Manifest 'research.txt'
+	$failed = -not (Sync-Manifest $manifest) -or $failed
+	$scenes = Join-Path (Join-Path $Dir $manifest.Dir) 'scenes'
+	if (Test-Path (Join-Path $scenes '.extracted'))
+	{
+		# the archive's scenes directory (its layout at the version the manifest pins), a directory a scene, each scene's
+		# core and extended .glb a client run side by side (see assettest.ps1)
+		$paths.Add((Join-Path $scenes 'gltf_research_scenes_glb/gltf_research_scenes/scenes'))
 	}
 }
 

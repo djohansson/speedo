@@ -12,7 +12,7 @@ namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE::testassets
 
 // the test assets the client downloads into the test asset directory (the environment's TestAssetsPath), from the manifests
 // fetch-test-assets.ps1 reads (resources/test-asset-manifests): the quick tier's (quick.txt, a model or two per feature),
-// or all of them (Morgan McGuire's archive, the glTF sample models, the sample environments)
+// or all of them (Morgan McGuire's archive, the glTF sample models, the sample environments, the glTF research scenes)
 enum class Set : uint8_t
 {
 	kQuick,

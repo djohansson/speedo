@@ -55,7 +55,7 @@ struct Manifest
 	std::vector<Entry> entries;
 };
 
-constexpr std::array kManifestNames{"mcguire.txt", "gltf.txt", "environments.txt"};
+constexpr std::array kManifestNames{"mcguire.txt", "gltf.txt", "environments.txt", "research.txt"};
 // transfers at once (curl's handles, each its own connection: the port has no HTTP/2), and tries of a file
 constexpr size_t kTransferCount = 8;
 constexpr uint32_t kAttemptCount = 3;
@@ -699,6 +699,8 @@ void Draw()
 		TextLinkOpenURL("The Khronos glTF Sample Assets", "https://github.com/KhronosGroup/glTF-Sample-Assets");
 		Bullet();
 		TextLinkOpenURL("The Khronos glTF Sample Environments", "https://github.com/KhronosGroup/glTF-Sample-Environments");
+		Bullet();
+		TextLinkOpenURL("The glTF research scenes (licenses in the repository)", "https://github.com/ErfanMo77/gltf-research-scenes");
 		Spacing();
 		if (Button("Not Now", ImVec2(kButtonWidth, 0.0F)))
 		{

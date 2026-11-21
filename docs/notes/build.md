@@ -722,7 +722,7 @@ below) builds and checks on pushes and pull requests to
 see "vcpkg's shared binary cache": `setup_osx.sh` only adds
 PowerShell, which the image has, and upgrades all of Homebrew), `cmake --preset`, the build, and `assettest.ps1` without
 `-Client` (the importers, images, environments, the lens check) on the quick tier's assets, fetched with
-`fetch-test-assets.ps1 -Minimal` (only what `quick.txt` names: 555 MB in 103 s where the full sets are 4.5 GB; it
+`fetch-test-assets.ps1 -Minimal` (only what `quick.txt` names: 555 MB in 103 s where the full sets are 5.6 GB; it
 never narrows what is there) and kept between runs by `actions/cache`. vcpkg's packages come from the bucket each
 run: vcpkg doesn't keep what it restored from a remote in its local archives, so caching those would keep nothing. macOS
 first, on GitHub's `xcode-27` image (macOS 27 on Apple silicon, the SDK major version the cache's packages target;
