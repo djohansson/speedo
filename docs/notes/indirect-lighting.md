@@ -1202,8 +1202,14 @@ window lit higher up the walls than their sunlit band reaches, and the rays from
 other at once, read those voxels: a bright line up the corner over the band, 30 of 255 above the walls beside it, the
 user's report of 2026-11-20 at `-3.1333,1.2172,-0.5528,6.899,-68.277`, found by the near field's views,
 `SPEEDO_GI_NEAR_SHOW` 1 and 3, and its contact switched off, `SPEEDO_GI_NEAR_CONTACT=0`; the near field 0.049 to 0.077
-ms in Sponza's corridor, Bistro's shaded nooks beside sunlit surfaces up to 2.6 of 255 darker) or, where it meets
-nothing, the volume's light along it from its
+ms in Sponza's corridor, Bistro's shaded nooks beside sunlit surfaces up to 2.6 of 255 darker; without the voxel's
+lead, `gGiAhead`, which the cache's rays take to speed their entries' convergence, and with the shadow ray from the
+hit rather than the point moved off the corner, `GiHitLitAt`: the near field shows what it reads, over its frames,
+and each voxel's lead held still, white speckles a few voxels apart along the ceiling's edges of MovingInterior's room
+that never settled, the user's report of 2026-11-21 at `-3.9566,1.1530,-1.0380,-24.667,-150.194` and
+`2.3231,1.5046,-0.8240,-0.263,-261.055`, there with the cache alone and the near field's hits' light,
+`SPEEDO_GI_NEAR_SHOW=3`, gone with the probes alone, and without the near field's change before; the regression set
+within 0.6 of 255 a strip but Bistro at night's lit windows' panes) or, where it meets nothing, the volume's light along it from its
 end. Emitters' light is the volume's, which averages it over its probes' rays and frames: with the voxels' emission, a
 ray meeting anything in an emitter's voxel took all of it, and Bistro's lanterns (a bulb of a few centimetres, 3.5, in
 voxels of 30 cm with their frames and glass) lit the walls around them yellow in blotches, a hundred times what the bulb

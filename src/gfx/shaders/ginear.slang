@@ -135,7 +135,11 @@ float4 GiNearTrace(GiData gi, float3 position, float3 normal, float3 direction, 
 		seed *= 0x2C1B3C6Du;
 		seed ^= seed >> 12;
 		float3 emission;
-		float3 lit = GiHitLit(gi, point, hit, float(seed & 0xFFFFFFu) / 16777216.0, emission);
+		// (the voxel read at the point moved off the corner, the shadow ray from the hit: from the moved point, which along
+		// a surface sloping into the corner can pass the other surface, the rays by the ceiling's edges of MovingInterior's
+		// room saw the sun from behind the wall, white speckles a few voxels apart along the edge that never settled, the
+		// user's report, 2026-11-21)
+		float3 lit = GiHitLitAt(gi, point, origin + direction * hit.t, hit, float(seed & 0xFFFFFFu) / 16777216.0, emission, false);
 		return float4(max(lit - emission, 0.0), clear);
 	}
 	if (gi.nearShow == 3u)

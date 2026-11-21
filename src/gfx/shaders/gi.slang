@@ -1001,7 +1001,9 @@ float3 GiHitIrradiance(GiData gi, float3 position, float3 normal, float random)
 // the hit (GiSampleAt), which would be the cache's and the probes' there without the voxel's albedo: the resolve this
 // runs in is writing the volumes, five images a voxel, and reads of them here came out in pink, yellow and blue
 // (salle_de_bain's walls)
-float3 GiHitLit(GiData walk, float3 position, BvhHit hit, float random, out float3 emission)
+// (lightAt: where the shadow ray leaves from, the hit itself, where position is a point read beside it: the near
+// field's, moved along the hit's surface off a corner, see GiNearTrace)
+float3 GiHitLitAt(GiData walk, float3 position, float3 lightAt, BvhHit hit, float random, out float3 emission, bool lead = true)
 {
 	bool back = !hit.frontFace && (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) == 0u;
 	uint clipCount = walk.clipCount;
@@ -1032,14 +1034,14 @@ float3 GiHitLit(GiData walk, float3 position, BvhHit hit, float random, out floa
 		float3 lights = max(GiUnpackRgba16(gGiDirect[index]).rgb - voxelEmission, 0.0);
 		// (its bounced light as its entry's last samples have it rather than as shown, see GiCacheUpdate's gGiAhead: by
 		// the voxel's albedo, as ComputeGiLight bounces the volumes' light)
-		float ahead = walk.cacheFastCount != 0u && walk.reset == 0u ? gGiAhead[index] : 0.0;
+		float ahead = lead && walk.cacheFastCount != 0u && walk.reset == 0u ? gGiAhead[index] : 0.0;
 		ahead = isnan(ahead) || isinf(ahead) ? 0.0 : ahead;
 		// (the lead as it is, below 0 too: it is a correction of none on average. clamped with the voxel's bounced light, a
 		// lead further below 0 than that light was dropped and a lead above kept: with the bounce off, where that light
 		// is none, the far wall of MovingInterior's room came out 23.4 of 255 with the fast mean and 13.5 without it,
 		// 12.9 with it since; with the bounce, the same)
 		float3 reflected = max(radiance.rgb - voxelEmission - lights - emitters, 0.0) + GiUnpackRgba8(voxel.albedo).rgb * ahead +
-						   albedo * (GiHitIrradiance(walk, position, hit.normal, random) + GiKeptIrradiance(keptLight, hit.normal));
+						   albedo * (GiHitIrradiance(walk, lightAt, hit.normal, random) + GiKeptIrradiance(keptLight, hit.normal));
 		emission = 0.0;
 		if (EmittersLight())
 			return reflected;
@@ -1057,6 +1059,11 @@ float3 GiHitLit(GiData walk, float3 position, BvhHit hit, float random, out floa
 		return reflected + emission;
 	}
 	return GiHitRadiance(walk.clip, position, hit, emission);
+}
+
+float3 GiHitLit(GiData walk, float3 position, BvhHit hit, float random, out float3 emission)
+{
+	return GiHitLitAt(walk, position, position, hit, random, emission);
 }
 
 // (lit: 0 to 1, a random number, for the hit's lights' light taken at the hit itself, GiHitLit; negative, by its voxel's radiance)
