@@ -612,7 +612,7 @@ float3 TracedPath(
 			GlassSurface surface = GlassSurfaceAt(path.origin, path.direction, hit, frameIndex);
 			if (reflection && queryIt == 0u)
 			{
-				path.inside = surface.material.transmission.y > 0.0 && !hit.frontFace;
+				path.inside = TransmissionSolid(surface.material.transmission.y) && !hit.frontFace;
 				if (!path.inside)
 				{
 					float glassRoughness = surface.material.roughness;

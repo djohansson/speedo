@@ -93,6 +93,12 @@ public:
 		// Refractions, SPEEDO_TRACED_REFLECTIONS=0 and SPEEDO_TRACED_REFRACTIONS=0 to start without)
 		std::atomic<bool> tracedReflections = true;
 		std::atomic<bool> tracedRefractions = true;
+		// whether transmission without KHR_materials_volume is a solid, refracting into it and out of it, rather than
+		// glTF's infinitely thin wall, which bends nothing (FrameInputs::solidTransmission; View > Rendering Features >
+		// Solid Transmission, SPEEDO_SOLID_TRANSMISSION=1): the glTF research set's dielectrics, pbrt's solids, which its
+		// references' Cycles refracts as solids (on where a model comes with the set's conditions: the user's call,
+		// 2026-11-22)
+		std::atomic<bool> solidTransmission = false;
 		// whether the transmissive surfaces refract the lights' light into caustics, where the device has ray queries
 		// (FrameInputs::caustics; View > Rendering Features > Caustics, SPEEDO_CAUSTICS=0 to start without: they tint it as it goes straight through)
 		std::atomic<bool> caustics = true;

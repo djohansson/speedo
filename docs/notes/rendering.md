@@ -1284,7 +1284,11 @@ above; the 16 glass sample models change by 0.02 to 0.13 of 255 (glass reflectin
 their neighbors, DispersionTest's blocks each other). Not yet (TODO.md):
 glossy refractions (the transmissive surfaces are drawn forward, after the visibility buffer: they keep the sharp trace,
 and the transmission texture's mips where rough), a hit's own reflections, and the glossy rays at a lower resolution
-(their cost, below).
+(their cost, below). Transmission without `KHR_materials_volume` is glTF's infinitely thin wall, which bends nothing,
+unless `TRACED_SOLID_TRANSMISSION` (`Scene::Settings::solidTransmission`, `SPEEDO_SOLID_TRANSMISSION=1`, on with the glTF
+research set's conditions) makes every transmissive surface a solid (`TransmissionSolid`: the fragment's refraction into
+it, the path's inside and outside, the caustics' photons; a solid without a thickness absorbs nothing, and the screen
+space lookup reads at the surface).
 
 Each kernel traces from one call site, in a loop the compiler doesn't unroll (`[loop]`): every call is a copy of all that
 shades a hit (the glass's path, the hit's lights and their shadow rays, the probes, the near field's rays), since NIR

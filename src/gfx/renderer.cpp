@@ -4134,7 +4134,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	// preview, has the default ones of nothing bound: its reflections would all be the environment's)
 	bool traceable = frame.model != nullptr && frame.model->HasBvh();
 	frame.pushConstants.traced = (traceable && frame.tracedReflections ? TRACED_REFLECTIONS : 0U) |
-								 (traceable && frame.tracedRefractions ? TRACED_REFRACTIONS : 0U);
+								 (traceable && frame.tracedRefractions ? TRACED_REFRACTIONS : 0U) |
+								 (frame.solidTransmission ? TRACED_SOLID_TRANSMISSION : 0U);
 	// the visibility buffer's are glossy (see ComputeReflectionTemporal): their passes, whether the last frame's history holds
 	// a frame (they ran, at this size), and the frames they have run (their rays' sampling, their history's parity)
 	if (myVisibilityBuffer)

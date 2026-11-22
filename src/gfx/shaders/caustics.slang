@@ -205,8 +205,8 @@ bool GlassPathStep(inout GlassPath path, GlassSurface surface, uint frameIndex)
 	path.throughput *= transmission * (1.0 - metallic) * color * (1.0 - fresnel);
 	if (all(path.throughput <= 0.0))
 		return false;
-	// a thin wall: through both its faces as it was going
-	if (material.transmission.y <= 0.0)
+	// a thin wall: through both its faces as it was going (see TransmissionSolid)
+	if (!TransmissionSolid(material.transmission.y))
 	{
 		path.throughput *= 1.0 - fresnel;
 		path.origin = position + path.direction * eps;

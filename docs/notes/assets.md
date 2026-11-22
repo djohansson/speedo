@@ -251,7 +251,9 @@ client opens such a model in them (`windowedapplication::ReadModelConditions`, a
 `environment_map`, a panorama found beside the file or in a `common` folder above it, `uniform color [r, g, b]`, or null;
 `environment_strength`; `exposure_multiplier`), as the `SPEEDO_*` variables a pose names (the panorama or
 `uniform:`, the intensity, a manual exposure at f/16, 1/160 s and ISO 100, the renderer's 0 stops, plus the multiplier's
-stops, PBR Neutral, no ground plane), printed as it reads them. The autoload and a pasted pose take them under their own
+stops, PBR Neutral, no ground plane, and transmission without a volume as solids: the set's dielectrics are pbrt's
+solids, which Cycles' importer refracts as solids, where glTF has them as infinitely thin walls; the user's call,
+2026-11-22, `SPEEDO_SOLID_TRANSMISSION`, `TransmissionSolid`), printed as it reads them. The autoload and a pasted pose take them under their own
 variables (the process's, the pose's), File > Open..., Open Recent and the browser apply them as the model opens
 (`ApplyModelConditions`, its environment loaded in the same load), skipping what the process's variables set. A camera
 node whose transform is a reflection (pbrt's `Scale -1 1 1`; the set's bmw-m6) is rendered mirrored across, as Blender

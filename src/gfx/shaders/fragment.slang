@@ -334,7 +334,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 			tracing[kTracedFragmentRefraction + channel] = transmission > 0.0 && (dispersion || channel == 0u) &&
 				TransmittedTraced(normal, view, v.position, surface.roughness, transmissionIors[channel], transmissionThickness, viewId,
 					directions[kTracedFragmentRefraction + channel]);
-		TracedFragmentRays(v.position, geometryNormal, directions, tracing, transmissionThickness > 0.0, traced);
+		TracedFragmentRays(v.position, geometryNormal, directions, tracing, TransmissionSolid(transmissionThickness), traced);
 	}
 #endif
 	// the light through the surface (KHR_materials_transmission), the dielectric's

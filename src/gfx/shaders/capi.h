@@ -1802,6 +1802,10 @@ struct PushConstants
 #define TRACED_REFRACTIONS 2u
 #define TRACED_REFLECTION_HISTORY 4u
 #define TRACED_SETTLED 8u
+// transmission without KHR_materials_volume is a solid, refracting into it and out of it, not an infinitely thin wall
+// (see TransmissionSolid; Scene::Settings::solidTransmission). in this word whatever the ray queries: the screen space
+// lookup's direction takes it too
+#define TRACED_SOLID_TRANSMISSION 16u
 #define TRACED_FRAME_SHIFT 8u
 // the visibility buffer's first word's top bit: the draw record's material has an extended layer (see FragmentPrepass; the record
 // is the bits below)

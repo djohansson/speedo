@@ -70,6 +70,16 @@ float TransmittedInView(float3 exit, ViewData viewData, out float2 local)
 	return saturate(min(edge.x, edge.y) / 0.05);
 }
 
+// whether a transmissive surface of a thickness (KHR_materials_volume's, 0 without) is a solid, refracting into it and out
+// of it, rather than an infinitely thin wall, which bends nothing (glTF's reading of transmission without a volume):
+// a volume's, and every one where TRACED_SOLID_TRANSMISSION says (Scene::Settings::solidTransmission: the glTF research
+// set's dielectrics, pbrt's solids, which its references refract as solids). a solid without a thickness absorbs
+// nothing, and the screen space lookup reads at the surface itself (where its ray leaves isn't known)
+bool TransmissionSolid(float thickness)
+{
+	return thickness > 0.0 || (gPushConstants.traced & TRACED_SOLID_TRANSMISSION) != 0u;
+}
+
 // how much of the light from behind a surface its traced refraction gives (see TransmittedLight): sharp where the
 // transmission texture's mips wouldn't blur it much (the blur its lookup takes, by the roughness and the ior)
 float TransmittedTracedShare(float roughness, float ior)
@@ -84,7 +94,7 @@ bool TransmittedTraced(
 	float3 normal, float3 view, float3 position, float roughness, float ior, float thickness, uint viewId, out float3 direction)
 {
 	float3 ray = TransmittedRay(normal, view, ior);
-	direction = thickness > 0.0 ? ray : -view;
+	direction = TransmissionSolid(thickness) ? ray : -view;
 	float2 local;
 	return TracedRefractionsOn() && !TracedGlossyHere() &&
 		   (TransmittedTracedShare(roughness, ior) > 0.0 ||

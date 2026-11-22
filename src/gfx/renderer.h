@@ -98,6 +98,8 @@ struct FrameInputs
 	// traced.slang), where the shaders have the device's ray queries and the model its acceleration structures
 	bool tracedReflections = true;
 	bool tracedRefractions = true;
+	// whether transmission without a volume is a solid (TRACED_SOLID_TRANSMISSION, see Scene::Settings::solidTransmission)
+	bool solidTransmission = false;
 	// whether the transmissive surfaces refract the lights' light into caustics (see ComputeCaustics), where the shaders have
 	// the device's ray queries and the model its structures, else they tint it as it goes straight through
 	bool caustics = true;

@@ -141,6 +141,8 @@ std::optional<ModelConditions> ReadModelConditions(const std::filesystem::path& 
 	}
 	set("SPEEDO_TONEMAPPER", "pbr-neutral");
 	set("SPEEDO_GROUND_PLANE", "0");
+	// the set's dielectrics are pbrt's solids, which its references refract as solids (the user's call, 2026-11-22)
+	set("SPEEDO_SOLID_TRANSMISSION", "1");
 	return conditions;
 }
 

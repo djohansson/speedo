@@ -345,6 +345,8 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 	// SPEEDO_TRACED_REFRACTIONS=0 without)
 	apply(settings.tracedReflections, kDefaults.tracedReflections, "SPEEDO_TRACED_REFLECTIONS", unless("0"));
 	apply(settings.tracedRefractions, kDefaults.tracedRefractions, "SPEEDO_TRACED_REFRACTIONS", unless("0"));
+	// transmission without a volume as a solid (SPEEDO_SOLID_TRANSMISSION=1, see gfx::Scene::Settings)
+	apply(settings.solidTransmission, kDefaults.solidTransmission, "SPEEDO_SOLID_TRANSMISSION", unless("0"));
 	// the caustics, where the device has ray queries (SPEEDO_CAUSTICS=0 without)
 	apply(settings.caustics, kDefaults.caustics, "SPEEDO_CAUSTICS", unless("0"));
 	// SPEEDO_EMISSIVE_LIGHTS=0: emissive surfaces don't light the scene as lights (the indirect lighting's rays take their
@@ -959,6 +961,8 @@ void WindowedApplication::InternalCopyScene()
 		text += " SPEEDO_TRACED_REFLECTIONS=0";
 	if (!settings.tracedRefractions.load(std::memory_order_relaxed))
 		text += " SPEEDO_TRACED_REFRACTIONS=0";
+	if (settings.solidTransmission.load(std::memory_order_relaxed))
+		text += " SPEEDO_SOLID_TRANSMISSION=1";
 	if (!settings.caustics.load(std::memory_order_relaxed))
 		text += " SPEEDO_CAUSTICS=0";
 	text += settings.indirectLighting.load(std::memory_order_relaxed) ? " SPEEDO_GI=1" : " SPEEDO_GI=0";
@@ -3530,6 +3534,13 @@ void WindowedApplication::PrepareDraw()
 						"%s",
 						rayQueries ? "What transmissive surfaces show behind them, traced along the refracted ray (behind them or out of the view alike), rather than looked up in the frame drawn so far."
 								   : kNoRayQueries);
+					bool solidTransmission = App().GetScene().GetSettings().solidTransmission.load(std::memory_order_relaxed);
+					if (SmallCheckbox("Solid Transmission", &solidTransmission))
+						App().GetScene().GetSettings().solidTransmission.store(solidTransmission, std::memory_order_relaxed);
+					SetItemTooltip(
+						"Transmissive materials without a volume (KHR_materials_volume) refract as solids, into them and out of them, "
+						"rather than as glTF's infinitely thin walls, which bend nothing. On for the glTF research scenes, whose glass "
+						"and water are solids.");
 					bool caustics = App().GetScene().GetSettings().caustics.load(std::memory_order_relaxed);
 					// (traced from the lights' shadow views: none without the shadows)
 					if (SmallCheckbox("Caustics", &caustics, rayQueries && shadows))

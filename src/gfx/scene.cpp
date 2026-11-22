@@ -3862,6 +3862,7 @@ struct Scene::Impl
 				.tracedShadowsEverywhere = mySettings.tracedShadowsEverywhere.load(std::memory_order_relaxed),
 				.tracedReflections = mySettings.tracedReflections.load(std::memory_order_relaxed),
 				.tracedRefractions = mySettings.tracedRefractions.load(std::memory_order_relaxed),
+				.solidTransmission = mySettings.solidTransmission.load(std::memory_order_relaxed),
 				.caustics = mySettings.caustics.load(std::memory_order_relaxed),
 				.emissiveLights = mySettings.emissiveLights.load(std::memory_order_relaxed),
 				.aerialPerspective = mySettings.aerialPerspective.load(std::memory_order_relaxed) && mySkyInstalled.load(std::memory_order_relaxed) && !SkyReplaced(),
