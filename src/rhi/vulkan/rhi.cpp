@@ -256,7 +256,7 @@ RHI<kVk>* GetRHI<kVk>() noexcept
 
 template <>
 RHI<kVk>::RHI(RHIInitializationData&& initData, SurfaceHandle<kVk> surface)
-	: myInstance(InstanceCreateDesc<kVk>{std::string(initData.name), "speedo", initData.window != 0})
+	: myInstance(InstanceCreateDesc<kVk>{std::string(initData.name), "speedo", initData.window != 0, std::string(initData.driverCachePath)})
 	, myDevices{[&initData, &surface](Instance<kVk>& instance)
 	{
 		using namespace detail;

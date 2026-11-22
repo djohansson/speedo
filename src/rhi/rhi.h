@@ -31,6 +31,9 @@ struct RHIInitializationData
 	// the most swapchain images the application keeps per image state for (0: no limit), see
 	// SwapchainCreateDesc::maxImageCount
 	uint32_t maxSwapchainImageCount = 0;
+	// a directory for the driver's own cache of the pipelines it compiled, where the backend can choose it (NVIDIA's on
+	// Vulkan, see rhi::vk's Instance), shared by the processes that should share compiles; empty: the driver's default
+	std::string driverCachePath;
 };
 
 template <GraphicsApi G>

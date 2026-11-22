@@ -30,10 +30,11 @@ static bool EnvironmentIs(const char* name, std::string_view value)
 } // namespace instance
 
 template <>
-InstanceCreateDesc<kD3D12>::InstanceCreateDesc(std::string&& applicationName, std::string&& engineName, bool presentation) noexcept
+InstanceCreateDesc<kD3D12>::InstanceCreateDesc(std::string&& applicationName, std::string&& engineName, bool presentation, std::string&& driverCachePath) noexcept
 	: applicationName(std::forward<std::string>(applicationName))
 	, engineName(std::forward<std::string>(engineName))
 	, presentation(presentation)
+	, driverCachePath(std::forward<std::string>(driverCachePath))
 {}
 
 template <>
@@ -41,6 +42,7 @@ InstanceCreateDesc<kD3D12>::InstanceCreateDesc(InstanceCreateDesc&& other) noexc
 	: applicationName(std::move(other.applicationName))
 	, engineName(std::move(other.engineName))
 	, presentation(other.presentation)
+	, driverCachePath(std::move(other.driverCachePath))
 {}
 
 template <>

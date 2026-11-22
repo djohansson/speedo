@@ -398,7 +398,9 @@ WindowedApplication::WindowedApplication(
 		  .window = PlatformIsHeadless() ? kInvalidWindowHandle : GetCurrentWindow(),
 		  .descriptorPoolSizes = Scene::DescriptorPoolSizes(),
 		  // ComputeMain's storage views of them (see RenderOutput)
-		  .maxSwapchainImageCount = SHADER_TYPES_OUTPUT_IMAGE_COUNT})))
+		  .maxSwapchainImageCount = SHADER_TYPES_OUTPUT_IMAGE_COUNT,
+		  // (see client::Create)
+		  .driverCachePath = std::get<std::filesystem::path>(GetEnv().variables["DriverCachePath"]).string()})))
 {
 	using namespace windowedapplication;
 

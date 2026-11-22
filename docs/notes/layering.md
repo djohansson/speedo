@@ -441,6 +441,20 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   the profile's cache in 0.01 s. Without an executor (`FrameInputs::executor` null) a pass's pipelines are made on first
   use, as before. It doesn't stop the release builds' gpu restarts (see indirect-lighting.md): 6 of 20 runs lost the
   device with them made ahead, about half without; the mesa port's workaround does.
+  NVIDIA's driver keeps a cache of its own of what it compiled (on Windows `%LOCALAPPDATA%\NVIDIA\GLCache`, OpenGL's and
+  Vulkan's despite the name; D3D's is `DXCache`), 1 GB unless `__GL_SHADER_DISK_CACHE_SIZE` says, and a full one takes
+  nothing more and evicts nothing (driver 610.88, 2026-11-22: capped at 16 MB, a variant's 10.6 MB kept, the next one's
+  compute pipelines kept until it was full and its graphics pipelines not). This machine's had filled in its first 13
+  minutes (2026-11-19), after which every profile compiled a changed shader's pipelines again, each of the GI
+  experiments' slots 30 to 45 s a new variant though another had just made them. The client now points it (`rhi::vk`'s
+  `Instance`, from `RHIInitializationData::driverCachePath`) at `driver-cache` beside the executable in a checkout,
+  shared by every profile of the build as the shader cache is (an install's in the profile, whose folder may be read
+  only), with room for 10 GB, and empties it at startup once it is over 90% full (the user's calls); unless
+  `__GL_SHADER_DISK_CACHE_PATH` is set. A second slot's run of a new variant took 2.8 s rather than 45.5 (bathroom2, 1
+  frame: its pipelines 0.11 s rather than 12 s compute and 19 s graphics). The driver reads the variables as it is
+  loaded: platform's `glfwVulkanSupported()` at startup loaded it before rhi set them, and they went unread (the folder
+  stayed empty), so the platform no longer asks (glfw loads Vulkan for the window's surface; rhi fails clearly without a
+  device).
 - The backend's type aliases (`DescriptorType<G>`, `PushConstantRange<G>`, ...) are in the *global* namespace (see
   `rhi/types.h`), so a neutral rhi type of the same name hides them inside `namespace rhi`, and is ambiguous
   in code with `using namespace rhi` (gfx's application). Pick another name, or qualify: `::DescriptorType<G>` in

@@ -421,6 +421,20 @@ void Create(const PathConfig* paths)
 	if (const char* testAssets = std::getenv("SPEEDO_TEST_ASSETS"); testAssets != nullptr && *testAssets != '\0')
 		testAssetsPath = std::filesystem::absolute(testAssets);
 
+	// the driver's cache of the pipelines it compiled (see rhi::RHIInitializationData::driverCachePath): a checkout's
+	// beside the executable, shared by every profile of the build (scratch profiles, test runs and the user's compile a
+	// changed shader's pipelines once between them), as the shader cache is; an install's (whose folder may be read only)
+	// in the profile
+	std::filesystem::path driverCachePath;
+	if (checkout)
+	{
+		auto executable = GetExecutablePath();
+		ENSUREF(executable, "the client's executable path couldn't be found");
+		driverCachePath = executable.value().parent_path() / "driver-cache";
+	}
+	else
+		driverCachePath = userPath.value() / "driver-cache";
+
 	auto& appPtrRef = gClientApplication.Write().Get();
 	appPtrRef = CreateApplication<Client>(
 		"client",
@@ -430,6 +444,7 @@ void Create(const PathConfig* paths)
 			{"ShaderPath", shaderPath},
 			{"UserProfilePath", userPath.value()},
 			{"TestAssetsPath", testAssetsPath},
+			{"DriverCachePath", driverCachePath},
 		},});
 	RunTiming("the application made");
 

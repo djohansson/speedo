@@ -11,8 +11,10 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <format>
 #include <print>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -296,10 +298,59 @@ VkDebugUtilsMessengerCreateInfoEXT gDebugUtilsMessengerCallbackCreateInfo{
 	.pfnUserCallback=DebugUtilsMessengerCallback,
 	.pUserData=nullptr};
 
+// sets an environment variable for the drivers this process loads, unless it is set already (the user's own)
+static void SetDriverVariable(const char* name, const std::string& value)
+{
+	if (const char* set = std::getenv(name); set != nullptr && *set != '\0')
+		return;
+#if defined(__WINDOWS__)
+	_putenv_s(name, value.c_str());
+#else
+	setenv(name, value.c_str(), 0);
+#endif
+}
+
+// NVIDIA's driver keeps the pipelines it compiled in a cache of its own (on Windows %LOCALAPPDATA%\NVIDIA\GLCache, its
+// OpenGL and Vulkan one despite the name; D3D's is DXCache), of 1 GB unless __GL_SHADER_DISK_CACHE_SIZE says, and a full
+// one takes nothing more, keeping what it has: no eviction (driver 610.88 on Windows, 2026-11-22: capped at 16 MB, a
+// variant's 10.6 MB kept, the next one's compute pipelines kept until it was full, its graphics pipelines not). the
+// machine's had filled in its first 13 minutes, after which each profile slot compiled a changed shader's pipelines again
+// (a run of a new variant in a second slot 45.5 s, 2.8 s from a shared cache). so the cache is path (the processes that
+// should share compiles share it:
+// the client's, every profile of a build), unless __GL_SHADER_DISK_CACHE_PATH is set, with room for
+// kDriverCacheByteCount, and emptied as the process starts once it is nearly full (what another process holds open
+// stays). other drivers read none of it
+static constexpr uint64_t kDriverCacheByteCount = 10ULL << 30U;
+
+static void ConfigureDriverCache(const std::string& path)
+{
+	if (path.empty())
+		return;
+	if (const char* set = std::getenv("__GL_SHADER_DISK_CACHE_PATH"); set != nullptr && *set != '\0')
+		return;
+	std::error_code error;
+	uint64_t byteCount = 0;
+	for (auto it = std::filesystem::recursive_directory_iterator(path, error); !error && it != std::filesystem::recursive_directory_iterator();
+		 it.increment(error))
+		if (it->is_regular_file(error))
+			byteCount += it->file_size(error);
+	if (byteCount > kDriverCacheByteCount / 10 * 9)
+	{
+		std::filesystem::remove_all(path, error);
+		std::println("driver shader cache: {} held {} MB of its {}, emptied", path, byteCount >> 20U, kDriverCacheByteCount >> 20U);
+	}
+	// (one that can't be made, in a folder that is read only, leaves the driver's own)
+	std::filesystem::create_directories(path, error);
+	if (!std::filesystem::is_directory(path, error))
+		return;
+	SetDriverVariable("__GL_SHADER_DISK_CACHE_PATH", path);
+	SetDriverVariable("__GL_SHADER_DISK_CACHE_SIZE", std::to_string(kDriverCacheByteCount));
+}
+
 } // namespace instance
 
 template <>
-InstanceCreateDesc<kVk>::InstanceCreateDesc(std::string&& applicationName, std::string&& engineName, bool presentation) noexcept
+InstanceCreateDesc<kVk>::InstanceCreateDesc(std::string&& applicationName, std::string&& engineName, bool presentation, std::string&& driverCachePath) noexcept
 	: applicationName(std::forward<std::string>(applicationName))
 	, engineName(std::forward<std::string>(engineName))
 	, appInfo{
@@ -311,6 +362,7 @@ InstanceCreateDesc<kVk>::InstanceCreateDesc(std::string&& applicationName, std::
 		.engineVersion = VK_MAKE_VERSION(1, 0, 0),
 		.apiVersion = kVulkanApiVersion}
 	, presentation(presentation)
+	, driverCachePath(std::forward<std::string>(driverCachePath))
 {
 	appInfo.pApplicationName = this->applicationName.c_str();
 	appInfo.pEngineName = this->engineName.c_str();
@@ -322,6 +374,7 @@ InstanceCreateDesc<kVk>::InstanceCreateDesc(InstanceCreateDesc&& other) noexcept
 	, engineName(std::forward<std::string>(other.engineName))
 	, appInfo(std::forward<ApplicationInfo<kVk>>(other.appInfo))
 	, presentation(other.presentation)
+	, driverCachePath(std::forward<std::string>(other.driverCachePath))
 {
 	appInfo.pApplicationName = applicationName.c_str();
 	appInfo.pEngineName = engineName.c_str();
@@ -435,6 +488,9 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 	using namespace instance;
 
 	ZoneScopedN("Instance()");
+
+	// before the drivers are loaded for the instance
+	ConfigureDriverCache(myConfig.driverCachePath);
 
 #if defined(__APPLE__)
 	// KosmicKrisp has ray queries behind its experimental flags (MESA_KK_EXPERIMENTAL=ray_query), which it reads once, as

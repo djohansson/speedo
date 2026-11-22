@@ -22,9 +22,11 @@ struct InstanceCreateDesc
 	// whether anything is presented (a window's surface and swapchain): without, the surface extensions aren't asked for,
 	// and the devices needn't present (headless, see RHIInitializationData::window)
 	bool presentation = true;
+	// see RHIInitializationData::driverCachePath
+	std::string driverCachePath;
 
 	InstanceCreateDesc() = default;
-	InstanceCreateDesc(std::string&& applicationName, std::string&& engineName, bool presentation = true) noexcept;
+	InstanceCreateDesc(std::string&& applicationName, std::string&& engineName, bool presentation = true, std::string&& driverCachePath = {}) noexcept;
 	InstanceCreateDesc(InstanceCreateDesc&& other) noexcept;
 };
 

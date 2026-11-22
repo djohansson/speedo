@@ -279,7 +279,9 @@ void Init()
 
 	ENSUREF(glfwInit(), "GLFW: Failed to initialize.");
 	gInitialized = true;
-	ENSUREF(glfwVulkanSupported(), "GLFW: Vulkan not supported.");
+	// no glfwVulkanSupported() here: it loads the Vulkan loader and its drivers, which read their settings as they load,
+	// before rhi has set them (NVIDIA's pipeline cache's place, see rhi::vk's Instance: set later, it went unread). glfw
+	// loads Vulkan when the surface is made (glfwCreateWindowSurface), and rhi fails clearly without a device
 
 	int monitorCount = 0;
 	GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
