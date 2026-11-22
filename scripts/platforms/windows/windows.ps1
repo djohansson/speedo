@@ -102,3 +102,58 @@ $global:Env['WINDOWS_SDK'] = $winSDKRoot
 $global:Env['WINDOWS_SDK_VERSION'] = $windowsSdkVersion
 $global:Env['VISUAL_STUDIO_PATH'] = $VSInstance.installationPath
 $global:Env['VISUAL_STUDIO_VCTOOLS_VERSION'] = (Get-Content -Path ($VSInstance.installationPath + "\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"))
+
+# Debugging Tools for Windows (cdb, WinDbg, kd, symchk; the user's ask, 2026-11-22): a feature of the Windows SDK that
+# Visual Studio's SDK component leaves out. Not installed by the SDK's own installer (winsdksetup, winget's
+# Microsoft.WindowsSDK.*), which registers an SDK of its own: one of the version line Visual Studio's is would upgrade
+# that one, its packages beyond the debuggers (the headers and libraries) removed. The installer only downloads the
+# feature (/layout: no administrator, nothing installed), and setup installs the feature's one package, SDK Debuggers
+# (every architecture's debuggers, the package choosing this machine's), into the SDK's root: what the SDK's installer
+# would add, listed in Settings > Apps as SDK Debuggers. Installing it takes an administrator: setup asks once (UAC) where
+# it isn't one. The build doesn't need the debuggers, so a declined prompt or a failure warns and goes on
+$Debugger = Join-Path $winSDKRoot 'Debuggers' (Get-HostArchitecture) 'cdb.exe'
+if (-not (Test-Path $Debugger) -and -not (Get-Command "winget" -ErrorAction SilentlyContinue))
+{
+	Write-Host "Debugging Tools for Windows aren't installed: setup installs them with winget, which is missing (https://aka.ms/getwinget)"
+}
+elseif (-not (Test-Path $Debugger))
+{
+	Write-Host "Installing Debugging Tools for Windows..."
+
+	# any version's installer has the feature, which installs beside every SDK; 26100's is the newest SDK setup accepts
+	$DebuggersWork = Join-Path ([IO.Path]::GetTempPath()) 'speedo-debuggers'
+	$LayoutLog = Join-Path ([IO.Path]::GetTempPath()) 'speedo-debuggers-download.log'
+	$DebuggersLog = Join-Path ([IO.Path]::GetTempPath()) 'speedo-debuggers.log'
+	try
+	{
+		Remove-Item -Recurse -Force -Path $DebuggersWork -ErrorAction SilentlyContinue
+		& winget download --exact --id Microsoft.WindowsSDK.10.0.26100 --source winget --download-directory "$DebuggersWork\installer" `
+			--accept-package-agreements --accept-source-agreements --disable-interactivity | Out-Host
+		if ($LASTEXITCODE -ne 0) { throw "winget's download of the Windows SDK's installer failed with exit code $LASTEXITCODE" }
+		$SdkSetup = (Get-ChildItem -Path "$DebuggersWork\installer" -Filter '*.exe' | Select-Object -First 1).FullName
+
+		# Start-Process joins its arguments with spaces: quote the paths, which may hold some
+		$Process = Start-Process -FilePath $SdkSetup -Wait -PassThru -ArgumentList @(
+			'/features', 'OptionId.WindowsDesktopDebuggers', '/layout', "`"$DebuggersWork\layout`"", '/quiet', '/norestart', '/log', "`"$LayoutLog`"")
+		if ($Process.ExitCode -ne 0) { throw "the Windows SDK's installer exited with $($Process.ExitCode) downloading the debuggers, see $LayoutLog" }
+
+		# 3010: done, a restart pending
+		$MsiArgs = @('/i', "`"$DebuggersWork\layout\Installers\SDK Debuggers-x86_en-us.msi`"", "KITSROOT=`"$winSDKRoot`"", '/qn', '/norestart', '/l*v', "`"$DebuggersLog`"")
+		$Administrator = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+			[Security.Principal.WindowsBuiltInRole]::Administrator)
+		$StartArgs = @{ FilePath = (Join-Path ([System.Environment]::SystemDirectory) 'msiexec.exe'); ArgumentList = $MsiArgs; Wait = $true; PassThru = $true }
+		if (-not $Administrator) { $StartArgs['Verb'] = 'RunAs' }
+		$Process = Start-Process @StartArgs
+		if ($Process.ExitCode -ne 0 -and $Process.ExitCode -ne 3010) { throw "msiexec exited with $($Process.ExitCode) installing the debuggers, see $DebuggersLog" }
+		if (-not (Test-Path $Debugger)) { throw "the debuggers' package installed, but not $Debugger, see $DebuggersLog" }
+		Write-Host "Debugging Tools for Windows are installed: $(Split-Path $Debugger)"
+	}
+	catch
+	{
+		Write-Warning "Debugging Tools for Windows weren't installed ($($_.Exception.Message)). Run setup again, or add them to the Windows SDK in Settings > Apps > Windows Software Development Kit > Modify"
+	}
+	finally
+	{
+		Remove-Item -Recurse -Force -Path $DebuggersWork -ErrorAction SilentlyContinue
+	}
+}

@@ -126,13 +126,32 @@ comes from the `KitsRoot10` registry value).
 
 D3D12's debug layer (`d3d12SDKLayers.dll`, Windows' optional Graphics Tools; the user's ask, 2026-11-15) is opt in
 (`SPEEDO_D3D12_DEBUG_LAYER=1`, the user's call: Windows' download of it took long; without it setup prints how), and
-setup's one step that needs an administrator: DISM's `/Add-Capability` (`Tools.Graphics.DirectX~~~~0.0.1.0`), run where `System32`
+one of setup's two steps that need an administrator (the debuggers below are the other): DISM's `/Add-Capability` (`Tools.Graphics.DirectX~~~~0.0.1.0`), run where `System32`
 lacks the layer, elevated through one UAC prompt where setup isn't. `Add-WindowsCapability`, tried first, failed in the
 Microsoft Store's PowerShell 7 (exit 1, its error gone with the elevated window), where `dism.exe` installed it; its log
 is `speedo-graphics-tools.log` in the temp directory. A declined prompt or a failure warns, not fails, since the D3D12 backend runs
 without it, unvalidated (the debug layer's absence is what the backend's first validated run found: `rhitest` printed
 "the debug layer isn't installed"). The Agility SDK, if the backend takes it up,
 carries a debug layer of its own (`D3D12SDKLayers.dll` beside the executable), which would make the step redundant.
+
+Debugging Tools for Windows (cdb, WinDbg, kd, symchk under `<KitsRoot10>\Debuggers\<arch>`; the user's ask, 2026-11-22)
+are a feature of the Windows SDK, `OptionId.WindowsDesktopDebuggers`, that Visual Studio's SDK component leaves out
+(the machine they were added on had the 22621 SDK from Visual Studio and no `Debuggers` folder). Setup installs them by
+default where `cdb.exe` is missing, but not with the SDK's installer itself (`winsdksetup.exe`, winget's
+`Microsoft.WindowsSDK.10.0.*`, a WiX burn bundle): that registers an SDK bundle, and the servicing releases of one
+version share the bundle's upgrade code (26100's `{0A07A4BD-...}`, 22621's `{CE0B414B-...}`). Where Visual Studio
+installed an older release of the same version, a debuggers-only install would upgrade that bundle and could remove the
+packages it doesn't select, the headers and libraries. Instead `winget download` fetches 26100's installer (its hash
+checked), which with `/features OptionId.WindowsDesktopDebuggers /layout <dir> /quiet` only downloads the feature
+(about 220 MB in 14 s, no administrator, nothing installed; .NET 4.5's redistributable is part of it). Setup then
+installs the feature's one package, `Installers\SDK Debuggers-x86_en-us.msi`, with `KITSROOT` set to the registry's
+root (its custom actions put the `Debuggers` folder there). That package carries every architecture's debuggers and its
+features choose by `PROCESSOR_ARCHITECTURE`. It quits successfully where a newer version is installed, and it shows in
+Settings > Apps as "SDK Debuggers". Not the layout's per-architecture packages (`X64 Debuggers And Tools-x64_en-us.msi`,
+self-contained): they install the same files under other product codes, and burn detects a package by its product code,
+so the SDK's own installer would still count the feature as missing. msiexec runs elevated through one UAC prompt where setup isn't, with
+logs `speedo-debuggers-download.log` and `speedo-debuggers.log` in the temp directory. The build doesn't need the
+debuggers, so a declined prompt, a failure or a missing winget (GitHub's images) warns, not fails.
 
 ## FASTBuild: precompiled headers with clang-cl overwrite themselves
 
