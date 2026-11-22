@@ -1913,8 +1913,10 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
       strip's voxel had no entry and the probes' light, which leaks there, stood in: 52).
     - Open: a voxel stands for one surface, and at the last level the statuettes take voxels that are mostly wall (the
       opposite facing kept by the order of the normal's bits), and the niche's side wall loses its voxels beside them
-      to their fronts (the z axis over x): a dark line in its corner (13 for 25) and a few levels in the strip. Next,
-      a voxel's surface chosen by how much of it each facing covers (the user's call, 2026-11-22). And walking in, the
+      to their fronts (the z axis over x): a dark line in its corner (13 for 25) and a few levels in the strip. After
+      the fixes below, the line some 4 pixels wide (17 to 20 for 29 to 32) and the strip 3 to 5 lighter, the rest of the
+      niche within 1 to 2: a voxel's surface chosen by how much of it each facing covers deferred (the user's call,
+      2026-11-22: not worth the voxelizing's cost and its change everywhere for that; docs/backlog.md). And walking in, the
       niche is 4 to 5 of 255 too bright for some 30 frames: the young entries show the probes' light, which leaks
       there (63 to 87 with the cache off).
     - Measured: the regression set within 0.2 of 255 of the build before (Sponza's corridor 0.18 darker, the filter's

@@ -20,14 +20,22 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
   user takes as acceptable where it clearly improves the picture. Measure what each shows (bathroom2's niches and
   mirrors, Sponza's curtains, Bistro's frames and shutters, MovingInterior's corners) and what it costs.
   docs/notes/indirect-lighting.md, "One rule for every lookup and hit".
+- **A voxel's surface chosen by how much of it each facing covers** (deferred, the user's call, 2026-11-22): the
+  voxelizer keeps one surface a voxel, by the order of its normal's bits (the axis, then the octahedral bits, then the
+  plane), so at a coarse level a thing smaller than a voxel takes voxels that are mostly another surface's, and a wall
+  meeting others in a corner can lose its voxels there. What shows now, in bathroom2's niche under the window at the
+  room pose (`4.4431,16.9345,49.9102,-1.189,-8.257`): a dark line some 4 pixels wide where the side wall meets the back
+  wall, 17 to 20 of 255 where the voxels a quarter the size give 29 to 32, and 3 to 5 lighter beside the leftmost
+  statuette; the rest of the niche within 1 to 2. Choosing by coverage (each facing's samples counted a voxel, a second
+  pass or more atomics) would cost the voxelizing, at every scroll and every frame for what moves, and change which
+  surface every coarse voxel stands for in every scene; keeping the frontmost of a facing's surfaces instead brought up
+  dark blocks beside the bath's taps. Revisit if such a corner shows. docs/notes/indirect-lighting.md, "The niche
+  behind the statuettes".
 
 - **bathroom2's remaining light where it isn't** (the user's report, 2026-11-21): the line along the ceiling's right
   edge, the space above the ceiling seen through a slot, which the last level lights through the bounce at 1.6 times the
-  ceiling (dark at resolution 256); in the niche under the window, at the last level, the statuettes take voxels that
-  are mostly the walls' (a dark line in the side wall's corner, 13 of 255 where the voxels a quarter the size give 25,
-  and a few levels in the strip beside them): next, a voxel's surface chosen by how much of it each facing covers (the
-  user's call, 2026-11-22); and walking in, the young entries show the probes' light, which leaks there (4 to 5 of 255
-  for some 30 frames). And what testing
+  ceiling (dark at resolution 256); and walking into the niche under the window, the young entries show the probes'
+  light, which leaks there (4 to 5 of 255 for some 30 frames). And what testing
   where a voxel's light was gathered costs: 0.4 ms at bathroom2's pose, 0.65 at Sponza's, 1.3 at Bistro's (the marks
   made once a voxelizing, fewer rays at corners). docs/notes/indirect-lighting.md, "A voxel's light is taken only where
   it was gathered".
