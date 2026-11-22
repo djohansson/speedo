@@ -14,8 +14,11 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
 
 - **bathroom2's remaining light where it isn't** (the user's report, 2026-11-21): the line along the ceiling's right
   edge, the space above the ceiling seen through a slot, which the last level lights through the bounce at 1.6 times the
-  ceiling (dark at resolution 256); the statuettes in the niche under the window 47 to 56 of 255 where the finer
-  voxels give 35 to 44 (the hits test only the voxels marked apart). And what testing
+  ceiling (dark at resolution 256); in the niche under the window, at the last level, the statuettes take voxels that
+  are mostly the walls' (a dark line in the side wall's corner, 13 of 255 where the voxels a quarter the size give 25,
+  and a few levels in the strip beside them): next, a voxel's surface chosen by how much of it each facing covers (the
+  user's call, 2026-11-22); and walking in, the young entries show the probes' light, which leaks there (4 to 5 of 255
+  for some 30 frames). And what testing
   where a voxel's light was gathered costs: 0.4 ms at bathroom2's pose, 0.65 at Sponza's, 1.3 at Bistro's (the marks
   made once a voxelizing, fewer rays at corners). docs/notes/indirect-lighting.md, "A voxel's light is taken only where
   it was gathered".

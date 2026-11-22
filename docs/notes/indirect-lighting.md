@@ -1869,6 +1869,56 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
     before as after (3 runs of 13, 4 of 16). D3D12 within a level of Vulkan. Cost (RTX 4070 Ti SUPER, Vulkan, 1080p,
     settled, interleaved): the GI pass 0.02 to 0.03 ms more, Bistro's lookups 0.02 a pass (its frame +0.06 to 0.09),
     Sponza's frame +0.04, bathroom2's the same.
+  - **The niche behind the statuettes** (`kGiSidesPush`, `GiCacheFilterBlocked`, `GiCacheAnchor`'s facing,
+    `kGiAnchorFacing`, the rays behind an entry's surface in `GiCacheUpdate`; the user's report, 2026-11-22: at
+    `-1.8947,17.6481,6.2699,12.074,1.442` light leaking into the niche behind the statuettes, its look changing with
+    the distance). The niche under the window is a box of double sided sheets standing into the space behind the back
+    wall that the emitter lights; its back wall lies on a face of the voxels (the scene's bounds, which the grid is
+    aligned to), and the camera sees it from the middle and the last level. Four things, measured on the irradiance
+    view at exposure 3 (the last level's voxels 0.68 units):
+    - The lookups on the back wall never left out what their point doesn't see: the GI Sides mask is skipped within a
+      thousandth of a voxel of a voxel's face (`kGiSidesEdge`, the pass's point may be in the voxel beside), and the
+      wall is on one. The voxels under the niche's floor and beyond its sides, whose apexes are in the lit space, lit
+      a band along the floor, the left end and the right edge, 87 to 93 of 255 where the wall above is 51. Now the
+      pass and the lookup take the 27 voxels about the point pushed a tenth of a voxel off the surface, as the apexes
+      are tested from: the band 48 to 54, continuous with the wall.
+    - Walking in, at 8 units forward, a blue smear behind the statuettes: the filter's pass that steps two voxels took
+      a statuette's back's voxel under the floor (its center under it, 0.0335 against the voxel's 0.0071), a quarter
+      of the weight, across the floor's voxel between, whose own normal is the statuette's. Now a wide tap past a
+      drawn side on the voxel's own layer between that faces against the way (but the ways the voxel's own drawn
+      sides face) is left out. Sponza's corridor 1% darker for it (the column tops by the sunlit atrium 29.7 of 255
+      for 31.8, the voxels a quarter the size 26.0 to 26.4). Tried: a ray between the two apexes where either is
+      marked apart, as well, but in the filter's loop 0.1 to 0.2 ms a frame more, whatever it was gated by (the ray
+      query in the loop itself).
+    - A lighter strip beside the leftmost statuette, darker behind them (the user's report): the last level's voxels
+      behind the statuettes stand for their backs, 0.59 in front of the back wall, which has no voxel of its own
+      there, and the wall's lookups read theirs. The strip's voxel has a sliver of a statuette in its footprint (4.5
+      centimetres), and its anchor's rays, aimed back across the footprint, found the niche's side wall a voxel or two
+      forward, near the opening (0.0075): a surface more than 60 degrees from the voxel's normal is taken as none now,
+      the ray starting in the open toward it, within half a voxel of the apex (`kGiAnchorFacing`). And the quarter of
+      an entry's rays that go into the hemisphere behind its surface started on it and met it at once (behind a
+      statuette its own light, 0.0009): they start in the open in front of it now, halfway from where the ray was
+      anchored to the apex. Both in a gap alone: a voxel with a surface facing back at it within a voxel in front, which
+      wrote it too (the two surfaces' entry is one, and the one the voxel doesn't stand for has none of its own).
+      Everywhere, the anchors took the air in every corner (salle_de_bain 0.25 of 255 brighter) and the rays behind saw
+      past the surfaces' edges at grazing angles (Sponza's columns 3% brighter, by the sunlit atrium); in every voxel
+      written by sides facing both ways (the two sides of Bistro's frames and shutters) its facades 0.25 brighter, away
+      from the voxels a quarter the size. The strip at the room pose
+      (`4.4431,16.9345,49.9102,-1.189,-8.257`) 28 to 31 for 40 (the voxels a quarter the size 28), the statuettes' box
+      37.7 for 37.8 and the leak's 64.7 along the niche's floor 51.8 (36.6 and 52.1); at 8 forward the strip 28 to 29
+      for 36 to 41 (27 to 28), between the statuettes 26 to 35 for 9 to 18 (29 to 33). Tried: weighing a clip by the
+      share of its voxels around the point that face its way (the middle clip took over in its fade: 30 to 31 and 25
+      to 29 at 8 forward; no better once the entries held the wall's light); trusting the lookup by that share, so the
+      near field stood in (the user's call: the cache to hold the light); refusing the anchor's other surfaces (the
+      strip's voxel had no entry and the probes' light, which leaks there, stood in: 52).
+    - Open: a voxel stands for one surface, and at the last level the statuettes take voxels that are mostly wall (the
+      opposite facing kept by the order of the normal's bits), and the niche's side wall loses its voxels beside them
+      to their fronts (the z axis over x): a dark line in its corner (13 for 25) and a few levels in the strip. Next,
+      a voxel's surface chosen by how much of it each facing covers (the user's call, 2026-11-22). And walking in, the
+      niche is 4 to 5 of 255 too bright for some 30 frames: the young entries show the probes' light, which leaks
+      there (63 to 87 with the cache off).
+    - Measured: the regression set within 0.2 of 255 of the build before (Sponza's corridor 0.18 darker, the filter's
+      test above; MovingInterior's within its animation's run to run spread).
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows

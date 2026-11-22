@@ -3530,7 +3530,19 @@ bool GiCacheAnchored(GiData gi)
 // two sides in one coarse voxel), the faces along the sheet held both sides', and the floor beside Sponza's curtains
 // read the sky's light of the atrium's side a voxel or two out (the last level's band along them twice as wide, in
 // blocks)
-bool GiCacheAnchor(GiData gi, float3 voxelCenter, float3 facing, float open, int3 world, uint sequence, out float3 origin, out bool inside, out float3 surface)
+// how far a surface an anchor's ray finds in a gap (see GiCacheAnchor) may face from the voxel's normal, as a cosine, and be
+// the voxel's: one that faces another way more is another surface, its light another place's. the last level's voxel beside
+// the leftmost statuette in bathroom2's niche under the window stands for the statuette's back (4.5 centimetres of it in
+// its footprint), and its anchor's rays, aimed back across the footprint from beside the back wall, ran forward along the
+// niche and found its side wall a voxel or two away near the opening, where the room's light comes in: the voxel held
+// 0.0075 and the back wall beside the statuette, which has no voxel of its own there, a lighter strip (40 of 255 at the
+// room pose, the voxels a quarter the size 28; the user's report, 2026-11-22), 29 to 33 now. without a sample there,
+// the voxel had no entry and the probes' light, which leaks in the niche, stood in (52 at 8 units forward). in a gap alone
+// (GiCacheUpdate's gap): everywhere, a floor's voxel by a wall took the air in the corner, and salle_de_bain came out 0.25
+// of 255 brighter
+static const float kGiAnchorFacing = 0.5;
+
+bool GiCacheAnchor(GiData gi, float3 voxelCenter, float3 facing, float open, int3 world, uint sequence, bool gap, out float3 origin, out bool inside, out float3 surface)
 {
 	inside = false;
 	origin = voxelCenter;
@@ -3556,6 +3568,13 @@ bool GiCacheAnchor(GiData gi, float3 voxelCenter, float3 facing, float open, int
 	{
 		inside = true;
 		return false;
+	}
+	// (one facing another way: the ray starts in the open toward it, within half a voxel of the apex, inside the voxel's
+	// own space: see kGiAnchorFacing)
+	if (gap && dot(found.normal, facing) < kGiAnchorFacing)
+	{
+		origin = apex + toward * min(0.5 * found.t, 0.5 * voxel);
+		return true;
 	}
 	origin = apex + toward * found.t + found.normal * gi.cacheAnchorBias;
 	// (the surface's normal there, toward the side the rays leave from)
@@ -3691,8 +3710,15 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	{
 		// anchored (GiCacheAnchored): each ray from the surface under the voxel (GiCacheAnchor), normal the voxel's own
 		bool anchored = surface && GiCacheAnchored(gi);
+		uint drawnFacings = (gGiVoxels[gi.voxelFirst + GiVoxelIndex(at, size)].emissionB >> kGiVoxelDrawnShift) & 0x3Fu;
 		float3 voxelCenter = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
 		float open = GiUnpackRgba16(gGiDirect[gi.voxelFirst + GiVoxelIndex(at, size)]).a * gi.volumeOrigin.w;
+		// (a gap: a surface facing back at the voxel's within a voxel in front of it, which wrote the voxel too. its entry
+		// is read by both, and where the voxel stands for one the other has no voxel of its own: its light in the gap is
+		// the voxel's, see GiCacheAnchor's gap and the rays behind the surface below. every voxel written by sides facing
+		// both ways, the two sides of Bistro's thin frames and shutters too, brightened its facades by 0.25 of 255, away
+		// from the voxels a quarter the size)
+		bool gap = anchored && open < gi.volumeOrigin.w && (drawnFacings & (GiVoxelFacings(-normal, true) >> kGiVoxelDrawnShift)) != 0u;
 		float3 origin = anchored ? voxelCenter : (surface ? GiCacheOrigin(gi, at, normal) : center);
 		GiData last = GiClip(gi.clipCount - 1);
 		float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
@@ -3723,7 +3749,7 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			{
 				bool insideSurface;
 				float3 surfaceNormal;
-				if (!GiCacheAnchor(gi, voxelCenter, normal, open, world, entry.sequence, origin, insideSurface, surfaceNormal))
+				if (!GiCacheAnchor(gi, voxelCenter, normal, open, world, entry.sequence, gap, origin, insideSurface, surfaceNormal))
 				{
 					if (insideSurface)
 						entry.inside += uint(round(float(kGiCacheInsideScale) * estimate));
@@ -3769,7 +3795,17 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 				litHash ^= litHash >> 15;
 				lit = float(litHash & 0xFFFFFFu) / 16777216.0;
 			}
-			bool bvh = GiTraceBvh(walk, origin, direction, far, gi.volumeOrigin.w, hit, true, lit);
+			// (in a gap, a ray into the hemisphere behind the surface from the open in front of it, halfway from where it
+			// was anchored to the apex: from the surface it met the surface at once, and the faces that hemisphere's rays
+			// make, which the lookups of a surface facing this one read where it has no voxel of its own, held this
+			// surface's own light. the last level's voxels behind bathroom2's statuettes stand for their backs, 0.59 units
+			// in front of the niche's back wall, and the wall behind a statuette read 9 to 18 of 255 where the voxels a
+			// quarter the size give 28 to 30 (the user's report, 2026-11-22), 28 to 32 now. everywhere, they saw past the
+			// surface's edges at grazing angles: Sponza's columns 3% brighter, by the sunlit atrium)
+			float3 from = origin;
+			if (gap && dot(direction, normal) < 0.0)
+				from = 0.5 * (origin + voxelCenter + normal * min(0.5 * gi.volumeOrigin.w, 0.5 * open));
+			bool bvh = GiTraceBvh(walk, from, direction, far, gi.volumeOrigin.w, hit, true, lit);
 			if (dumped && rayIt < 8u)
 			{
 				float3 shown = bvh ? hit.radiance.rgb + hit.radiance.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6) : 0.0;
@@ -3798,7 +3834,7 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 				traced = hit.radiance;
 			}
 			else
-				traced = GiMarch(walk, origin, direction, far, true, gi.volumeOrigin.w);
+				traced = GiMarch(walk, from, direction, far, true, gi.volumeOrigin.w);
 			float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6);
 			if (any(isnan(radiance)) || any(isinf(radiance)))
 				continue;
@@ -4029,8 +4065,16 @@ GiCacheTap GiCacheReadTap(GiData gi, uint half, uint3 at, uint3 blocks)
 // (their entries' own light 3.5e-5, the volumes 5.7e-4; the user's report, 2026-11-20). the shell is in front of the wall
 // where it meets it, and faces along the way to the tap (it crosses it); an open wall has air there. by anything there,
 // a vault's taps along a wall it springs from, which faces across the way, were left out too, and the vault's few
-// samples' noise showed (an orange blot over a corbel)
-bool GiCacheFilterBlocked(GiData gi, uint3 at, uint3 size, int3 unit, int step, float3 normal)
+// samples' noise showed (an orange blot over a corbel). and past a drawn side on the voxel's own layer between that faces
+// against the way, other than the ways the voxel's own drawn sides face (ownFacings: a curved surface's voxels hold sides
+// facing several ways): the voxel is in front of it, the tap behind. in bathroom2's niche under the window (glTF research
+// scenes) the last level's voxels behind the statuettes stand for their backs, and the one two under, for a statuette's
+// back by its base, has its center under the niche's floor, in the space lit by the emitter behind the back wall (0.0335
+// where the voxel's own light is 0.0071): the pass that steps two voxels took it, a quarter of the weight, across the
+// floor's voxel between, whose voxel normal is the statuette's (a blue smear behind them, the user's report, 2026-11-22).
+// Sponza's corridor 1% darker for it, the column tops by the sunlit atrium 29.7 of 255 for 31.8, as the voxels a quarter
+// the size have them (26.0 to 26.4). a ray between the apexes did as well, in the pass's loop 0.1 to 0.2 ms a frame more
+bool GiCacheFilterBlocked(GiData gi, uint3 at, uint3 size, int3 unit, int step, float3 normal, uint ownFacings)
 {
 	int3 out = int3(round(normal));
 	float3 way = normalize(float3(unit));
@@ -4042,6 +4086,13 @@ bool GiCacheFilterBlocked(GiData gi, uint3 at, uint3 size, int3 unit, int step, 
 		GiVoxel voxel = gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(between), size)];
 		if ((voxel.albedo >> 24) != 0u && abs(dot(GiVoxelNormal(voxel.normal), way)) > 0.5)
 			return true;
+		int3 beside = int3(at) + unit * k;
+		if (!GiInside(beside, size))
+			continue;
+		uint facings = (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(beside), size)].emissionB >> kGiVoxelDrawnShift) & 0x3Fu & ~ownFacings;
+		for (uint facingIt = 0; facingIt < 6u && facings != 0u; facingIt++)
+			if ((facings & (1u << facingIt)) != 0u && dot(way, GiFacingAxis(facingIt)) < -0.5)
+				return true;
 	}
 	return false;
 }
@@ -4258,7 +4309,7 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 				if (sides && !isSelf && GiCacheFilterStacked(self, tap, float3(offset)))
 					continue;
 				// (nor a tap two voxels away or more past something in front of the surface between: GiCacheFilterBlocked)
-				if (step > 1 && !isSelf && GiCacheFilterBlocked(gi, at, size, int3(x, y, z), step, self.normal))
+				if (step > 1 && !isSelf && GiCacheFilterBlocked(gi, at, size, int3(x, y, z), step, self.normal, (own.emissionB >> kGiVoxelDrawnShift) & 0x3Fu))
 					continue;
 				float kernel = (x == 0 ? 0.5 : 0.25) * (y == 0 ? 0.5 : 0.25) * (z == 0 ? 0.5 : 0.25);
 				float plane = dot(float3(offset), self.normal);
@@ -5222,6 +5273,9 @@ bool GiApexSees(GiClipView gi, uint index, GiVoxel voxel, int3 at, float3 point)
 // (the storage images are float), kGiSidesComputed's bit in its exponent and bit 30 never, so that it is neither a NaN,
 // an infinity nor subnormal, which a store or a load may change
 static const uint kGiSidesComputed = 1u << 29;
+// how far off the surface, in voxels, the point the 27 voxels are about is (see kGiSidesEdge): as far as the point the
+// voxels' apexes are tested from (GiClipSees)
+static const float kGiSidesPush = 0.1;
 
 uint GiSidesMask(GiClipView clip, float3 position, float3 normal)
 {
@@ -5231,7 +5285,7 @@ uint GiSidesMask(GiClipView clip, float3 position, float3 normal)
 	// the corner's column as it was. where the far sides' marks counted too, which bathroom2's double sided walls have
 	// everywhere, the pass took 1.4 ms at its pose, 2.4 at Bistro's)
 	uint3 size = clip.volumeSize.xyz;
-	int3 voxel = int3(floor((position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w));
+	int3 voxel = int3(floor((position + normal * (kGiSidesPush * clip.volumeOrigin.w) - clip.volumeOrigin.xyz) / clip.volumeOrigin.w));
 	bool marked = false;
 	for (uint voxelIt = 0; voxelIt < 27u && !marked; voxelIt++)
 	{
@@ -5284,10 +5338,16 @@ static bool gFragmentGiSides = false;
 // face, where the pass's point, of the pre-pass's depth, may be in the voxel beside. the point and the clips
 // reconstructed here from that depth as the pass has them (ShadowSurfaceAt), the clip a mask stood for was another than
 // the one it was read for (clip 1's read as clip 2's at a sink in bathroom2, a stair stepped patch the size of the last
-// level's voxels, lighter, across the dark ring around its bottom: the user's report, 2026-11-21)
+// level's voxels, lighter, across the dark ring around its bottom: the user's report, 2026-11-21). the point pushed off
+// the surface along its normal by kGiSidesPush of a voxel, in the pass and here alike: a surface on a voxel's face (a
+// wall on the scene's bounds, where the grid is aligned) was within the edge everywhere, and its lookups never left out
+// what their point doesn't see: bathroom2's niche under the window stands into the space lit by the emitter behind the
+// back wall, its back wall on a face of the last level's voxels, and the voxels under its floor and beyond its sides,
+// whose apexes are in that space, lit it in a band along the floor, at the left end and up the right edge (87 to 93 of
+// 255 at the irradiance view's exposure 3 where the wall above is 51; the user's report, 2026-11-22)
 static const float kGiSidesEdge = 1e-3;
 
-uint GiSidesHidden(GiClipView clip, float3 coordinate, float3 position)
+uint GiSidesHidden(GiClipView clip, float3 coordinate, float3 position, float3 normal)
 {
 	if (!gFragmentGiSides)
 		return 0u;
@@ -5301,7 +5361,7 @@ uint GiSidesHidden(GiClipView clip, float3 coordinate, float3 position)
 	}
 	if (mask == 0u)
 		return 0u;
-	float3 at = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+	float3 at = (position + normal * (kGiSidesPush * clip.volumeOrigin.w) - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
 	float3 within = at - floor(at);
 	if (any(within < kGiSidesEdge) || any(within > 1.0 - kGiSidesEdge))
 		return 0u;
@@ -5377,7 +5437,7 @@ GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias
 		// (by hand: the far sides left out where the lookup reads any, and near a voxel whose light was gathered apart from
 		// a neighbour's, the voxels whose light the point doesn't see gathered, whatever is marked among the 8: see
 		// ComputeGiCacheFilter and GiSidesHidden)
-		uint far = GiSidesHidden(gi, coordinate, position);
+		uint far = GiSidesHidden(gi, coordinate, position, normal);
 		if (result.last.z > 0.0)
 			far |= GiFarSides(gi, coordinate, normal, (position - gi.volumeOrigin.xyz) / gi.volumeOrigin.w);
 		if (far != 0u)
