@@ -90,12 +90,22 @@ states what it adds at that size, at the research scenes' reference poses and th
 
 ### B. Bugs the comparison found
 
-- **B1. Glass through several surfaces goes black when traced** (the largest error in the set): glass-of-water's glass,
-  water and ice are black silhouettes (2.89 stops off; without traced refractions, `SPEEDO_TRACED_REFRACTIONS=0`, they
-  turn nearly invisible instead, 2.41), coffee-maker's carafe (0.53; 0.32 untraced), spaceship's dome, likely crown's
-  gems and teapot-full's tea. Their materials are ordinary (white, transmission 1, IOR 1.31 to 1.5, single sided), their
-  meshes closed solids nested in each other or thick walled shells: the traced path (`TracedPath`, `GlassPathStep`) with
-  its inside and outside, its single sided backs, `SHADER_TYPES_CAUSTIC_SURFACE_COUNT`, to be found first.
+- **B1. Glass went black when traced** (the largest error in the set): glass-of-water's glass, water and ice were black
+  silhouettes (2.906 stops off; without traced refractions, `SPEEDO_TRACED_REFRACTIONS=0`, nearly invisible instead,
+  2.41), coffee-maker's carafe (0.511), spaceship's dome, crown's gems. Not the glass: a diagnostic of the paths' ends (red
+  where a surface left nothing, green where they ran out of surfaces, blue where they met glass as opaque, yellow where
+  they met nothing) showed a few red specks and the ice green; the black paths reached an ordinary opaque surface, lit
+  dark. A traced hit took no light from the emissive surfaces (the notes' "not yet": the emissive surfaces' light at a
+  hit), and these scenes are lit by emissive meshes: glass-of-water's backdrop by an emissive quad. So a traced hit
+  takes it as the main pass's pixels do (step 2). Two more of the set's ways with glass show then:
+  - **Thin walls** (open question 6): glTF has transmission without `KHR_materials_volume` as an infinitely thin wall,
+    which bends nothing, and the renderer so; the set's dielectrics are pbrt's solids (the converter adds a volume only
+    for absorption), and Cycles' importer refracts them as solids, so the reference's water and glass bend what is
+    behind them and the renderer's don't.
+  - **The emitters' light passes through glass**: their shadow rays meet no glass, as the punctual lights' don't, which
+    take the glass back through the shadow transmittance; the emitters have none, so cornell-caustic's floor under its
+    water takes its light's direct light with the boxes' hard shadows, where the reference has the water's caustics
+    (0.495 stops off before step 2, 0.732 after: the direct light is right, its caustics missing; C3).
 - **B2. Volume absorption by the thickness factor where the refraction is traced**: modern-hall's green glass panel is an
   opaque slab (its thickness factor 8.84 at an attenuation distance of 2 absorbs all but 1%; Cycles absorbs over the
   path's length inside the thin panel, which the factor doesn't describe). Where the refraction is traced, the
@@ -204,10 +214,12 @@ The settings file and its loading, the research set's files written from the not
 mips. Gate: the comparison takes the conditions from the files (the script's own variables gone) with the same
 measures, bmw-m6 near its reference, the validation layer quiet on spaceship.
 
-### 2. Traced glass through several surfaces (B1)
+### 2. The emitters' light at traced hits (B1)
 
-Found and fixed. Gate: glass-of-water, coffee-maker, spaceship, teapot-full and crown toward their references; the glass
-sample models (the notes' 16) and the caustic scenes as before or better.
+A traced hit's emitter sample (`TracedHitRadiance`: `EmitterCandidates` from `kTracedEmitterCandidateCount` candidates,
+`EmitterShade`'s shadow ray, by the hit's brdf). Gate: glass-of-water, coffee-maker, spaceship, teapot-full and crown
+toward their references; every scene else as before (cornell-caustic's regression is C3's to take back); Bistro at
+night's reflections; the cost in the Reflection Trace pass and Main Transmissive.
 
 ### 3. Absorption over the traced path (B2)
 
@@ -254,6 +266,10 @@ reference, so that they fail on a regression, not on what the renderer approxima
 4. CI: a couple of the comparisons, if they fit its time budget, chosen knowing lavapipe traces in software (step 10).
 5. The plan is worked through without stopping between steps; commits as each step passes its gates, nothing pushed
    before the user approves.
+
+6. Thin walls (B1): the set's dielectrics carry no `KHR_materials_volume`, which glTF reads as infinitely thin walls (no
+   bending, the renderer's way and the Khronos viewer's), while Cycles' importer refracts them as solids, as pbrt
+   rendered them. The user's call, 2026-11-22: solids where the set's conditions apply (`SPEEDO_SOLID_TRANSMISSION`).
 ## Progress
 
 - 2026-11-22: the plan written; `scripts/researchcompare.ps1` added and the baseline taken; nothing else built.
@@ -265,3 +281,18 @@ reference, so that they fail on a regression, not on what the renderer approxima
   (A3, `SPEEDO_SKY_WITH_MODEL_LIGHTS=1` keeps it); a mirrored camera rendered mirrored (A4: bmw-m6 1.560 to 0.388);
   panoramas narrower than 256 scaled up (B3: spaceship's validation message gone). docs/notes/assets.md, "A model's own
   conditions"; docs/environment-variables.md.
+- 2026-11-23, **step 2**: a traced hit takes the emitters' light (`TracedHitRadiance`): the diffuse as the screen
+  gathered it where the hit is on the screen (`TracedEmitterSeen`), else as its voxel keeps it (`TracedEmitterKept`);
+  the specular from a light sample (2 candidates, a shadow ray) where the hit's specular takes at least a tenth of the
+  light. A light sample at every hit (the diffuse too) came closer but cost Bistro at night 3.1 ms a frame at 1440p (2.2
+  with one candidate); the split costs 0.6 there, 0.1 in bathroom2, 2.2 in glass-of-water (its metals' highlights all
+  sampled), nothing without emitters (Sponza). The comparison against step 1, every scene (blurred, stops; the light
+  sample at every hit's in brackets): glass-of-water 2.906 to 1.056 (1.055), veach-mis 0.889 to 0.726 (0.639), crown
+  0.718 to 0.594 (0.591), coffee-maker 0.511 to 0.319 (0.279), modern-hall 0.398 to 0.284 (0.277), spaceship 0.365 to
+  0.260 (0.262), kitchen 0.308 to 0.278 (0.262), bathroom 0.266 to 0.242 (0.224), bathroom2 0.253 to 0.234 (0.223),
+  veach-bidir 0.290 to 0.271, staircase 0.142 to 0.121, lamp 0.216 to 0.193; cornell-caustic 0.495 to 0.672 (its floor
+  under the water lit directly, its caustics missing: C3). Transmission without a volume as a solid where the set's
+  conditions apply (question 6; `TransmissionSolid`, `SPEEDO_SOLID_TRANSMISSION`): glass-of-water's water, ice and
+  glass refract as the reference's do (its measure held up by its darker table), teapot-full 0.251 to 0.186; the cars'
+  single sheet windows refracted too, vintage-car 0.171 to 0.197, pontiac-gto 0.320 to 0.330. If the user takes
+  quality over the cost here, the light sample at every hit is a constant's change away.

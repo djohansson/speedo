@@ -1149,7 +1149,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				for (auto image : myGiNearHistory)
 					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.Use(myGiSides, ResourceUse::Sampled(PipelineStage::kFragmentShader));
-				for (auto image : myEmitterHistory)
+				// the emitters' light, and the pixels' surfaces a traced hit's lookup of it checks (see TracedEmitterSeen)
+				for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterPixelSurfaces[0], myEmitterPixelSurfaces[1]})
 					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			},
@@ -1943,6 +1944,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				builder.Use(mySkyEyeView, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				// the emitters' light the view gathered where a hit is on the screen (see TracedEmitterSeen)
+				for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterPixelSurfaces[0], myEmitterPixelSurfaces[1]})
+					builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				for (auto volume : myGiVolumes)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				builder.Use(myGiWorld, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));

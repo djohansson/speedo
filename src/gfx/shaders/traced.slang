@@ -27,6 +27,11 @@ static const uint kTracedFragmentRayCount = 5u;
 // how many transmissive surfaces a reflection's ray goes through (see TracedRadiance), the one it met first among them:
 // past them the caller keeps what it would have taken untraced
 static const uint kTracedReflectionGlassSurfaceCount = 2u;
+// the emitters' highlights at a traced hit (see TracedHitRadiance): sampled where the hit's specular takes at least this
+// share of the light (the split sum's terms, as luminance: a dielectric's 0.04 at normal incidence, a metal's most of
+// it), from this many candidates, one shadow ray
+static const float kTracedEmitterSpecularLeast = 0.1;
+static const uint kTracedEmitterCandidateCount = 2u;
 // the share of a reflection's light the specular takes (the split sum's terms by the occlusion, as luminance) below which
 // none of it is traced, and from which all of it: below, what a trace changes wouldn't show. a dielectric's is about 0.04
 // at normal incidence (glass, water: traced), and grows toward grazing angles; an obj material of a faint Ks (its Ns
@@ -373,6 +378,36 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 			through = ShadowTransmittance(place, true);
 		radiance += BaseLobe(surface, view, toLight, nDotL) * nDotL * light.intensity.rgb * falloff * through;
 	}
+	// the emissive surfaces' light. the diffuse: where the hit is on the screen, what the main pass gathered at its pixel
+	// (TracedEmitterSeen: filtered and over frames), else what the hit's voxel keeps (TracedEmitterKept). the specular
+	// (their highlights), where the hit's specular takes at least kTracedEmitterSpecularLeast of the light (metals, and
+	// what grazing angles make a mirror of): a point resampled from candidates down the light tree (EmitterCandidates) and
+	// its shadow ray (EmitterShade), by the specular lobe. without, what the emitters light was lit by the probes alone
+	// wherever a ray met it, and the glTF research set's glass-of-water, whose backdrop and floor are rough metals an
+	// emissive quad lights, was black through the glass, 2.9 stops off its reference (docs/research-scenes-plan.md, B1). a
+	// light sample at every hit cost Bistro at night 3.1 ms a frame at 1440p (2.2 with one candidate, not four), and the
+	// lookup on the screen first saved little: a wave waits for its slowest thread
+	if (EmittersLight())
+	{
+		float3 seen = TracedEmitterSeen(position, normal);
+		radiance += seen.x >= 0.0 ? surface.diffuseColor * seen : TracedEmitterKept(surface, view, position, normal, hit);
+		float3 specularShare = EnvironmentBrdfApprox(surface.f0, surface.f90, surface.roughness, nDotV);
+		if (dot(specularShare, float3(0.2126, 0.7152, 0.0722)) >= kTracedEmitterSpecularLeast)
+		{
+			EmitterRandom random = EmitterRandomAt(gFragmentPixel ^ uint2(0x2545u, 0xf491u), gEmitterData[frameIndex][0].frame);
+			float nearest = max(coneWidth, push);
+			EmitterReservoir reservoir = EmitterCandidates(position, normal, kTracedEmitterCandidateCount, nearest * nearest, random);
+			bool visible;
+			float3 irradiance = EmitterShade(reservoir, position, normal, push, nearest * nearest, true, true, visible);
+			if (visible)
+			{
+				Surface specular = surface;
+				specular.diffuseColor = 0.0;
+				float3 toPoint = normalize(EmitterPointAt(reservoir.triangle, reservoir.barycentrics).position - position);
+				radiance += BaseLobe(specular, view, toPoint, max(dot(normal, toPoint), 1e-4)) * irradiance;
+			}
+		}
+	}
 
 	float3 indirect;
 	float3 specularRadiance;
@@ -415,6 +450,66 @@ void TracedIndirect(
 	}
 	else
 		indirect = EnvironmentIrradiance(environment, normal);
+}
+
+// the emitters' light where a traced hit is on the screen (see TracedHitRadiance): what the main pass gathered at the
+// pixel there (Emitter Temporal's history, the irradiance over pi, as EmitterIrradiance takes it: filtered and over
+// frames, no ray), where that pixel's surface is the hit's (Emitter Temporal's pixel surfaces: its distance from the eye
+// within a hundredth, its normal within 25 degrees); -1 where the hit is off the screen or something else is there.
+// most of a refraction's hits are what the view shows behind the glass, and a mirror's what it shows in front: their
+// own sample each cost Bistro at night 2.2 ms a frame at 1440p
+float3 TracedEmitterSeen(float3 position, float3 normal)
+{
+	EmitterData data = gEmitterData[gPushConstants.frameIndex][0];
+	ViewData view = gViewData[gPushConstants.frameIndex][gShadingViewId];
+	float4 clip = mul(view.viewProjection, float4(position, 1.0));
+	if (clip.w <= 0.0)
+		return -1.0;
+	float2 at = (clip.xy / clip.w * 0.5 + 0.5) * view.viewport.zw + view.viewport.xy;
+	if (any(at < view.viewport.xy) || any(at >= view.viewport.xy + view.viewport.zw))
+		return -1.0;
+	int2 texel = int2(at);
+	uint current = data.frame & 1u;
+	float2 seen = gTextures[SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE + current].Load(int3(texel, 0)).xy;
+	float expected = distance(view.eyePosition.xyz, position);
+	if (seen.x < 0.0 || abs(seen.x - expected) > 0.01 * expected || dot(EmitterUnpackNormal(seen.y), normal) < 0.9)
+		return -1.0;
+	float4 light = gTextures[SHADER_TYPES_EMITTER_HISTORY_TEXTURE + current].Load(int3(texel, 0));
+	return light.a >= 0.0 ? light.rgb : -1.0;
+}
+
+// the emitters' light a traced hit's voxel keeps (gGiKept: what arrives there and the way it arrives from, taken once at
+// a static voxel's voxelizing, GiEmitterKept), as the indirect lighting's rays' hits take it (GiHitLitAt): its diffuse,
+// what arrives at the hit's normal by the diffuse color over pi. the voxel the hit is in (a twentieth of a voxel into its surface)
+// of the finest clip holding it, where it holds a surface facing the hit's way; none where it moves (its light isn't
+// kept apart) or nothing facing so is voxelized there. the voxel that stands for the hit by GiHitVoxel's search of the
+// voxels beside it cost Bistro at night 1.2 ms a frame at 1440p
+float3 TracedEmitterKept(Surface surface, float3 view, float3 position, float3 normal, BvhHit hit)
+{
+	GiData gi = GiClip(0);
+	if (gi.enabled == 0u)
+		return 0.0;
+	uint clipIt = 0;
+	for (; clipIt + 1u < gi.clipCount; clipIt++)
+	{
+		GiClipView fade = GiClipViewAt(clipIt);
+		if (all(abs(position - fade.fadeCenter.xyz) < fade.fadeExtent.xyz))
+			break;
+	}
+	GiClipView clip = GiClipViewAt(clipIt);
+	int3 at = int3(floor((position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w - hit.normal * 0.05));
+	uint3 size = clip.volumeSize.xyz;
+	if (any(at < 0) || any(at >= int3(size)))
+		return 0.0;
+	uint index = clip.voxelFirst + GiVoxelIndex(uint3(at), size);
+	GiVoxel voxel = gGiVoxels[index];
+	if ((voxel.albedo >> 24) == 0u || dot(GiVoxelNormal(voxel.normal), hit.normal) < 0.5)
+		return 0.0;
+	GiVoxel still = gGiStaticVoxels[index];
+	if (still.albedo != voxel.albedo || still.normal != voxel.normal)
+		return 0.0;
+	uint2 kept = gGiKept[index];
+	return GiKeptInside(kept) ? 0.0 : surface.diffuseColor / 3.14159265 * GiKeptIrradiance(kept, normal);
 }
 
 // the near field rays a traced hit's light takes where its lookup is weak (see TracedIndirect): one in the visibility

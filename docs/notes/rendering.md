@@ -1244,7 +1244,19 @@ pixels: by that try the gold strip at the foot of Sponza's curtains reflected th
 courtyard, in orange flames; they cost Main Visibility 0.09 ms at the user's pose there, 0.10 in Sponza's corridor and
 0.31 in Bistro's street, 2560x1440, RTX 4070 Ti SUPER, half of it their code, traced where the lookup sees no probe
 alone; fading such hits' light out instead cost nothing, but left golden patches along the corridor's hems), plus its
-emission; where the ray meets
+emission, plus the emissive surfaces' light (since 2026-11-23, docs/research-scenes-plan.md, step 2): the diffuse where
+the hit is on the screen as the main pass gathered it at the pixel there (`TracedEmitterSeen`: Emitter Temporal's
+history, where its pixel surfaces say that pixel's surface is the hit's), else as the hit's voxel keeps it (`gGiKept`,
+`TracedEmitterKept`: the voxel the hit is in, as the indirect lighting's rays' hits take it); the specular, where the
+hit's specular takes at least `kTracedEmitterSpecularLeast` (0.1) of the light, from a point resampled from
+`kTracedEmitterCandidateCount` (2) candidates down the light tree and its shadow ray (`EmitterCandidates`,
+`EmitterShade`), by the specular lobe. Without, what the emitters light was lit by the probes alone wherever a ray met
+it, and the glTF research set's glass-of-water, its backdrop and floor rough metals an emissive quad lights, was black
+through the glass (2.906 stops off its reference). A light sample at every hit, the diffuse too, was the closest
+(glass-of-water 1.058, veach-mis 0.639, coffee-maker 0.258, bathroom 0.224, kitchen 0.262; the split 1.056, 0.726,
+0.319, 0.242, 0.277) but cost Bistro at night 3.1 ms a frame at 1440p (2.2 with one candidate, not four; the screen's
+lookup in front of it saved little, a wave waiting for its slowest thread), the split 0.6, glass-of-water 2.2 (its
+metals' highlights are all sampled) and bathroom2 0.1; where the ray meets
 nothing, the environment along it (the sky with its sun). Debug view Traced Reflections (`traced-reflections`): what the
 reflections see where they are traced (the glossy ones filtered and over frames), magenta elsewhere. Through the glass
 (framed, against the refraction that didn't leave its volume and hits lit past the glass): the 16 glass sample models
@@ -1271,8 +1283,8 @@ over a mirror floor 0.60 to 0.65 and 0.36 to 0.39 ms, ABeautifulGame 0.36 to 0.4
 above; the 16 glass sample models change by 0.02 to 0.13 of 255 (glass reflecting glass: TransmissionTest's spheres
 their neighbors, DispersionTest's blocks each other). Not yet (TODO.md):
 glossy refractions (the transmissive surfaces are drawn forward, after the visibility buffer: they keep the sharp trace,
-and the transmission texture's mips where rough), the emissive surfaces' light at a hit where they are lights, a hit's own
-reflections, and the glossy rays at a lower resolution (their cost, below).
+and the transmission texture's mips where rough), a hit's own reflections, and the glossy rays at a lower resolution
+(their cost, below).
 
 Each kernel traces from one call site, in a loop the compiler doesn't unroll (`[loop]`): every call is a copy of all that
 shades a hit (the glass's path, the hit's lights and their shadow rays, the probes, the near field's rays), since NIR
