@@ -3,6 +3,7 @@
 
 #include <core/file.h>
 #include <core/math.h>
+#include <core/runtimings.h>
 #include <core/utils.h>
 #include <gfx/graphicsapi.h>
 #include <gfx/lens.h>
@@ -2672,6 +2673,30 @@ void WindowedApplication::PrepareDraw()
 	bool modelInstalled = !gAutoCameraAfterModel ||
 						  (gAutoModel ? modelIs(*gAutoModel) : !App().GetScene().GetScenes().Read().Get().filePath.empty()) ||
 						  (gAutoLoadsReadyFrame && gDrawnFrameCount.load(std::memory_order_relaxed) > *gAutoLoadsReadyFrame + kInstallWaitFrameCount);
+	// SPEEDO_RUN_TIMINGS: the automation's milestones, each once
+	auto runTiming = [](bool& done, bool reached, std::string_view what)
+	{
+		if (!done && reached)
+		{
+			done = true;
+			core::RunTiming(std::string(what));
+		}
+	};
+	if (core::RunTimings())
+	{
+		static std::vector<bool> gAutoLoadTimed;
+		gAutoLoadTimed.resize(gAutoLoads.size());
+		for (size_t loadIt = 0; loadIt < gAutoLoads.size(); loadIt++)
+		{
+			bool done = gAutoLoadTimed[loadIt];
+			runTiming(done, gAutoLoads[loadIt].IsReady(), std::format("autoload {} of {} ready", loadIt + 1, gAutoLoads.size()));
+			gAutoLoadTimed[loadIt] = done;
+		}
+		static bool gModelInstalledTimed = false;
+		runTiming(gModelInstalledTimed, autoLoadsReady && modelInstalled, "the autoloads ready, the model installed");
+		static bool gSceneReadyTimed = false;
+		runTiming(gSceneReadyTimed, myScene && myScene->IsReady(), "the scene ready (its shaders loaded, the compute pipelines made)");
+	}
 	if (!gAutoLightSizes.empty() && autoLoadsReady && modelInstalled && !App().GetScene().GetScenes().Read().Get().filePath.empty())
 	{
 		auto sizes = App().GetScene().GetLightSizes().Write();
@@ -2754,6 +2779,14 @@ void WindowedApplication::PrepareDraw()
 			poses.emplace_back(glm::vec3(values[0], values[1], values[2]), glm::vec3(glm::radians(values[3]), glm::radians(values[4]), 0.0F));
 		myViews->FollowPath(std::move(poses));
 		gAutoPathFollowed = true;
+		core::RunTiming(std::format("the camera path of {} poses started", gAutoPath.size()));
+	}
+	if (core::RunTimings())
+	{
+		static bool gCameraPlacedTimed = false;
+		runTiming(gCameraPlacedTimed, !gAutoCamera && !gAutoFrame && autoLoadsReady && modelInstalled, "the camera placed");
+		static bool gPathEndTimed = false;
+		runTiming(gPathEndTimed, gAutoPathFollowed && !myViews->OnPath(), "the camera path ended");
 	}
 	if ((gAutoTurn != 0.0F || gAutoWalk != 0.0F) && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) &&
 		!App().GetScene().GetScenes().Read().Get().filePath.empty())
@@ -2882,6 +2915,14 @@ void WindowedApplication::PrepareDraw()
 	}
 	if (!sceneSettled)
 		gAutoLoadExitStart.reset();
+	// (each change: it waits again for what a model's install brings, its graphics pipelines)
+	if (static bool gSettledTimed = false; core::RunTimings() && myScene && myScene->IsReady() && sceneSettled != gSettledTimed)
+	{
+		gSettledTimed = sceneSettled;
+		core::RunTiming(
+			sceneSettled ? "the scene settled (its graphics pipelines made, its installs bound)"
+						 : "the scene waits (for graphics pipelines or an install)");
+	}
 	if (gAutoLoadExitFrames && sceneSettled && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) &&
 		!gAutoCamera && !gAutoFrame && modelInstalled && (gAutoPath.empty() || (gAutoPathFollowed && !myViews->OnPath())) &&
 		presentationTestDone)
@@ -2892,6 +2933,7 @@ void WindowedApplication::PrepareDraw()
 		if (!gAutoLoadExitStart)
 		{
 			gAutoLoadExitStart = drawn;
+			core::RunTiming(std::format("the exit's count of {} frames started", *gAutoLoadExitFrames));
 			// SPEEDO_REPEATABLE: the draw thread restarts the frames' sequences at the start of its next frame, and captures
 			// the frame the count ends on itself (see gRepeatableCaptureFrame), counted from there. again if the count starts
 			// over (a pipeline missing again)
@@ -2915,6 +2957,7 @@ void WindowedApplication::PrepareDraw()
 			// the draw thread's capture (see gRepeatableCaptureFrame), saved
 			if (gCaptureState == 3)
 			{
+				core::RunTiming("exit requested");
 				core::Application::Get()->RequestExit();
 				gAutoLoadExitFrames.reset();
 			}
@@ -2929,10 +2972,12 @@ void WindowedApplication::PrepareDraw()
 			uint8_t idle = 0;
 			if (gCapturePath.empty())
 				gCapturePath = capture;
-			gCaptureState.compare_exchange_strong(idle, 1);
+			if (gCaptureState.compare_exchange_strong(idle, 1))
+				core::RunTiming("the count ended, the capture asked for");
 		}
 		else
 		{
+			core::RunTiming("exit requested");
 			core::Application::Get()->RequestExit();
 			gAutoLoadExitFrames.reset();
 		}

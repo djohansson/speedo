@@ -1,6 +1,8 @@
 #include "framecapture.h"
 #include "windowedapplicationdetail.h"
 
+#include <core/runtimings.h>
+
 namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
@@ -400,6 +402,9 @@ WindowedApplication::WindowedApplication(
 {
 	using namespace windowedapplication;
 
+	core::SetRunTimingFrames(&gDrawnFrameCount);
+	core::RunTiming("the rhi made");
+
 	auto& rhi = GetRHI();
 	auto& instance = rhi.GetInstance();
 	auto& device = rhi.GetPrimaryDevice();
@@ -445,6 +450,7 @@ WindowedApplication::WindowedApplication(
 	myScene->WatchShaders(reload == nullptr || std::string_view(reload) != "0");
 	// and the ui's with them (one compile at a time, see gfx::ShaderLoader), which InternalPrepare gives the ImGui renderer
 	myScene->AddReloadedLayout("ImGui", gfx::ImGuiShaderLayout(std::get<std::filesystem::path>(GetEnv().variables["ShaderPath"])));
+	core::RunTiming("the views, the ui and the scene made");
 }
 
 WindowedApplication::~WindowedApplication()
@@ -515,6 +521,7 @@ void WindowedApplication::Shutdown()
 
 	// let in-flight frame tasks (from the last Draw) and loads finish before tearing anything down
 	executor.JoinAll();
+	core::RunTiming("shutdown: the tasks joined");
 
 	// settle: run the draw calls the draw task didn't get to, wait for the gpu, and run the timeline callbacks that are
 	// now due, until no draw calls remain. an unrun task is never destroyed, and would leak what it holds past the device:
@@ -560,6 +567,7 @@ void WindowedApplication::Shutdown()
 		if (rhi.drawCalls.size_approx() != 0)
 			settled = false;
 	}
+	core::RunTiming("shutdown: the gpu idle, the callbacks run");
 
 	// what the last frames presented with, once shown (the swapchain goes with the rhi). nothing headless
 	if (myImageOutput == nullptr)
@@ -571,13 +579,16 @@ void WindowedApplication::Shutdown()
 	myThumbnails.reset();
 	myImagePreview.reset();
 	myAboutIcon.reset();
+	core::RunTiming("shutdown: the ui released");
 
 	// what holds gpu objects, before the rhi they belong to
 	myPreview.reset();
 	myScene.reset();
+	core::RunTiming("shutdown: the scene released");
 	myOutput.reset();
 	myViews.reset();
 	myRHI.reset();
+	core::RunTiming("shutdown: the rhi released");
 }
 
 } // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

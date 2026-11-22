@@ -6,6 +6,7 @@
 #include <rhi/vulkan/utils.h>
 
 #include <core/file.h>
+#include <core/runtimings.h>
 
 #include <algorithm>
 #include <chrono>
@@ -588,6 +589,7 @@ Pipeline<kVk>::~Pipeline()
 		fileInfo)
 	{
 		std::println("Saved pipeline cache to {}", fileInfo.value().path);
+		core::RunTiming(std::format("rhi: the pipeline cache saved ({})", std::filesystem::path(fileInfo.value().path).filename().string()));
 	}
 	else
 	{
@@ -595,6 +597,7 @@ Pipeline<kVk>::~Pipeline()
 	}
 
 	InternalDestroyPipelines();
+	core::RunTiming("rhi: the pipelines destroyed");
 
 	Untrack(VK_OBJECT_TYPE_PIPELINE_CACHE, myCache);
 	vkDestroyPipelineCache(

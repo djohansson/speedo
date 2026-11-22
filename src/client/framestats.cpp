@@ -2,6 +2,8 @@
 
 #include "windowedapplicationdetail.h"
 
+#include <core/runtimings.h>
+
 #include <algorithm>
 #include <print>
 #include <ranges>
@@ -43,9 +45,12 @@ void FrameStats::Count(bool warming)
 	// how long the window took to show its first frame (the startup's cost before anything is drawn: the ImGui renderer's
 	// shaders, compiled or precompiled, and the window's pipelines)
 	if (gDrawnFrameCount.fetch_add(1, std::memory_order_relaxed) == 0)
+	{
+		core::RunTiming("the first frame submitted");
 		std::println(
 			"first frame presented {:.2f} s after start",
 			std::chrono::duration<double>(std::chrono::steady_clock::now() - framestats::gStartTime).count());
+	}
 	if (auto now = std::chrono::steady_clock::now(); now - myTime >= 500ms)
 	{
 		auto submitCount = Queue::GetSubmitCount();

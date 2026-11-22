@@ -3,6 +3,7 @@
 #include <core/path.h>
 #include <core/time.h>
 #include <core/concurrentaccess.h>
+#include <core/runtimings.h>
 
 #include <client/capi.h>
 #include <client/client.h>
@@ -365,6 +366,8 @@ void Create(const PathConfig* paths)
 {
 	ENSURE(paths != nullptr);
 
+	RunTiming("the platform initialized");
+
 	// where the client's data is: a repository's checkout run from its root (resources/ and the shader sources beside
 	// it, the user profile in .speedo and the test assets in resources/test-assets, as the scripts expect), or an install
 	// (see CMakeLists.txt's install rules and docs/notes/build.md, "Releases"): the data beside the executable, a macOS
@@ -428,6 +431,7 @@ void Create(const PathConfig* paths)
 			{"UserProfilePath", userPath.value()},
 			{"TestAssetsPath", testAssetsPath},
 		},});
+	RunTiming("the application made");
 
 	std::array<TaskHandle, 3> handles{gRpcTask.handle, gTickTask.handle, gDrawTask.handle};
 	appPtrRef->GetExecutor().Submit(handles);
@@ -435,6 +439,8 @@ void Create(const PathConfig* paths)
 
 void Destroy()
 {
+	RunTiming("the main loop left");
+
 	// however the client is closing (window closed, interrupted, or the exit menu item), tell work that checks for it,
 	// e.g. loads, to wind down
 	gClientApplication.Read()->RequestExit();
@@ -450,6 +456,7 @@ void Destroy()
 		WaitTaskStopped(gTickTaskState);
 	if (drawRunning)
 		WaitTaskStopped(gDrawTaskState);
+	RunTiming("the tasks stopped");
 
 	auto& appPtrRef = gClientApplication.Write().Get();
 
@@ -462,6 +469,8 @@ void Destroy()
 	// only now: tasks (e.g. loads) hold the application while they run, and Shutdown() has joined them
 	ASSERT(appPtrRef.use_count() == 1);
 	appPtrRef.reset();
+	RunTiming("the application released");
+	PrintRunTimings();
 }
 
 } // namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE

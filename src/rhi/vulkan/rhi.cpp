@@ -4,6 +4,7 @@
 #include <rhi/vulkan/utils.h>
 
 #include <core/assert.h>
+#include <core/runtimings.h>
 
 #include <algorithm>
 #include <atomic>
@@ -260,11 +261,15 @@ RHI<kVk>::RHI(RHIInitializationData&& initData, SurfaceHandle<kVk> surface)
 	{
 		using namespace detail;
 
+		core::RunTiming("rhi: the instance made");
+
 		// none without a window (headless)
 		if (initData.window != 0)
 			surface = CreateSurface(instance, &instance.GetHostAllocationCallbacks(), initData.window);
 
-		return DetectAndCreateDevices(instance, surface);
+		auto devices = DetectAndCreateDevices(instance, surface);
+		core::RunTiming("rhi: the devices made");
+		return devices;
 	}(myInstance),}
 {
 	using namespace detail;
@@ -274,7 +279,9 @@ RHI<kVk>::RHI(RHIInitializationData&& initData, SurfaceHandle<kVk> surface)
 	for (auto& device : myDevices)
 	{
 		device.InternalCreateQueues();
+		core::RunTiming("rhi: the queues made");
 		device.InternalCreatePipeline(std::vector(initData.descriptorPoolSizes));
+		core::RunTiming("rhi: the pipeline made");
 	}
 
 	if (initData.window != 0)

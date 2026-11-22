@@ -2,6 +2,8 @@
 
 #include "windowedapplicationdetail.h"
 
+#include <core/runtimings.h>
+
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -47,18 +49,27 @@ void RecordCapture(
 	}
 	encoder.Barrier(PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kHost, Access::kHostRead);
 	bool bgra = format == Format::kB8G8R8A8Unorm || format == Format::kB8G8R8A8Srgb;
+	if (done != nullptr)
+		core::RunTiming("the capture recorded");
 	callbacks.emplace_back(
 		core::CreateTask(
 			[buffer, extent, size, bgra, path = std::move(path), done]
 			{
+				if (done != nullptr)
+					core::RunTiming("the capture's callback started");
 				auto memory = buffer->Map();
 				buffer->Invalidate(0, size);
 				auto file = EncodeBmp(memory.first(size), extent, bgra);
 				buffer->Unmap();
+				if (done != nullptr)
+					core::RunTiming("the capture encoded");
 				if (!core::file::Write(path, file))
 					std::println(stderr, "SPEEDO_CAPTURE: couldn't write {}", path);
 				if (done != nullptr)
+				{
+					core::RunTiming("the capture saved");
 					*done = 3;
+				}
 			}).handle);
 }
 

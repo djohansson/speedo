@@ -5,6 +5,7 @@
 #include <core/file.h>
 #include <core/math.h>
 #include <core/profiling.h>
+#include <core/runtimings.h>
 #include <core/task.h>
 #include <core/taskexecutor.h>
 #include <core/time.h>
@@ -2998,6 +2999,9 @@ struct Scene::Impl
 							"shader timings: layout {} of {} ({}, {} entry points) loaded in {:.2f} s", compileIt + 1, all.size(), all[compileIt]->file.filename().string(),
 							all[compileIt]->config.entryPoints.size(), progress.seconds.load(std::memory_order_relaxed));
 					progress.done.store(true, std::memory_order_release);
+					core::RunTiming(std::format(
+						"shader layout {} of {} ({}) loaded in {:.3f} s", compileIt + 1, all.size(), all[compileIt]->file.filename().string(),
+						progress.seconds.load(std::memory_order_relaxed)));
 				}
 			});
 		myShaderCompileFuture = std::move(task.future);
@@ -3024,6 +3028,7 @@ struct Scene::Impl
 			ZoneScopedN("Scene::Prepare");
 
 			InternalFinishInitialization();
+			core::RunTiming("the scene's initialization finished");
 
 			// how long a cold compile took (the main layout's compiled, not cached), which the next one's progress is
 			// estimated by
@@ -3053,6 +3058,7 @@ struct Scene::Impl
 				"{} compute pipelines created ahead in {:.2f} s", myPipelineFutures.size(),
 				std::chrono::duration<double>(std::chrono::steady_clock::now() - myPipelineRequestStart).count());
 		std::fflush(stdout); // (a piped stdout: tests wait for it)
+		core::RunTiming(std::format("{} compute pipelines made", myPipelineFutures.size()));
 		myPipelineFutures.clear();
 		myReady.store(true, std::memory_order_release);
 		return true;
