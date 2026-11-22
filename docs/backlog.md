@@ -12,6 +12,15 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
 
 ## Larger
 
+- **The thorough voxel test for every ray** (the user's call, 2026-11-22): the hits' voxel choice is thorough
+  (`GiHitVoxel<kThorough>`: other surfaces' voxels tested too, not only those marked apart) for the main pass's near
+  field alone; try it for the reflections' near field (`GiNearTrace<false>` in `traced.slang`), the surface cache's and
+  the probes' rays (`GiHitLitAt<false>`, `GiHitRadiance<false>` in `GiTraceBvh`), each and together, and keep what gives
+  the most visual quality for a reasonable frame time: by every ray, Bistro's frame took 0.26 to 0.30 ms more, which the
+  user takes as acceptable where it clearly improves the picture. Measure what each shows (bathroom2's niches and
+  mirrors, Sponza's curtains, Bistro's frames and shutters, MovingInterior's corners) and what it costs.
+  docs/notes/indirect-lighting.md, "One rule for every lookup and hit".
+
 - **bathroom2's remaining light where it isn't** (the user's report, 2026-11-21): the line along the ceiling's right
   edge, the space above the ceiling seen through a slot, which the last level lights through the bounce at 1.6 times the
   ceiling (dark at resolution 256); in the niche under the window, at the last level, the statuettes take voxels that
