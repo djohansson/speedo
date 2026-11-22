@@ -610,7 +610,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			 std::tuple{&myGiRadianceBuffer, "GI Radiance", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiDirectBuffer, "GI Direct", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiKeptBuffer, "GI Kept", 2 * sizeof(uint32_t)},
-			 std::tuple{&myGiAheadBuffer, "GI Ahead", sizeof(float)},
+			 std::tuple{&myGiAheadBuffer, "GI Ahead", sizeof(uint32_t)},
 			 std::tuple{&myGiRayBuffer, "GI Rays", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiIrradianceBuffer, "GI Irradiance", SHADER_TYPES_GI_IRRADIANCE_COUNT * 4 * sizeof(float)},
 			 std::tuple{&myGiProbeDepthBuffer, "GI Probe Depth", sizeof(uint32_t)},
@@ -5129,7 +5129,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			InternalReplaceBuffer(myGiRadianceBuffer, pipeline, "GI Radiance", "gGiRadiance", radianceSize);
 			InternalReplaceBuffer(myGiDirectBuffer, pipeline, "GI Direct", "gGiDirect", radianceSize);
 			InternalReplaceBuffer(myGiKeptBuffer, pipeline, "GI Kept", "gGiKept", radianceSize);
-			InternalReplaceBuffer(myGiAheadBuffer, pipeline, "GI Ahead", "gGiAhead", static_cast<size_t>(total.voxelCount) * sizeof(float));
+			InternalReplaceBuffer(myGiAheadBuffer, pipeline, "GI Ahead", "gGiAhead", static_cast<size_t>(total.voxelCount) * sizeof(uint32_t));
 			const auto& size = clipmap.clips.front().data.volumeSize;
 			InternalReplaceGiVolumes(
 				pipeline, glm::uvec3(clipmap.clips.back().data.volumeImage[0], clipmap.clips.back().data.volumeImage[1], clipmap.clips.back().data.volumeImage[2]));

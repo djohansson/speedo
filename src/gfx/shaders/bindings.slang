@@ -218,7 +218,7 @@ struct ModelInstancesSet
 	RWStructuredBuffer<uint2> gGiDirect;
 	RWStructuredBuffer<uint2> gGiKept;
 	// and how far a voxel's surface cache entry's last samples are ahead of its whole mean (see GiCacheUpdate): a float each
-	RWStructuredBuffer<float> gGiAhead;
+	RWStructuredBuffer<uint> gGiAhead;
 	// the world cache (docs/world-cache-plan.md, GiData::worldOn): its counters, cells and a frame's slots of sums, uints (see
 	// GiWorldCellWord, GiWorldSlotWord)
 	RWStructuredBuffer<uint> gGiWorld;

@@ -1025,6 +1025,35 @@ float3 GiHitIrradiance(GiData gi, float3 position, float3 normal, float random)
 	return chosen * (total / chosenWeight) * GiVisibility(gi, position + normal * bias, chosenToLight, chosenDistance - bias, true);
 }
 
+// a voxel's word of gGiAhead (see GiCacheUpdate): its surface cache entry's fast mean's lead, a half in the low bits (a
+// correction of a few hundredths of the light), and where its rays start (GiCacheAnchor) along its open side from its
+// center, in voxels, a running mean of kGiAnchorPlaneCount of them, in the high bits (-3 to 1, to 1/16383 of a voxel; 0:
+// not known, the entry not anchored or not traced yet): the surface its light was gathered on, which the cache's filter
+// compares (GiCacheFilterStacked). the voxel's own plane (GiVoxelPlane) is the surface the voxelizer kept, not the one its
+// rays find from its apex, and the entry has no bits to spare
+static const uint kGiAnchorPlaneCount = 32u;
+
+float GiAheadLead(uint word)
+{
+	return f16tof32(word & 0xFFFFu);
+}
+
+bool GiAheadPlaneKnown(uint word)
+{
+	return (word >> 16) != 0u;
+}
+
+float GiAheadPlane(uint word)
+{
+	return float((word >> 16) - 1u) / 65534.0 * 4.0 - 3.0;
+}
+
+uint GiPackAhead(float lead, bool known, float plane)
+{
+	uint planeBits = known ? 1u + uint(round(saturate((plane + 3.0) / 4.0) * 65534.0)) : 0u;
+	return f32tof16(lead) | (planeBits << 16);
+}
+
 // the radiance a ray took off the triangle it hit, its lights' light taken at the hit itself (the
 // anchored cache's rays): what its voxel reflects (GiHitRadiance's: the finest clip's holding the point, its emission
 // taken out) with the part the lights give it (gGiDirect less the emitters' kept light and the emission) replaced by its
@@ -1071,7 +1100,7 @@ float3 GiHitLitAt(GiData walk, float3 position, float3 lightAt, BvhHit hit, floa
 		float3 lights = max(GiUnpackRgba16(gGiDirect[index]).rgb - voxelEmission, 0.0);
 		// (its bounced light as its entry's last samples have it rather than as shown, see GiCacheUpdate's gGiAhead: by
 		// the voxel's albedo, as ComputeGiLight bounces the volumes' light)
-		float ahead = lead && walk.cacheFastCount != 0u && walk.reset == 0u ? gGiAhead[index] : 0.0;
+		float ahead = lead && walk.cacheFastCount != 0u && walk.reset == 0u ? GiAheadLead(gGiAhead[index]) : 0.0;
 		ahead = isnan(ahead) || isinf(ahead) ? 0.0 : ahead;
 		// (the lead as it is, below 0 too: it is a correction of none on average. clamped with the voxel's bounced light, a
 		// lead further below 0 than that light was dropped and a lead above kept: with the bounce off, where that light
@@ -1158,7 +1187,7 @@ void ComputeGiShift(uint3 dispatchId: SV_DispatchThreadID)
 	// and how far its entry's fast mean is ahead (gGiAhead, see GiCacheUpdate), likewise through the direct radiance,
 	// which ComputeGiLightStatic makes anew: left where it was, a voxel bounced, to the rays that met it (GiHitLit), what
 	// the voxel that had been at its place was ahead by, until its own entry's next ray; one without an entry for good
-	gGiDirect[gi.voxelFirst + threadId.x] = uint2(asuint(GiInside(from, size) ? gGiAhead[gi.voxelFirst + GiVoxelIndex(uint3(from), size)] : 0.0), 0u);
+	gGiDirect[gi.voxelFirst + threadId.x] = uint2(GiInside(from, size) ? gGiAhead[gi.voxelFirst + GiVoxelIndex(uint3(from), size)] : 0u, 0u);
 }
 
 uint GiPackRgba8(float4 v)
@@ -1570,15 +1599,39 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 // probes are tested from): a voxel facing a surface within a voxel (the slot behind salle_de_bain's bench, thinner than
 // a last clip's voxel: the bench back's voxel faces the wall) reached past it. kept with the static voxels' direct light
 // (its alpha, in voxels: see ComputeGiLightStatic)
+// (past a double sided triangle that faces the way the voxel does, met from behind within half a voxel of its center,
+// kGiOpenSkipCount of them at most: the voxel's center is inside the solid that bounds, or behind a sheet facing its way,
+// and that isn't a surface facing back at it. bathroom2's bath (glTF research scenes) is a shell of double sided ceramic
+// with the floor running on inside it, and the middle level's voxels just under the bath's bottom (0.012 units, its back
+// 0.035 of a voxel over their centers) stood for that floor: their rays started on it, inside the shell, their entries
+// held a thirtieth of the bottom's light (0.0004 against 0.01), and the lookups on the bottom, which read them at half,
+// showed a darker ring where the bottom crosses a row of voxels, which changed in steps with the clips while walking (the
+// user's report, 2026-11-22, 2 to 4 of 255 still once the filter left them out, GiCacheFilterStacked); the bath's
+// wooden rim, its top a few hundredths of a voxel over the voxels' centers, was 3 of 255 darker for it, and the opening
+// under its lip black. a double sided triangle facing back at the voxel, met from in front, is the slot's)
 static const float kGiOpenReach = 3.0;
+static const uint kGiOpenSkipCount = 3u;
 
 float GiOpenAlong(GiData gi, float3 position, float3 normal)
 {
 	float reach = kGiOpenReach * gi.volumeOrigin.w;
 	if (!GiTracesBvh(gi))
 		return reach;
-	BvhHit hit = GiTraceTriangles(gi, position, normal, reach, false, false, false);
-	return BvhHitSomething(hit) && (hit.frontFace || (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) != 0u) ? hit.t : reach;
+	float from = 0.0;
+	for (uint skipIt = 0; skipIt < kGiOpenSkipCount; skipIt++)
+	{
+		BvhHit hit = GiTraceTriangles(gi, position + normal * from, normal, reach - from, false, false, false);
+		if (!BvhHitSomething(hit))
+			return reach;
+		bool twoSided = (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) != 0u;
+		if (twoSided && !hit.frontFace && from + hit.t <= 0.5 * gi.volumeOrigin.w && abs(dot(hit.normal, normal)) > 0.5)
+		{
+			from += hit.t + kGiFarSideMargin * gi.volumeOrigin.w;
+			continue;
+		}
+		return hit.frontFace || twoSided ? from + hit.t : reach;
+	}
+	return reach;
 }
 
 // the shadow rays of a voxel's light start a voxel further from the surface (the voxel is on the side it stands for, its
@@ -1808,7 +1861,7 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 	// (how far the voxel's entry's fast mean is ahead, carried here by ComputeGiShift when the clip moved: every voxel
 	// is lit then, see GiClipClock::relightPhaseCount)
 	if (any(gi.scroll.xyz != 0))
-		gGiAhead[gi.voxelFirst + voxelIndex] = asfloat(gGiDirect[gi.voxelFirst + voxelIndex].x);
+		gGiAhead[gi.voxelFirst + voxelIndex] = gGiDirect[gi.voxelFirst + voxelIndex].x;
 	gGiDirect[gi.voxelFirst + voxelIndex] = GiPackRgba16(float4(radiance, open / gi.volumeOrigin.w));
 	// and the frame's radiance from nothing: the frame's lighting skips the blocks nothing is near, whose voxels must hold 0
 	gGiRadiance[gi.voxelFirst + voxelIndex] = uint2(0, 0);
@@ -3628,6 +3681,12 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	bool dumped = gi.dumpProbe != ~0u && all(int3(at) == int3(floor(GiVoxelCoordinate(gi, gi.dumpPoint.xyz, 0))));
 	uint dumpFirst = GI_STATISTIC_COUNT + gi.clip * GI_DUMP_FLOAT_COUNT + GI_DUMP_CACHE_FIRST;
 	bool emitterSampled = false;
+	// (where its rays start, a running mean of the last few: see gGiAhead's word, GiAheadPlane. a new entry's first ray's
+	// is the mean)
+	uint aheadWord = gGiAhead[gi.voxelFirst + GiVoxelIndex(at, size)];
+	bool anchorKnown = GiAheadPlaneKnown(aheadWord) && entry.count != 0u;
+	float anchorPlane = anchorKnown ? GiAheadPlane(aheadWord) : 0.0;
+	uint anchorCount = anchorKnown ? kGiAnchorPlaneCount : 0u;
 	if (rayCount != 0u)
 	{
 		// anchored (GiCacheAnchored): each ray from the surface under the voxel (GiCacheAnchor), normal the voxel's own
@@ -3670,6 +3729,9 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 						entry.inside += uint(round(float(kGiCacheInsideScale) * estimate));
 					continue;
 				}
+				anchorCount = min(anchorCount + 1u, kGiAnchorPlaneCount);
+				anchorPlane += (dot(origin - voxelCenter, normal) / gi.volumeOrigin.w - anchorPlane) / float(anchorCount);
+				anchorKnown = true;
 				// and where the emitters are lights, a sample of their light at the surface, where the ray starts (one of
 				// their triangles' points, of SPEEDO_EMITTER_VOXEL_CANDIDATE_COUNT candidates, and a shadow ray, of those in
 				// front of the surface): the entry keeps their mean, as many as it keeps of its rays (from what the voxel
@@ -3780,11 +3842,11 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	// |pixel - the 33 pixels' mean around it| 3.2 either way), for the same time. a ratio of the two, clamped, bounced
 	// less than the light there is once settled (the fast mean is mostly a little low and rarely far too high: 2 of 255
 	// under); their difference is none on average
-	if (gi.cacheFastCount != 0u && rayCount != 0u)
+	if (rayCount != 0u)
 	{
 		float insideRays = float(entry.inside) / float(kGiCacheInsideScale);
-		bool lead = entry.count > gi.cacheFastCount && gi.reset == 0u && gi.cacheReset == 0u && insideRays <= kGiInsideShare * (float(entry.count) + insideRays);
-		gGiAhead[gi.voxelFirst + GiVoxelIndex(at, size)] = lead ? entry.fast - GiCacheLight(entry.faces, entry.normal) : 0.0;
+		bool lead = gi.cacheFastCount != 0u && entry.count > gi.cacheFastCount && gi.reset == 0u && gi.cacheReset == 0u && insideRays <= kGiInsideShare * (float(entry.count) + insideRays);
+		gGiAhead[gi.voxelFirst + GiVoxelIndex(at, size)] = GiPackAhead(lead ? entry.fast - GiCacheLight(entry.faces, entry.normal) : 0.0, anchorKnown, anchorPlane);
 	}
 	// what the voxel keeps of the emitters' light is the entry's from its first sample of it, written when it takes one
 	// (see ComputeGiLight; the rays of this update that meet the voxel read either, the entry's of this frame or the last)
@@ -3871,6 +3933,8 @@ struct GiCacheTap
 	float variance;
 	float confidence;
 	float3 normal;
+	// (where its rays start: gGiAhead's high bits, GiAheadPlane; 0 not known)
+	uint anchor;
 };
 
 GiCacheTap GiCacheNoTap()
@@ -3881,6 +3945,7 @@ GiCacheTap GiCacheNoTap()
 	tap.variance = 0.0;
 	tap.confidence = 0.0;
 	tap.normal = 0.0;
+	tap.anchor = 0u;
 	return tap;
 }
 
@@ -3893,7 +3958,8 @@ GiCacheTap GiCacheLoadTap(uint index)
 	GiCacheUnpackFaces(words, tap.faces);
 	tap.variance = asfloat(words[2].y);
 	tap.confidence = asfloat(words[2].z);
-	tap.normal = GiCacheUnpackNormal(words[2].w);
+	tap.normal = GiCacheUnpackNormal(words[2].w & 0xFFFFu);
+	tap.anchor = words[2].w >> 16;
 	return tap;
 }
 
@@ -3903,12 +3969,12 @@ void GiCacheStoreTap(uint index, GiCacheTap tap)
 	GiCachePackFaces(tap.faces, packed);
 	gGiCacheRecords[index * 3u] = uint4(packed[0], packed[1], packed[2], packed[3]);
 	gGiCacheRecords[index * 3u + 1u] = uint4(packed[4], packed[5], packed[6], packed[7]);
-	gGiCacheRecords[index * 3u + 2u] = uint4(packed[8], asuint(tap.variance), asuint(tap.confidence), GiCachePackNormal(tap.normal));
+	gGiCacheRecords[index * 3u + 2u] = uint4(packed[8], asuint(tap.variance), asuint(tap.confidence), GiCachePackNormal(tap.normal) | (tap.anchor << 16));
 }
 
 // an entry as the filter takes it unfiltered: in a block the filter doesn't run in (not active, see ComputeGiResolve),
 // with its own samples' variance
-GiCacheTap GiCacheTapOf(GiCacheEntry entry)
+GiCacheTap GiCacheTapOf(GiCacheEntry entry, uint anchor)
 {
 	if (!GiCacheValid(entry))
 		return GiCacheNoTap();
@@ -3920,6 +3986,7 @@ GiCacheTap GiCacheTapOf(GiCacheEntry entry)
 	tap.variance = (n * max(entry.moment - light * light, 0.0) + kGiCacheVariancePrior * entry.moment) / (n + kGiCacheVariancePrior) / min(n, kGiCacheFilterCount);
 	tap.confidence = n / (n + kGiCachePrior);
 	tap.normal = entry.normal;
+	tap.anchor = anchor;
 	return tap;
 }
 
@@ -3947,7 +4014,7 @@ GiCacheTap GiCacheReadTap(GiData gi, uint half, uint3 at, uint3 blocks)
 	if ((flags & SHADER_TYPES_GI_FLAG_CACHE_ACTIVE) == 0u)
 	{
 		uint page = GiCachePageOf(gGiCacheBlocks[GiCacheTableWord(gi.cacheTableFirst, blockIndex)]);
-		return page != 0u ? GiCacheTapOf(GiCacheLoad(GiCacheEntryIndex(page, at))) : GiCacheNoTap();
+		return page != 0u ? GiCacheTapOf(GiCacheLoad(GiCacheEntryIndex(page, at)), gGiAhead[gi.voxelFirst + GiVoxelIndex(at, GiLevelSize(gi, 0))] >> 16) : GiCacheNoTap();
 	}
 	return GiCacheLoadTap(GiCacheRecordIndex(gi, half, gGiCacheBlocks[gi.cacheRecordTableFirst + blockIndex], at));
 }
@@ -3977,6 +4044,29 @@ bool GiCacheFilterBlocked(GiData gi, uint3 at, uint3 size, int3 unit, int step, 
 			return true;
 	}
 	return false;
+}
+
+// whether a tap's light was gathered on a surface stacked behind the voxel's own (both anchored, see GiAheadPlane): where
+// the tap's rays start is further than kGiFilterBehind of a voxel behind where the voxel's start, along the voxel's open
+// side, and the voxel's in front of the tap's along the tap's (the neighbours on a convex surface are each behind the
+// other's plane, and stay). by the voxels' own planes (ComputeGiCacheFilter's behind test) the voxels under bathroom2's
+// bath's bottom were alike, all the floor's running on inside the ceramic shell (an exact +y, kept over the bottom's
+// slightly tilted one): those whose apex was over the bottom gathered its light, those whose apex was in the shell the
+// floor's there, a thirtieth of it, and the filter's passes took the dark ones into the lit ones beside them at the same
+// height and the one under: the bottom 47 to 49 of 255 where the voxels' own light gave 55, 35 where it crosses a row of
+// voxels (the user's report, 2026-11-22), 53 to 55 with this, 58 with GiOpenAlong's skip (the 256 resolution's 55 to
+// 57). keeping the frontmost of a facing's surfaces in the voxelizer (its plane's bits before the normal's) did as well
+// here, but beside the bath's taps it changed which surface the voxels under the deck stood for, and dark blocks came up
+bool GiCacheFilterStacked(GiCacheTap own, GiCacheTap tap, float3 offset)
+{
+	if (own.anchor == 0u || tap.anchor == 0u)
+		return false;
+	float ownPlane = GiAheadPlane(own.anchor << 16);
+	float tapPlane = GiAheadPlane(tap.anchor << 16);
+	float facing = dot(tap.normal, own.normal);
+	float behind = dot(offset, own.normal) + tapPlane * facing - ownPlane;
+	float ahead = -dot(offset, tap.normal) + ownPlane * facing - tapPlane;
+	return behind < -kGiFilterBehind && ahead > kGiFilterBehind;
 }
 
 float GiCacheAgreement(float3 a, float3 b)
@@ -4076,6 +4166,7 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 		tap.variance = (samples * max(square - mean * mean, 0.0) + kGiCacheVariancePrior * square) / (samples + kGiCacheVariancePrior) / min(n, kGiCacheFilterCount);
 		tap.confidence = n / (n + kGiCachePrior);
 		tap.normal = entry.normal;
+		tap.anchor = gGiAhead[gi.voxelFirst + GiVoxelIndex(at, size)] >> 16;
 		GiCacheStoreTap(target, tap);
 		return;
 	}
@@ -4164,6 +4255,8 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 				// 716a67d5; the user's report, 2026-11-20)
 				if (sides && !isSelf && (dot(float3(offset), self.normal) < ownPlane - kGiFilterBehind || GiVoxelAcross(drawnFacings, float3(offset), tap.normal)))
 					continue;
+				if (sides && !isSelf && GiCacheFilterStacked(self, tap, float3(offset)))
+					continue;
 				// (nor a tap two voxels away or more past something in front of the surface between: GiCacheFilterBlocked)
 				if (step > 1 && !isSelf && GiCacheFilterBlocked(gi, at, size, int3(x, y, z), step, self.normal))
 					continue;
@@ -4187,6 +4280,7 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 		record.variance = variance / (weights * weights);
 		record.confidence = self.confidence;
 		record.normal = self.normal;
+		record.anchor = self.anchor;
 		GiCacheStoreTap(target, record);
 		return;
 	}
@@ -5035,8 +5129,9 @@ static const float kGiFarSideDifference = 0.15;
 // between them, and where a board is thinner than a voxel the 8 are of both its sides: at the last level, where
 // salle_de_bain's shelves' boards are half a voxel thick, the side of a panel set a third of a voxel into a niche read
 // the voxel in front of the panel's hidden face, lit by the window behind the shelves (0.68 along the side's normal
-// against the niche's 0.2 to 0.3): a bright line up every such edge (the user's report, 2026-11-17)
-uint GiFarSides(GiClipView gi, float3 coordinate)
+// against the niche's 0.2 to 0.3): a bright line up every such edge (the user's report, 2026-11-17). normal and surface:
+// the lookup's surface's normal and point (in the clip's voxels, the point unbiased)
+uint GiFarSides(GiClipView gi, float3 coordinate, float3 normal, float3 surface)
 {
 	uint3 size = gi.volumeSize.xyz;
 	float3 tap = clamp(coordinate, 0.5, float3(size) - 0.5) - 0.5;
@@ -5062,7 +5157,15 @@ uint GiFarSides(GiClipView gi, float3 coordinate)
 				far |= 1u << cornerIt;
 		if (!GiVoxelSided(voxel, sheets))
 			continue;
-		if (dot(offset, GiVoxelNormal(voxel.normal)) - GiVoxelPlane(voxel.normal) < -kGiFarSideMargin)
+		// (and one facing against the lookup's surface whose center is behind that surface, the point's (in voxels,
+		// unbiased): what it stands for is that surface's other side, whatever its plane says. bathroom2's bath rim is a
+		// board of double sided wood whose top runs through the middle level's voxels' centers, and where the voxel under
+		// the top stood for the lip's rounded underside, tilted, the lookups on the top were in front of its plane and
+		// read it (0.0005 against the top's 0.011), a line 6 of 255 darker along the rim once the voxels over the top held
+		// its light (GiOpenAlong). the sided ones alone, whose normal the plane test decodes anyway: every voxel behind
+		// took Bistro's lookups 0.02 to 0.04 ms a pass more, these 0.02)
+		float3 voxelNormal = GiVoxelNormal(voxel.normal);
+		if (dot(offset, voxelNormal) - GiVoxelPlane(voxel.normal) < -kGiFarSideMargin || (dot(voxelNormal, normal) < -0.5 && dot(float3(at) + 0.5 - surface, normal) < 0.0))
 			far |= 1u << cornerIt;
 	}
 	return far;
@@ -5276,7 +5379,7 @@ GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias
 		// ComputeGiCacheFilter and GiSidesHidden)
 		uint far = GiSidesHidden(gi, coordinate, position);
 		if (result.last.z > 0.0)
-			far |= GiFarSides(gi, coordinate);
+			far |= GiFarSides(gi, coordinate, normal, (position - gi.volumeOrigin.xyz) / gi.volumeOrigin.w);
 		if (far != 0u)
 			result = GiSampleClipWithout(gi, coordinate, far);
 	}

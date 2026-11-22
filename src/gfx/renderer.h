@@ -996,7 +996,7 @@ private:
 	Buffer myGiRadianceBuffer; // the voxels' radiance: the frame's, the static voxels' direct, its kept part (GiData::voxelFirst)
 	Buffer myGiDirectBuffer;
 	Buffer myGiKeptBuffer;
-	Buffer myGiAheadBuffer; // a float a voxel: its surface cache entry's fast mean's lead (gGiAhead)
+	Buffer myGiAheadBuffer; // a word a voxel: its surface cache entry's fast mean's lead and where its rays start (gGiAhead)
 	Buffer myGiRayBuffer;
 	Buffer myGiIrradianceBuffer;
 	Buffer myGiProbeDepthBuffer;

@@ -347,7 +347,8 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
   Fixed by bouncing on a fast mean while showing the whole one (2026-11-18): an entry also keeps the mean of its last
   `SPEEDO_GI_CACHE_FAST_SAMPLES` samples' light along its open side (16; an eighth of them where its block isn't read; a
   half in its fourth words' spare bits), and writes how far that is ahead of its whole mean per voxel (`gGiAhead`, a
-  float a voxel, 4 bytes more of about 100), which the cache's rays add to the bounced part of what a hit's voxel
+  float a voxel, 4 bytes more of about 100; a half since 2026-11-22, beside where the entry's rays start: see "Light
+  gathered under a double sided surface"), which the cache's rays add to the bounced part of what a hit's voxel
   reflects (`GiHitLit`; the probes', the near field's and the reflections' rays read the light as shown). The wall:
   62.7 at 500, 65.9 at 1000, 65.3 at 1500, 65.2 at 12000, as smooth once settled (3.2 either way; 5.0 against 4.5 at
   frame 500) and as still (a frame from the next by 0.023 of 255 against 0.019). The bathroom scene's frontal pose
@@ -1832,13 +1833,42 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
     scrolled): Sponza's corridor walk within 0.06 to 0.08 of 255 of the seeded one's frame for frame, and
     salle_de_bain's, MovingInterior's and Bistro's walks within 0.06; the regression set settled within 0.04 of the
     build before. The frame 0.04 to 0.4 ms faster (the main pass, above).
-  - Open: at the second pose a dark blob low on the bath's left (43 to 47 of 255 where the voxels a quarter the size
-    give 55), settled, the cache's (gone with it off; the same with the near field off, with every hit tested, and at
-    the build before these). There the lookup reads clip 1 and, through its fade at the edge of its box, clip 2: clip
-    1's mask leaves out its two voxels of the floor under the bath (0.0018 and 0.0026 against 0.0066 to 0.009 for the
-    rest), clip 2's leaves out none (their apexes see the point) and its voxels hold 0.0051 to 0.0068, a third darker,
-    gathered over a footprint 0.68 wide that takes in the bath's corner where its bottom meets its wall: the levels'
-    disagreement (docs/backlog.md), not light of another place.
+  - **Light gathered under a double sided surface** (`GiOpenAlong`, `GiCacheFilterStacked`, `gGiAhead`'s word and
+    `GiAheadPlane`, `GiFarSides`; the user's report, 2026-11-22: at `0.2820,17.9171,-9.4363,69.900,-15.270`
+    "darkening, that changes in size in steps when moving backwards and forwards"). The bath is a shell of double
+    sided ceramic with the room's floor running on inside it, and at the middle level (0.34 units) the voxels under
+    the bath's bottom stand for that floor (its exact +y is kept over the bottom's slightly tilted one); where the
+    bottom crosses their row, a ring, their centers are just under it. How far a voxel is open (`GiOpenAlong`) was
+    measured to the bottom's back, 0.035 of a voxel, so the apex stayed in the shell and the entry's rays started on
+    the floor inside it: a thirtieth of the bottom's light (0.0004 against 0.01). The lookups on the bottom read those
+    voxels at about half, and the cache's filter took them into the lit voxels beside at the same height, whose planes
+    (the floor's as well) passed its behind test: along the ring 35 to 49 of 255 (exposure 3, the irradiance view, the
+    bottom 47 to 49) where the voxels' own light, unfiltered (`SPEEDO_GI_CACHE_SIGMA=0`), gave 51 to 56 and resolution
+    256 gives 54 to 57; as the clips' levels change with the camera, the ring changed in steps.
+    Now an entry keeps where its rays start (the anchored point along its open side, a running mean of 32, in
+    `gGiAhead`'s spare half: the fast mean's lead fits a half), and the filter leaves out a tap whose rays start more
+    than a quarter voxel behind the voxel's while the voxel's are as far in front of the tap's (on a convex surface each
+    is behind the other's plane, and stays); and the open side is measured past a double sided triangle facing the
+    voxel's way, met from behind within half a voxel of its center (the center is inside what it bounds). The ring row
+    58 across; the bottom smooth at five poses from 8 units back to 12 forward, and in walks both ways at the user's
+    speed (mid walk within a level of 255 along a row, the build before dipping to 38); the rim's top 3 of 255 brighter
+    (its voxels' centers were inside its double sided wooden board) and the opening under its lip no longer black. The
+    blob at the second pose of the 2026-11-21 report, low on the bath's left (41 to 45 where the voxels a quarter the
+    size give 55, taken for the levels' disagreement), 55 to 58: the floor's voxels under the bath too.
+    With the rim's top lit, a line 6 of 255 darker showed along it where the voxel under the top stood for the lip's
+    rounded underside, tilted, and the lookups on the top were in front of its plane: now a sided voxel facing against
+    the lookup's surface with its center behind that surface is a far side too (`GiFarSides`).
+    Tried: keeping the frontmost of a facing's surfaces in the voxelizer (the plane's bits before the normal's): the
+    ring gone as well, but beside the taps it changed which surface the voxels under the deck stood for, and dark
+    blocks came up on the rim; the open side measured from past the voxel's own plane (the plane is the floor's there:
+    nothing); the filter's test alone (2 to 4 of 255 left along the ring, the voxels the lookups read directly); the
+    open side past a double sided triangle met from either side (the same here, but a pane facing back at a voxel would
+    have been passed); the far side test for every voxel behind (Bistro's lookups 0.02 to 0.04 ms a pass more).
+    Measured: the regression set within 0.4 of 255 of the build before (its run to run spread), bathroom2 0.9 brighter
+    (its surfaces are double sided); Bistro at night's lit window interior comes out 53 or 59 of 255 from run to run,
+    before as after (3 runs of 13, 4 of 16). D3D12 within a level of Vulkan. Cost (RTX 4070 Ti SUPER, Vulkan, 1080p,
+    settled, interleaved): the GI pass 0.02 to 0.03 ms more, Bistro's lookups 0.02 a pass (its frame +0.06 to 0.09),
+    Sponza's frame +0.04, bathroom2's the same.
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows

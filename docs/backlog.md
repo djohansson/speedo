@@ -15,9 +15,7 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
 - **bathroom2's remaining light where it isn't** (the user's report, 2026-11-21): the line along the ceiling's right
   edge, the space above the ceiling seen through a slot, which the last level lights through the bounce at 1.6 times the
   ceiling (dark at resolution 256); the statuettes in the niche under the window 47 to 56 of 255 where the finer
-  voxels give 35 to 44 (the hits test only the voxels marked apart); a dark blob low on the bath's inner wall at
-  `5.8027,7.2424,-12.9784,27.193,-39.740`, settled (43 to 47 of 255 where the finer voxels give 55: the last level
-  through the finer clip's fade, a third darker there, the levels' disagreement below). And what testing
+  voxels give 35 to 44 (the hits test only the voxels marked apart). And what testing
   where a voxel's light was gathered costs: 0.4 ms at bathroom2's pose, 0.65 at Sponza's, 1.3 at Bistro's (the marks
   made once a voxelizing, fewer rays at corners). docs/notes/indirect-lighting.md, "A voxel's light is taken only where
   it was gathered".
@@ -29,7 +27,8 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
   docs/notes/indirect-lighting.md.
 - **The surface cache's remaining noise**: MovingInterior's far wall, 0.44 of 255 between seeds with the window of 4096
   once settled; Bistro at night, the leading strip of a fast turn about twice the rest (more samples for new pixels: 32
-  gives 15.6 in the emitters' view against 18.1). docs/notes/indirect-lighting.md.
+  gives 15.6 in the emitters' view against 18.1); and Bistro at night's lit window interior at the regression set's
+  pose, settled, 53 or 59 of 255 from run to run (3 runs of 13, 2026-11-22). docs/notes/indirect-lighting.md.
 - **Visual testing, steps 4 to 7**: a reference for the indirect lighting (a progressive path tracer, likely), golden
   images on lavapipe in CI, scenes with known answers, and CI's small additions; with the user's open calls (where
   stored references live, CI's time budget, which reference). docs/visual-testing-plan.md.
