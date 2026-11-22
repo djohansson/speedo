@@ -796,7 +796,27 @@ static const float kGiHitBesideReach = 0.25;
 // in the niche under the window (the user's report, 2026-11-17).
 // tried: every voxel refused whose normal is more than 60 degrees off the triangle's and whose surface the hit is
 // behind, and the voxels beside looked at wherever the first's normal was another (the same picture, and the same
-// time: not kept, the fewer refused the better where things are smaller than a voxel)
+// time: not kept, the fewer refused the better where things are smaller than a voxel).
+// and where gGiHitSeen is set (the main pass's near field, GiNearRay), a drawn voxel whose normal is more than 60 degrees
+// off the triangle's is refused too where its surface the ray came from behind (gGiHitFrom: a voxel back along the ray
+// from the hit, behind by more than kGiFarSideMargin) or its apex doesn't see the hit (GiApexSees, the marked voxels'
+// test): it stands for the other side of something the ray was on this side of; and not fallen back to: where none is
+// left, the hit takes no voxel's light. bathroom2's niche under the window is a box of double sided sheets in the space
+// the emitter behind the back wall lights, and the voxels along the top of its sides stand for its ceiling's top (the y
+// axis kept over x, see GiPackVoxelNormal), in that space: the near field's rays from the back wall's top corners that
+// met a side or the ceiling right at their edge (0.004 under the ceiling) took that light, 0.032 where the wall's is
+// 0.007, a bluish spot in each corner (the user's report, 2026-11-22). the hit's own point can't tell, a few millimetres
+// under the plane, about the planes' rounding (GiVoxelPlane); the ray came from 0.24 of a voxel under it. at the bottom
+// corners, from further back, the read point moved off the corner along the side wall was in a voxel of the room wall's
+// back, outside the side wall, whose plane the niche's inside is behind too (the apex test), and by the left corner
+// every voxel near was the outside's (no fallback). the near field alone, where that showed: by every ray (the cache's,
+// the probes', the reflections' and their near fields'), Bistro's frame took 0.26 to 0.30 ms more for the voxels beside
+// looked at, and looked the same. a static global set by that pass alone, so that the other passes' code has none of
+// it: as a parameter, a literal false everywhere else, the transparent passes' shading still took 0.07 to 0.11 ms more in
+// Bistro and the GI pass 0.05 to 0.1
+static bool gGiHitSeen = false;
+static float3 gGiHitFrom = 0.0;
+
 bool GiHitVoxel(GiClipView clip, float3 coordinate, float3 normal, out uint index, out float4 radiance, out GiVoxel voxel)
 {
 	uint3 size = clip.volumeSize.xyz;
@@ -806,6 +826,7 @@ bool GiHitVoxel(GiClipView clip, float3 coordinate, float3 normal, out uint inde
 	// the first refused, and the first beside that isn't (but isn't the triangle's own)
 	uint refused = ~0u;
 	uint other = ~0u;
+	bool look = false;
 	float3 point = coordinate + normal * 0.5;
 	int3 first = int3(floor(point));
 	float3 within = point - float3(first) - 0.5;
@@ -814,6 +835,11 @@ bool GiHitVoxel(GiClipView clip, float3 coordinate, float3 normal, out uint inde
 	// entries are anchored (GiCacheAnchored), whose apexes they are
 	bool anchored = gGi[gPushConstants.frameIndex][0].trace == GI_TRACE_BVH && gGi[gPushConstants.frameIndex][0].cacheRayCount != 0u;
 	float3 seenAt = clip.volumeOrigin.xyz + (coordinate + normal * 0.1) * clip.volumeOrigin.w;
+	// (a voxel back along the ray, or where it started if nearer: from far off, the plane of many a voxel's surface is
+	// between)
+	bool approached = gGiHitSeen;
+	float3 way = coordinate - (gGiHitFrom - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+	float3 approach = coordinate - way * (min(length(way), 1.0) / max(length(way), 1e-6));
 	for (uint candidateIt = 0; candidateIt < 9; candidateIt++)
 	{
 		int3 at;
@@ -825,7 +851,7 @@ bool GiHitVoxel(GiClipView clip, float3 coordinate, float3 normal, out uint inde
 		}
 		else
 		{
-			if (refused == ~0u)
+			if (!look)
 				break;
 			if (candidateIt == 6u)
 				nearness = abs(within);
@@ -852,15 +878,29 @@ bool GiHitVoxel(GiClipView clip, float3 coordinate, float3 normal, out uint inde
 		// of three surfaces, pushed along their normals, are behind the surface beside, and hits refused all of a
 		// corner's voxels: a dark speck in each of MovingInterior's top corners and the room 2.8 of 255 darker; and
 		// Bistro's indirect lighting 0.45 ms slower, its reflections 0.1
-		if (anchored && GiRadianceApart(found.a) && !GiApexSees(clip, candidate, met, at, seenAt))
-			continue;
 		bool drawn = (met.normal & kGiVoxelNormalDrawn) != 0u;
 		float3 facing = GiVoxelNormal(met.normal);
 		bool same = dot(normal, facing) >= 0.5;
+		bool apart = anchored && GiRadianceApart(found.a);
+		bool another = approached && drawn && !same;
+		bool behind = another && dot(approach - (float3(at) + 0.5), facing) - GiVoxelPlane(met.normal) < -kGiFarSideMargin;
+		// (one ray for either test)
+		if (!behind && (apart || another) && !GiApexSees(clip, candidate, met, at, seenAt))
+		{
+			if (apart)
+				continue;
+			behind = true;
+		}
+		if (behind)
+		{
+			look = true;
+			continue;
+		}
 		if (found.a < 0.75 || (!drawn && !same))
 		{
 			if (refused == ~0u)
 				refused = candidate;
+			look = true;
 			continue;
 		}
 		if (beside && !(drawn && same && abs(dot(coordinate - (float3(at) + 0.5), facing) - GiVoxelPlane(met.normal)) < kGiHitBesideReach))

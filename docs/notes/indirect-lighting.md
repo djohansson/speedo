@@ -1919,6 +1919,37 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
       there (63 to 87 with the cache off).
     - Measured: the regression set within 0.2 of 255 of the build before (Sponza's corridor 0.18 darker, the filter's
       test above; MovingInterior's within its animation's run to run spread).
+    - **The niche's corners** (`GiHitVoxel`, `gGiHitSeen` and `gGiHitFrom`; the user's reports, 2026-11-22: at
+      `-0.7481,12.2700,-9.0768,2.790,-3.482` "small brightened spots in each corner of the niche"). Bluish spots in the
+      back wall's top corners, in the lit image and the indirect diffuse view, not in the irradiance view: the main
+      pass's near field (gone with `SPEEDO_GI_NEAR=0`), its rays that met something (`SPEEDO_GI_NEAR_SHOW=3`). From
+      the corner, the rays meet a side wall or the ceiling right at their edge (4 millimetres under the ceiling), and
+      the middle level's voxels there stand for the ceiling's top, in the space the emitter lights (the y axis kept over
+      x): 0.032 where the wall's light is 0.007. A drawn voxel is taken whatever way it faces, and these aren't marked
+      apart (their neighbours' apexes see theirs). Now a hit refuses a voxel more than 60 degrees off its triangle whose
+      surface the ray came from behind (a voxel back along it, behind by more than `kGiFarSideMargin`), and the voxels
+      beside are looked at, as for the others refused: the bluest of 16 rays at a corner pixel 0.00002 for 0.012, and
+      the pose's mean difference from the voxels a quarter the size 2.12 of 255 for 2.28 (the room pose 4.35 for 4.45,
+      the window's reveal closer but a band by its frame, which both overshoot). The main pass's near field alone:
+      every ray (the cache's, the probes', the reflections' and their near fields') took Bistro's frame 0.26 to 0.30
+      ms more for the voxels beside looked at (the transparent passes' traced near fields 0.16 to 0.19 of it), and its
+      image the same (the regression set within its noise); the hit's own point couldn't tell, a few millimetres under
+      the plane, about the planes' rounding (`GiVoxelPlane`), where the ray came from 0.24 of a voxel under it.
+      Then the bottom corners, from further back (`-0.4618,13.4564,9.0604,5.442,-1.841`, where the last level lights the
+      niche): the plane couldn't tell there. At the right one, the rays from the back wall met the side wall by the
+      floor, and the near field's read point, moved along the wall off the corner (0.8 units toward the opening), was in
+      a voxel of the room wall's back, outside the niche's side, in the lit space: its surface faces away from the room,
+      and the niche's inside is on the same side of that plane as the lit space, behind the room's wall. At the left
+      one, every voxel near was refused (the floor's there has its center, and its apex, just outside the side wall),
+      and the hit fell back to the first refused, the outside's. Now the near field's hits also refuse another
+      surface's voxel whose apex doesn't see the hit (`GiApexSees`, the test marked voxels have, one call for both), and
+      those refused so aren't fallen back to: where none is left the hit takes no voxel's light. Both bottom corners
+      as the voxels a quarter the size have them, no dark spot. Gated by a flag only the near field's pass sets
+      (`gGiHitSeen`, a static global, as the ray's start `gGiHitFrom`): passed as a parameter, a literal false
+      everywhere else, the transparent passes' shading still took 0.07 to 0.11 ms more in Bistro and the GI pass 0.05 to
+      0.1, where nothing was tested (the ray query's call kept in their code). The flag's version not timed yet (the
+      user's call, 2026-11-22: timings later); the plane test alone, in the main pass's near field, was within the
+      noise (the near field's pass 0.01 to 0.03 ms more). Measured: the regression set within its noise.
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows

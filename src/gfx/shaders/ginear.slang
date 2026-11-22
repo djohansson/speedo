@@ -69,7 +69,9 @@ float4 GiNearRay(int2 pixel)
 	// off the surface by a pixel and a half (more far from the eye), as the traced shadows' rays, against the depth's
 	// and the BVH's rounding
 	float bias = max(1.5 * surface.metersPerPixel, 1e-4 * distance(surface.position, view.eyePosition.xyz));
+	gGiHitSeen = true;
 	float4 ray = GiNearTrace(gi, surface.position, surface.normal, direction, bias, voxel);
+	gGiHitSeen = false;
 	if (ray.a > 0.0)
 	{
 		bool moving;
@@ -81,7 +83,8 @@ float4 GiNearRay(int2 pixel)
 
 // a near field ray from a surface at position (its normal toward the side the ray goes) along direction, off it by bias,
 // in the clips whose voxels are voxel big there: as GiNearRay's (the traced reflections' and refractions' hits trace
-// them too, see TracedNearIrradiance)
+// them too, see TracedNearIrradiance). the ray's start is gGiHitFrom for GiHitVoxel (where gGiHitSeen is set: the main
+// pass's, GiNearRay)
 float4 GiNearTrace(GiData gi, float3 position, float3 normal, float3 direction, float bias, float voxel)
 {
 	float reach = gi.nearReach * voxel;
@@ -139,6 +142,7 @@ float4 GiNearTrace(GiData gi, float3 position, float3 normal, float3 direction, 
 		// a surface sloping into the corner can pass the other surface, the rays by the ceiling's edges of MovingInterior's
 		// room saw the sun from behind the wall, white speckles a few voxels apart along the edge that never settled, the
 		// user's report, 2026-11-21)
+		gGiHitFrom = origin;
 		float3 lit = GiHitLitAt(gi, point, origin + direction * hit.t, hit, float(seed & 0xFFFFFFu) / 16777216.0, emission, false);
 		return float4(max(lit - emission, 0.0), clear);
 	}
