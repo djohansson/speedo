@@ -74,18 +74,26 @@ template <>
 void Pipeline<kD3D12>::InternalResetComputeState()
 {}
 
-// a copy of the graphics state and the name, what a pipeline is made from on any thread
+// a copy of the graphics state, the bound layout and the name, what a pipeline is made from on any thread (as Vulkan's
+// backend has it): the layout read as the creation ran instead was whichever the draw thread had bound by then, and a
+// pipeline asked for ahead of the scene's first frame got the environment filter's root signature (the compute
+// pipelines' requests bind it meanwhile): "Root Signature doesn't match Vertex Shader" for FragmentPrepass, 1 client
+// of the quick tier's 124 (2026-11-22)
 template <>
 struct Pipeline<kD3D12>::GraphicsSnapshot
 {
 	GraphicsState state;
+	PipelineLayoutHandle<kD3D12> layout{};
 	std::string name;
 };
 
 template <>
 std::shared_ptr<const Pipeline<kD3D12>::GraphicsSnapshot> Pipeline<kD3D12>::InternalSnapshotGraphicsState() const
 {
-	return std::make_shared<const GraphicsSnapshot>(GraphicsSnapshot{.state = myGraphicsState, .name = GetName()});
+	const auto layoutIt = InternalGetLayout();
+	ENSURE(layoutIt != myPipelineLayouts.end());
+	return std::make_shared<const GraphicsSnapshot>(
+		GraphicsSnapshot{.state = myGraphicsState, .layout = static_cast<PipelineLayoutHandle<kD3D12>>(*layoutIt), .name = GetName()});
 }
 
 namespace pipeline
@@ -289,11 +297,10 @@ PipelineHandle<kD3D12> Pipeline<kD3D12>::InternalCreateGraphicsPipeline(
 	ENSUREF(fragment != nullptr || fragmentIt == 0, "{}: the layout has no fragment entry point {}", snapshot.name, variant.fragmentShader);
 
 	auto creationStart = std::chrono::steady_clock::now();
-	// the layout's: the stages' first module's (a layout's modules share its root signature)
-	const auto& layouts = myPipelineLayouts;
-	const auto layoutIt = InternalGetLayout();
-	ENSURE(layoutIt != layouts.end());
-	const auto* layout = static_cast<PipelineLayoutHandle<kD3D12>>(*layoutIt);
+	// the layout bound when it was asked for (see GraphicsSnapshot): the stages' (a layout's modules share its root
+	// signature)
+	const auto* layout = snapshot.layout;
+	ENSURE(layout != nullptr);
 
 	auto* object = new d3d12::PipelineObject{};
 	object->rootSignature = layout->rootSignature;

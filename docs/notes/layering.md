@@ -438,7 +438,9 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   packaged app with its Metal cache emptied, sampled). The graphics pipelines a pass binds first aren't made ahead (they
   depend on its render target's formats, set as it records), nor waited for: `RequestDrawListPipelines` (`gfx/drawlist.h`)
   asks for them from the state the pass set (its default variant and its items' generic ones, a run by its first item),
-  each missing one made by a task on the executor (`Pipeline::RequestGraphicsPipeline`), and the pass (the views' prepass,
+  each missing one made by a task on the executor (`Pipeline::RequestGraphicsPipeline`, from a copy of the state as it
+  was asked for, the bound layout too: D3D12's backend read the layout bound as the task ran until 2026-11-22, and a
+  pipeline asked for while another was bound got its root signature, a validation error and a trap), and the pass (the views' prepass,
   main and other lists, the shadows and their transmittance) records its draws only once none is missing, its tiles
   cleared meanwhile. The renderer counts the missing ones a frame (`Renderer::GetGraphicsPipelineProgress`), the Loading
   window shows them as "Creating pipelines n of m" once the scene is ready (`Scene::GetGraphicsPipelineProgress`), and
