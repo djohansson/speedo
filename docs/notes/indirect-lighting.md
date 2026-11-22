@@ -1949,7 +1949,28 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
       everywhere else, the transparent passes' shading still took 0.07 to 0.11 ms more in Bistro and the GI pass 0.05 to
       0.1, where nothing was tested (the ray query's call kept in their code). The flag's version not timed yet (the
       user's call, 2026-11-22: timings later); the plane test alone, in the main pass's near field, was within the
-      noise (the near field's pass 0.01 to 0.03 ms more). Measured: the regression set within its noise.
+      noise (the near field's pass 0.01 to 0.03 ms more). Measured: the regression set within its noise. (Since, a
+      generic parameter instead of the flag: `GiHitVoxel<kThorough>`, below.)
+  - **One rule for every lookup and hit** (`GiSeen`, `GiSeenAt`, `GiSeenPixel`, `GiSeenFragment`, `GiSeenNone`,
+    `GiHitVoxel<kThorough>` up to `GiNearTrace<kThorough>`; the user's report, 2026-11-22: at
+    `-11.3930,20.0414,8.1380,4.381,-35.562` "the light leak along the niches and the windows edges", in the mirror
+    beside them; and the user's call: the fixes are to hold for every use, reflections, the main view, the indirect
+    lighting's rays, with only the precision differing). The rule that a voxel's light is taken only where its apex
+    sees the point was applied in five places, each its own way: the main pass's lookups by the GI Sides pass's masks,
+    read from globals (`gFragmentGiSides`); the reflections' and refractions' hits' lookups in the same shading took
+    the mirror pixel's masks, of other voxels (the leak along the niche's edges in the mirror, blue, at every
+    resolution); the main pass's near field's hits by the corners' tests above (a static flag); the reflections' near
+    field's hits and the cache's and probes' rays by the marked voxels' test alone. Now every lookup takes what its
+    point may take light from as a parameter (`GiSeen`: per clip that lights the point, a mask as `GiSidesMask` makes
+    it), had per use: read from the GI Sides pass for the main pass's opaque fragments (`GiSeenFragment`), made at the
+    point for a traced ray's hit (`GiSeenAt`, as the pass makes it per pixel), none where nothing is to be tested (the
+    near field's trust lookup, before the pass runs; the near rays' ends in the air; the debug views; diffuse
+    transmission's lookup behind a surface, which took the front's mask). And the hits' path is generic on how far it
+    tests (`kThorough`: the main pass's near field; the reflections' near field, the cache's and the probes' rays not,
+    their cost to be measured). The mirror's niche clean at resolutions 64, 128, 192 and 256 (128 and 256 near field
+    off: a faint line along the sill at 128, the masks made only where a voxel is marked apart, as the main pass's);
+    the refactor otherwise the same picture (the mirror's pose 0.03 of 255 from the fix before it, the corners' 0.10,
+    the regression set within its noise, bathroom2's left strips 0.27 darker: its mirrors). Not timed yet.
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows

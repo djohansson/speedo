@@ -69,13 +69,11 @@ float4 GiNearRay(int2 pixel)
 	// off the surface by a pixel and a half (more far from the eye), as the traced shadows' rays, against the depth's
 	// and the BVH's rounding
 	float bias = max(1.5 * surface.metersPerPixel, 1e-4 * distance(surface.position, view.eyePosition.xyz));
-	gGiHitSeen = true;
-	float4 ray = GiNearTrace(gi, surface.position, surface.normal, direction, bias, voxel);
-	gGiHitSeen = false;
+	float4 ray = GiNearTrace<true>(gi, surface.position, surface.normal, direction, bias, voxel);
 	if (ray.a > 0.0)
 	{
 		bool moving;
-		GiSample lookup = GiSampleSurface(surface.position, surface.normal, normalize(view.eyePosition.xyz - surface.position), false, moving);
+		GiSample lookup = GiSampleSurface(surface.position, surface.normal, normalize(view.eyePosition.xyz - surface.position), GiSeenNone(), false, moving);
 		ray.a *= GiLookupTrust(lookup, moving);
 	}
 	return ray;
@@ -83,9 +81,9 @@ float4 GiNearRay(int2 pixel)
 
 // a near field ray from a surface at position (its normal toward the side the ray goes) along direction, off it by bias,
 // in the clips whose voxels are voxel big there: as GiNearRay's (the traced reflections' and refractions' hits trace
-// them too, see TracedNearIrradiance). the ray's start is gGiHitFrom for GiHitVoxel (where gGiHitSeen is set: the main
+// them too, see TracedNearIrradiance). kThorough: the voxels its hits take light from tested further (GiHitVoxel: the main
 // pass's, GiNearRay)
-float4 GiNearTrace(GiData gi, float3 position, float3 normal, float3 direction, float bias, float voxel)
+float4 GiNearTrace<let kThorough : bool>(GiData gi, float3 position, float3 normal, float3 direction, float bias, float voxel)
 {
 	float reach = gi.nearReach * voxel;
 	float3 origin = position + normal * bias;
@@ -142,8 +140,7 @@ float4 GiNearTrace(GiData gi, float3 position, float3 normal, float3 direction, 
 		// a surface sloping into the corner can pass the other surface, the rays by the ceiling's edges of MovingInterior's
 		// room saw the sun from behind the wall, white speckles a few voxels apart along the edge that never settled, the
 		// user's report, 2026-11-21)
-		gGiHitFrom = origin;
-		float3 lit = GiHitLitAt(gi, point, origin + direction * hit.t, hit, float(seed & 0xFFFFFFu) / 16777216.0, emission, false);
+		float3 lit = GiHitLitAt<kThorough>(gi, point, origin + direction * hit.t, hit, origin, float(seed & 0xFFFFFFu) / 16777216.0, emission, false);
 		return float4(max(lit - emission, 0.0), clear);
 	}
 	if (gi.nearShow == 3u)
@@ -152,7 +149,7 @@ float4 GiNearTrace(GiData gi, float3 position, float3 normal, float3 direction, 
 		return float4(0.0, 0.0, 0.0, 0.0); // in something its traversal couldn't get through
 	// nothing near: the light the volume holds along the ray where it ends (the irradiance over pi of a surface facing
 	// back along it, see GiEvaluate), the environment's outside every clip
-	GiSample far = GiSampleAt(origin + direction * reach, direction, float3(0.0));
+	GiSample far = GiSampleAt(origin + direction * reach, direction, float3(0.0), GiSeenNone());
 	if (far.valid)
 		return float4(GiEvaluate(far, direction), 1.0);
 	if (far.inside)
@@ -212,11 +209,9 @@ void ComputeGiSides(uint3 dispatchThreadId : SV_DispatchThreadID)
 	ShadowSurface surface;
 	if (ViewAt(pixel, view) && ShadowSurfaceAt(pixel, view, surface))
 	{
-		uint clips[2];
-		GiSidesClips(surface.position, clips);
-		for (uint slotIt = 0; slotIt < 2u; slotIt++)
-			if (clips[slotIt] != ~0u)
-				masks[slotIt] = GiSidesMask(GiClipViewAt(clips[slotIt]), surface.position, surface.normal);
+		GiSeen seen = GiSeenAt(surface.position, surface.normal);
+		masks[0] = seen.masks[0];
+		masks[1] = seen.masks[1];
 	}
 	sides[pixel] = float4(asfloat(masks[0]), asfloat(masks[1]), 0.0, 0.0);
 }

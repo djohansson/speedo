@@ -797,8 +797,8 @@ static const float kGiHitBesideReach = 0.25;
 // tried: every voxel refused whose normal is more than 60 degrees off the triangle's and whose surface the hit is
 // behind, and the voxels beside looked at wherever the first's normal was another (the same picture, and the same
 // time: not kept, the fewer refused the better where things are smaller than a voxel).
-// and where gGiHitSeen is set (the main pass's near field, GiNearRay), a drawn voxel whose normal is more than 60 degrees
-// off the triangle's is refused too where its surface the ray came from behind (gGiHitFrom: a voxel back along the ray
+// and kThorough (the main pass's near field, GiNearRay), a drawn voxel whose normal is more than 60 degrees
+// off the triangle's is refused too where its surface the ray came from behind (from: a voxel back along the ray
 // from the hit, behind by more than kGiFarSideMargin) or its apex doesn't see the hit (GiApexSees, the marked voxels'
 // test): it stands for the other side of something the ray was on this side of; and not fallen back to: where none is
 // left, the hit takes no voxel's light. bathroom2's niche under the window is a box of double sided sheets in the space
@@ -811,13 +811,10 @@ static const float kGiHitBesideReach = 0.25;
 // back, outside the side wall, whose plane the niche's inside is behind too (the apex test), and by the left corner
 // every voxel near was the outside's (no fallback). the near field alone, where that showed: by every ray (the cache's,
 // the probes', the reflections' and their near fields'), Bistro's frame took 0.26 to 0.30 ms more for the voxels beside
-// looked at, and looked the same. a static global set by that pass alone, so that the other passes' code has none of
-// it: as a parameter, a literal false everywhere else, the transparent passes' shading still took 0.07 to 0.11 ms more in
-// Bistro and the GI pass 0.05 to 0.1
-static bool gGiHitSeen = false;
-static float3 gGiHitFrom = 0.0;
-
-bool GiHitVoxel(GiClipView clip, float3 coordinate, float3 normal, out uint index, out float4 radiance, out GiVoxel voxel)
+// looked at, and looked the same. a generic parameter, so that the other passes' code has none of it: as a runtime one,
+// a literal false everywhere else, the transparent passes' shading still took 0.07 to 0.11 ms more in Bistro and the GI
+// pass 0.05 to 0.1. (from: where the ray started, in the clip's voxels; kThorough's alone)
+bool GiHitVoxel<let kThorough : bool>(GiClipView clip, float3 coordinate, float3 normal, float3 from, out uint index, out float4 radiance, out GiVoxel voxel)
 {
 	uint3 size = clip.volumeSize.xyz;
 	index = 0u;
@@ -837,8 +834,8 @@ bool GiHitVoxel(GiClipView clip, float3 coordinate, float3 normal, out uint inde
 	float3 seenAt = clip.volumeOrigin.xyz + (coordinate + normal * 0.1) * clip.volumeOrigin.w;
 	// (a voxel back along the ray, or where it started if nearer: from far off, the plane of many a voxel's surface is
 	// between)
-	bool approached = gGiHitSeen;
-	float3 way = coordinate - (gGiHitFrom - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+	bool approached = kThorough;
+	float3 way = coordinate - from;
 	float3 approach = coordinate - way * (min(length(way), 1.0) / max(length(way), 1e-6));
 	for (uint candidateIt = 0; candidateIt < 9; candidateIt++)
 	{
@@ -928,7 +925,7 @@ bool GiHitVoxel(GiClipView clip, float3 coordinate, float3 normal, out uint inde
 // the radiance where a ray met a triangle (position; normal: the triangle's, toward the side the ray came from), and the
 // emission in it (out): its voxel's (GiHitVoxel); 0 if it has none. in the finest clip from firstClip whose box around
 // the eye holds the point (the last holds everything), as the voxel walk reads a clip until it leaves that box
-float3 GiRadianceAtHit(uint firstClip, float3 position, float3 normal, out float3 emission)
+float3 GiRadianceAtHit<let kThorough : bool>(uint firstClip, float3 position, float3 normal, float3 from, out float3 emission)
 {
 	emission = 0.0;
 	uint clipCount = gGi[gPushConstants.frameIndex][firstClip].clipCount;
@@ -943,7 +940,7 @@ float3 GiRadianceAtHit(uint firstClip, float3 position, float3 normal, out float
 	uint index;
 	float4 found;
 	GiVoxel met;
-	if (!GiHitVoxel(clip, (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w, normal, index, found, met))
+	if (!GiHitVoxel<kThorough>(clip, (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w, normal, (from - clip.volumeOrigin.xyz) / clip.volumeOrigin.w, index, found, met))
 		return 0.0;
 	emission = float3(GiUnpackHalf2(met.emissionRG), GiUnpackHalf2(met.emissionB).x);
 	return found.rgb;
@@ -956,15 +953,15 @@ float3 GiRadianceAtHit(uint firstClip, float3 position, float3 normal, out float
 // glass, lit the walls around them yellow, a hundred times what the bulb gives, and in blotches, since only some of a
 // wall's rays met a lantern. where the rays walk the voxels there is no triangle, and the voxel's stands. where emissive
 // surfaces are lights (see EmittersLight), the reflected light alone: what they give arrives through them
-float3 GiHitReflected(uint firstClip, float3 position, float3 normal)
+float3 GiHitReflected<let kThorough : bool>(uint firstClip, float3 position, float3 normal, float3 from)
 {
 	float3 voxelEmission;
-	return max(GiRadianceAtHit(firstClip, position, normal, voxelEmission) - voxelEmission, 0.0);
+	return max(GiRadianceAtHit<kThorough>(firstClip, position, normal, from, voxelEmission) - voxelEmission, 0.0);
 }
 
-float3 GiHitRadiance(uint firstClip, float3 position, BvhHit hit, out float3 emission)
+float3 GiHitRadiance<let kThorough : bool>(uint firstClip, float3 position, BvhHit hit, float3 from, out float3 emission)
 {
-	float3 reflected = GiHitReflected(firstClip, position, hit.normal);
+	float3 reflected = GiHitReflected<kThorough>(firstClip, position, hit.normal, from);
 	emission = 0.0;
 	if (EmittersLight())
 		return reflected;
@@ -1109,7 +1106,7 @@ uint GiPackAhead(float lead, bool known, float plane)
 // (salle_de_bain's walls)
 // (lightAt: where the shadow ray leaves from, the hit itself, where position is a point read beside it: the near
 // field's, moved along the hit's surface off a corner, see GiNearTrace)
-float3 GiHitLitAt(GiData walk, float3 position, float3 lightAt, BvhHit hit, float random, out float3 emission, bool lead = true)
+float3 GiHitLitAt<let kThorough : bool>(GiData walk, float3 position, float3 lightAt, BvhHit hit, float3 from, float random, out float3 emission, bool lead = true)
 {
 	bool back = !hit.frontFace && (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) == 0u;
 	uint clipCount = walk.clipCount;
@@ -1127,7 +1124,7 @@ float3 GiHitLitAt(GiData walk, float3 position, float3 lightAt, BvhHit hit, floa
 	// (once: the voxel that stands for the hit, see GiHitVoxel)
 	for (uint onceIt = 0; onceIt < 1 && !back; onceIt++)
 	{
-		if (!GiHitVoxel(clip, (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w, hit.normal, index, radiance, voxel))
+		if (!GiHitVoxel<kThorough>(clip, (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w, hit.normal, (from - clip.volumeOrigin.xyz) / clip.volumeOrigin.w, index, radiance, voxel))
 			break;
 		GiVoxel kept = gGiStaticVoxels[index];
 		if (kept.albedo != voxel.albedo || kept.normal != voxel.normal)
@@ -1164,12 +1161,12 @@ float3 GiHitLitAt(GiData walk, float3 position, float3 lightAt, BvhHit hit, floa
 		}
 		return reflected + emission;
 	}
-	return GiHitRadiance(walk.clip, position, hit, emission);
+	return GiHitRadiance<kThorough>(walk.clip, position, hit, from, emission);
 }
 
 float3 GiHitLit(GiData walk, float3 position, BvhHit hit, float random, out float3 emission)
 {
-	return GiHitLitAt(walk, position, position, hit, random, emission);
+	return GiHitLitAt<false>(walk, position, position, hit, position, random, emission);
 }
 
 // (lit: 0 to 1, a random number, for the hit's lights' light taken at the hit itself, GiHitLit; negative, by its voxel's radiance)
@@ -1185,7 +1182,7 @@ bool GiTraceBvh(GiData walk, float3 origin, float3 direction, float far, float e
 		return true;
 	result.distance = hit.t;
 	float3 emission;
-	float3 radiance = lit >= 0.0 ? GiHitLit(walk, origin + direction * hit.t, hit, lit, emission) : GiHitRadiance(walk.clip, origin + direction * hit.t, hit, emission);
+	float3 radiance = lit >= 0.0 ? GiHitLit(walk, origin + direction * hit.t, hit, lit, emission) : GiHitRadiance<false>(walk.clip, origin + direction * hit.t, hit, origin, emission);
 	if (hit.t < emissionReach)
 		radiance = max(radiance - emission * (1.0 - (hit.t * hit.t) / (emissionReach * emissionReach)), 0.0);
 	result.radiance = float4(radiance, 0.0);
@@ -3075,7 +3072,7 @@ float3 GiIrradiance(float3 position, float3 normal, uint debug, float3 view = 0.
 	if (debug < 2u || debug > 5u)
 	{
 		// as the shading looks it up, given the eye's direction
-		GiSample sample = any(view != 0.0) ? GiSampleSurface(position, normal, view) : GiSampleAt(position, normal);
+		GiSample sample = any(view != 0.0) ? GiSampleSurface(position, normal, view, GiSeenFragment()) : GiSampleAt(position, normal, GiSeenNone());
 		return sample.valid ? GiEvaluate(sample, normal) : -1.0;
 	}
 	GiData gi = GiClip(0);
@@ -5372,6 +5369,53 @@ void GiSidesClips(float3 position, out uint clips[2])
 // PREPASS_IMAGE_GI_SIDES), set by the fragment entry points
 static bool gFragmentGiSides = false;
 
+// which of the voxels around a surface's point may give it light, for its lookups (GiSampleAt, GiSidesHidden): the rule
+// is the hits' too (GiHitVoxel), a voxel's light taken only where its apex sees the point (GiApexSees), and every lookup
+// takes one of these, so that it holds alike for the main pass's surfaces, the reflections' and refractions' hits and
+// the rest, which differ only in how it is had: per clip that lights the point (the first two, GiSidesClips) a mask as
+// GiSidesMask makes it, 0 where nothing was tested (nothing marked apart around the point). made at the point itself
+// (GiSeenAt: a ray a voxel where any is marked), or read where the GI Sides pass made it for the main pass's pixels
+// (GiSeenPixel, GiSeenFragment). a traced reflection's hit took the mirror's pixel's, which is of other voxels: the
+// niche under bathroom2's window seen in the mirror beside it had blue edges, the leak the pixels' masks had stopped
+// (the user's report, 2026-11-22: -11.3930,20.0414,8.1380,4.381,-35.562)
+struct GiSeen
+{
+	uint masks[2];
+};
+
+GiSeen GiSeenNone()
+{
+	GiSeen seen;
+	seen.masks[0] = 0u;
+	seen.masks[1] = 0u;
+	return seen;
+}
+
+GiSeen GiSeenAt(float3 position, float3 normal)
+{
+	uint clips[2];
+	GiSidesClips(position, clips);
+	GiSeen seen;
+	for (uint slotIt = 0; slotIt < 2u; slotIt++)
+		seen.masks[slotIt] = clips[slotIt] != ~0u ? GiSidesMask(GiClipViewAt(clips[slotIt]), position, normal) : 0u;
+	return seen;
+}
+
+GiSeen GiSeenPixel(uint2 pixel)
+{
+	float4 masks = gTextures[SHADER_TYPES_GI_SIDES_TEXTURE].Load(int3(pixel, 0));
+	GiSeen seen;
+	seen.masks[0] = asuint(masks.x);
+	seen.masks[1] = asuint(masks.y);
+	return seen;
+}
+
+// the fragment's own surface's: the GI Sides pass's where it ran (the main pass's opaque fragments), else none
+GiSeen GiSeenFragment()
+{
+	return gFragmentGiSides ? GiSeenPixel(gFragmentPixel) : GiSeenNone();
+}
+
 // which of a lookup's 8 voxels (coordinate: in the clip's voxels; a bit each, as GiFarSides's) the fragment's point
 // (position) doesn't see (its lookups' sides, ComputeGiSides): the mask of the clip, by its level in it, about the voxel
 // the point is in. none where it has none, a voxel is outside the 27, or the point is within kGiSidesEdge of a voxel's
@@ -5387,15 +5431,14 @@ static bool gFragmentGiSides = false;
 // 255 at the irradiance view's exposure 3 where the wall above is 51; the user's report, 2026-11-22)
 static const float kGiSidesEdge = 1e-3;
 
-uint GiSidesHidden(GiClipView clip, float3 coordinate, float3 position, float3 normal)
+uint GiSidesHidden(GiClipView clip, float3 coordinate, float3 position, float3 normal, GiSeen seen)
 {
-	if (!gFragmentGiSides)
+	if ((seen.masks[0] | seen.masks[1]) == 0u)
 		return 0u;
-	float4 masks = gTextures[SHADER_TYPES_GI_SIDES_TEXTURE].Load(int3(gFragmentPixel, 0));
 	uint mask = 0u;
 	for (uint slotIt = 0; slotIt < 2u; slotIt++)
 	{
-		uint candidate = asuint(masks[slotIt]);
+		uint candidate = seen.masks[slotIt];
 		if ((candidate & kGiSidesComputed) != 0u && ((candidate >> 27u) & 3u) == (clip.level & 3u))
 			mask = candidate;
 	}
@@ -5464,7 +5507,7 @@ GiSample GiSampleClipWithout(GiClipView gi, float3 coordinate, uint without)
 // a clip's voxels' resolved probes around the point offset along its normal (see GiIrradianceResolved), normalized by
 // their weight; bias is in the clip's own voxels. sides: without the voxels of the far side of something thinner than
 // a voxel (GiFarSides), where the lookup reads any such (GiSample::last's z)
-GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias, bool sides = false)
+GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias, bool sides, GiSeen seen)
 {
 	// in the clip's own voxels: in the finest clip's, a coarse clip's lookup at a thin wall landed within the filter's
 	// reach of the wall's outer shell voxel, resolved from a point outside, where a probe outside the building passes
@@ -5477,7 +5520,7 @@ GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias
 		// (by hand: the far sides left out where the lookup reads any, and near a voxel whose light was gathered apart from
 		// a neighbour's, the voxels whose light the point doesn't see gathered, whatever is marked among the 8: see
 		// ComputeGiCacheFilter and GiSidesHidden)
-		uint far = GiSidesHidden(gi, coordinate, position, normal);
+		uint far = GiSidesHidden(gi, coordinate, position, normal, seen);
 		if (result.last.z > 0.0)
 			far |= GiFarSides(gi, coordinate, normal, (position - gi.volumeOrigin.xyz) / gi.volumeOrigin.w);
 		if (far != 0u)
@@ -5486,13 +5529,19 @@ GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias
 	return result;
 }
 
-// the finest clip that holds the point well inside, blended into the next at its edge (see GiIrradiance)
-GiSample GiSampleAt(float3 position, float3 normal)
+GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias)
 {
-	return GiSampleAt(position, normal, normal * 1.5);
+	return GiSampleClip(gi, position, normal, bias, false, GiSeenNone());
 }
 
-GiSample GiSampleAt(float3 position, float3 normal, float3 bias)
+// the finest clip that holds the point well inside, blended into the next at its edge (see GiIrradiance), by what the
+// point may take light from (seen, see GiSeen)
+GiSample GiSampleAt(float3 position, float3 normal, GiSeen seen)
+{
+	return GiSampleAt(position, normal, normal * 1.5, seen);
+}
+
+GiSample GiSampleAt(float3 position, float3 normal, float3 bias, GiSeen seen)
 {
 	GiSample none;
 	none.r = 0.0;
@@ -5520,7 +5569,7 @@ GiSample GiSampleAt(float3 position, float3 normal, float3 bias)
 		if (weight <= 0.0)
 			continue;
 		none.inside = true;
-		GiSample sample = GiSampleClip(clip, position, normal, bias, true);
+		GiSample sample = GiSampleClip(clip, position, normal, bias, true, seen);
 		float share = remaining * weight;
 		remaining -= share;
 		if (!sample.valid)
@@ -5607,12 +5656,12 @@ float3 GiSurfaceBias(float3 position, float3 normal, float3 view)
 // sight, which is clear: at a concave edge the normal alone leads into the other surface's voxels, whose probes are the
 // other surface's), and twice as far where that finds no probes (retry; not where the near field's light stands in, see
 // GiNearIrradiance)
-GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry, out bool moving, bool world = true)
+GiSample GiSampleSurface(float3 position, float3 normal, float3 view, GiSeen seen, bool retry, out bool moving, bool world = true)
 {
 	float3 bias = GiSurfaceBias(position, normal, view, moving);
-	GiSample sample = GiSampleAt(position, normal, bias);
+	GiSample sample = GiSampleAt(position, normal, bias, seen);
 	if (retry && !sample.valid && sample.inside)
-		sample = GiSampleAt(position, normal, bias * 2.0);
+		sample = GiSampleAt(position, normal, bias * 2.0, seen);
 	// the world cache's light where it is on and covers the point (docs/world-cache-plan.md, step 2), the clipmap's for the
 	// rest and on what moves (see GiWorldBlend); world: whether to look it up (not at the traced rays' hits, see
 	// TracedHitRadiance)
@@ -5621,10 +5670,10 @@ GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry
 	return sample;
 }
 
-GiSample GiSampleSurface(float3 position, float3 normal, float3 view, bool retry = true)
+GiSample GiSampleSurface(float3 position, float3 normal, float3 view, GiSeen seen, bool retry = true)
 {
 	bool moving;
-	return GiSampleSurface(position, normal, view, retry, moving);
+	return GiSampleSurface(position, normal, view, seen, retry, moving);
 }
 
 // where the surface cache is on, the blocks a surface's lookup reads (GiSampleSurface's point, in each clip that lights
@@ -5698,7 +5747,7 @@ float3 GiClipDebug(float3 position, float3 normal, bool grid)
 	if (!grid)
 		return finest == clipCount ? float3(0.02) : color;
 
-	GiSample sample = GiSampleAt(position, normal);
+	GiSample sample = GiSampleAt(position, normal, GiSeenNone());
 	float3 irradiance = sample.valid ? GiEvaluate(sample, normal) : -1.0;
 	if (finest == clipCount)
 		return irradiance;

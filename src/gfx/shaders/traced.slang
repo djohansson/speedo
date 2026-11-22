@@ -402,7 +402,7 @@ void TracedIndirect(
 	// (the clipmap's light alone, not the world cache's: at the reflections' and the refractions' hits its lookups took
 	// 0.6 and 0.9 ms more a frame in Bistro at night, for a light they show blurred; docs/world-cache-plan.md, step 5)
 	bool moving;
-	GiSample sample = GiSampleSurface(position, normal, -direction, voxel <= 0.0, moving, false);
+	GiSample sample = GiSampleSurface(position, normal, -direction, GiSeenAt(position, normal), voxel <= 0.0, moving, false);
 	float trust = voxel > 0.0 ? GiLookupTrust(sample) : 1.0;
 	indirect = sample.valid ? GiEvaluate(sample, normal) : (sample.inside ? 0.0 : -1.0);
 	if (indirect.x >= 0.0)
@@ -440,7 +440,7 @@ float3 TracedNearLight(GiData gi, float3 position, float3 normal, float bias, fl
 		float2 u = frac(first + float(rayIt) * float2(0.7548776662, 0.5698402910));
 		float2 disk = sqrt(u.x) * float2(cos(6.28318530718 * u.y), sin(6.28318530718 * u.y));
 		float3 direction = normalize(disk.x * t + disk.y * b + sqrt(max(1.0 - dot(disk, disk), 0.0)) * normal);
-		float4 ray = GiNearTrace(gi, position, normal, direction, bias, voxel);
+		float4 ray = GiNearTrace<false>(gi, position, normal, direction, bias, voxel);
 		if (ray.a < 0.0)
 			continue;
 		light += ray.rgb;

@@ -166,7 +166,7 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 	// stands in for the lookup's second try where the first sees no probe
 	float4 near = GiNearAtFragment();
 	bool giMoving;
-	GiSample gi = GiSampleSurface(position, normal, view, near.a < 0.0, giMoving);
+	GiSample gi = GiSampleSurface(position, normal, view, GiSeenFragment(), near.a < 0.0, giMoving);
 	float giTrust = near.a >= 0.0 ? GiLookupTrust(gi, giMoving) : 1.0;
 	// where a clip holds the point but no probe is seen around it, none of its light: the environment's there (the sky
 	// unoccluded) shone into dark interiors along their edges
