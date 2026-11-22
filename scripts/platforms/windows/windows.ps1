@@ -72,7 +72,8 @@ elseif (-not (Test-Path $DebugLayer))
 	# in the Microsoft Store's PowerShell 7; DISM, elevated the same way, installed it (2026-11-15). 3010: done, a restart
 	# pending
 	$DismLog = Join-Path ([IO.Path]::GetTempPath()) 'speedo-graphics-tools.log'
-	$DismArgs = @('/Online', '/Add-Capability', '/CapabilityName:Tools.Graphics.DirectX~~~~0.0.1.0', '/NoRestart', '/Quiet', "/LogPath:$DismLog")
+	# Start-Process joins its arguments with spaces: quote the log's path, which may hold some (the temp directory's)
+	$DismArgs = @('/Online', '/Add-Capability', '/CapabilityName:Tools.Graphics.DirectX~~~~0.0.1.0', '/NoRestart', '/Quiet', "/LogPath:`"$DismLog`"")
 	$Administrator = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
 		[Security.Principal.WindowsBuiltInRole]::Administrator)
 	try
