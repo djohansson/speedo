@@ -314,6 +314,7 @@ void Pipeline<G>::Swap(Pipeline& rhs) noexcept
 	std::swap(myPipelineMap, rhs.myPipelineMap);
 	std::swap(myPipelineMapSync, rhs.myPipelineMapSync);
 	std::swap(myCache, rhs.myCache);
+	std::swap(myBinaryStore, rhs.myBinaryStore);
 	std::swap(myBindPoint, rhs.myBindPoint);
 	std::swap(myRenderTarget, rhs.myRenderTarget);
 	std::swap(myPipelineLayouts, rhs.myPipelineLayouts);

@@ -206,27 +206,57 @@ PipelineCacheObject* Open(ID3D12Device* device, const std::filesystem::path& pat
 	return cache;
 }
 
-// the library written to the file where a state was stored since it was loaded, and released
+static void Save(ID3D12PipelineLibrary1* library, const std::filesystem::path& path)
+{
+	std::vector<std::byte> bytes(library->GetSerializedSize());
+	if (FAILED(library->Serialize(bytes.data(), bytes.size())))
+		return;
+	if (auto written = core::file::Write(path, bytes); written)
+		std::println("Saved pipeline cache to {}", path.string());
+	else
+		std::println("Failed to save pipeline cache, error: {}", written.error().message());
+}
+
+// the library written to the file where a state was stored since it was loaded, and released. one that holds more than
+// kPipelineCacheByteCount is made again from the states this run used alone (a library takes names, never gives them up:
+// a pipeline once made stayed in it, and every run loaded and saved all of it)
 void Close(PipelineCacheObject* cache, const std::filesystem::path& path)
 {
 	if (cache == nullptr)
 		return;
-	if (cache->stored)
+	const auto byteCount = cache->library->GetSerializedSize();
+	ID3D12Device1* device1 = nullptr;
+	ID3D12PipelineLibrary1* used = nullptr;
+	if (byteCount > kPipelineCacheByteCount && !cache->used.empty() && SUCCEEDED(cache->library->GetDevice(IID_PPV_ARGS(&device1))) &&
+		SUCCEEDED(device1->CreatePipelineLibrary(nullptr, 0, IID_PPV_ARGS(&used))))
 	{
-		std::vector<std::byte> bytes(cache->library->GetSerializedSize());
-		if (SUCCEEDED(cache->library->Serialize(bytes.data(), bytes.size())))
-		{
-			if (auto written = core::file::Write(path, bytes); written)
-				std::println("Saved pipeline cache to {}", path.string());
-			else
-				std::println("Failed to save pipeline cache, error: {}", written.error().message());
-		}
+		for (const auto& [key, state] : cache->used)
+			(void)used->StorePipeline(NameOf(key).c_str(), state);
+		std::println(
+			"D3D12: the pipeline cache {} held {} MB, over {}: made again from this run's {} pipelines ({} MB)", path.string(), byteCount >> 20U,
+			kPipelineCacheByteCount >> 20U, cache->used.size(), used->GetSerializedSize() >> 20U);
+		Save(used, path);
 	}
+	else if (cache->stored)
+		Save(cache->library, path);
+	Release(used);
+	Release(device1);
+	for (auto& [key, state] : cache->used)
+		Release(state);
 	Release(cache->library);
 	delete cache; //NOLINT(cppcoreguidelines-owning-memory)
 }
 
 } // namespace pipelinecache
+
+// a state the run used, noted (see PipelineCacheObject::used)
+static ID3D12PipelineState* Use(PipelineCacheObject* cache, uint64_t key, ID3D12PipelineState* state)
+{
+	std::scoped_lock lock{cache->mutex};
+	if (cache->used.try_emplace(key, state).second)
+		state->AddRef();
+	return state;
+}
 
 ID3D12PipelineState* PipelineCacheObject::Graphics(
 	PipelineCacheObject* cache, ID3D12Device* device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& desc, uint64_t key, std::string_view name)
@@ -237,14 +267,17 @@ ID3D12PipelineState* PipelineCacheObject::Graphics(
 	{
 		std::scoped_lock lock{cache->loadLocks[key % PipelineCacheObject::kLoadLockCount]};
 		if (SUCCEEDED(cache->library->LoadGraphicsPipeline(cachedName.c_str(), &desc, IID_PPV_ARGS(&state))))
-			return state;
+			return Use(cache, key, state);
 	}
 	Check(device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&state)), std::format("{}: CreateGraphicsPipelineState", name));
 	if (cache != nullptr)
 	{
-		std::scoped_lock lock{cache->mutex};
-		if (cache->storedKeys.insert(key).second)
-			cache->stored = SUCCEEDED(cache->library->StorePipeline(cachedName.c_str(), state)) || cache->stored;
+		{
+			std::scoped_lock lock{cache->mutex};
+			if (cache->storedKeys.insert(key).second)
+				cache->stored = SUCCEEDED(cache->library->StorePipeline(cachedName.c_str(), state)) || cache->stored;
+		}
+		Use(cache, key, state);
 	}
 	return state;
 }
@@ -258,14 +291,17 @@ ID3D12PipelineState* PipelineCacheObject::Compute(
 	{
 		std::scoped_lock lock{cache->loadLocks[key % PipelineCacheObject::kLoadLockCount]};
 		if (SUCCEEDED(cache->library->LoadComputePipeline(cachedName.c_str(), &desc, IID_PPV_ARGS(&state))))
-			return state;
+			return Use(cache, key, state);
 	}
 	Check(device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&state)), std::format("{}: CreateComputePipelineState", name));
 	if (cache != nullptr)
 	{
-		std::scoped_lock lock{cache->mutex};
-		if (cache->storedKeys.insert(key).second)
-			cache->stored = SUCCEEDED(cache->library->StorePipeline(cachedName.c_str(), state)) || cache->stored;
+		{
+			std::scoped_lock lock{cache->mutex};
+			if (cache->storedKeys.insert(key).second)
+				cache->stored = SUCCEEDED(cache->library->StorePipeline(cachedName.c_str(), state)) || cache->stored;
+		}
+		Use(cache, key, state);
 	}
 	return state;
 }

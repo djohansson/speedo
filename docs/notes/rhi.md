@@ -353,3 +353,37 @@ two scenes can't share one: each `gfx::Scene` is given the pipeline it draws wit
 window's scene uses `Device::GetPipeline()`), and creates its layouts in it. (The device used to keep a map of layout
 handles by name hash, which handed out the first pipeline's layouts.)
 
+
+## Pipeline caches: kept in check
+
+Each backend kept the pipelines it made in a file of the profile (`PipelineCreateDesc::cachePath`: `pipeline.cache`,
+D3D12's `pipeline.d3d12.cache`, the ImGui renderer's `imgui.` ones), and the files only grew: a Vulkan pipeline cache's
+data is all or nothing, and a D3D12 pipeline library takes names and never gives them up, so every pipeline once made
+stayed. A profile used for shader work grew by about 10 MB a new variant (a run's own pipelines are about 11 MB): the GI
+experiments' slots were at 240 to 460 MB after a day (2026-11-22), the user's `.speedo` at 132 MB, and every run loaded
+all of it and wrote it back at exit (bathroom2, 1 frame, warm: 4.54 s a run with 458 MB, 3.05 s with the run's own
+11 MB; load 0.27 s, save 1.05 s, of which 0.7 s the SHA-256 `SaveBinary<true>` took of the written file, which nothing
+read: saved without it now). Bounded since 2026-11-22 by `kPipelineCacheByteCount` (256 MB, the user's call), keeping
+what runs use rather than starting over (the user's call):
+
+- **Vulkan, with `VK_KHR_pipeline_binary`** (NVIDIA's 610.88 has it): no `VkPipelineCache`; each pipeline's binaries are
+  a file of their own in `pipeline.binaries/` beside the cache's file (`rhi/vulkan/pipelinebinaries.h`, `BinaryStore`),
+  named by the pipeline's key (`vkGetPipelineKeyKHR`), headed by the driver's vendor, device and pipeline cache uuid. A
+  pipeline whose file is there is made from its binaries (`VkPipelineBinaryInfoKHR`; a file of another driver, or one
+  it refuses, is made again); else it is compiled with `VK_PIPELINE_CREATE_2_CAPTURE_DATA_BIT_KHR` (the driver's own
+  cache still answers: a variant another profile made, 0.34 s for all 88 compute pipelines), its binaries written and
+  its captured data released. Pipelines made with binaries or capture take no pipeline cache (the extension's rule). A
+  file's time is its last use; at exit the least recently used go while the directory holds more than the budget, to
+  three quarters of it (311 MB of old files made 191 MB, the run's 94 kept). The old cache file is removed when the
+  store is first made (468 MB in a slot). A warm run is as fast as with a small cache (1.75 against 1.76 s, the 88
+  compute pipelines 0.02 s), and a new variant's first run the same (FragmentMain 17 to 23 s either way; with heavier
+  load from other clients one pair differed 2x, the workers' compile with it). `SPEEDO_PIPELINE_BINARIES=0` leaves the
+  extension out.
+- **Vulkan, without it** (`SPEEDO_PIPELINE_BINARIES=0`, other drivers): the pipeline cache's file as before, ignored at
+  load once it holds more than the budget (`LoadPipelineCache`: "started over"), so that the run saves its own pipelines
+  (468 MB became 11 MB; the next run loads those). After a start over, NVIDIA's driver cache makes them again quickly
+  (see layering.md, the driver's cache); a driver without its own compiles them cold once.
+- **D3D12**: the library notes every state it gave out, loaded or made (`PipelineCacheObject::used`, a reference each),
+  and at exit, if it holds more than the budget, a new library of those alone is written in its place
+  (`pipelinecache::Close`; tried with the budget at 4 MB: 24.5 MB became the run's 95 pipelines, 7 MB, which the next
+  run loaded with the debug layer on, no errors). Under the budget it is saved as before (when a state was stored).

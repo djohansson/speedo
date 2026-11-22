@@ -444,6 +444,7 @@ set(RHI_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/instantiate.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/memory.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipeline.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipelinebinaries.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipelinecache.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipelinedescriptors.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipelinelayout.cpp

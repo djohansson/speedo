@@ -98,6 +98,7 @@ struct PhysicalDeviceAddressBindingReportFeatures {};
 struct PhysicalDeviceCoherentMemoryFeatures {};
 struct PhysicalDeviceAccelerationStructureFeatures {};
 struct PhysicalDeviceRayQueryFeatures {};
+struct PhysicalDevicePipelineBinaryFeatures {};
 struct PhysicalDeviceAccelerationStructureProperties {};
 struct DescriptorUpdateTemplateEntry // a range of a binding's elements, and where their values are among the set's
 {
@@ -220,6 +221,7 @@ struct BackendTypes<kD3D12>
 	using PhysicalDeviceCoherentMemoryFeatures = rhi::d3d12::PhysicalDeviceCoherentMemoryFeatures;
 	using PhysicalDeviceAccelerationStructureFeatures = rhi::d3d12::PhysicalDeviceAccelerationStructureFeatures;
 	using PhysicalDeviceRayQueryFeatures = rhi::d3d12::PhysicalDeviceRayQueryFeatures;
+	using PhysicalDevicePipelineBinaryFeatures = rhi::d3d12::PhysicalDevicePipelineBinaryFeatures;
 	using PhysicalDeviceAccelerationStructureProperties = rhi::d3d12::PhysicalDeviceAccelerationStructureProperties;
 	using QueueHandle = ID3D12CommandQueue*;
 	using CommandBufferHandle = rhi::d3d12::CommandBufferObject*;

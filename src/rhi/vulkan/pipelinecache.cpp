@@ -76,7 +76,13 @@ PipelineCacheHandle<kVk> LoadPipelineCache(const std::filesystem::path& cacheFil
 		return {};
 	};
 
-	if (auto fileInfo = GetRecord<false>(cacheFilePath); fileInfo)
+	// one grown past kPipelineCacheByteCount started over: its data is all or nothing (a pipeline once made stays in it),
+	// and every run loaded and saved all of it (a device without pipeline binaries, see rhi/vulkan/pipelinebinaries.h).
+	// this run's pipelines are saved, made again or from the driver's own cache
+	std::error_code error;
+	if (auto size = std::filesystem::file_size(cacheFilePath, error); !error && size > kPipelineCacheByteCount)
+		std::println("The pipeline cache {} is {} MB, over {}: started over", cacheFilePath.string(), size >> 20U, kPipelineCacheByteCount >> 20U);
+	else if (auto fileInfo = GetRecord<false>(cacheFilePath); fileInfo)
 		fileInfo = LoadBinary<false>(cacheFilePath, loadCacheOp);
 
 	VkPipelineCacheCreateInfo createInfo{.sType=VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};

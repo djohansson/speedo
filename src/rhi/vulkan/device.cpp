@@ -90,7 +90,8 @@ bool Device<kVk>::SupportsFeature(StructureType<kVk> feature, const Instance<kVk
 			core::std_extra::overloaded
 			{
 				[&supported](const auto& featureVariant) {},
-				[&supported](const VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR& featureVariant) { supported = featureVariant.swapchainMaintenance1; }
+				[&supported](const VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR& featureVariant) { supported = featureVariant.swapchainMaintenance1; },
+				[&supported](const VkPhysicalDevicePipelineBinaryFeaturesKHR& featureVariant) { supported = featureVariant.pipelineBinaries; }
 			},
 			*featureIt);
 	return supported;
@@ -344,6 +345,11 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 		for (const char* extensionName :
 			 {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME})
 			desiredExtensions.emplace_back(extensionName);
+
+	// pipelines kept as their binaries (see rhi/vulkan/pipelinebinaries.h), where the instance chained the features (the
+	// device has the extension)
+	if (physicalDeviceInfo.deviceFeatureParams.contains(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_BINARY_FEATURES_KHR))
+		desiredExtensions.emplace_back(VK_KHR_PIPELINE_BINARY_EXTENSION_NAME);
 
 	// crash reports' (breadcrumbs, device faults, address bindings), see crashreport.h: decided by what the device has and
 	// whether the Crash Diagnostic Layer is loaded

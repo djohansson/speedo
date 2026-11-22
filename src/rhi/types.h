@@ -106,6 +106,8 @@ using PhysicalDeviceAccelerationStructureFeatures = typename BackendTypes<G>::Ph
 template <GraphicsApi G>
 using PhysicalDeviceRayQueryFeatures = typename BackendTypes<G>::PhysicalDeviceRayQueryFeatures;
 template <GraphicsApi G>
+using PhysicalDevicePipelineBinaryFeatures = typename BackendTypes<G>::PhysicalDevicePipelineBinaryFeatures;
+template <GraphicsApi G>
 using PhysicalDeviceAccelerationStructureProperties = typename BackendTypes<G>::PhysicalDeviceAccelerationStructureProperties;
 template <GraphicsApi G>
 using QueueHandle = typename BackendTypes<G>::QueueHandle;

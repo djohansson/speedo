@@ -49,7 +49,8 @@ using PhysicalDeviceFeatureParams = std::variant<
 	PhysicalDeviceAddressBindingReportFeatures<G>,
 	PhysicalDeviceCoherentMemoryFeatures<G>,
 	PhysicalDeviceAccelerationStructureFeatures<G>,
-	PhysicalDeviceRayQueryFeatures<G>>;
+	PhysicalDeviceRayQueryFeatures<G>,
+	PhysicalDevicePipelineBinaryFeatures<G>>;
 
 template <GraphicsApi G>
 using PhysicalDeviceFeatureParamsSet = core::UnorderedSet<

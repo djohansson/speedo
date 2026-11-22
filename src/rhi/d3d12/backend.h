@@ -290,6 +290,9 @@ struct PipelineCacheObject
 	// took Sponza's 83 compute pipelines from 0.23 s to 0.59 s)
 	static constexpr size_t kLoadLockCount = 64;
 	std::array<std::mutex, kLoadLockCount> loadLocks;
+	// the states loaded or made this run, by name (a reference held each), guarded by mutex: what the library is made
+	// again from as it is saved, once it holds more than kPipelineCacheByteCount (see pipelinecache::Close)
+	core::UnorderedMap<uint64_t, ID3D12PipelineState*> used;
 
 	// the pipeline state of desc named key: loaded from the library, or made (and stored)
 	[[nodiscard]] static ID3D12PipelineState* Graphics(

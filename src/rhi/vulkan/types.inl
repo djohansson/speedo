@@ -69,6 +69,8 @@ struct BackendTypes<kVk>
 	using PhysicalDeviceCoherentMemoryFeatures = VkPhysicalDeviceCoherentMemoryFeaturesAMD;
 	using PhysicalDeviceAccelerationStructureFeatures = VkPhysicalDeviceAccelerationStructureFeaturesKHR;
 	using PhysicalDeviceRayQueryFeatures = VkPhysicalDeviceRayQueryFeaturesKHR;
+	// pipelines kept as their binaries (see rhi/vulkan/pipelinebinaries.h)
+	using PhysicalDevicePipelineBinaryFeatures = VkPhysicalDevicePipelineBinaryFeaturesKHR;
 	using PhysicalDeviceAccelerationStructureProperties = VkPhysicalDeviceAccelerationStructurePropertiesKHR;
 	using QueueHandle = VkQueue;
 	using CommandBufferHandle = VkCommandBuffer;

@@ -45,6 +45,12 @@ extern PFN_vkGetAccelerationStructureDeviceAddressKHR gVkGetAccelerationStructur
 extern PFN_vkCmdBuildAccelerationStructuresKHR gVkCmdBuildAccelerationStructuresKHR;
 extern PFN_vkCmdWriteAccelerationStructuresPropertiesKHR gVkCmdWriteAccelerationStructuresPropertiesKHR;
 extern PFN_vkCmdCopyAccelerationStructureKHR gVkCmdCopyAccelerationStructureKHR;
+// pipelines' binaries (null unless the device enables VK_KHR_pipeline_binary, see rhi/vulkan/pipelinebinaries.h)
+extern PFN_vkGetPipelineKeyKHR gVkGetPipelineKeyKHR;
+extern PFN_vkCreatePipelineBinariesKHR gVkCreatePipelineBinariesKHR;
+extern PFN_vkDestroyPipelineBinaryKHR gVkDestroyPipelineBinaryKHR;
+extern PFN_vkGetPipelineBinaryDataKHR gVkGetPipelineBinaryDataKHR;
+extern PFN_vkReleaseCapturedPipelineDataKHR gVkReleaseCapturedPipelineDataKHR;
 
 // tracks (and names) a vulkan object, or stops tracking it, see rhi::TrackObject/TrackInstanceObject
 template <typename HandleT>

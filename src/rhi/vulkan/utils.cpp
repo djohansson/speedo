@@ -41,6 +41,11 @@ PFN_vkGetAccelerationStructureDeviceAddressKHR gVkGetAccelerationStructureDevice
 PFN_vkCmdBuildAccelerationStructuresKHR gVkCmdBuildAccelerationStructuresKHR{};
 PFN_vkCmdWriteAccelerationStructuresPropertiesKHR gVkCmdWriteAccelerationStructuresPropertiesKHR{};
 PFN_vkCmdCopyAccelerationStructureKHR gVkCmdCopyAccelerationStructureKHR{};
+PFN_vkGetPipelineKeyKHR gVkGetPipelineKeyKHR{};
+PFN_vkCreatePipelineBinariesKHR gVkCreatePipelineBinariesKHR{};
+PFN_vkDestroyPipelineBinaryKHR gVkDestroyPipelineBinaryKHR{};
+PFN_vkGetPipelineBinaryDataKHR gVkGetPipelineBinaryDataKHR{};
+PFN_vkReleaseCapturedPipelineDataKHR gVkReleaseCapturedPipelineDataKHR{};
 
 void OnCheckFailedDefault(VkResult result, uintptr_t count, ...)//NOLINT(modernize-avoid-variadic-functions)
 {
@@ -135,6 +140,11 @@ void InitDeviceExtensions(VkDevice device)
 	load(gVkCmdBuildAccelerationStructuresKHR, "vkCmdBuildAccelerationStructuresKHR");
 	load(gVkCmdWriteAccelerationStructuresPropertiesKHR, "vkCmdWriteAccelerationStructuresPropertiesKHR");
 	load(gVkCmdCopyAccelerationStructureKHR, "vkCmdCopyAccelerationStructureKHR");
+	load(gVkGetPipelineKeyKHR, "vkGetPipelineKeyKHR");
+	load(gVkCreatePipelineBinariesKHR, "vkCreatePipelineBinariesKHR");
+	load(gVkDestroyPipelineBinaryKHR, "vkDestroyPipelineBinaryKHR");
+	load(gVkGetPipelineBinaryDataKHR, "vkGetPipelineBinaryDataKHR");
+	load(gVkReleaseCapturedPipelineDataKHR, "vkReleaseCapturedPipelineDataKHR");
 }
 
 bool SupportsExtension(const char* extensionName, VkPhysicalDevice device)

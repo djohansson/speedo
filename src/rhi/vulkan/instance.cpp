@@ -155,6 +155,16 @@ void GetPhysicalDeviceInfo2(
 			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
 		});
 	}
+	// pipelines kept as their binaries (see rhi/vulkan/pipelinebinaries.h: the device enables the extension where it has
+	// it). SPEEDO_PIPELINE_BINARIES=0 leaves it out: the pipeline cache's file then, as on a device without it
+	if (const char* binaries = std::getenv("SPEEDO_PIPELINE_BINARIES");
+		(binaries == nullptr || std::string_view(binaries) != "0") && SupportsExtension(VK_KHR_PIPELINE_BINARY_EXTENSION_NAME, device))
+	{
+		deviceFeatureParams.emplace(VkPhysicalDevicePipelineBinaryFeaturesKHR
+		{
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_BINARY_FEATURES_KHR,
+		});
+	}
 	
 	// features 2 -> 1.1 -> 1.2 (-> 1.3 -> 1.4) -> the extensions'
 	void* extensionFeatures = GetPNextChain(deviceFeatureParams);

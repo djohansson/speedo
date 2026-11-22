@@ -114,9 +114,17 @@ struct PipelineGraphicsState;
 namespace rhi
 {
 
+// the most a pipeline cache keeps on disk (the user's call, 2026-11-22): each backend's kept only grew (a pipeline once
+// made stayed), 240 to 460 MB in the GI experiments' profile slots after a day's shader variants, loaded and saved by
+// every run (1.3 s a run at 458 MB). past it a backend keeps what the run used (D3D12's library, made again from them)
+// or the most recently used (Vulkan's pipeline binaries), else starts over (Vulkan's pipeline cache)
+inline constexpr uint64_t kPipelineCacheByteCount = 256ULL << 20U;
+
 template <GraphicsApi G>
 struct PipelineCreateDesc final : DeviceObjectCreateDesc<G>
 {
+	// the backend's pipeline cache's file (or, with Vulkan's pipeline binaries, its directory beside it: see
+	// rhi/vulkan/pipelinebinaries.h); empty, none
 	std::string cachePath;
 	std::vector<DescriptorPoolSize> descriptorPoolSizes; // of the descriptor pool its descriptor sets come from
 };
@@ -347,6 +355,9 @@ private:
 	};
 	std::unique_ptr<PipelineMapSync> myPipelineMapSync = std::make_unique<PipelineMapSync>();
 	PipelineCacheHandle<G> myCache{};
+	// a backend's store of its pipelines' binaries, where it keeps them so (Vulkan's: see rhi/vulkan/pipelinebinaries.h),
+	// in place of myCache
+	std::shared_ptr<void> myBinaryStore;
 
 	// auto api shared state
 	PipelineBindPoint myBindPoint{};

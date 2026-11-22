@@ -100,6 +100,7 @@ struct PhysicalDeviceAddressBindingReportFeatures {};
 struct PhysicalDeviceCoherentMemoryFeatures {};
 struct PhysicalDeviceAccelerationStructureFeatures {};
 struct PhysicalDeviceRayQueryFeatures {};
+struct PhysicalDevicePipelineBinaryFeatures {};
 struct PhysicalDeviceAccelerationStructureProperties {};
 struct DescriptorUpdateTemplateEntry // a range of a binding's elements, and where their values are among the set's
 {
@@ -222,6 +223,7 @@ struct BackendTypes<kMetal>
 	using PhysicalDeviceCoherentMemoryFeatures = rhi::metal::PhysicalDeviceCoherentMemoryFeatures;
 	using PhysicalDeviceAccelerationStructureFeatures = rhi::metal::PhysicalDeviceAccelerationStructureFeatures;
 	using PhysicalDeviceRayQueryFeatures = rhi::metal::PhysicalDeviceRayQueryFeatures;
+	using PhysicalDevicePipelineBinaryFeatures = rhi::metal::PhysicalDevicePipelineBinaryFeatures;
 	using PhysicalDeviceAccelerationStructureProperties = rhi::metal::PhysicalDeviceAccelerationStructureProperties;
 	using QueueHandle = MTL::CommandQueue*;
 	using CommandBufferHandle = rhi::metal::CommandBufferObject*;

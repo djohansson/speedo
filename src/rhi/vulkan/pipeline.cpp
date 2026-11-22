@@ -2,6 +2,7 @@
 #include <rhi/pipeline.h>
 #include <rhi/rhi.h>
 #include <rhi/vulkan/convert.h>
+#include <rhi/vulkan/pipelinebinaries.h>
 #include <rhi/vulkan/pipelinecache.h>
 #include <rhi/vulkan/utils.h>
 
@@ -13,6 +14,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <memory>
 #include <print>
 #include <string_view>
 
@@ -20,6 +22,18 @@ namespace rhi
 {
 
 // (pipeline::LogCreation is every backend's, in pipeline.inl)
+
+namespace pipeline
+{
+
+// whether the pipelines are kept as their binaries (see rhi/vulkan/pipelinebinaries.h) rather than in a pipeline cache's
+// file: where the device enables VK_KHR_pipeline_binary, and there is a file to keep them beside
+static bool KeepsBinaries(const Device<kVk>& device, const Instance<kVk>& instance, const std::string& cachePath)
+{
+	return !cachePath.empty() && device.SupportsFeature(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_BINARY_FEATURES_KHR, instance);
+}
+
+} // namespace pipeline
 
 IMPLEMENT_OBJECT_GETINSTANCE(Pipeline<kVk>);
 IMPLEMENT_DEVICEOBJECT_GETDEVICE(Pipeline<kVk>);
@@ -352,13 +366,16 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(
 
 	VkPipeline pipelineHandle;
 	auto creationStart = std::chrono::steady_clock::now();
-	VK_CHECK(vkCreateGraphicsPipelines(
-		GetDevice(),
-		myCache,
-		1,
-		&pipelineInfo,
-		&GetInstance().GetHostAllocationCallbacks(),
-		&pipelineHandle));
+	if (const auto* binaries = static_cast<const pipeline::BinaryStore*>(myBinaryStore.get()))
+		pipelineHandle = binaries->Create(pipelineInfo);
+	else
+		VK_CHECK(vkCreateGraphicsPipelines(
+			GetDevice(),
+			myCache,
+			1,
+			&pipelineInfo,
+			&GetInstance().GetHostAllocationCallbacks(),
+			&pipelineHandle));
 	auto fragmentStage = std::ranges::find_if(stages, [](const auto& stage) { return stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT; });
 	pipeline::LogCreation(
 		"graphics", fragmentStage != stages.end() ? fragmentStage->pName : "(no fragment stage)", variant.specialization, creationStart);
@@ -389,13 +406,16 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(
 
 	VkPipeline pipelineHandle;
 	auto creationStart = std::chrono::steady_clock::now();
-	VK_CHECK(vkCreateComputePipelines(
-		GetDevice(),
-		myCache,
-		1,
-		&pipelineInfo,
-		&GetInstance().GetHostAllocationCallbacks(),
-		&pipelineHandle));
+	if (const auto* binaries = static_cast<const pipeline::BinaryStore*>(myBinaryStore.get()))
+		pipelineHandle = binaries->Create(pipelineInfo);
+	else
+		VK_CHECK(vkCreateComputePipelines(
+			GetDevice(),
+			myCache,
+			1,
+			&pipelineInfo,
+			&GetInstance().GetHostAllocationCallbacks(),
+			&pipelineHandle));
 	pipeline::LogCreation("compute", pipelineInfo.stage.pName, variant.specialization, creationStart);
 
 	Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE, pipelineHandle, std::format("{} Compute Pipeline {}", GetName(), hashKey));
@@ -548,12 +568,33 @@ Pipeline<kVk>::Pipeline(CreateDescType&& desc)
 
 			return outDescriptorPool;
 		}())
-	, myCache(pipeline::LoadPipelineCache(GetDesc().cachePath, GetDevice(), GetInstance()))
+	// none where the pipelines are kept as their binaries (pipeline creation with them takes none)
+	, myCache(
+		  pipeline::KeepsBinaries(GetDevice(), GetInstance(), GetDesc().cachePath)
+			  ? VK_NULL_HANDLE
+			  : pipeline::LoadPipelineCache(GetDesc().cachePath, GetDevice(), GetInstance()))
 {
 	InternalResetGraphicsState();
 	InternalResetComputeState();
 
-	Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE_CACHE, myCache, std::format("{} PipelineCache", GetName()));
+	if (myCache != VK_NULL_HANDLE)
+	{
+		Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE_CACHE, myCache, std::format("{} PipelineCache", GetName()));
+		return;
+	}
+	if (GetDesc().cachePath.empty())
+		return;
+	// the binaries' directory beside the cache's file (pipeline.cache's: pipeline.binaries), and the file, from before or
+	// from a device without them, read no more: removed (hundreds of MB in a profile used for shader work)
+	const std::filesystem::path cachePath(GetDesc().cachePath);
+	auto directory = cachePath;
+	directory.replace_extension(".binaries");
+	myBinaryStore = std::make_shared<pipeline::BinaryStore>(
+		directory, GetDevice(), &GetInstance().GetHostAllocationCallbacks(),
+		GetInstance().GetPhysicalDeviceInfo(GetDevice().GetPhysicalDevice()).deviceProperties.properties);
+	std::error_code error;
+	if (auto size = std::filesystem::file_size(cachePath, error); !error && std::filesystem::remove(cachePath, error))
+		std::println("Removed the pipeline cache {} ({} MB): pipelines are kept as their binaries in {}", cachePath.string(), size >> 20U, directory.string());
 }
 
 // (Swap and the moves are every backend's, in pipeline.inl)
@@ -581,12 +622,19 @@ Pipeline<kVk>::~Pipeline()
 	if (!IsValid())
 		return;
 
-	if (auto fileInfo = pipeline::SavePipelineCache(
-			GetDesc().cachePath,
-			GetDevice(),
-			GetInstance().GetPhysicalDeviceInfo(GetDevice().GetPhysicalDevice()).deviceProperties,
-			myCache);
-		fileInfo)
+	// the binaries' least recently used gone past kPipelineCacheByteCount; else the cache's file saved
+	if (const auto* binaries = static_cast<const pipeline::BinaryStore*>(myBinaryStore.get()))
+	{
+		auto byteCount = binaries->Evict(kPipelineCacheByteCount);
+		std::println("Pipeline binaries in {}: {} MB", binaries->GetDirectory().string(), byteCount >> 20U);
+		core::RunTiming(std::format("rhi: the pipeline binaries kept ({})", binaries->GetDirectory().filename().string()));
+	}
+	else if (auto fileInfo = pipeline::SavePipelineCache(
+				 GetDesc().cachePath,
+				 GetDevice(),
+				 GetInstance().GetPhysicalDeviceInfo(GetDevice().GetPhysicalDevice()).deviceProperties,
+				 myCache);
+			 fileInfo)
 	{
 		std::println("Saved pipeline cache to {}", fileInfo.value().path);
 		core::RunTiming(std::format("rhi: the pipeline cache saved ({})", std::filesystem::path(fileInfo.value().path).filename().string()));
@@ -599,11 +647,14 @@ Pipeline<kVk>::~Pipeline()
 	InternalDestroyPipelines();
 	core::RunTiming("rhi: the pipelines destroyed");
 
-	Untrack(VK_OBJECT_TYPE_PIPELINE_CACHE, myCache);
-	vkDestroyPipelineCache(
-		GetDevice(),
-		myCache,
-		&GetInstance().GetHostAllocationCallbacks());
+	if (myCache != VK_NULL_HANDLE)
+	{
+		Untrack(VK_OBJECT_TYPE_PIPELINE_CACHE, myCache);
+		vkDestroyPipelineCache(
+			GetDevice(),
+			myCache,
+			&GetInstance().GetHostAllocationCallbacks());
+	}
 
 	myDescriptorMap.clear();
 
