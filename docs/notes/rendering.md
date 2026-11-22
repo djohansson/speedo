@@ -1107,11 +1107,23 @@ structures: the file browser's preview hasn't, and its reflections would all be 
 traced ray meets in place of the probes' and the environment's radiance along the reflection (`environmentRadiance`, which
 the split sum's terms then weigh as before), two ways. A fragment's (Main's blended surfaces, the transmissive ones, the
 forward path): sharp, a ray along the reflection's dominant direction (`SharpReflections`, traced before it is shaded, see
-below), all of it below a roughness of 0.15, none from 0.4 (`TracedShare`); the clearcoat's reflection so either way. The visibility buffer's (compute, the opaque
+below), all of it below a roughness of 0.15, none from 0.4 (`TracedShare`); the clearcoat's reflection so as well. The visibility buffer's (compute, the opaque
 surfaces): glossy, a ray a pixel along the view reflected about a normal of the GGX lobe (`TracedGlossyDirection`:
 Heitz's visible normals, `TracedVisibleNormal`, by Roberts' R2 over the frames offset per pixel by interleaved gradient
 noise, `TracedRandom`; the cone widened by the lobe, so its hit's textures blur as the reflection does), all of it up to a
-roughness of 0.45, none from 0.6 (`TracedGlossyShare`: rougher, the probes' glossy reflection is as good). Its sample is
+roughness of 0.45, none from 0.6 (`TracedGlossyShare`: rougher, the probes' glossy reflection is as good). A pixel
+traces one glossy ray: the clearcoat's where the coat is rougher than a sharp ray stands for (0.15, below which all of
+it is traced sharp) and its traced light (its strength by its share) outweighs the base's, sampled from the coat's lobe
+about its own normal, the base's reflection untraced then; else the base's, and the coat's traced sharp, as a
+fragment's (`TracedCoatRecord`, the difference its ray makes added by the Reflection Trace pass). The coat's was sharp
+either way, and bathroom2_extended's wooden floor (a coat of roughness 0.32, GGX alpha 0.1 from pbrt's coateddiffuse,
+over a base without specular) reflected the emissive window as a mirror would, a crisp rectangle on the floor (the
+user's pose `10.9019,15.3708,48.9398,10.747,-10.048`, 2026-11-22): a quarter of the coat's light (`TracedShare` at 0.32)
+along its one direction; now a soft glow stretched toward the eye, which the user confirmed. A smooth coat's sharp ray
+is its reflection: given the glossy ray wherever its Fresnel outweighed the base's, ClearCoatCarPaint's (roughness 0,
+over metallic flakes of roughness 0.4) took it toward the rim, the flakes' reflection of the ground went untraced there,
+and the sphere's lower half came out darker (0.31 of 255 over the frame); coats as smooth as that are as before
+(ClearCoatTest, CompareClearcoat, ClearCoatCarPaint and CarConcept within 0.01 to 0.02 of 255). Its sample is
 a ratio (Heitz et al.'s ratio estimator, as for shadows): the ray's radiance over what the probes and the environment
 predict along the ray (as `environmentRadiance` along the reflection, the environment prefiltered for the roughness and the
 probes' terms, along the direction traced: below the geometry, where a ray is turned to skim it, the prediction saw the
@@ -1259,7 +1271,7 @@ reflections, and the glossy rays at a lower resolution (their cost, below).
 Each kernel traces from one call site, in a loop the compiler doesn't unroll (`[loop]`): every call is a copy of all that
 shades a hit (the glass's path, the hit's lights and their shadow rays, the probes, the near field's rays), since NIR
 inlines every function and KosmicKrisp gives every ray query state of its own. The visibility buffer's in the Reflection
-Trace pass (its glossy ray and the clearcoat's, which the shading records: `TracedCoatRecord`, the direction, the
+Trace pass (its glossy ray and the clearcoat's sharp one where the base took the glossy, which the shading records: `TracedCoatRecord`, the direction, the
 roughness and the weight of the difference the trace makes, which the pass adds to the main color); a fragment's in
 `TracedFragmentRays` before it is shaded (the base's and the clearcoat's reflections, `SharpReflections`, and the
 refraction, a ray for each color under dispersion, `TransmittedTraced`, whose light `Shade` and `TransmittedLight` take);

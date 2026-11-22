@@ -107,6 +107,25 @@ float3 ClearcoatReflected(Surface surface, float3 view, out float strength)
 	return DominantDirection(surface.clearcoatNormal, reflect(-view, surface.clearcoatNormal), surface.clearcoatRoughness);
 }
 
+// what the probes and the environment predict a reflection of a roughness sees along direction from position (as Shade's
+// environmentRadiance along the base's dominant direction): the environment's, through the fog toward the sky, and where
+// the indirect lighting covers the point (indirect.x >= 0), as much of it as that sees (seen), and as the surface gets
+// rough, the indirect light's own around the direction (the lookup's faces as far as it is trusted, the near field's
+// diffuse light beyond)
+float3 ReflectionPredicted(
+	EnvironmentData environment, AerialPerspectiveData aerial, float3 position, float3 direction, float roughness, GiSample gi,
+	float3 indirect, float seen, float giTrust)
+{
+	float3 predicted = EnvironmentRadiance(environment, direction, roughness);
+	float3 fogLight;
+	float3 fogTransmittance;
+	FogToSky(aerial, direction, position.y, fogLight, fogTransmittance);
+	predicted = predicted * fogTransmittance + fogLight;
+	if (indirect.x >= 0.0)
+		predicted = lerp(predicted * seen, lerp(indirect, GiEvaluate(gi, direction), giTrust), smoothstep(0.2, 0.9, roughness));
+	return predicted;
+}
+
 // the sharp reflections a fragment traces (see Shade, TracedFragmentRays): the base's and the clearcoat's, along their
 // dominant directions, each by its share of the light it stands in for (0: not traced; none in compute, whose glossy
 // reflections the Reflection Trace pass traces)
@@ -212,6 +231,8 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 	// fibers gone, and its frames changed 0.258 of 255 at the user's pose, 0.021 untraced. a fragment's: sharp, traced
 	// before (tracedBase)
 	float tracedShare = 0.0;
+	// and the clearcoat's share its glossy ray traces, where the coat takes the pixel's (0 else; see below)
+	float coatGlossyShare = 0.0;
 #if BVH_RAY_QUERY
 	if (TracedReflectionsOn())
 	{
@@ -221,26 +242,49 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 			bool shown = debugView == DEBUG_VIEW_NONE || debugView == DEBUG_VIEW_INDIRECT || debugView == DEBUG_VIEW_INDIRECT_SPECULAR ||
 						 debugView == DEBUG_VIEW_TRACED_REFLECTIONS;
 			tracedShare = shown ? TracedGlossyShare(roughness, strength) : 0.0;
-			if (tracedShare > 0.0)
+			// a pixel traces one glossy ray: the clearcoat's where the coat is rougher than a sharp ray stands for (all of it
+			// traced sharp below kTracedRoughnessFull) and its traced light outweighs the base's, sampled from the coat's lobe
+			// about its own normal (in the views that show the coat's light), the base's untraced then. the coat's was traced
+			// as a fragment's, sharp along its dominant direction (TracedCoatRecord, which stays where the base takes the ray):
+			// bathroom2's wooden floor, a coat of roughness 0.32 (GGX alpha 0.1, from pbrt's coateddiffuse) over a base without
+			// specular, reflected the emissive window as sharp as a mirror, at a quarter of the coat's light. a smooth coat's
+			// sharp ray is its reflection: given the glossy ray where its Fresnel outweighed the base's toward the rim,
+			// ClearCoatCarPaint's (roughness 0, over metallic flakes of roughness 0.4) left the flakes' reflection of the
+			// ground untraced there, and the sphere's lower half darker
+			float coatStrength = 0.0;
+			float3 coatReflected = 0.0;
+			if (surface.clearcoat > 0.0)
+				coatReflected = ClearcoatReflected(surface, view, coatStrength);
+			bool coatShown = debugView == DEBUG_VIEW_NONE || debugView == DEBUG_VIEW_INDIRECT || debugView == DEBUG_VIEW_TRACED_REFLECTIONS;
+			float coatShare = coatShown && surface.clearcoat > 0.0 ? TracedGlossyShare(surface.clearcoatRoughness, coatStrength) : 0.0;
+			bool coat = surface.clearcoatRoughness > kTracedRoughnessFull && coatShare * coatStrength > tracedShare * strength;
+			float share = coat ? coatShare : tracedShare;
+			if (share > 0.0)
 			{
 				// the ray, which the Reflection Trace pass traces (ComputeReflectionTrace), and what is predicted along it
-				float3 direction = TracedGlossyDirection(surface.geometryNormal, normal, view, roughness, gFragmentPixel);
-				float3 expected = EnvironmentRadiance(environment, direction, roughness);
-				{
-					float3 fogLight;
-					float3 fogTransmittance;
-					FogToSky(aerial, direction, position.y, fogLight, fogTransmittance);
-					expected = expected * fogTransmittance + fogLight;
-				}
-				if (indirect.x >= 0.0)
-					expected = lerp(expected * seen, lerp(indirect, GiEvaluate(gi, direction), giTrust), rough);
+				float glossyRoughness = coat ? surface.clearcoatRoughness : roughness;
+				float3 glossyNormal = coat ? surface.clearcoatNormal : normal;
+				float3 direction = TracedGlossyDirection(surface.geometryNormal, glossyNormal, view, glossyRoughness, gFragmentPixel);
+				float3 expected = ReflectionPredicted(environment, aerial, position, direction, glossyRoughness, gi, indirect, seen, giTrust);
+				// and what is predicted along the pixel's own reflection (the base's: environmentRadiance), by the specular's
+				// share of it (the coat's: its strength)
+				float3 own = coat ? ReflectionPredicted(environment, aerial, position, coatReflected, glossyRoughness, gi, indirect, seen, giTrust)
+								  : environmentRadiance;
+				float3 specular = coat ? float3(coatStrength) : surface.occlusion * environmentSpecular;
 				float least = kReflectionPredictionLeast / max(gViewData[gPushConstants.frameIndex][gShadingViewId].exposure, 1e-6);
-				float3 weight = (debugView == DEBUG_VIEW_TRACED_REFLECTIONS ? float3(tracedShare) : surface.occlusion * environmentSpecular * tracedShare) *
-								(environmentRadiance + least);
+				float3 weight = (debugView == DEBUG_VIEW_TRACED_REFLECTIONS ? float3(share) : specular * share) * (own + least);
 				TracedReflectionRecord(
-					gFragmentPixel, direction, roughness, float4(expected, 0.0),
-					float4(weight, ReflectionPackRoughness(roughness, dot(normal, surface.geometryNormal) < 0.995)));
-				environmentRadiance *= 1.0 - tracedShare;
+					gFragmentPixel, direction, glossyRoughness, float4(expected, 0.0),
+					float4(weight, ReflectionPackRoughness(glossyRoughness, dot(glossyNormal, surface.geometryNormal) < 0.995)));
+				if (coat)
+				{
+					coatGlossyShare = coatShare;
+					tracedShare = 0.0;
+				}
+				else
+				{
+					environmentRadiance *= 1.0 - tracedShare;
+				}
 			}
 		}
 		else
@@ -254,7 +298,7 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 	}
 #endif
 	if (debugView == DEBUG_VIEW_TRACED_REFLECTIONS)
-		return tracedShare > 0.0 ? (TracedGlossyHere() ? float3(0.0) : environmentRadiance) : float3(1.0, 0.0, 1.0);
+		return tracedShare > 0.0 || coatGlossyShare > 0.0 ? (TracedGlossyHere() ? float3(0.0) : environmentRadiance) : float3(1.0, 0.0, 1.0);
 	if (debugView == DEBUG_VIEW_INDIRECT_SPECULAR)
 		return surface.occlusion * environmentSpecular * environmentRadiance;
 	float3 diffuseEnvironment = surface.diffuseColor * (indirect.x >= 0.0 ? indirect : EnvironmentIrradiance(environment, normal));
@@ -292,9 +336,12 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 		float coatTraced = TracedReflectionsOn() ? TracedShare(surface.clearcoatRoughness, coatStrength) : 0.0;
 		if (TracedGlossyHere())
 		{
-			// the visibility buffer's: recorded, and the Reflection Trace pass adds the difference the trace makes to the
-			// main color (ComputeReflectionTrace), in the views whose result has the coat's light
-			if (coatTraced > 0.0 && (debugView == DEBUG_VIEW_NONE || debugView == DEBUG_VIEW_INDIRECT))
+			// the visibility buffer's: where the coat took the pixel's glossy ray (above), its share left out of this, which
+			// the Reflection passes add; else its sharp ray, recorded, and the Reflection Trace pass adds the difference the
+			// trace makes to the main color (ComputeReflectionTrace), in the views whose result has the coat's light
+			if (coatGlossyShare > 0.0)
+				coatRadiance *= 1.0 - coatGlossyShare;
+			else if (coatTraced > 0.0 && (debugView == DEBUG_VIEW_NONE || debugView == DEBUG_VIEW_INDIRECT))
 				TracedCoatRecord(gFragmentPixel, coatReflected, surface.clearcoatRoughness, coatTraced * coatStrength);
 		}
 		else if (tracedCoat.a > 0.0)
