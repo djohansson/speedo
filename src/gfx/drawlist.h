@@ -244,12 +244,13 @@ void RecordCulledDrawList(
 // drawn, see RecordDrawList). those never asked for are created on executor; returns how many don't exist yet, and a
 // pass records the list only once none is missing, so the draw thread never waits for the driver's compile (a cold first
 // launch's generic main pass pipeline took 16.5 s on KosmicKrisp, the window frozen meanwhile). without an executor,
-// none: they are made on first use, the draw thread waiting
+// none: they are made on first use, the draw thread waiting. requested, if given, gets the variants asked for
 [[nodiscard]] uint32_t RequestDrawListPipelines(
 	Pipeline& pipeline,
 	const DrawList& list,
 	std::span<const rhi::GraphicsPipelineVariant> variants,
 	core::TaskExecutor* executor,
-	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include = std::nullopt);
+	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include = std::nullopt,
+	std::vector<rhi::GraphicsPipelineVariant>* requested = nullptr);
 
 } // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

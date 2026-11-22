@@ -101,6 +101,8 @@ public:
 		// a raster pass's render target, begun (with the contents its builder asked for), and how
 		IRenderTarget* target = nullptr;
 		const RenderTargetBeginInfo* beginInfo = nullptr;
+		// the pass's name (as AddPass was given it)
+		std::string_view pass;
 	};
 	using ExecuteFunction = core::std_extra::move_only_function<void(PassContext& context)>;
 	// records around a pass: calls record (the pass's barriers, render target and execute callback) in between
@@ -171,6 +173,11 @@ public:
 	[[nodiscard]] uint64_t GetTimingGroup() const noexcept { return myTimingGroup; }
 
 	[[nodiscard]] Image& GetImage(ImageId image) const;
+	// a raster pass's own render target (over transients), by the pass's name, once Compile has made it, its attachments'
+	// operations and clear values set as the pass records them; none for a pass over imported attachments (bound only as
+	// the graph executes), a culled one, or none of that name. what a pipeline drawing in the pass is made for (see
+	// Pipeline::SetRenderTarget), before the pass first records. draw thread, between frames
+	[[nodiscard]] IRenderTarget* GetRenderTarget(std::string_view pass);
 	[[nodiscard]] const ImageView& GetView(ImageId image) const; // all of a sampled or storage transient's mips
 	[[nodiscard]] Buffer& GetBuffer(BufferId buffer) const;
 	[[nodiscard]] rhi::Extent2d GetExtent() const noexcept { return myExtent; }

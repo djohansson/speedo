@@ -204,6 +204,32 @@ void FrameGraph::Bind(BufferId buffer, Buffer& bound)
 	resource.boundBuffer = &bound;
 }
 
+IRenderTarget* FrameGraph::GetRenderTarget(std::string_view pass)
+{
+	for (const auto& candidate : myPasses)
+	{
+		if (candidate.name != pass || !candidate.live || !candidate.renderTarget)
+			continue;
+		// its attachments' operations and clear values as the pass records them (see InternalRecord): a render target
+		// knows the formats a pipeline is made for once they are set (Vulkan's dynamic rendering info), and before the
+		// pass first recorded, a pipeline asked for from it was made for none (two cold FragmentMain pipelines, 17 s each,
+		// that no pass drew with)
+		auto* target = candidate.renderTarget.get();
+		for (size_t attachmentIt = 0; attachmentIt < candidate.attachments.size(); attachmentIt++)
+		{
+			const auto& attachment = candidate.attachments[attachmentIt];
+			const auto& resource = myResources[attachment.resource];
+			bool depth = Any(resource.imageDesc.aspect & ImageAspect::kDepth);
+			auto index = static_cast<uint32_t>(attachmentIt);
+			target->SetLoadOp(attachment.load, index, depth ? attachment.load : LoadOp{});
+			target->SetStoreOp(attachment.store, index, depth ? attachment.store : StoreOp{});
+			target->SetClearValue(attachment.clear, index);
+		}
+		return target;
+	}
+	return nullptr;
+}
+
 Image& FrameGraph::GetImage(ImageId image) const
 {
 	const auto& resource = myResources.at(image.index);
@@ -694,7 +720,7 @@ void FrameGraph::InternalRecord(CommandBufferHandle cmd, Pass& pass, uint32_t pa
 {
 	InternalBarriers(cmd, pass, passIndex);
 
-	PassContext context{.graph = *this, .cmd = cmd};
+	PassContext context{.graph = *this, .cmd = cmd, .pass = pass.name};
 	if (pass.attachments.empty())
 	{
 		pass.execute(context);

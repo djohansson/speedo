@@ -843,7 +843,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 		// drawn once the pipelines it binds exist (see InternalDrawViews), its tiles cleared meanwhile
 		const GraphicsPipelineVariant shadowVariant{.blend = kOpaqueBlend};
-		auto missingCount = RequestDrawListPipelines(pipeline, myShadowDrawList, {&shadowVariant, 1}, inputs.executor);
+		auto missingCount = InternalRequestDrawListPipelines(context, pipeline, myShadowDrawList, shadowVariant, inputs.executor);
 		myMissingGraphicsPipelineCountThisFrame.fetch_add(missingCount, std::memory_order_relaxed);
 		// tiles cleared rather than drawn: none of them may be kept (see InternalPlanShadowCache)
 		if (missingCount > 0)
@@ -956,7 +956,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 			// drawn once the pipelines it binds exist (see InternalDrawViews), its tiles cleared meanwhile
 			const GraphicsPipelineVariant transmittanceVariant{.blend = kShadowTransmittanceBlend, .fragmentShader = kShadowTransmittanceFragmentShader};
-			auto missingCount = RequestDrawListPipelines(pipeline, myShadowTransmittanceList, {&transmittanceVariant, 1}, inputs.executor);
+			auto missingCount = InternalRequestDrawListPipelines(context, pipeline, myShadowTransmittanceList, transmittanceVariant, inputs.executor);
 			myMissingGraphicsPipelineCountThisFrame.fetch_add(missingCount, std::memory_order_relaxed);
 			if (missingCount > 0)
 				myShadowCacheStale = true; // its tiles cleared too (see InternalPlanShadowCache)
@@ -3016,6 +3016,56 @@ std::pair<uint32_t, uint32_t> Renderer::GetGraphicsPipelineProgress() const noex
 	auto peak = myMissingGraphicsPipelinePeak.load(std::memory_order_relaxed);
 	auto missing = std::min(myMissingGraphicsPipelineCount.load(std::memory_order_relaxed), peak);
 	return {peak - missing, peak};
+}
+
+std::vector<Renderer::RequestedGraphicsPipeline> Renderer::GetRequestedGraphicsPipelines() const
+{
+	return myRequestedGraphicsPipelines.Read().Get();
+}
+
+std::vector<core::TaskHandle> Renderer::RequestGraphicsPipelinesAhead(Pipeline& pipeline, std::span<const RequestedGraphicsPipeline> pipelines)
+{
+	ZoneScopedN("Renderer::RequestGraphicsPipelinesAhead");
+
+	std::vector<core::TaskHandle> creates;
+	for (const auto& [pass, variant] : pipelines)
+	{
+		auto* target = myGraph.GetRenderTarget(pass);
+		if (target == nullptr)
+			continue;
+		pipeline.SetRenderTarget(*target);
+		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+		if (auto request = pipeline.RequestGraphicsPipeline(variant); request.create)
+			creates.push_back(request.create);
+	}
+	return creates;
+}
+
+uint32_t Renderer::InternalRequestDrawListPipelines(
+	const FrameGraph::PassContext& context,
+	Pipeline& pipeline,
+	const DrawList& list,
+	GraphicsPipelineVariant variant,
+	core::TaskExecutor* executor,
+	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include)
+{
+	std::vector<GraphicsPipelineVariant> requested;
+	auto missingCount = RequestDrawListPipelines(pipeline, list, {&variant, 1}, executor, include, &requested);
+	// (each pass asks every frame: noted once, the lock taken only for one not noted yet)
+	auto noted = [&](const GraphicsPipelineVariant& requestedVariant)
+	{
+		auto pipelines = myRequestedGraphicsPipelines.Read();
+		return std::ranges::any_of(
+			pipelines.Get(), [&](const auto& entry) { return entry.first == context.pass && entry.second == requestedVariant; });
+	};
+	for (const auto& requestedVariant : requested)
+		if (!noted(requestedVariant))
+		{
+			auto pipelines = myRequestedGraphicsPipelines.Write();
+			if (std::ranges::none_of(pipelines.Get(), [&](const auto& entry) { return entry.first == context.pass && entry.second == requestedVariant; }))
+				pipelines.Get().emplace_back(std::string(context.pass), requestedVariant);
+		}
+	return missingCount;
 }
 
 std::string_view Renderer::GetOcclusionModeName() const noexcept
@@ -5698,7 +5748,7 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	else if (listId == ListId::kMain && myVisibilityBuffer)
 		include = unshaded;
 	// drawn once the pipelines it binds exist, made meanwhile on the executor (a first launch's, cold, take seconds each)
-	if (auto missingCount = RequestDrawListPipelines(pipeline, list, {&variant, 1}, inputs.executor, include); missingCount > 0)
+	if (auto missingCount = InternalRequestDrawListPipelines(context, pipeline, list, variant, inputs.executor, include); missingCount > 0)
 	{
 		myMissingGraphicsPipelineCountThisFrame.fetch_add(missingCount, std::memory_order_relaxed);
 		return;

@@ -189,7 +189,13 @@ checkout's reload.
   experimental in slang; not tried.
 - **Slang's version**: newer releases may compile faster; measure when the port is next updated.
 - **Pipeline creation**: the driver's own caches already keep what didn't change; check after step 1 that only the
-  changed entry points' pipelines are cold.
+  changed entry points' pipelines are cold. **Looked at (2026-11-22)**, as a capture's time went (the client's run
+  timings, `SPEEDO_RUN_TIMINGS`): NVIDIA's Vulkan cache had filled at 1 GB and kept nothing new, so every profile made a
+  changed shader's pipelines cold (each GI experiment slot 30 to 45 s a variant); round one ran again on every start
+  after a swap of variants (4.3 s); and the graphics pipelines waited for the compute ones. Now the driver's cache is the
+  build's (`driver-cache`, 10 GB), round one's results are kept by the sources' contents, and the graphics pipelines a
+  run's passes asked for are asked for ahead at the next start: a new variant's run in a second slot 2.8 s rather than
+  45.5, a swap back 2.6 rather than 6.3, the first slot's pipelines about 7 s sooner (docs/notes/layering.md).
 
 ## Not to change
 

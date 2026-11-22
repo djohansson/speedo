@@ -469,7 +469,8 @@ uint32_t RequestDrawListPipelines(
 	const DrawList& list,
 	std::span<const GraphicsPipelineVariant> variants,
 	core::TaskExecutor* executor,
-	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include)
+	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include,
+	std::vector<GraphicsPipelineVariant>* requested)
 {
 	ZoneScopedN("gfx::RequestDrawListPipelines");
 
@@ -506,6 +507,8 @@ uint32_t RequestDrawListPipelines(
 	}
 	if (!creates.empty())
 		executor->Submit(creates);
+	if (requested != nullptr)
+		*requested = std::move(needed);
 	return missingCount;
 }
 

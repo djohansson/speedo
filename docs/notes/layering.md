@@ -467,6 +467,18 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   loaded: platform's `glfwVulkanSupported()` at startup loaded it before rhi set them, and they went unread (the folder
   stayed empty), so the platform no longer asks (glfw loads Vulkan for the window's surface; rhi fails clearly without a
   device).
+  The graphics pipelines are asked for ahead too where they are known (2026-11-22): the window's scene keeps those its
+  passes asked for in a run (`Renderer::GetRequestedGraphicsPipelines`: each pass's name and variants) in the profile's
+  `graphics-pipelines.txt` (`Scene::KeepGraphicsPipelines`; not the preview's scene, whose passes are others) and asks
+  for them with the compute pipelines at the next start (`Renderer::RequestGraphicsPipelinesAhead`, from each pass's own
+  render target, `FrameGraph::GetRenderTarget`), in chains of their own on a quarter of the executor's threads; the
+  passes find them made or being made. Before, a changed shader's graphics pipelines were asked for only once the scene
+  was ready, after its compute pipelines: from the shaders loaded to the autoload exit's count 28.7 and 31.4 s, asked for
+  ahead 24.3 and 22.3 (bathroom2, a new `gi.slang` variant each run, interleaved), the slowest of them (`FragmentMain`,
+  17 to 24 s alone in the driver) the critical path now. A render target has its formats only once its attachments'
+  operations are set (Vulkan's dynamic rendering info, made as the frame graph sets them for the pass), so the graph sets
+  them in `GetRenderTarget` too: without, the pipelines asked for were made for no formats, two cold `FragmentMain`s
+  (17 s each) that no pass drew with.
 - The backend's type aliases (`DescriptorType<G>`, `PushConstantRange<G>`, ...) are in the *global* namespace (see
   `rhi/types.h`), so a neutral rhi type of the same name hides them inside `namespace rhi`, and is ambiguous
   in code with `using namespace rhi` (gfx's application). Pick another name, or qualify: `::DescriptorType<G>` in

@@ -18,6 +18,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <span>
@@ -351,6 +352,12 @@ public:
 	// whether the scene reloads its shaders when their sources change, between frames (in Prepare), keeping its state (a
 	// checkout's window: see docs/shader-compile-plan.md, step 6). off by default
 	void WatchShaders(bool watch) noexcept;
+	// keeps the graphics pipelines its passes asked for in a run in path (a text file, written as the scene goes; see
+	// Renderer::GetRequestedGraphicsPipelines), and asks for those the file names ahead, alongside the compute pipelines,
+	// rather than once the scene is ready: a changed shader's graphics pipelines took 20 s after its compute pipelines'
+	// 10 to 17 (2026-11-22). none by default (a preview's scene draws other passes in a profile it shares). before Prepare
+	// first makes the pipelines, draw thread
+	void KeepGraphicsPipelines(std::filesystem::path path);
 	// what the last reload came to, for the ui: compiling, failed (message: the compiler's diagnostics), refused (its
 	// layouts' resources changed: a restart loads them), or reloaded; at time (when it started compiling, else when it
 	// ended); generation counts the reloads started. none where the scene doesn't watch its shaders. any thread

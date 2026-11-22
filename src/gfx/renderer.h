@@ -253,6 +253,15 @@ public:
 	// the graphics pipelines being made for the passes' draws (see RequestDrawListPipelines: a pass draws once its own
 	// exist): how many are done, of the most missing since the last frame that missed none (0 of 0 then). any thread
 	[[nodiscard]] std::pair<uint32_t, uint32_t> GetGraphicsPipelineProgress() const noexcept;
+	// the graphics pipelines the passes asked for in this run (each pass's generic variants, see RequestDrawListPipelines),
+	// by the pass's name, in the order first asked: kept with the profile, so that the next run asks for them ahead,
+	// alongside the compute pipelines (RequestGraphicsPipelinesAhead), rather than once the scene is ready. any thread
+	using RequestedGraphicsPipeline = std::pair<std::string, rhi::GraphicsPipelineVariant>;
+	[[nodiscard]] std::vector<RequestedGraphicsPipeline> GetRequestedGraphicsPipelines() const;
+	// tasks creating those of pipelines that don't exist yet, as their passes will ask for them (each pass's render target,
+	// the main layout): a pass the graph doesn't have (any longer) skipped. for the caller to submit; the pipeline's
+	// graphics state left as the last one's. draw thread, after Resize
+	[[nodiscard]] std::vector<core::TaskHandle> RequestGraphicsPipelinesAhead(Pipeline& pipeline, std::span<const RequestedGraphicsPipeline> pipelines);
 	// the gpu profiler's group its passes are timed in (see GpuProfiler::Begin), for work recorded outside the graph that
 	// SPEEDO_GPU_TIMINGS should list with them (the sky's redraw)
 	[[nodiscard]] uint64_t GetTimingGroup() const noexcept;
@@ -309,6 +318,14 @@ private:
 	// (myPrepassList, the same runs and culled commands)
 	void InternalDrawViews(
 		FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId list, bool late = false, bool prepass = false);
+	// RequestDrawListPipelines for a pass (its context's), noting what it asked for (see GetRequestedGraphicsPipelines)
+	[[nodiscard]] uint32_t InternalRequestDrawListPipelines(
+		const FrameGraph::PassContext& context,
+		Pipeline& pipeline,
+		const DrawList& list,
+		rhi::GraphicsPipelineVariant variant,
+		core::TaskExecutor* executor,
+		std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include = std::nullopt);
 
 	FrameGraph myGraph;
 	FrameGraph::ImageId myColor;
@@ -579,6 +596,8 @@ private:
 	std::atomic_uint32_t myMissingGraphicsPipelineCountThisFrame{0};
 	std::atomic_uint32_t myMissingGraphicsPipelineCount{0};
 	std::atomic_uint32_t myMissingGraphicsPipelinePeak{0};
+	// see GetRequestedGraphicsPipelines
+	core::ConcurrentAccess<std::vector<RequestedGraphicsPipeline>> myRequestedGraphicsPipelines;
 	bool myCountEmulated = false;
 	FrameGraph::ImageId myDepthPyramid;
 	std::vector<std::unique_ptr<ImageView>> myDepthPyramidViews; // a storage view per level

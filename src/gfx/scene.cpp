@@ -41,6 +41,7 @@
 #include <bit>
 #include <array>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <expected>
 #include <cmath>
@@ -581,6 +582,8 @@ struct Scene::Impl
 	bool myPipelinesRequested = false;
 	std::vector<core::Future<void>> myPipelineFutures;
 	std::atomic_uint32_t myPipelineCount{0};
+	// the file the graphics pipelines asked for are kept in (see Scene::KeepGraphicsPipelines), or none
+	std::filesystem::path myGraphicsPipelinesPath;
 	// a shader reload (see InternalWatchShaders, Scene::WatchShaders): whether the scene watches its shaders' sources, their
 	// fingerprint (their files' times and sizes) and when it was last taken, the reload compiling (its task's future and
 	// what it compiled, each layout's set or why it failed) and when it started, and each layout's resources as loaded
@@ -2938,6 +2941,7 @@ struct Scene::Impl
 			myShaderReloadFuture.Wait();
 		for (const auto& future : myPipelineFutures)
 			future.Wait();
+		InternalWriteKeptGraphicsPipelines();
 	}
 
 	Impl(const Impl&) = delete;
@@ -3068,12 +3072,37 @@ struct Scene::Impl
 	// Renderer::ComputePipelineVariants), created on the executor before its first frame, several at once: on KosmicKrisp,
 	// pipelines created on first use and dispatched at once restarted the gpu (FB25381275: release builds, from one
 	// client, in about half the cold starts with a model; see docs/notes/indirect-lighting.md), and a first launch's cold
-	// driver compiles took minutes of the draw thread, the window frozen. draw thread (in Prepare)
+	// driver compiles took minutes of the draw thread, the window frozen. and the graphics pipelines kept from the last
+	// run (see Scene::KeepGraphicsPipelines). draw thread (in Prepare)
 	void InternalRequestPipelines()
 	{
 		ZoneScopedN("Scene::InternalRequestPipelines");
 
 		auto& pipeline = myPipeline;
+		auto& executor = core::Application::Get()->GetExecutor();
+
+		// the graphics pipelines first (the compute layout is bound last, as InternalFinishInitialization left it): those
+		// this run's passes asked for (a shader reload's), else those the last run's did, in chains of their own (a
+		// quarter of the executor's threads, beside the compute pipelines' half below), so that they compile alongside
+		// rather than once the scene is ready. the passes find them made, or being made, when they ask
+		if (!myGraphicsPipelinesPath.empty() && myRenderer)
+		{
+			auto kept = myRenderer->GetRequestedGraphicsPipelines();
+			if (kept.empty())
+				kept = InternalReadKeptGraphicsPipelines();
+			auto creates = myRenderer->RequestGraphicsPipelinesAhead(pipeline, kept);
+			size_t graphicsChainCount = std::max<size_t>(1, executor.GetThreadCount() / 4);
+			std::vector<core::TaskHandle> graphicsHeads;
+			for (size_t createIt = 0; createIt < creates.size(); createIt++)
+			{
+				if (createIt < graphicsChainCount)
+					graphicsHeads.push_back(creates[createIt]);
+				else
+					core::AddDependency(creates[createIt - graphicsChainCount], creates[createIt]);
+			}
+			executor.Submit(graphicsHeads);
+		}
+
 		std::vector<core::TaskCreateInfo<void>> tasks;
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Environment"), PipelineBindPoint::kCompute);
 		std::vector<ComputePipelineVariant> environment;
@@ -3098,7 +3127,6 @@ struct Scene::Impl
 		// draw thread's frames (a task chain on the executor) waiting behind them, the window frozen until the hang watch
 		// tripped (a packaged app's first launch, 2026-11-08: 9 of 12 threads compiling, 2 loads waiting to install, 1 the
 		// Rpc chain's). warm, they take half a second either way
-		auto& executor = core::Application::Get()->GetExecutor();
 		size_t chainCount = std::max<size_t>(1, executor.GetThreadCount() / 2);
 		std::vector<core::TaskHandle> heads;
 		for (size_t taskIt = 0; taskIt < handles.size(); taskIt++)
@@ -3109,6 +3137,85 @@ struct Scene::Impl
 				core::AddDependency(handles[taskIt - chainCount], handles[taskIt]);
 		}
 		executor.Submit(heads);
+	}
+
+	// the graphics pipelines kept in myGraphicsPipelinesPath (see Scene::KeepGraphicsPipelines): a header line, then one
+	// a line, the variant's fields as numbers (the topology, each color attachment's blend mode, the fragment shader, the
+	// depth test, the specialization), a tab and its pass's name. what doesn't read as one (a value another version's
+	// enums have) is left out: asked for ahead is only sooner, the passes ask for what they draw with anyway
+	static constexpr std::string_view kKeptGraphicsPipelinesHeader = "speedo graphics pipelines 1";
+
+	[[nodiscard]] std::vector<Renderer::RequestedGraphicsPipeline> InternalReadKeptGraphicsPipelines() const
+	{
+		std::vector<Renderer::RequestedGraphicsPipeline> pipelines;
+		auto file = core::file::Map(myGraphicsPipelinesPath);
+		if (!file || file->size() == 0)
+			return pipelines;
+		std::string_view text(reinterpret_cast<const char*>(file->data()), file->size());
+		auto nextLine = [&text]
+		{
+			auto end = text.find('\n');
+			auto line = text.substr(0, end);
+			text = end == std::string_view::npos ? std::string_view() : text.substr(end + 1);
+			return line;
+		};
+		if (nextLine() != kKeptGraphicsPipelinesHeader)
+			return pipelines;
+		while (!text.empty())
+		{
+			auto line = nextLine();
+			auto tab = line.find('\t');
+			if (tab == std::string_view::npos || tab + 1 == line.size())
+				continue;
+			std::array<uint32_t, 4 + kMaxColorAttachments> values{};
+			const char* it = line.data();
+			const char* end = line.data() + tab;
+			bool parsed = true;
+			for (auto& value : values)
+			{
+				while (it < end && (*it == ' ' || *it == ','))
+					it++;
+				auto [at, error] = std::from_chars(it, end, value);
+				parsed = parsed && error == std::errc();
+				it = at;
+			}
+			const auto blends = std::span(values).subspan(1, kMaxColorAttachments);
+			if (!parsed || values[0] > static_cast<uint32_t>(PrimitiveTopology::kPointList) ||
+				std::ranges::any_of(blends, [](uint32_t blend) { return blend > static_cast<uint32_t>(BlendMode::kMultiplyMax); }) ||
+				values[1 + kMaxColorAttachments] > UINT8_MAX || values[2 + kMaxColorAttachments] > static_cast<uint32_t>(DepthTest::kEqual) ||
+				values[3 + kMaxColorAttachments] > UINT16_MAX)
+				continue;
+			GraphicsPipelineVariant variant{
+				.topology = static_cast<PrimitiveTopology>(values[0]),
+				.fragmentShader = static_cast<uint8_t>(values[1 + kMaxColorAttachments]),
+				.depthTest = static_cast<DepthTest>(values[2 + kMaxColorAttachments]),
+				.specialization = static_cast<uint16_t>(values[3 + kMaxColorAttachments])};
+			for (size_t blendIt = 0; blendIt < kMaxColorAttachments; blendIt++)
+				variant.blend[blendIt] = static_cast<BlendMode>(blends[blendIt]);
+			pipelines.emplace_back(std::string(line.substr(tab + 1)), variant);
+		}
+		return pipelines;
+	}
+
+	// this run's (a run that drew nothing keeps the last one's)
+	void InternalWriteKeptGraphicsPipelines() const
+	{
+		if (myGraphicsPipelinesPath.empty() || !myRenderer)
+			return;
+		auto pipelines = myRenderer->GetRequestedGraphicsPipelines();
+		if (pipelines.empty())
+			return;
+		std::string text = std::format("{}\n", kKeptGraphicsPipelinesHeader);
+		for (const auto& [pass, variant] : pipelines)
+		{
+			text += std::format("{}", static_cast<uint32_t>(variant.topology));
+			for (size_t blendIt = 0; blendIt < kMaxColorAttachments; blendIt++)
+				text += std::format("{}{}", blendIt == 0 ? " " : ",", static_cast<uint32_t>(variant.blend[blendIt]));
+			text += std::format(
+				" {} {} {}\t{}\n", static_cast<uint32_t>(variant.fragmentShader), static_cast<uint32_t>(variant.depthTest),
+				static_cast<uint32_t>(variant.specialization), pass);
+		}
+		(void)core::file::Write(myGraphicsPipelinesPath, std::as_bytes(std::span(text)));
 	}
 
 	// the shaders' sources' fingerprint: each file of the shader directory, its name, time and size hashed (an install's
@@ -3823,6 +3930,11 @@ void Scene::WatchShaders(bool watch) noexcept
 	// (only where the sources are: a checkout's, not an install's precompiled sets)
 	std::error_code error;
 	myImpl->myWatchShaders = watch && std::filesystem::exists(myImpl->myShaderCompiles->includePath / "shaders.slang", error);
+}
+
+void Scene::KeepGraphicsPipelines(std::filesystem::path path)
+{
+	myImpl->myGraphicsPipelinesPath = std::move(path);
 }
 
 Scene::ShaderReloadStatus Scene::GetShaderReloadStatus() const
