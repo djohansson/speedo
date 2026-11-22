@@ -629,7 +629,8 @@ changes every target package's), and every toolchain change leaves the previous 
 (4.6 GB) on 2026-11-07. `scripts/prune-binary-cache.ps1` deletes the archives no platform installs: `-Keep` takes every
 platform's list, a status file (`install/vcpkg/status`) or a list of ABIs that `-WriteKeepList <file>` writes on a machine
 whose status isn't at hand (the Mac, WSL); `-DryRun` lists what would go, by upload day; more than half of the bucket is
-refused without `-Force` (a platform's list left out). Allow it alone in Claude Code's permissions rather than `aws s3api
+refused without `-Force` where a platform's list may be left out: fewer lists than `-PlatformCount` (3), or a package a
+list names not in the bucket (a list not of what was uploaded). Allow it alone in Claude Code's permissions rather than `aws s3api
 delete-objects` (a bulk delete from the bucket was blocked without it). B2 keeps a deleted file's versions unless the
 bucket's lifecycle keeps only the last, so that setting decides whether pruning frees the storage.
 
@@ -645,9 +646,11 @@ features as its machines but Tracy's profiler app, see below), CI's prune job ru
 `-MinAgeDays 7`: an archive no list names is kept for a week from its upload, since master's lists don't name a
 maintainer's packages for a change not pushed yet (a port's, the toolchain's), which a runner would otherwise build again
 once it is (LLVM on a hosted runner: hours, past the job's timeout). The dry run with the Mac's list alone kept the other
-platforms' 162 archives, all uploaded within the week. A toolchain change makes more than half of the bucket stale a
-week later, which the script refuses without `-Force`: the prune job fails then, and the maintainer prunes by hand. Without
-the secrets every run reads the cache only, and the prune job does nothing.
+platforms' 162 archives, all uploaded within the week. A toolchain or baseline change makes more than half of the bucket
+stale a week later, which the script refused outright at first: the prune job failed on 2026-11-22 (281 of 530 archives,
+2.56 GB, uploaded 2026-11-14 and 15), and the user's call was to delete what is old where nothing else is off. So with
+every platform's list given and matching the bucket, the job deletes them however many they are; the refusal stays for
+a list missing or not matching. Without the secrets every run reads the cache only, and the prune job does nothing.
 
 Tracy's profiler app is a manifest feature of its own, `profiler-app` (`tracy[gui-tools]`, which alone needs 13 packages:
 aklomp-base64, capstone, dbus, expat, fp16, md4c, nativefiledialog-extended, nlohmann-json, ppqsort, psimd, pugixml,

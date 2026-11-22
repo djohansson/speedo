@@ -5,8 +5,12 @@
 # hand. Give every platform's list: an archive no list names is deleted, whichever platform it is for.
 #
 # Needs the AWS CLI and a B2 application key that can delete from the bucket, as seed-binary-cache.ps1 does. -DryRun lists
-# what would be deleted. More than half of the bucket is refused without -Force: the likeliest cause is a platform's list
-# left out. -MinAgeDays keeps what was uploaded more recently whatever the lists say: CI prunes by master's lists after
+# what would be deleted. Where a platform's list is missing (fewer than -PlatformCount) or the lists don't match the
+# bucket (a package they name isn't in it: a list not of what was uploaded, a platform's run that didn't finish), more
+# than half of the bucket is refused without -Force; where every platform's is given and they match, what no list names
+# and is older than -MinAgeDays goes however much it is: a superseded baseline is most of the bucket (2026-11-22: 281 of
+# 530 archives from 2026-11-14 and 15, which the ratio alone refused, failing CI's prune).
+# -MinAgeDays keeps what was uploaded more recently whatever the lists say: CI prunes by master's lists after
 # each push (.github/workflows/ci.yml), and a maintainer's packages for a change not pushed yet (a port's, the toolchain's)
 # would otherwise go, and a hosted runner build them again (LLVM, hours) once it is.
 #
@@ -26,7 +30,9 @@ param(
 	[double] $MinAgeDays = 0,
 	[double] $FastbuildMaxAgeDays = -1,
 	[switch] $FastbuildOnly,
-	[string] $InstallRoot = (Join-Path $PSScriptRoot '../install')
+	[string] $InstallRoot = (Join-Path $PSScriptRoot '../install'),
+	# the platforms the cache serves (CI's: macOS, Windows, Linux): fewer lists than this keep the refusal of more than half
+	[int] $PlatformCount = 3
 )
 $ErrorActionPreference = 'Stop'
 . $PSScriptRoot/binarycache.ps1
@@ -103,8 +109,10 @@ if (-not $FastbuildOnly)
 {
 # what to keep: a status file's installed packages, or a list's ABIs
 $Kept = @{}
+$ListCount = 0
 foreach ($List in ($Keep -split ',' | Where-Object { $_ })) # pwsh -File passes -Keep a,b as one string
 {
+	$ListCount++
 	if (-not (Test-Path $List)) { Write-Error "No such list: $List" }
 	$Text = Get-Content -Path $List -Raw
 	$Abis = @(($Text -match '(?m)^Abi:') ? (Get-InstalledAbis $List) : ($Text -split '\s+' | Where-Object { $_ -match '^[0-9a-f]{64}$' }))
@@ -152,9 +160,10 @@ if ($Stale.Count -gt 0 -and $DryRun)
 }
 elseif ($Stale.Count -gt 0)
 {
-	if ($Stale.Count * 2 -gt $Objects.Count -and -not $Force)
+	if ($Stale.Count * 2 -gt $Objects.Count -and ($Missing.Count -gt 0 -or $ListCount -lt $PlatformCount) -and -not $Force)
 	{
-		Write-Error "$($Stale.Count) of $($Objects.Count) archives would be deleted: is a platform's list missing? -Force deletes them"
+		Write-Error ("$($Stale.Count) of $($Objects.Count) archives would be deleted, with $ListCount lists for $PlatformCount platforms and " +
+			"$($Missing.Count) kept packages not in the bucket: is a platform's list missing, or not of what was uploaded? -Force deletes them")
 	}
 	$ArchivesFailed = Remove-BucketObjects $Stale
 	Write-Host ('{0} deleted ({1:N2} GB), {2} failed' -f ($Stale.Count - $ArchivesFailed), ($StaleBytes / 1GB), $ArchivesFailed)
