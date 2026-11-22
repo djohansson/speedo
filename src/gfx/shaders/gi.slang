@@ -4304,7 +4304,16 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 			if (!GiInside(neighbour, size))
 				continue;
 			GiVoxel beside = gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(neighbour), size)];
-			junction = (beside.albedo >> 24) != 0u && dot(GiVoxelNormal(beside.normal), own) < 0.5;
+			if ((beside.albedo >> 24) == 0u)
+				continue;
+			// (or a surface stacked over its own within a voxel, beside it along its normal:
+			// bathroom2's floor under its bath, 0.35 under the bath's bottom, whose voxels' apexes are under the bottom, in
+			// the dark: the lookups on the bottom read them, a dark ring around it, the finer voxels' even, which the masks
+			// cut in stair stepped patches near the bath's sides alone, where the floor's voxels beside it are marked; the
+			// user's report, 2026-11-21)
+			float facing = dot(GiVoxelNormal(beside.normal), own);
+			float along = dot(GiFacingAxis(faceIt), own);
+			junction = facing < 0.5 || abs(along) > 0.5;
 		}
 		if (junction)
 		{
@@ -5100,14 +5109,16 @@ bool GiApexSees(GiClipView gi, uint index, GiVoxel voxel, int3 at, float3 point)
 
 // a pixel's lookups' sides (SHADER_TYPES_GI_SIDES_TEXTURE): per clip that lights its surface (the first two, by
 // GiClipWeight, as GiSampleAt takes them), which of the 27 voxels around the one its point is in (bit (z + 1) * 9 +
-// (y + 1) * 3 + x + 1) see it (GiClipSees; those its lookup doesn't read taken as seen), with kGiSidesComputed; 0 where
-// none of them is marked apart (the volumes' spare channel, see ComputeGiCacheFilter: the lookup goes by hand only for
-// the far sides then). kept as a float's bits (the storage images are float), kGiSidesComputed's bit in its exponent and
-// bit 30 never, so that it is neither a NaN, an infinity nor subnormal, which a store or a load may change
+// (y + 1) * 3 + x + 1) see it (GiClipSees; those its lookup doesn't read taken as seen), the clip's level in bits 27
+// and 28 (its view's clips are one a level), with kGiSidesComputed; 0 where none of them is marked apart (the volumes'
+// spare channel, see ComputeGiCacheFilter: the lookup goes by hand only for the far sides then). kept as a float's bits
+// (the storage images are float), kGiSidesComputed's bit in its exponent and bit 30 never, so that it is neither a NaN,
+// an infinity nor subnormal, which a store or a load may change
 static const uint kGiSidesComputed = 1u << 29;
 
 uint GiSidesMask(GiClipView clip, float3 position, float3 normal)
 {
+	static_assert(SHADER_TYPES_GI_LEVEL_COUNT <= 4u, "a clip's level in two bits");
 	// (the voxels the lookup reads tested whatever they are, where any of the 27 is marked apart: the air voxels inside
 	// bathroom2's pillar, whose light is the pillar's inside, are never marked, and a ray for each marked voxel alone left
 	// the corner's column as it was. where the far sides' marks counted too, which bathroom2's double sided walls have
@@ -5124,7 +5135,7 @@ uint GiSidesMask(GiClipView clip, float3 position, float3 normal)
 		return 0u;
 	// (the 8 the lookup reads off the surface along its normal, GiSurfaceBias's, the others taken as seen: all 27, the
 	// pass took 1.0 ms at bathroom2's pose and 2.1 at Bistro's)
-	uint mask = kGiSidesComputed | ((1u << 27u) - 1u);
+	uint mask = kGiSidesComputed | ((clip.level & 3u) << 27u) | ((1u << 27u) - 1u);
 	float3 coordinate = (position + normal * (0.5 * clip.volumeOrigin.w) - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
 	int3 base = int3(floor(clamp(coordinate, 0.5, float3(size) - 0.5) - 0.5));
 	for (uint cornerIt = 0; cornerIt < 8u; cornerIt++)
@@ -5161,28 +5172,33 @@ void GiSidesClips(float3 position, out uint clips[2])
 static bool gFragmentGiSides = false;
 
 // which of a lookup's 8 voxels (coordinate: in the clip's voxels; a bit each, as GiFarSides's) the fragment's point
-// doesn't see (its lookups' sides, ComputeGiSides). the pass's point and clips are its own, of the pre-pass's depth: the
-// same here, so the 27 voxels are the same ones. none where it has none, or a voxel is outside the 27
-uint GiSidesHidden(GiClipView clip, float3 coordinate)
+// (position) doesn't see (its lookups' sides, ComputeGiSides): the mask of the clip, by its level in it, about the voxel
+// the point is in. none where it has none, a voxel is outside the 27, or the point is within kGiSidesEdge of a voxel's
+// face, where the pass's point, of the pre-pass's depth, may be in the voxel beside. the point and the clips
+// reconstructed here from that depth as the pass has them (ShadowSurfaceAt), the clip a mask stood for was another than
+// the one it was read for (clip 1's read as clip 2's at a sink in bathroom2, a stair stepped patch the size of the last
+// level's voxels, lighter, across the dark ring around its bottom: the user's report, 2026-11-21)
+static const float kGiSidesEdge = 1e-3;
+
+uint GiSidesHidden(GiClipView clip, float3 coordinate, float3 position)
 {
 	if (!gFragmentGiSides)
 		return 0u;
 	float4 masks = gTextures[SHADER_TYPES_GI_SIDES_TEXTURE].Load(int3(gFragmentPixel, 0));
-	if (((asuint(masks.x) | asuint(masks.y)) & kGiSidesComputed) == 0u)
+	uint mask = 0u;
+	for (uint slotIt = 0; slotIt < 2u; slotIt++)
+	{
+		uint candidate = asuint(masks[slotIt]);
+		if ((candidate & kGiSidesComputed) != 0u && ((candidate >> 27u) & 3u) == (clip.level & 3u))
+			mask = candidate;
+	}
+	if (mask == 0u)
 		return 0u;
-	ViewData view;
-	ShadowSurface surface;
-	if (!ViewAt(int2(gFragmentPixel), view) || !ShadowSurfaceAt(int2(gFragmentPixel), view, surface))
+	float3 at = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+	float3 within = at - floor(at);
+	if (any(within < kGiSidesEdge) || any(within > 1.0 - kGiSidesEdge))
 		return 0u;
-	uint clips[2];
-	GiSidesClips(surface.position, clips);
-	uint slot = clips[0] == clip.clip ? 0u : (clips[1] == clip.clip ? 1u : 2u);
-	if (slot > 1u)
-		return 0u;
-	uint mask = asuint(masks[slot]);
-	if ((mask & kGiSidesComputed) == 0u)
-		return 0u;
-	int3 voxel = int3(floor((surface.position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w));
+	int3 voxel = int3(floor(at));
 	uint3 size = clip.volumeSize.xyz;
 	int3 base = int3(floor(clamp(coordinate, 0.5, float3(size) - 0.5) - 0.5));
 	uint hidden = 0u;
@@ -5254,7 +5270,7 @@ GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias
 		// (by hand: the far sides left out where the lookup reads any, and near a voxel whose light was gathered apart from
 		// a neighbour's, the voxels whose light the point doesn't see gathered, whatever is marked among the 8: see
 		// ComputeGiCacheFilter and GiSidesHidden)
-		uint far = GiSidesHidden(gi, coordinate);
+		uint far = GiSidesHidden(gi, coordinate, position);
 		if (result.last.z > 0.0)
 			far |= GiFarSides(gi, coordinate);
 		if (far != 0u)

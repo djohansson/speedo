@@ -1798,6 +1798,21 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   0.29, the GI pass +0.29, the main pass +0.08), Bistro's passes 1.3 ms more (GI Sides 0.62, the GI pass +0.44 to 0.54,
   the main pass +0.09, the reflections +0.13). Next: the marks made once a voxelizing (they are of the static voxels),
   and fewer rays where a mark is of a corner.
+  - **The masks by the clip's level, the point the fragment's own** (`GiSidesHidden`; the user's report, 2026-11-21:
+    "black darkened areas in the sink and non smooth blocky patterns", bathroom2 at
+    `-2.2144,14.1125,-5.1979,43.639,1.292`, the bath seen from above). The main pass reconstructed the point and the
+    clips from the pre-pass's depth (`ShadowSurfaceAt`), to have the GI Sides pass's 27 voxels, but read there it took
+    another clip (1 where the pass had 2) and applied clip 2's mask to clip 1's voxels: patches the size of the last
+    level's voxels, stair stepped. Now a mask keeps its clip's level (bits 27 and 28: a view's clips are one a level)
+    and is found by it, and the voxel is the fragment's own point's, the mask left out within a thousandth of a voxel of
+    a voxel's face (`kGiSidesEdge`), where the pass's point may be in the voxel beside. The main pass 0.07 ms faster
+    for not reconstructing (bathroom2 0.49 ms for 0.56, Bistro 0.63 for 0.70).
+  - **A surface stacked over another within a voxel is a junction too**: the bath's bottom is a sheet 0.35 over the
+    floor, and under it the floor's voxels' apexes are in the dark between; the lookups on the bottom read them (a dark
+    ring around it, the voxels a quarter the size even), and only the floor's voxels beside the bath's sides were
+    marked apart (their neighbours outside see past the side), so the masks cut the ring in patches there alone. Now a
+    voxel with an occupied neighbour along its own normal is at a junction (`ComputeGiCacheFilter`): the ring is gone
+    with the patches. The GI pass the same (+0.01 to 0.04 ms).
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows
