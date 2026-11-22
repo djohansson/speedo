@@ -395,6 +395,19 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 			}
 			return {};
 		};
+		// a decoded panorama: its dominant lights taken out of the lighting one, both packed into their staging buffers
+		auto prepare = [&](const environment::Panorama& panorama)
+		{
+			auto lighting = panorama;
+			prepared = {.width = panorama.width, .height = panorama.height, .dominantLights = environment::ExtractDominantLights(lighting)};
+			createStaging();
+			const auto& lit = lighting;
+			for (auto [staging, source] : {std::pair{&originalStaging, &panorama}, std::pair{&lightingStaging, &lit}})
+			{
+				detail::PackHalf(*source, staging->Map());
+				staging->Unmap();
+			}
+		};
 		// in: the file, mapped by LoadAsset
 		auto loadEnvironment = [&](auto& in) -> std::error_code
 		{
@@ -409,26 +422,27 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 			if (cancelled())
 				return std::make_error_code(std::errc::operation_canceled);
 			progress = 128;
-			auto lighting = *panorama;
-			prepared = {.width = panorama->width, .height = panorama->height, .dominantLights = environment::ExtractDominantLights(lighting)};
-			createStaging();
-			for (auto [staging, source] : {std::pair{&originalStaging, &*panorama}, std::pair{&lightingStaging, &lighting}})
-			{
-				detail::PackHalf(*source, staging->Map());
-				staging->Unmap();
-			}
+			prepare(*panorama);
 			return {};
 		};
 
 		// bump environment-vN when environment::Import or ExtractDominantLights change what they produce, cache-vN when
 		// what is cached does
-		std::string params = std::format("stb-{}|environment-v7|cache-v7", kStbVersion);
+		std::string params = std::format("stb-{}|environment-v8|cache-v7", kStbVersion);
 		std::string paramsHash;
 		static constexpr size_t kSha2Size = 32;
 		std::array<uint8_t, kSha2Size> sha2;
 		picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 		picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-		auto loadResult = core::file::LoadAsset(*filePath, loadEnvironment, loadBin, saveBin, paramsHash, core::file::NoDependencies, &progress, cancelled);
+		// a uniform environment (environment::Uniform, "uniform:<r>,<g>,<b>", none at 0) is made here, not read
+		std::expected<void, std::error_code> loadResult;
+		if (auto color = environment::ParseUniform(*filePath))
+		{
+			prepare(environment::Uniform(*color));
+			progress = 255;
+		}
+		else if (auto result = core::file::LoadAsset(*filePath, loadEnvironment, loadBin, saveBin, paramsHash, core::file::NoDependencies, &progress, cancelled); !result)
+			loadResult = std::unexpected(result.error());
 		if (!loadResult || !originalStaging.IsValid() || !lightingStaging.IsValid())
 		{
 			if (!loadResult && loadResult.error() != std::errc::operation_canceled)

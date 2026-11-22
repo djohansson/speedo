@@ -257,3 +257,11 @@ reference, so that they fail on a regression, not on what the renderer approxima
 ## Progress
 
 - 2026-11-22: the plan written; `scripts/researchcompare.ps1` added and the baseline taken; nothing else built.
+- 2026-11-22, **step 1**: the panorama convention the set's (A2: material-testball 0.086 stops unturned, as it was
+  turned -90 before; the environment cache's version bumped, its dominant lights' directions turned); a model's own
+  conditions read from its `conversion.yaml` (A1: `ReadModelConditions`, uniform environments as `uniform:<r>,<g>,<b>`,
+  none at 0; the comparison script sets none of them now, and its five scenes measured the same: material-testball
+  0.086, teapot 0.081, dragon 0.198, cornell-box 0.076, spaceship 0.367); a model's directional light replaces the sky
+  (A3, `SPEEDO_SKY_WITH_MODEL_LIGHTS=1` keeps it); a mirrored camera rendered mirrored (A4: bmw-m6 1.560 to 0.388);
+  panoramas narrower than 256 scaled up (B3: spaceship's validation message gone). docs/notes/assets.md, "A model's own
+  conditions"; docs/environment-variables.md.

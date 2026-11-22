@@ -1,17 +1,160 @@
 #include "windowedapplicationdetail.h"
 
 #include <core/application.h>
+#include <core/file.h>
+#include <core/math.h>
 #include <core/utils.h>
 #include <core/zip.h>
 
+#include <gfx/environment.h>
+
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <format>
+#include <print>
 #include <ranges>
 
 namespace client::inline SPEEDO_GRAPHICS_API_NAMESPACE::windowedapplication
 {
 
-void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ModelGround ground, LoadChoice choice)
+const char* ModelConditions::Get(std::string_view name) const
 {
+	auto found = std::ranges::find(variables, name, [](const auto& variable) { return std::string_view(variable.first); });
+	return found != variables.end() ? found->second.c_str() : nullptr;
+}
+
+std::optional<ModelConditions> ReadModelConditions(const std::filesystem::path& model)
+{
+	auto yaml = model.parent_path() / "conversion.yaml";
+	std::error_code error;
+	if (!std::filesystem::is_regular_file(yaml, error))
+		return std::nullopt;
+	auto file = core::file::Map(yaml);
+	if (!file)
+	{
+		std::println(stderr, "{}: can't read it: {}", yaml.string(), file.error().message());
+		return std::nullopt;
+	}
+	std::string_view text(reinterpret_cast<const char*>(file->data()), file->size());
+
+	// reference_render's flat keys, two spaces in (its camera's keys four), to the next key of the top level
+	std::optional<std::string> environment;
+	std::optional<float> strength;
+	std::optional<float> exposure;
+	bool inside = false;
+	auto unquoted = [](std::string_view value)
+	{
+		while (!value.empty() && (value.back() == ' ' || value.back() == '\r'))
+			value.remove_suffix(1);
+		if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
+			value = value.substr(1, value.size() - 2);
+		return value;
+	};
+	auto number = [](std::string_view value) -> std::optional<float>
+	{
+		std::string copy(value);
+		char* end = nullptr;
+		float parsed = std::strtof(copy.c_str(), &end);
+		return !copy.empty() && end == copy.c_str() + copy.size() && std::isfinite(parsed) ? std::optional(parsed) : std::nullopt;
+	};
+	for (size_t begin = 0; begin < text.size();)
+	{
+		auto end = std::min(text.find('\n', begin), text.size());
+		auto line = text.substr(begin, end - begin);
+		begin = end + 1;
+		if (line.starts_with("reference_render:"))
+		{
+			inside = true;
+			continue;
+		}
+		if (!inside)
+			continue;
+		if (!line.empty() && line.front() != ' ' && line.front() != '\r')
+			break;
+		if (!line.starts_with("  ") || line.starts_with("   "))
+			continue;
+		line.remove_prefix(2);
+		auto colon = line.find(": ");
+		if (colon == std::string_view::npos)
+			continue;
+		auto key = line.substr(0, colon);
+		auto value = unquoted(line.substr(colon + 2));
+		if (key == "environment_map")
+			environment = std::string(value);
+		else if (key == "environment_strength")
+			strength = number(value);
+		else if (key == "exposure_multiplier")
+			exposure = number(value);
+	}
+	if (!inside)
+		return std::nullopt;
+
+	ModelConditions conditions;
+	auto set = [&conditions](std::string name, std::string value) { conditions.variables.emplace_back(std::move(name), std::move(value)); };
+	// the environment: none (null), a uniform color ("uniform color [0.3, 0.3, 0.3]"), or a panorama beside the file or
+	// in a common folder above it (the set's own: scenes/common)
+	if (environment)
+	{
+		if (*environment == "null")
+			set("SPEEDO_AUTOLOAD_ENVIRONMENT", gfx::environment::UniformName(glm::vec3(0.0F)));
+		else if (auto open = environment->find('['); environment->starts_with("uniform") && open != std::string::npos)
+		{
+			std::string values = environment->substr(open + 1, environment->find(']') - open - 1);
+			std::erase(values, ' ');
+			if (auto color = gfx::environment::ParseUniform("uniform:" + values))
+				set("SPEEDO_AUTOLOAD_ENVIRONMENT", gfx::environment::UniformName(*color));
+			else
+				std::println(stderr, "{}: environment_map {} not understood", yaml.string(), *environment);
+		}
+		else
+		{
+			std::optional<std::filesystem::path> found;
+			for (auto directory = model.parent_path(); !found && !directory.empty(); directory = directory.parent_path())
+			{
+				for (const auto& candidate : {directory / *environment, directory / "common" / *environment})
+					if (std::filesystem::is_regular_file(candidate, error))
+					{
+						found = candidate;
+						break;
+					}
+				if (directory == directory.parent_path())
+					break;
+			}
+			if (found)
+				set("SPEEDO_AUTOLOAD_ENVIRONMENT", std::filesystem::absolute(*found, error).string());
+			else
+				std::println(stderr, "{}: environment_map {} is neither beside it nor in a common folder above it", yaml.string(), *environment);
+		}
+	}
+	if (strength)
+		set("SPEEDO_ENVIRONMENT_INTENSITY", std::format("{}", *strength));
+	// the exposure: manual, the renderer's 0 stops showing a unit of radiance as white (f/16, 1/160 s, ISO 100: see
+	// gfx/physicalcamera.h), the multiplier's stops on top
+	if (exposure && *exposure > 0.0F)
+	{
+		set("SPEEDO_AUTO_EXPOSURE", "0");
+		set("SPEEDO_APERTURE", "16");
+		set("SPEEDO_SHUTTER", "1/160");
+		set("SPEEDO_ISO", "100");
+		set("SPEEDO_EXPOSURE", std::format("{}", core::Log2(*exposure)));
+	}
+	set("SPEEDO_TONEMAPPER", "pbr-neutral");
+	set("SPEEDO_GROUND_PLANE", "0");
+	return conditions;
+}
+
+void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ModelGround ground, LoadChoice choice, bool conditions)
+{
+	if (conditions)
+		if (auto found = ReadModelConditions(filePath))
+		{
+			ApplyModelConditions(*found, progress);
+			progress = 0;
+			if (const char* plane = std::getenv("SPEEDO_GROUND_PLANE"); plane == nullptr)
+				ground = ModelGround::kNone;
+		}
+
 	if (choice == LoadChoice::kAsk)
 		if (auto variants = mesh::VariantNames(filePath); !variants.empty())
 		{
@@ -166,7 +309,7 @@ void LoadAndInstallFolder(RHI& rhi, std::string_view directoryPath, std::atomic_
 // loads whatever path is, by its type: a directory's models or a zip archive's, a model (choice: what of either it asks
 // the user, see LoadChoice), an environment panorama (.hdr), or an image (on the default material). call from a load
 // (see gLoads).
-void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, LoadChoice choice, ModelGround ground)
+void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, LoadChoice choice, ModelGround ground, bool conditions)
 {
 	std::filesystem::path path(filePath);
 	auto extension = path.extension().string();
@@ -177,7 +320,7 @@ void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_uint8_t
 	else if (extension == ".zip")
 		LoadAndInstallArchive(rhi, filePath, progress, choice, ground);
 	else if (mesh::IsModelFile(path))
-		LoadAndInstallModel(rhi, filePath, progress, ground, choice);
+		LoadAndInstallModel(rhi, filePath, progress, ground, choice, conditions);
 	else if (extension == ".hdr")
 		App().GetScene().LoadEnvironment(std::string(filePath), progress);
 	else if (IsImageFile(path))

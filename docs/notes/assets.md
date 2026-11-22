@@ -232,9 +232,31 @@ sunlit roof beside one of a dark corridor blew the roof out. A single view is as
 Shading is the glTF metallic-roughness brdf (`Shade` in the shaders: GGX, height correlated Smith, Schlick) over the
 lights in `gLights` (`PushConstants::lightCount`; a model's KHR_lights_punctual lights, `ModelDesc::lights`, in lux and
 candela, then the environment's dominant lights), plus image based lighting that occlusion darkens. The environment
-(`gfx/environment.h`, cpu only) is an equirectangular panorama (+y up, -z at its center), a Radiance `.hdr` file
-(`environment::Import`, scaled to 2048 wide) or, by default and in automated runs, the sky (see "The sky", below: Earth's
-atmosphere, its sun where the time of day puts it). A sun disk drawn into the sky's panorama (`environment::AddSun`, 4x4
+(`gfx/environment.h`, cpu only) is an equirectangular panorama (+y up, +x at its center and +z three quarters across:
+Blender's convention and the glTF research set's, whose notes state it, since 2026-11-22; -z was at its center before, a
+quarter turn the other way, and the set's material-testball came out 0.594 stops off its reference for it, 0.074 now:
+docs/research-scenes-plan.md, A2), a Radiance `.hdr` file
+(`environment::Import`, scaled to 2048 wide, and up to the sky's 256 where narrower: the prefiltered levels are 6 deep and
+the sheen's an eighth as wide, and a 64 wide panorama's chains were past what its size has, which the validation layer
+reported), a uniform one (`uniform:<r>,<g>,<b>` where a file's path would be, `environment::Uniform`, made in memory, not
+cached; `uniform:0,0,0` is none, View > Environment's "None"), or, by default and in automated runs, the sky (see "The
+sky", below: Earth's atmosphere, its sun where the time of day puts it). A model with a directional light of its own
+replaces the sky (`Scene::EnvironmentIntensity`, `SkyReplaced`: its light, its sun and its air at 0, unless
+`Settings::skyWithModelLights`, `SPEEDO_SKY_WITH_MODEL_LIGHTS=1`; the user's call, 2026-11-22): the sky's sun beside a
+model's distant light, merged only when they aligned within 5 degrees, lit the research set's dragon and lamp twice.
+
+**A model's own conditions** (the user's call, 2026-11-22, docs/research-scenes-plan.md, A1): the glTF research set's
+scenes come with a `conversion.yaml` whose `reference_render` says how their path traced references were made, and the
+client opens such a model in them (`windowedapplication::ReadModelConditions`, a reader of that block's flat keys:
+`environment_map`, a panorama found beside the file or in a `common` folder above it, `uniform color [r, g, b]`, or null;
+`environment_strength`; `exposure_multiplier`), as the `SPEEDO_*` variables a pose names (the panorama or
+`uniform:`, the intensity, a manual exposure at f/16, 1/160 s and ISO 100, the renderer's 0 stops, plus the multiplier's
+stops, PBR Neutral, no ground plane), printed as it reads them. The autoload and a pasted pose take them under their own
+variables (the process's, the pose's), File > Open..., Open Recent and the browser apply them as the model opens
+(`ApplyModelConditions`, its environment loaded in the same load), skipping what the process's variables set. A camera
+node whose transform is a reflection (pbrt's `Scale -1 1 1`; the set's bmw-m6) is rendered mirrored across, as Blender
+and pbrt render it (`SceneCamera::mirrored`, `VIEW_FLAG_MIRRORED`: the Sharpen pass, which writes the output, reads each
+pixel from across its view); bmw-m6 was 1.56 stops off its reference for that alone, 0.39 now. A sun disk drawn into the sky's panorama (`environment::AddSun`, 4x4
 samples per texel, scaled to exactly its irradiance) tests the dominant light extraction. A panorama's strongest compact light sources are its dominant lights (not
 necessarily a sun: a softbox in neutral.hdr, windows in ennis.hdr and papermill.hdr), which
 `environment::ExtractDominantLights` takes out, up to `kMaxDominantLights` (4), each found in what the ones before left
@@ -508,7 +530,10 @@ Khronos glTF-Sample-Environments panoramas (about 400 MB; Git LFS files, from Gi
 (https://github.com/ErfanMo77/gltf-research-scenes: glTF 2.0 versions of the classic research scenes, Veach's, the Bitterli
 set's rooms, cars, the crown; its release's archive of .glb files at a pinned version, about 1.1 GB, its sha256 GitHub's
 digest of the asset, extracted into `gltf-research-scenes/scenes`; the user's ask, 2026-11-21) into `resources/test-assets`
-(gitignored; the client's file browser opens there; or `$SPEEDO_TEST_ASSETS`), and prints the paths to test:
+(gitignored; the client's file browser opens there; or `$SPEEDO_TEST_ASSETS`; each research scene's `conversion.yaml` says
+how it was converted and the conditions of its path traced reference render, which the client opens it in and
+`scripts/researchcompare.ps1` holds it against: see docs/research-scenes-plan.md and "A model's own conditions" below),
+and prints the paths to test:
 `scripts/assettest.ps1 -Client (scripts/fetch-test-assets.ps1)` (from pwsh; from another shell,
 `pwsh scripts/assettest.ps1 -Client $(pwsh scripts/fetch-test-assets.ps1)`). Each set is a manifest in
 `resources/test-asset-manifests` (`mcguire.txt`, `gltf.txt`, `environments.txt`, `research.txt`; the client downloads the same): its

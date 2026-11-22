@@ -196,10 +196,36 @@ inline constexpr const char* kEnvironmentExtensions = "hdr";
 // the image files gfx::Scene::LoadImage takes, as a file dialog filter spec (see image::Import)
 inline constexpr const char* kImageExtensions = "jpg,jpeg,png,bmp,tga,gif,psd,pic,pnm,webp,ktx2";
 
+// the conditions a model's reference was rendered in, where the model comes with them: the glTF research set's
+// conversion.yaml beside it (its reference_render: the panorama, beside the file or in the set's common folder, at its
+// strength, or a uniform color, or none; the exposure multiplier as a manual exposure; PBR Neutral; no ground plane: the
+// user's call, 2026-11-22, docs/research-scenes-plan.md, A1), as the SPEEDO_* variables a pose names them by
+// (SPEEDO_AUTOLOAD_ENVIRONMENT a panorama's absolute path, or gfx::environment::UniformName's, none at 0)
+struct ModelConditions
+{
+	std::vector<std::pair<std::string, std::string>> variables;
+
+	// a variable's value, or null where they don't name it
+	[[nodiscard]] const char* Get(std::string_view name) const;
+};
+// a model file's conditions, where its folder has them (the file's reasons printed where it can't be read)
+[[nodiscard]] std::optional<ModelConditions> ReadModelConditions(const std::filesystem::path& model);
+// applies a model's conditions as it is opened (File > Open..., Open Recent, the file browser): the settings they name
+// (see ui::ApplyPoseSettings) and their environment, loaded now; none that the process's environment names, which
+// were applied at startup (SPEEDO_AUTO_EXPOSURE, say). the autoload and a pasted pose take them under their own variables
+// instead (see WindowedApplication::PrepareDraw). call from a load (see gLoads).
+void ApplyModelConditions(const ModelConditions& conditions, std::atomic_uint8_t& progress);
+
 // loads a model standing on ground (see ModelGround), or with choice kAsk where it has material variants, offers them to
-// lay out (see VariantChoice). call from a load (see gLoads).
+// lay out (see VariantChoice); with conditions, the model's (see ReadModelConditions: those beside it applied, and no
+// ground then). call from a load (see gLoads).
 void LoadAndInstallModel(
-	RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ModelGround ground = ModelGround::kNone, LoadChoice choice = LoadChoice::kDefault);
+	RHI& rhi,
+	std::string_view filePath,
+	std::atomic_uint8_t& progress,
+	ModelGround ground = ModelGround::kNone,
+	LoadChoice choice = LoadChoice::kDefault,
+	bool conditions = true);
 
 // extracts a zip archive into the user profile directory, once: later loads of the same file (by path, size and time)
 // reuse it. returns the directory it was extracted to, or nothing if it failed (the reason is printed to stderr) or was
@@ -220,10 +246,15 @@ void LoadAndInstallFolder(RHI& rhi, std::string_view directoryPath, std::atomic_
 [[nodiscard]] bool IsImageFile(const std::filesystem::path& path);
 
 // loads whatever path is, by its type: a directory's models or a zip archive's, a model (choice: what of either it asks
-// the user, see LoadChoice), an environment panorama (.hdr), or an image (on the default material). the models stand on
-// ground (see ModelGround). call from a load (see gLoads).
+// the user, see LoadChoice; conditions: its own applied, see LoadAndInstallModel), an environment panorama (.hdr), or an
+// image (on the default material). the models stand on ground (see ModelGround). call from a load (see gLoads).
 void LoadAndInstallFile(
-	RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, LoadChoice choice, ModelGround ground = ModelGround::kNone);
+	RHI& rhi,
+	std::string_view filePath,
+	std::atomic_uint8_t& progress,
+	LoadChoice choice,
+	ModelGround ground = ModelGround::kNone,
+	bool conditions = true);
 
 // what was opened (File > Open... or Open Recent): a file of any kind the client loads (see LoadAndInstallFile), or
 // several models as one (see Scene::LoadModels), arranged and standing on a ground as the browser said

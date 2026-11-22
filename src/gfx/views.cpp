@@ -519,6 +519,13 @@ std::vector<Camera> Views::Upload(
 	auto cameras = myCameras.Read().Get();
 	ENSUREF(cameras.size() <= SHADER_TYPES_VIEW_COUNT, "{} views, more than SHADER_TYPES_VIEW_COUNT ({})", cameras.size(), SHADER_TYPES_VIEW_COUNT);
 	auto viewCount = cameras.size();
+	// the views show a mirrored image while the scene's camera in use is a reflection (SceneCamera::mirrored)
+	bool mirrored = false;
+	{
+		auto scene = myScene.Read();
+		const auto& state = scene.Get();
+		mirrored = state.current && *state.current < state.cameras.size() && state.cameras[*state.current].mirrored;
+	}
 
 	// the jitter's point this frame: Halton's in bases 2 and 3 (from its second point: the first, 0, is a corner of the pixel), over
 	// more points the fewer pixels a frame renders (8 at the output's size), so that each output pixel's samples cover it
@@ -566,6 +573,7 @@ std::vector<Camera> Views::Upload(
 		views[viewIt].textureLodBias = jitter ? core::Log2(std::min(viewportScale.x, viewportScale.y)) + views::kJitterTextureLodBias : 0.0F;
 		views[viewIt].exposure = viewIt < exposures.size() ? exposures[viewIt] : (exposures.empty() ? 1.0F : exposures.front());
 		views[viewIt].scotopic = viewIt < scotopics.size() ? scotopics[viewIt] : 0.0F;
+		views[viewIt].flags = mirrored ? VIEW_FLAG_MIRRORED : 0U;
 		if (myUploaded.size() <= viewIt)
 			myUploaded.resize(viewIt + 1);
 		myUploaded[viewIt] = uploaded;

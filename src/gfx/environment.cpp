@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <execution>
 #include <format>
@@ -37,7 +38,7 @@ glm::vec3 Direction(float u, float v)
 {
 	float phi = (u - 0.5F) * 2.0F * kPi;
 	float theta = v * kPi;
-	return {core::Sin(theta) * core::Sin(phi), core::Cos(theta), -core::Sin(theta) * core::Cos(phi)};
+	return {core::Sin(theta) * core::Cos(phi), core::Cos(theta), core::Sin(theta) * core::Sin(phi)};
 }
 
 // the sine of a panorama row's polar angle: its texels' solid angle relative to the equator's
@@ -106,10 +107,10 @@ std::expected<Panorama, std::string> Import(std::span<const std::byte> data, std
 		return std::unexpected(std::format("{}: a panorama is twice as wide as high, not {}x{}", name, width, height));
 
 	Panorama panorama{.width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(height)};
-	if (panorama.width > maxWidth)
+	if (panorama.width > maxWidth || panorama.width < kSkyWidth)
 	{
-		panorama.width = maxWidth;
-		panorama.height = maxWidth / 2;
+		panorama.width = std::clamp(panorama.width, kSkyWidth, std::max(maxWidth, kSkyWidth));
+		panorama.height = panorama.width / 2;
 		panorama.rgb.resize(static_cast<size_t>(panorama.width) * panorama.height * 3);
 		if (stbir_resize_float_linear(
 				pixels, width, height, 0, panorama.rgb.data(), static_cast<int>(panorama.width), static_cast<int>(panorama.height), 0,
@@ -126,6 +127,49 @@ std::expected<Panorama, std::string> Import(std::span<const std::byte> data, std
 		value = std::isfinite(value) ? std::clamp(value, 0.0F, 65504.0F) : 0.0F;
 
 	return panorama;
+}
+
+Panorama Uniform(const glm::vec3& color)
+{
+	Panorama panorama{.width = kSkyWidth, .height = kSkyWidth / 2};
+	panorama.rgb.resize(static_cast<size_t>(panorama.width) * panorama.height * 3);
+	for (size_t texelIt = 0; texelIt < static_cast<size_t>(panorama.width) * panorama.height; texelIt++)
+		for (glm::length_t channelIt = 0; channelIt < 3; channelIt++)
+			panorama.rgb[(texelIt * 3) + channelIt] = std::clamp(color[channelIt], 0.0F, 65504.0F);
+	return panorama;
+}
+
+std::optional<glm::vec3> ParseUniform(std::string_view name)
+{
+	constexpr std::string_view kPrefix = "uniform:";
+	if (!name.starts_with(kPrefix))
+		return std::nullopt;
+	name.remove_prefix(kPrefix.size());
+	glm::vec3 color{0.0F};
+	for (glm::length_t channelIt = 0; channelIt < 3; channelIt++)
+	{
+		auto end = name.find(',');
+		std::string field(name.substr(0, end));
+		char* last = nullptr;
+		float value = std::strtof(field.c_str(), &last);
+		if (field.empty() || last != field.c_str() + field.size() || !std::isfinite(value) || value < 0.0F)
+			return std::nullopt;
+		color[channelIt] = value;
+		if (channelIt < 2)
+		{
+			if (end == std::string_view::npos)
+				return std::nullopt;
+			name.remove_prefix(end + 1);
+		}
+		else if (end != std::string_view::npos)
+			return std::nullopt;
+	}
+	return color;
+}
+
+std::string UniformName(const glm::vec3& color)
+{
+	return std::format("uniform:{},{},{}", color.x, color.y, color.z);
 }
 
 glm::vec3 SunDirection(float latitudeDegrees, float dayOfYear, float timeOfDay)

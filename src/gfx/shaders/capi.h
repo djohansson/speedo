@@ -466,8 +466,11 @@ struct ViewData
 	// how much its scene is seen by the eye's night vision (0 by a lit street's light, 1 by moonlight: see Scotopic), by
 	// its luminance, whether or not its exposure follows it
 	alignas(4) FLOAT1(scotopic);
-	alignas(4) UINT1(padding0); // std430's tail, to the struct's 16 byte alignment, explicit (see the top of the file)
+	alignas(4) UINT1(flags); // VIEW_FLAG_*
 };
+// the view shows its camera's image mirrored across (a scene camera whose node is a reflection, SceneCamera::mirrored):
+// the Sharpen pass, which writes the output, reads each pixel from across its view
+#define VIEW_FLAG_MIRRORED 1u
 
 // how many lights gLights holds: a model's, then the environment's dominant lights (ThousandsOfLights.gltf has 4000)
 #define SHADER_TYPES_LIGHT_COUNT 4096u
@@ -516,7 +519,8 @@ struct EnvironmentData
 {
 	// the irradiance divided by pi, as spherical harmonics (bands 0 to 2, rgb): what a white Lambertian surface reflects
 	alignas(16) FLOAT4_ARRAY(irradiance, 9);
-	// the prefiltered panorama (equirectangular, +y up, -z at its center): mip i for roughness i / (levelCount - 1)
+	// the prefiltered panorama (equirectangular, +y up, +x at its center and +z three quarters across, as Blender and the
+	// glTF research set have it): mip i for roughness i / (levelCount - 1)
 	alignas(4) UINT1(textureId);
 	alignas(4) UINT1(samplerId);
 	alignas(4) FLOAT1(levelCount);

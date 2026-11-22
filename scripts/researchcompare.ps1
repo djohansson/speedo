@@ -6,24 +6,18 @@ The glTF research scenes rendered as their references were, each beside its refe
 Each scene of the glTF research set (resources/test-assets/gltf-research-scenes, fetch-test-assets.ps1's) comes with a
 reference render of its glTF, a path tracer's (Blender Cycles', cornell-caustic's pbrt's), and how it was made in its
 conversion.yaml (reference_render): the resolution, the environment (a panorama at a strength, a uniform color, or none),
-the exposure multiplier, Khronos PBR Neutral, the file's camera. This renders each scene the same way: the file's first
-camera (the client's default), at the reference's size, headless and repeatable, the panorama loaded at its strength (a
-uniform color as a panorama written for it; none as the environment's intensity at 0, so that neither the physical sky
-nor its sun lights the scene), a manual exposure of the multiplier (the renderer's 0 stops show a unit of radiance as
-white, see gfx/physicalcamera.h), PBR Neutral, without the client's ground plane, the camera's own effects off (glare, motion blur, grain; the default lens
-is a pinhole, without depth of field), antialiased by the temporal upscaler at native size. Then
-build/<preset>/imagecompare measures it against the reference, and a sheet of the two and their differences (amplified
-16 times) goes to -Review/<scene>.png, with an overview of every scene's pair (-Review/overview.png) and a table of
-the measures, the scenes most unlike their references first.
+the exposure multiplier, Khronos PBR Neutral, the file's camera. The client takes those conditions from the yaml itself
+as it opens the file (windowedapplication::ReadModelConditions: the panorama at its strength, a uniform color, or none;
+a manual exposure of the multiplier; PBR Neutral; no ground plane; docs/research-scenes-plan.md, A1), and the
+panorama's convention is the set's (A2), so this renders each scene as the client opens it: the file's first camera
+(the client's default), at the reference image's size, headless and repeatable, the camera's own effects off (glare,
+motion blur, grain; the default lens is a pinhole, without depth of field), antialiased by the temporal upscaler at
+native size. Then build/<preset>/imagecompare measures it against the reference, and a sheet of the two and their
+differences (amplified 16 times) goes to -Review/<scene>.png, with an overview of every scene's pair
+(-Review/overview.png) and a table of the measures, the scenes most unlike their references first.
 
 Nothing passes or fails here but the clients: a path tracer's reference shows what the renderer approximates, which is
 what this maps (docs/research-scenes-plan.md), not a regression.
-
-A panorama is turned by -EnvironmentRotation (SPEEDO_ENVIRONMENT_ROTATION, default -90): the references' Blender
-imported the glTF +Y up to its +Z up (glTF -Z its +Y) and maps a direction to the panorama's u as 0.5 - atan2(y, x) /
-2 pi, its +X at the image's center, where the renderer's is glTF's -Z (environment.slang: 0.5 + atan2(x, -z) / 2 pi).
-Measured on material-testball and teapot at 300 frames, mean |log2| luminance blurred: 0.074 and 0.062 stops turned -90,
-0.594 and 0.55 to 0.99 at 0, 90 and 180.
 
 -Set <name=value> adds variables to every run (an experiment's). -Kind core renders the files without the material
 extensions. -Only <scenes> renders those alone. -Units <scene=unit>
@@ -44,7 +38,6 @@ param(
 	[int] $TimeoutSeconds = 900,
 	[string[]] $Units,
 	[string] $Review = 'temp/review/research',
-	[double] $EnvironmentRotation = -90,
 	[string[]] $Set,
 	[switch] $Validate
 )
@@ -129,24 +122,6 @@ function Read-Reference([string] $Yaml)
 	return $reference
 }
 
-# a panorama of one color (a reference's 'uniform color [r, g, b]'): a Radiance .hdr of flat RGBE pixels
-function New-UniformPanorama([string] $Path, [double[]] $Color)
-{
-	$largest = ($Color | Measure-Object -Maximum).Maximum
-	$exponent = if ($largest -gt 1e-32) { [int][Math]::Floor([Math]::Log($largest, 2)) + 1 } else { -128 }
-	$scale = 256.0 / [Math]::Pow(2, $exponent)
-	$pixel = [byte[]]@([byte][Math]::Min(255, [int]($Color[0] * $scale)), [byte][Math]::Min(255, [int]($Color[1] * $scale)), [byte][Math]::Min(255, [int]($Color[2] * $scale)), [byte]($exponent + 128))
-	$width = 64; $height = 32
-	$stream = [IO.File]::Create($Path)
-	try
-	{
-		$header = [Text.Encoding]::ASCII.GetBytes("#?RADIANCE`nFORMAT=32-bit_rle_rgbe`n`n-Y $height +X $width`n")
-		$stream.Write($header, 0, $header.Length)
-		for ($i = 0; $i -lt $width * $height; $i++) { $stream.Write($pixel, 0, 4) }
-	}
-	finally { $stream.Dispose() }
-}
-
 # a png as a 24 bit bmp (imagecompare's input, as the client's captures)
 function ConvertTo-Bmp([string] $Png, [string] $Bmp)
 {
@@ -214,32 +189,8 @@ function Start-Scene($Scene, [int] $Slot)
 		SPEEDO_WINDOW_SIZE = "$($reference.Width)x$($reference.Height)"
 		SPEEDO_AUTOLOAD_MODEL = $Scene.Model; SPEEDO_AUTOLOAD_EXIT = "$Frames"; SPEEDO_CAPTURE = $capture
 		SPEEDO_TIME_FRAME_SECONDS = '0.0166667'
-		SPEEDO_AUTO_EXPOSURE = '0'; SPEEDO_EXPOSURE = ([Math]::Log($reference.Exposure, 2)).ToString('0.#####', [Globalization.CultureInfo]::InvariantCulture)
-		SPEEDO_TONEMAPPER = 'pbr-neutral'; SPEEDO_LENS_GLARE = '0'; SPEEDO_MOTION_BLUR = '0'; SPEEDO_GRAIN = '0'; SPEEDO_UPSCALING = 'native'
-		# the scene as its file has it: not on the client's ground plane (dragon's, lit by its directional light, was a grey
-		# floor to the horizon where the reference is black, 2.7 stops brighter)
-		SPEEDO_GROUND_PLANE = '0'
+		SPEEDO_LENS_GLARE = '0'; SPEEDO_MOTION_BLUR = '0'; SPEEDO_GRAIN = '0'; SPEEDO_UPSCALING = 'native'
 	}
-	if (-not $reference.Environment)
-	{
-		$set.SPEEDO_ENVIRONMENT_INTENSITY = '0'
-	}
-	elseif ($reference.Environment -match '^uniform colou?r \[([^\]]+)\]')
-	{
-		$color = [double[]]($Matches[1] -split ',' | ForEach-Object { [double]::Parse($_.Trim(), [Globalization.CultureInfo]::InvariantCulture) })
-		$panorama = Join-Path $Scene.Directory 'uniform.hdr'
-		New-UniformPanorama $panorama $color
-		$set.SPEEDO_AUTOLOAD_ENVIRONMENT = $panorama
-		$set.SPEEDO_ENVIRONMENT_INTENSITY = $reference.Strength.ToString([Globalization.CultureInfo]::InvariantCulture)
-	}
-	else
-	{
-		$panorama = @((Join-Path $Scene.Folder "gltf/$($reference.Environment)"), (Join-Path $scenesRoot "common/$($reference.Environment)")) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-		if (-not $panorama) { Write-Host "  $($Scene.Name): no panorama $($reference.Environment)"; return $null }
-		$set.SPEEDO_AUTOLOAD_ENVIRONMENT = $panorama
-		$set.SPEEDO_ENVIRONMENT_INTENSITY = $reference.Strength.ToString([Globalization.CultureInfo]::InvariantCulture)
-	}
-	if ($set.SPEEDO_AUTOLOAD_ENVIRONMENT) { $set.SPEEDO_ENVIRONMENT_ROTATION = $EnvironmentRotation.ToString([Globalization.CultureInfo]::InvariantCulture) }
 	if ($unitOf.ContainsKey($Scene.Name)) { $set.SPEEDO_UNITS = $unitOf[$Scene.Name] }
 	foreach ($pair in $extra.Keys) { $set[$pair] = $extra[$pair] }
 	if ($validating) { Remove-Item -LiteralPath "$log.validation" -ErrorAction SilentlyContinue; $set.VK_KHRONOS_VALIDATION_LOG_FILENAME = "$log.validation" }

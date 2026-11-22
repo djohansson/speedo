@@ -31,7 +31,7 @@ This loads Sponza, places the camera in its gallery at half past two, renders he
 | `SPEEDO_GROUND_PLANE` | `0` off. Default: on. | Scene. Whether the autoloaded model stands on a ground plane (gray squares a meter each), as File > Open...'s Ground plane box. |
 | `SPEEDO_UNITS` | `m`, `cm`, `mm`, `in` or `ft` (or the words: `meters`, `inches`, `feet`, ...), any case. Default: the unit the profile remembers for the file, else a guess (glTF in meters, OBJ by its size). | Scene. The unit the model's coordinates are in, as View > Units; wins over `SPEEDO_METERS_PER_UNIT`. With `SPEEDO_AUTOLOAD_MODEL` the profile remembers it for that file. |
 | `SPEEDO_METERS_PER_UNIT` | Meters per unit, at least 0.000001. Default: as `SPEEDO_UNITS`. | Scene. A unit of any size, as View > Units > Meters per Unit. |
-| `SPEEDO_AUTOLOAD_ENVIRONMENT` | A panorama (`.hdr`). Default: the physical sky. | Scene. Lights the scene with the panorama, as View > Environment > Open Environment... does. |
+| `SPEEDO_AUTOLOAD_ENVIRONMENT` | A panorama (`.hdr`), or `uniform:<r>,<g>,<b>`, a uniform one of that radiance (`uniform:0,0,0`: none). Default: the physical sky. | Scene. Lights the scene with the panorama, as View > Environment > Open Environment... does. A panorama's center column is +X, its three-quarter column +Z (Blender's convention, and the glTF research set's; -Z was its center before 2026-11-22). |
 | `SPEEDO_AUTOLOAD_IMAGE` | An image file. Default: none. | Loads the image onto the default material, as opening an image in File > Open... does. |
 
 ## The camera and views
@@ -100,11 +100,14 @@ All of these are part of a pose. Lens glare, focus, motion blur and grain need a
 
 ## The environment, sky and time
 
-All of these are part of a pose. Apart from the environment's intensity and rotation they are the physical sky's, which lights the scene unless `SPEEDO_AUTOLOAD_ENVIRONMENT` loads a panorama.
+All of these are part of a pose. Apart from the environment's intensity and rotation they are the physical sky's, which lights the scene unless `SPEEDO_AUTOLOAD_ENVIRONMENT` loads a panorama, or the model's directional light replaces it.
+
+A model that comes with the conditions its reference was rendered in (the glTF research set's `conversion.yaml` beside it, its `reference_render`) is opened in them, under any of these variables that are set: `SPEEDO_AUTOLOAD_ENVIRONMENT` (its panorama, beside it or in the set's `common` folder, a uniform color, or none), `SPEEDO_ENVIRONMENT_INTENSITY` (its strength), `SPEEDO_AUTO_EXPOSURE=0` with `SPEEDO_APERTURE=16`, `SPEEDO_SHUTTER=1/160`, `SPEEDO_ISO=100` and `SPEEDO_EXPOSURE` (the exposure multiplier's stops), `SPEEDO_TONEMAPPER=pbr-neutral` and `SPEEDO_GROUND_PLANE=0`; the client prints them as it reads them. The autoload, File > Open... and a pasted pose alike (a pose's own variables first).
 
 | Variable | Values (default) | What it does |
 |---|---|---|
 | `SPEEDO_ENVIRONMENT_INTENSITY` | A multiplier, 0 or more. Default: 1. | Scene. Scales the environment's light: the sky or panorama, its sun or moon, and the air's light. View > Environment > Intensity. |
+| `SPEEDO_SKY_WITH_MODEL_LIGHTS` | Any value but `0` on. Default: off. | Scene. Keeps the physical sky, its sun and its air on where the model has a directional light of its own, which otherwise replaces it (the scene is lit by the model's lights alone). View > Environment > Physical Sky... > Sky with the Model's Lights. |
 | `SPEEDO_ENVIRONMENT_ROTATION` | Degrees. Default: 0. | Scene. Turns the environment, and its sun, about the vertical axis. View > Environment > Rotation. |
 | `SPEEDO_TIME_OF_DAY` | Hours of local solar time (`18.5`) or `hours:minutes` (`18:30`), 0 to 24. Default: 10.5. | Scene. Places the sun (highest at 12), the moon and the stars. View > Environment > Physical Sky... > Time of Day. |
 | `SPEEDO_TIME_SPEED` | Times real time; negative runs backwards. Default: time stands still. | Scene. Advances the time of day by itself, this many times real time (60 is an hour a minute). View > Environment > Physical Sky... > Advance Time and Time Speed. |

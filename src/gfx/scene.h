@@ -187,6 +187,10 @@ public:
 		std::atomic<float> environmentIntensity = 1.0F;
 		std::atomic<float> environmentRotationDegrees = 0.0F;
 		std::atomic<bool> environmentBackdrop = true;
+		// whether the physical sky stays on under a model's directional light, which otherwise replaces it, sun, sky and
+		// air (View > Environment > Sky with the Model's Lights, SPEEDO_SKY_WITH_MODEL_LIGHTS=1; off by default, the
+		// user's call, 2026-11-22)
+		std::atomic<bool> skyWithModelLights = false;
 		// the sky's time of day (hours of local solar time, 0 to 24), latitude (degrees, north positive) and day of the
 		// year, which put its sun (see environment::SunDirection; View > Environment, SPEEDO_TIME_OF_DAY, SPEEDO_LATITUDE,
 		// SPEEDO_DAY_OF_YEAR), and whether the time advances, and how fast, in multiples of real time (View > Environment >

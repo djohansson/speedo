@@ -655,6 +655,8 @@ struct Scene::Impl
 	glm::vec3 mySkyMoonUploaded{0.0F};
 	std::chrono::steady_clock::time_point myTimeLast = std::chrono::steady_clock::now();
 	std::atomic<bool> mySkyInstalled = false;
+	// whether the model has a directional light, which replaces the sky (see EnvironmentIntensity)
+	std::atomic<bool> myModelOutdoorLights = false;
 
 	uuids::uuid mySamplersUuid;
 	uuids::uuid myModelSamplersUuid; // the loaded model's samplers, see InstallModel. nil until one is loaded
@@ -1000,7 +1002,7 @@ struct Scene::Impl
 			.frameIndex = frameIndex,
 			.lightCount = myLightCount,
 			.exposure = ViewExposure(0),
-			.environmentIntensity = mySettings.environmentIntensity.load(std::memory_order_relaxed),
+			.environmentIntensity = EnvironmentIntensity(),
 			.environmentRotation = glm::radians(mySettings.environmentRotationDegrees.load(std::memory_order_relaxed)),
 			.viewCount = myViews.GetGrid().x * myViews.GetGrid().y, // at most SHADER_TYPES_VIEW_COUNT (see Views::Upload)
 			.environmentBackdrop = mySettings.environmentBackdrop.load(std::memory_order_relaxed) ? 1U : 0U,
@@ -1083,7 +1085,27 @@ struct Scene::Impl
 			light.spotScale = 1.0F / std::max(0.001F, core::Cos(sceneLight.innerConeAngle) - cosOuter);
 			light.spotOffset = -cosOuter * light.spotScale;
 		}
+		myModelOutdoorLights.store(
+			std::ranges::any_of(lights, [](const LightData& light) { return light.type == LIGHT_TYPE_DIRECTIONAL; }), std::memory_order_relaxed);
 		mySceneLightData = std::move(lights);
+	}
+
+	// the environment's intensity the frame takes (the sky or panorama, its sun or moon, the air's light): the settings',
+	// but none where the physical sky would light a model whose own lights play the outdoors' part (a directional light:
+	// pbrt's distant, the glTF research set's), unless Settings::skyWithModelLights keeps it (the user's call, 2026-11-22:
+	// the sky's sun beside the model's, merged only when they aligned, lit dragon and lamp twice; a model that brings its
+	// own panorama replaces the sky by loading it)
+	float EnvironmentIntensity() const
+	{
+		return SkyReplaced() ? 0.0F : mySettings.environmentIntensity.load(std::memory_order_relaxed);
+	}
+
+	// whether the physical sky is installed but replaced by the model's outdoor lights (see EnvironmentIntensity): no air
+	// either, as with a panorama (aerial perspective, and the fog and light shafts that need it)
+	bool SkyReplaced() const
+	{
+		return mySkyInstalled.load(std::memory_order_relaxed) && myModelOutdoorLights.load(std::memory_order_relaxed) &&
+			   !mySettings.skyWithModelLights.load(std::memory_order_relaxed);
 	}
 
 
@@ -1355,7 +1377,7 @@ struct Scene::Impl
 
 		// the panorama's space to the world's (the inverse of the shader's EnvironmentDirection)
 		float angle = glm::radians(mySettings.environmentRotationDegrees.load(std::memory_order_relaxed));
-		float intensity = mySettings.environmentIntensity.load(std::memory_order_relaxed);
+		float intensity = EnvironmentIntensity();
 		float c = core::Cos(angle);
 		float s = core::Sin(angle);
 		float cosMerge = core::Cos(glm::radians(kMergeAngle));
@@ -2577,6 +2599,8 @@ struct Scene::Impl
 		if (!WaitUntilReady(cancelled))
 			return;
 		auto name = filePath ? std::filesystem::path(*filePath).filename().string() : std::string("Physical sky");
+		if (auto color = filePath ? environment::ParseUniform(*filePath) : std::nullopt)
+			name = *color == glm::vec3(0.0F) ? std::string("None") : std::format("Uniform {}, {}, {}", color->x, color->y, color->z);
 		rhi.drawCalls.enqueue(
 			[this, &rhi, environment = std::move(environment), name = std::move(name), path = filePath.value_or(std::string()),
 			 pending = std::make_shared<PendingInstall>(myPendingInstallCount)](QueueTimelineContextData& graphics) mutable
@@ -3840,7 +3864,7 @@ struct Scene::Impl
 				.tracedRefractions = mySettings.tracedRefractions.load(std::memory_order_relaxed),
 				.caustics = mySettings.caustics.load(std::memory_order_relaxed),
 				.emissiveLights = mySettings.emissiveLights.load(std::memory_order_relaxed),
-				.aerialPerspective = mySettings.aerialPerspective.load(std::memory_order_relaxed) && mySkyInstalled.load(std::memory_order_relaxed),
+				.aerialPerspective = mySettings.aerialPerspective.load(std::memory_order_relaxed) && mySkyInstalled.load(std::memory_order_relaxed) && !SkyReplaced(),
 				.skySun = skySun,
 				.airLight = airLight,
 				.metersPerUnit = mySettings.metersPerUnit.load(std::memory_order_relaxed),

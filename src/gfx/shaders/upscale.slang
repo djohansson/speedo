@@ -1315,7 +1315,17 @@ void ComputeSharpen(uint3 dispatchThreadId : SV_DispatchThreadID)
 	}
 	// the lens's glare over its image (see SharpenGlare), within the views (not over a letterbox)
 	lensed = lensed && inView;
-	float3 e = SharpenMapped(SharpenLens(resolved.Load(int3(xy, 0)).rgb, lensed, xy, size, exposure), data, exposure, view.scotopic);
+	// where the image is read: the pixel's own, or across its view where the view is mirrored (VIEW_FLAG_MIRRORED: a scene
+	// camera that is a reflection, which Blender and pbrt render mirrored)
+	int2 at = xy;
+	if (inView && (view.flags & VIEW_FLAG_MIRRORED) != 0u)
+	{
+		float2 renderSize = float2(UpscaleRenderSize());
+		float left = view.viewport.x / renderSize.x * float(size.x);
+		float right = (view.viewport.x + view.viewport.z) / renderSize.x * float(size.x);
+		at.x = clamp(int(floor(left + right - (float(xy.x) + 0.5))), 0, last.x);
+	}
+	float3 e = SharpenMapped(SharpenLens(resolved.Load(int3(at, 0)).rgb, lensed, at, size, exposure), data, exposure, view.scotopic);
 	// without a reconstruction there is nothing to sharpen (RCAS's lobe is the upscaler's)
 	if (!upscaled)
 	{
@@ -1324,10 +1334,10 @@ void ComputeSharpen(uint3 dispatchThreadId : SV_DispatchThreadID)
 			gRWTextures[SHADER_TYPES_UI_BLUR_SOURCE_RW_TEXTURE][uint2(xy)] = float4(e, 1.0);
 		return;
 	}
-	int2 bAt = clamp(xy + int2(0, -1), int2(0), last);
-	int2 dAt = clamp(xy + int2(-1, 0), int2(0), last);
-	int2 fAt = clamp(xy + int2(1, 0), int2(0), last);
-	int2 hAt = clamp(xy + int2(0, 1), int2(0), last);
+	int2 bAt = clamp(at + int2(0, -1), int2(0), last);
+	int2 dAt = clamp(at + int2(-1, 0), int2(0), last);
+	int2 fAt = clamp(at + int2(1, 0), int2(0), last);
+	int2 hAt = clamp(at + int2(0, 1), int2(0), last);
 	float3 b = SharpenMapped(SharpenLens(resolved.Load(int3(bAt, 0)).rgb, lensed, bAt, size, exposure), data, exposure, view.scotopic);
 	float3 d = SharpenMapped(SharpenLens(resolved.Load(int3(dAt, 0)).rgb, lensed, dAt, size, exposure), data, exposure, view.scotopic);
 	float3 f = SharpenMapped(SharpenLens(resolved.Load(int3(fAt, 0)).rgb, lensed, fAt, size, exposure), data, exposure, view.scotopic);

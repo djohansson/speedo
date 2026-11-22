@@ -22,6 +22,10 @@ struct SceneCamera
 	float zfar = 0.0F; // 0: none given (gltf perspective cameras may be infinite), the views fit it to the bounds
 	// width / height (gltf aspectRatio, or xmag / ymag): the views letterbox to it. 0: none given, the view's own
 	float aspectRatio = 0.0F;
+	// its node's transform is a reflection (pbrt's Scale -1 1 1 in a converted scene, the glTF research set's bmw-m6): the
+	// image is mirrored across, as Blender and pbrt render it (see VIEW_FLAG_MIRRORED); without, the scene came out the
+	// wrong way round
+	bool mirrored = false;
 	// the file's node and camera (gltf indices), for animations to find. animated: an animation moves its node (or one
 	// above it) or sets its values (KHR_animation_pointer): Model::Animate updates it, and the views follow it
 	int32_t node = -1;

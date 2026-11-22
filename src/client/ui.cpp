@@ -397,6 +397,8 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 	// the environment's rotation (degrees) and intensity (as View > Environment sets them)
 	apply(settings.environmentRotationDegrees, kDefaults.environmentRotationDegrees, "SPEEDO_ENVIRONMENT_ROTATION", number(-kAny, kAny));
 	apply(settings.environmentIntensity, kDefaults.environmentIntensity, "SPEEDO_ENVIRONMENT_INTENSITY", number(0.0F, kAny));
+	// the sky kept under a model's directional light, which replaces it otherwise (see gfx::Scene::Settings)
+	apply(settings.skyWithModelLights, kDefaults.skyWithModelLights, "SPEEDO_SKY_WITH_MODEL_LIGHTS", unless("0"));
 	// the sky's sun (as View > Environment sets it): the time of day (hours of local solar time, or hours:minutes), the
 	// latitude (degrees) and the day of the year, and the time advancing, as many times as fast as real time (0: still)
 	apply(
@@ -653,13 +655,42 @@ void LoadAutoModel(RHI& rhi, const AutoModelLoad& load, std::atomic_uint8_t& pro
 	else if ((options.scene || options.variant) && mesh::IsModelFile(paths.front()))
 		App().GetScene().LoadModels(paths, progress, options, ModelArrangement::kSideBySide, ground);
 	else if (!paths.empty())
-		LoadAndInstallFile(rhi, paths.front(), progress, LoadChoice::kDefault, ground);
+		LoadAndInstallFile(rhi, paths.front(), progress, LoadChoice::kDefault, ground, false); // the conditions applied with the load's variables
+}
+
+// an environment the autoload or a pose names (SPEEDO_AUTOLOAD_ENVIRONMENT): a panorama, absolute or relative to the
+// resource dir, or a uniform one (gfx::environment::UniformName's, none at 0) as it is
+[[nodiscard]] std::string EnvironmentSource(std::string_view named, const std::filesystem::path& resourcePath)
+{
+	return gfx::environment::ParseUniform(named) ? std::string(named) : (resourcePath / named).string();
+}
+
+// the conditions of the model the autoload or a pose names, where it is one model file that has them (see
+// windowedapplication::ReadModelConditions)
+[[nodiscard]] std::optional<windowedapplication::ModelConditions> AutoLoadConditions(const char* model, const std::filesystem::path& resourcePath)
+{
+	if (model == nullptr || *model == '\0')
+		return std::nullopt;
+	auto paths = AutoLoadPaths(model, resourcePath);
+	return paths.size() == 1 && mesh::IsModelFile(paths.front()) ? windowedapplication::ReadModelConditions(paths.front()) : std::nullopt;
 }
 
 } // namespace ui
 
 namespace windowedapplication
 {
+
+void ApplyModelConditions(const ModelConditions& conditions, std::atomic_uint8_t& progress)
+{
+	std::string list;
+	for (const auto& [name, value] : conditions.variables)
+		list += std::format(" {}={}", name, value);
+	std::println("the model's conditions (its conversion.yaml):{}", list);
+	auto lookup = [&conditions](const char* name) -> const char* { return std::getenv(name) != nullptr ? nullptr : conditions.Get(name); };
+	ui::ApplyPoseSettings(App().GetScene().GetSettings(), lookup, false);
+	if (const char* environment = lookup("SPEEDO_AUTOLOAD_ENVIRONMENT"))
+		App().GetScene().LoadEnvironment(std::string(environment), progress);
+}
 
 // the unit chosen for the model about to be installed (see ChooseSceneUnit), until it is: outer none, no choice; inner
 // none, automatic (the file's remembered unit forgotten, the guess taken)
@@ -860,6 +891,8 @@ void WindowedApplication::InternalCopyScene()
 	float intensity = settings.environmentIntensity.load(std::memory_order_relaxed);
 	if (intensity != 1.0F)
 		text += std::format(" SPEEDO_ENVIRONMENT_INTENSITY={:.3f}", static_cast<double>(intensity));
+	if (settings.skyWithModelLights.load(std::memory_order_relaxed))
+		text += " SPEEDO_SKY_WITH_MODEL_LIGHTS=1";
 	float rotation = settings.environmentRotationDegrees.load(std::memory_order_relaxed);
 	if (rotation != 0.0F)
 		text += std::format(" SPEEDO_ENVIRONMENT_ROTATION={:.2f}", static_cast<double>(rotation));
@@ -1922,6 +1955,12 @@ void WindowedApplication::PrepareDraw()
 					settings.year.store(year, std::memory_order_relaxed);
 				SetItemTooltip("The moon's place and phase go by it (and the stars' a little).");
 				environmentLights();
+				bool withModelLights = settings.skyWithModelLights.load(std::memory_order_relaxed);
+				if (SmallCheckbox("Sky with the model's lights", &withModelLights))
+					settings.skyWithModelLights.store(withModelLights, std::memory_order_relaxed);
+				SetItemTooltip(
+					"Keeps the sky, its sun and its air on where the model has a directional light of its own. Off (the "
+					"default), the model's lights replace the sky: it is dark around the model.");
 				SeparatorText("Air");
 				// how clear the air is (see environment::SkyAerosols), the air between the eye and what it sees (see
 				// AerialPerspectiveData), and the sun's shadows in it
@@ -2369,10 +2408,26 @@ void WindowedApplication::PrepareDraw()
 			autoLoadOptions.scene = std::strtoull(scene, nullptr, 10);
 		if (const char* variant = std::getenv("SPEEDO_AUTOLOAD_VARIANT"); variant != nullptr && *variant != '\0')
 			autoLoadOptions.variant = std::strtoull(variant, nullptr, 10);
+		// the autoloaded model's own conditions, where it comes with them (see windowedapplication::ReadModelConditions: the
+		// glTF research set's), under the variables set: the variables a lookup takes first, then the conditions'
+		auto autoConditions = ui::AutoLoadConditions(std::getenv("SPEEDO_AUTOLOAD_MODEL"), resourcePath);
+		if (autoConditions)
+		{
+			std::string list;
+			for (const auto& [name, value] : autoConditions->variables)
+				list += std::format(" {}={}", name, value);
+			std::println("the model's conditions (its conversion.yaml), under the variables set:{}", list);
+		}
+		auto autoLookup = [&autoConditions](const char* name) -> const char*
+		{
+			if (const char* value = std::getenv(name))
+				return value;
+			return autoConditions ? autoConditions->Get(name) : nullptr;
+		};
 		// it stands on a ground plane (see ModelGround), as the file browser's option has it by default (since 2026-11-04,
 		// the user's call), unless SPEEDO_GROUND_PLANE=0
 		auto autoLoadGround = ModelGround::kPlane;
-		if (const char* ground = std::getenv("SPEEDO_GROUND_PLANE"); ground != nullptr && std::string_view(ground) == "0")
+		if (const char* ground = autoLookup("SPEEDO_GROUND_PLANE"); ground != nullptr && std::string_view(ground) == "0")
 			autoLoadGround = ModelGround::kNone;
 		// SPEEDO_AUTOLOAD_VARIANTS=<all|indices and default, comma separated>: its models' variants laid out (see
 		// ui::LoadAutoModel and ui::ParseVariants: a model file's, several files', or a folder's or a zip archive's), one
@@ -2396,7 +2451,7 @@ void WindowedApplication::PrepareDraw()
 		if (const char* giDebug = std::getenv("SPEEDO_GI_DEBUG"); giDebug != nullptr && *giDebug != '\0')
 			if (auto index = static_cast<uint32_t>(std::strtoul(giDebug, nullptr, 10)); index > 0 && DEBUG_VIEW_GI_FIRST + index - 1 < DEBUG_VIEW_GI_END)
 				App().GetScene().GetSettings().debugView.store(DEBUG_VIEW_GI_FIRST + index - 1, std::memory_order_relaxed);
-		ui::ApplyPoseSettings(App().GetScene().GetSettings(), [](const char* name) -> const char* { return std::getenv(name); }, false);
+		ui::ApplyPoseSettings(App().GetScene().GetSettings(), autoLookup, false);
 		gAutoLens = ui::ApplyCameraVariables([](const char* name) -> const char* { return std::getenv(name); }, false);
 		// the unit SPEEDO_UNITS or SPEEDO_METERS_PER_UNIT names is the autoloaded model's (see ChooseSceneUnit: set and
 		// remembered for its file as it installs)
@@ -2408,11 +2463,10 @@ void WindowedApplication::PrepareDraw()
 			App().GetScene().GetSettings().clusteredLights.store(false, std::memory_order_relaxed);
 		if (const char* merge = std::getenv("SPEEDO_MERGE_LIGHTS"); merge != nullptr && std::string_view(merge) == "0")
 			App().GetScene().GetSettings().mergeLights.store(false, std::memory_order_relaxed);
-		// the environment: SPEEDO_AUTOLOAD_ENVIRONMENT's panorama, else the sky
+		// the environment: SPEEDO_AUTOLOAD_ENVIRONMENT's panorama (or the model's conditions'), else the sky
 		std::optional<std::string> environmentPath;
-		if (const char* autoLoadEnvironment = std::getenv("SPEEDO_AUTOLOAD_ENVIRONMENT");
-			autoLoadEnvironment != nullptr && *autoLoadEnvironment != '\0')
-			environmentPath = (resourcePath / autoLoadEnvironment).string();
+		if (const char* autoLoadEnvironment = autoLookup("SPEEDO_AUTOLOAD_ENVIRONMENT"); autoLoadEnvironment != nullptr && *autoLoadEnvironment != '\0')
+			environmentPath = ui::EnvironmentSource(autoLoadEnvironment, resourcePath);
 		gAutoLoads.emplace_back(gLoads.Enqueue(
 			environmentPath.value_or("Physical sky"),
 			[&rhi, environmentPath](std::atomic_uint8_t& progress) { App().GetScene().LoadEnvironment(environmentPath, progress); }));
@@ -2545,7 +2599,15 @@ void WindowedApplication::PrepareDraw()
 		{
 			std::println("Paste Scene: {}", *text);
 			auto& scene = App().GetScene();
-			ui::ApplyPoseSettings(scene.GetSettings(), [&pose](const char* name) { return pose->Get(name); }, true);
+			// the pose's model's own conditions (see windowedapplication::ReadModelConditions) under what the pose names
+			auto poseConditions = ui::AutoLoadConditions(pose->Get("SPEEDO_AUTOLOAD_MODEL"), resourcePath);
+			auto poseLookup = [&pose, &poseConditions](const char* name) -> const char*
+			{
+				if (const char* value = pose->Get(name))
+					return value;
+				return poseConditions ? poseConditions->Get(name) : nullptr;
+			};
+			ui::ApplyPoseSettings(scene.GetSettings(), poseLookup, true);
 			gAutoLens = ui::ApplyCameraVariables([&pose](const char* name) { return pose->Get(name); }, true);
 			gAutoCameraAfterModel = false;
 			gAutoModel.reset();
@@ -2564,7 +2626,7 @@ void WindowedApplication::PrepareDraw()
 					.arrangement = arrangement.value_or(ModelArrangement::kSideBySide),
 					.scene = static_cast<uint32_t>(options.scene.value_or(0)),
 					.variant = options.variant ? std::optional<uint32_t>(static_cast<uint32_t>(*options.variant)) : std::nullopt,
-					.ground = pose->Get("SPEEDO_GROUND_PLANE") != nullptr && std::string_view(pose->Get("SPEEDO_GROUND_PLANE")) == "0"
+					.ground = poseLookup("SPEEDO_GROUND_PLANE") != nullptr && std::string_view(poseLookup("SPEEDO_GROUND_PLANE")) == "0"
 								  ? ModelGround::kNone
 								  : ModelGround::kPlane};
 				// its models' variants laid out, which a pose names by their files (see InternalCopyScene: a folder's or an
@@ -2602,8 +2664,8 @@ void WindowedApplication::PrepareDraw()
 						scene.GetScenes().Read().Get().filePath, scene.GetSettings().metersPerUnit.load(std::memory_order_relaxed));
 			}
 			std::string environment;
-			if (const char* named = pose->Get("SPEEDO_AUTOLOAD_ENVIRONMENT"))
-				environment = (resourcePath / named).string();
+			if (const char* named = poseLookup("SPEEDO_AUTOLOAD_ENVIRONMENT"))
+				environment = ui::EnvironmentSource(named, resourcePath);
 			if (environment != scene.GetEnvironmentPath().Read().Get())
 			{
 				auto path = environment.empty() ? std::nullopt : std::optional<std::string>(environment);

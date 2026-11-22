@@ -54,12 +54,12 @@ float3 Direction(float2 uv)
 {
 	float phi = (uv.x - 0.5) * 2.0 * kPi;
 	float theta = uv.y * kPi;
-	return float3(sin(theta) * sin(phi), cos(theta), -sin(theta) * cos(phi));
+	return float3(sin(theta) * cos(phi), cos(theta), sin(theta) * sin(phi));
 }
 
 float2 Coordinates(float3 d)
 {
-	return float2(0.5 + atan2(d.x, -d.z) / (2.0 * kPi), acos(clamp(d.y, -1.0, 1.0)) / kPi);
+	return float2(0.5 + atan2(d.z, d.x) / (2.0 * kPi), acos(clamp(d.y, -1.0, 1.0)) / kPi);
 }
 
 float2 Hammersley(uint i, uint count)

@@ -12,7 +12,7 @@ float3 EnvironmentDirection(float3 d)
 // where a direction (in the panorama's space) is in the panorama (as gfx::environment::Panorama)
 float2 EnvironmentCoordinates(float3 d)
 {
-	return float2(0.5 + atan2(d.x, -d.z) / (2.0 * kPi), acos(clamp(d.y, -1.0, 1.0)) / kPi);
+	return float2(0.5 + atan2(d.z, d.x) / (2.0 * kPi), acos(clamp(d.y, -1.0, 1.0)) / kPi);
 }
 
 // the radiance a white Lambertian surface of normal n reflects (as gfx::environment::EvaluateIrradiance), scaled by the

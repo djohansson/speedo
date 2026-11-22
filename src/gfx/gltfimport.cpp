@@ -418,6 +418,7 @@ using Matrix = glm::mat4;
 		.up = unit(glm::dvec3(world[1])),
 		.node = static_cast<int32_t>(&node - data.nodes),
 		.source = static_cast<uint32_t>(&camera - data.cameras)};
+	result.mirrored = glm::determinant(glm::dmat3(world)) < 0.0;
 	if (camera.type == cgltf_camera_type_orthographic)
 	{
 		result.orthographic = true;

@@ -11,6 +11,7 @@
 #include <expected>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -21,8 +22,9 @@
 namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::environment
 {
 
-// an equirectangular panorama of radiance, linear rgb, row by row: direction d is at u = 0.5 + atan2(d.x, -d.z) / 2pi
-// (-z, where the cameras look by default, in the middle) and v = acos(d.y) / pi (+y up, the top row)
+// an equirectangular panorama of radiance, linear rgb, row by row: direction d is at u = 0.5 + atan2(d.z, d.x) / 2pi
+// (+x in the middle, +z three quarters across: Blender's convention, and the glTF research set's, whose notes state it)
+// and v = acos(d.y) / pi (+y up, the top row)
 struct Panorama
 {
 	uint32_t width = 0; // twice the height
@@ -34,11 +36,21 @@ struct Panorama
 constexpr uint32_t kMaxFileWidth = 2048;
 constexpr uint32_t kSkyWidth = 256;
 
-// reads a panorama (Radiance .hdr, or anything else stb_image reads, as linear), scaled down to at most maxWidth
+// reads a panorama (Radiance .hdr, or anything else stb_image reads, as linear), scaled down to at most maxWidth, and
+// up to at least kSkyWidth: the prefiltered levels are kLevelCount deep, the sheen's an eighth as wide (a 64 wide
+// panorama's chains were past what its size has, which the validation layer reported)
 [[nodiscard]] std::expected<Panorama, std::string> Import(const std::filesystem::path& path, uint32_t maxWidth = kMaxFileWidth);
 // the same, from a file's bytes (name is for messages)
 [[nodiscard]] std::expected<Panorama, std::string> Import(
 	std::span<const std::byte> data, std::string_view name, uint32_t maxWidth = kMaxFileWidth);
+
+// a panorama of one color, kSkyWidth wide: an environment as uniform as a furnace's, or none (black). its source is named
+// "uniform:<r>,<g>,<b>" where a file's path would be (gfx::LoadEnvironment, Copy Scene's SPEEDO_AUTOLOAD_ENVIRONMENT)
+[[nodiscard]] Panorama Uniform(const glm::vec3& color);
+// the color of a uniform environment's name ("uniform:0.3,0.3,0.3"), or nothing where it names a file
+[[nodiscard]] std::optional<glm::vec3> ParseUniform(std::string_view name);
+// a uniform environment's name, as ParseUniform reads it
+[[nodiscard]] std::string UniformName(const glm::vec3& color);
 
 // radians: the real sun's (0.2665 degrees: 0.533 across), for its disk in the sky and its shadows' penumbrae
 constexpr float kSkySunRadius = 0.00465F;
