@@ -5293,13 +5293,21 @@ float3 GiVoxelApex(GiClipView gi, uint index, GiVoxel voxel, int3 at)
 	return apex;
 }
 
-// whether a voxel's apex (GiVoxelApex) sees point: no triangle between them
+// whether a voxel's apex (GiVoxelApex) sees point: no triangle between them. without ray queries, the shaders' BVHs
+// (GiTraceTriangles): traced by a ray query alone, the shaders didn't compile there (macOS, where ray queries are opt
+// in, and SPEEDO_RAY_QUERY=0: CI's visual checks, 2026-11-22)
 bool GiApexSees(GiClipView gi, uint index, GiVoxel voxel, int3 at, float3 point)
 {
 	float3 apex = GiVoxelApex(gi, index, voxel, at);
 	float3 way = point - apex;
 	float distance = length(way);
-	return distance <= 1e-5 || !BvhHitSomething(BvhTraceScene(apex, way / distance, distance, true, true, GiAlphaMask()));
+	if (distance <= 1e-5)
+		return true;
+#if BVH_RAY_QUERY
+	return !BvhHitSomething(BvhTraceScene(apex, way / distance, distance, true, true, GiAlphaMask()));
+#else
+	return !BvhHitSomething(GiTraceTriangles(GiClip(gi.clip), apex, way / distance, distance, true, true, false));
+#endif
 }
 
 // a pixel's lookups' sides (SHADER_TYPES_GI_SIDES_TEXTURE): per clip that lights its surface (the first two, by

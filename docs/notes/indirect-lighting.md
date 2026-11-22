@@ -1765,7 +1765,10 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   the shelves' edges), and the rays that met the niche's insides took it (the statuettes and the niche blue, 61 where
   voxels a quarter the size give 35; the pillar's top 74 to 82 for 53 to 58).
   Now a voxel's light is taken only where its apex sees the point taking it, by a short any-hit ray against the
-  triangles: a lookup, and a ray's hit (`GiHitVoxel`) on a voxel marked apart. The filter marks a voxel apart where,
+  triangles: a lookup, and a ray's hit (`GiHitVoxel`) on a voxel marked apart. A ray query, or the shaders' BVHs
+  without them (`GiTraceTriangles`): by a ray query alone, the shaders didn't compile where there is none (macOS, where
+  they are opt in, and `SPEEDO_RAY_QUERY=0`), which failed CI's visual checks from this change to 2026-11-22 (every
+  check on macOS, the ray-queries check's reference on Linux and Windows); the quick tier runs with ray queries. The filter marks a voxel apart where,
   at a junction (a voxel beside it of a surface more than 60 degrees from its own), its apex doesn't see a neighbour's
   (every occupied neighbour but a thin sheet's other side, which `GiFarSides` sees to: a voxel at the pillar's face
   keeps the face's normal and its apex is outside the left wall), as `kGiApartMark` times its weight in the volumes'
