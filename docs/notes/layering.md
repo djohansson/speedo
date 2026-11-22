@@ -361,6 +361,16 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   cache, `shader-cache` beside the executable, is shared by every profile of the build. A cold start 38.8 s on Vulkan
   and 31.8 on D3D12 (70 and 213 before), a constant changed in `gi.slang` 13.7 s, a fresh profile with the cache warm
   21.9 and 8.1 s. The client then loads no slang (`SPEEDO_SHADER_WORKER_COUNT=0` compiles in its process as before).
+  Round one's results are kept too (2026-11-22, `KeysRecord` in `shaderloader.cpp`): the reflection, every entry
+  point's key and the files the round read, in `shader-cache` as `keys-<hash>.bin`, the hash of the layout's identity
+  (its configuration, file and include paths, the worker's and the library's sizes and times) and of each file it read,
+  its path and contents; `keys-<identity>.deps` lists the files the last round read, which a start hashes to find the
+  record. The profile's whole-layout cache (`LoadAsset`) keeps one variant of the sources, so a shader swapped for
+  another version (the GI experiments' variants, each in a profile slot of its own) ran round one again on every start,
+  4.3 s of front ends and keys with every entry point's code in the cache; now any variant once compiled, in any profile
+  of the build, takes 0.00 s (bathroom2, 1 frame: a swap back 6.3 s a run before, 2.6 s after). A record is kept only
+  if no file it read was written since the round started (an edit during the compile), and one whose file list differs
+  from the last round's misses once.
   SPIR-V's binaries are byte identical to the one compile's; DXIL's aren't (see the plan). And the window's scene reloads
   its shaders when their sources change (`Scene::WatchShaders`, `SPEEDO_SHADER_RELOAD`): compiled on the executor, then
   between frames the layouts' shader modules replaced and the pipelines made again (`Pipeline::ReplaceShaders`),

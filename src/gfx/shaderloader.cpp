@@ -9,6 +9,7 @@
 #include <rhi/rhi.h>
 
 #include <picosha2.h>
+#include <xxhash.h>
 
 #include <algorithm>
 #include <array>
@@ -18,10 +19,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <format>
+#include <optional>
 #include <print>
 #include <random>
 #include <span>
+#include <string_view>
 #include <thread>
 #include <utility>
 
@@ -237,6 +241,134 @@ static void WriteCosts(const std::filesystem::path& path, const core::UnorderedM
 	}
 }
 
+static std::string Sha256Hex(std::string_view text)
+{
+	std::array<uint8_t, 32> sha2{};
+	picosha2::hash256(text.cbegin(), text.cend(), sha2.begin(), sha2.end());
+	std::string hex;
+	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), hex);
+	return hex;
+}
+
+// bytes written beside path and renamed into place, as WriteCached does
+static void WriteReplacing(const std::filesystem::path& path, std::span<const std::byte> bytes)
+{
+	auto temporary = path;
+	temporary += std::format(".{}", RandomHex());
+	if (!core::file::Write(temporary, bytes))
+		return;
+	std::error_code error;
+	std::filesystem::rename(temporary, path, error);
+	if (error)
+		std::filesystem::remove(temporary, error);
+}
+
+// round one's results for one variant of the sources (see CompileInWorkers): the files it read, the reflection (the
+// resources, the entry points without code) and each entry point's key. kept in the cache by what they were made from,
+// so that the sources as they were once (another variant of a shader swapped back in, in any profile) skip the round:
+// 4.3 s of front ends and keys for the main layouts on every start after a swap (2026-11-22), every entry point's code
+// in the cache
+struct KeysRecord
+{
+	std::vector<std::string> dependencies;
+	rhi::ShaderSet shaderSet;
+	std::vector<shadercompiler::EntryKey> keys;
+};
+
+// a file's size and time, for the compiler's binaries (a rebuilt worker may key or reflect differently)
+static std::string FileStamp(const std::filesystem::path& path)
+{
+	std::error_code error;
+	auto size = std::filesystem::file_size(path, error);
+	auto time = std::filesystem::last_write_time(path, error);
+	return std::format("{}:{}", size, time.time_since_epoch().count());
+}
+
+// what a layout's round one depends on besides its sources: the file, its configuration (the entry points, the
+// definitions, the format, slang's version: see ParametersHash), the include paths, and the compiler's binaries
+static std::string KeysIdentity(const std::filesystem::path& file, const ShaderLoader::SlangConfiguration& config, const shadercompiler::Request& request)
+{
+	auto executable = core::file::GetExecutablePath();
+	ENSUREF(executable, "the executable's path: {}", executable ? std::string() : executable.error().message());
+	const auto directory = executable->parent_path();
+	std::string text = std::format("keys-v1|{}|{}", ShaderLoader::ParametersHash(config), file.generic_string());
+	for (const auto& includePath : request.includePaths)
+		text += std::format("|{}", includePath);
+	text += std::format("|{}|{}", FileStamp(directory / SPEEDO_SHADERCOMPILEWORKER_FILE), FileStamp(directory / SPEEDO_SHADERCOMPILER_FILE));
+	return Sha256Hex(text);
+}
+
+// a record's name: the identity, and each dependency's path and contents as they are now; none where one can't be read
+static std::optional<std::string> KeysRecordName(std::string_view identity, std::span<const std::string> dependencies)
+{
+	std::string text(identity);
+	for (const auto& dependency : dependencies)
+	{
+		auto mapped = core::file::Map(dependency);
+		if (!mapped)
+			return std::nullopt;
+		auto hash = XXH3_128bits(mapped->data(), mapped->size());
+		text += std::format("|{}|{:016x}{:016x}", dependency, hash.high64, hash.low64);
+	}
+	return std::format("keys-{}", Sha256Hex(text));
+}
+
+// the record of the sources as they are now, if the cache holds it: looked up by the dependencies the last round one of
+// this identity read (keys-<identity>.deps, a path a line); a variant that reads other files misses once
+static std::optional<KeysRecord> ReadKeysRecord(const std::filesystem::path& cacheRoot, const std::string& identity, size_t entryCount)
+{
+	auto list = core::file::Map(cacheRoot / std::format("keys-{}.deps", identity));
+	if (!list || list->size() == 0)
+		return std::nullopt;
+	std::vector<std::string> dependencies;
+	std::string_view text(reinterpret_cast<const char*>(list->data()), list->size());
+	while (!text.empty())
+	{
+		auto end = text.find('\n');
+		if (auto line = text.substr(0, end); !line.empty())
+			dependencies.emplace_back(line);
+		text = end == std::string_view::npos ? std::string_view() : text.substr(end + 1);
+	}
+	auto name = KeysRecordName(identity, dependencies);
+	if (!name)
+		return std::nullopt;
+	auto mapped = core::file::Map(cacheRoot / std::format("{}.bin", *name));
+	if (!mapped || mapped->size() == 0)
+		return std::nullopt;
+	KeysRecord record;
+	if (zpp::bits::failure(zpp::bits::in(std::span<const std::byte>(mapped->data(), mapped->size()))(record)))
+		return std::nullopt;
+	// (its name says these files had these contents: the same list, or a collision)
+	if (record.dependencies != dependencies || record.keys.size() != entryCount || record.shaderSet.shaders.size() != entryCount)
+		return std::nullopt;
+	return record;
+}
+
+// keeps round one's record, and its dependencies as the identity's list, unless a dependency was written since the
+// round started (an edit during the compile: the front ends may have read either version)
+static void WriteKeysRecord(
+	const std::filesystem::path& cacheRoot, const std::string& identity, const KeysRecord& record, std::filesystem::file_time_type roundStart)
+{
+	for (const auto& dependency : record.dependencies)
+	{
+		std::error_code error;
+		auto time = std::filesystem::last_write_time(dependency, error);
+		if (error || time >= roundStart)
+			return;
+	}
+	auto name = KeysRecordName(identity, record.dependencies);
+	if (!name)
+		return;
+	std::vector<std::byte> bytes;
+	if (zpp::bits::failure(zpp::bits::out(bytes)(record)))
+		return;
+	WriteReplacing(cacheRoot / std::format("{}.bin", *name), bytes);
+	std::string list;
+	for (const auto& dependency : record.dependencies)
+		list += std::format("{}\n", dependency);
+	WriteReplacing(cacheRoot / std::format("keys-{}.deps", identity), std::as_bytes(std::span(list)));
+}
+
 // a layout compiled in worker processes (see WorkerCount; docs/shader-compile-plan.md, steps 1 and 2): round one keys
 // every entry point (each worker a share, the first reflecting the resources too: see shadercompiler::Action::kKeys);
 // the entry points whose code the cache holds by their keys are taken from it; round two compiles the others (and for
@@ -254,31 +386,42 @@ static std::expected<rhi::ShaderSet, std::string> CompileInWorkers(
 	const auto jobs = cacheRoot / "jobs" / RandomHex();
 	const size_t entryCount = request.entryPoints.size();
 
-	// round one: the keys, and the reflection
-	const size_t keyWorkerCount = std::clamp<size_t>(entryCount / kMinKeysPerWorker, 1, workerCount);
-	std::vector<shadercompiler::Request> keyRequests(keyWorkerCount, request);
-	for (size_t workerIt = 0; workerIt < keyWorkerCount; workerIt++)
+	// round one: the keys, and the reflection; or the cache's record of them for the sources as they are (see KeysRecord)
+	const auto identity = KeysIdentity(file, config, request);
+	size_t keyWorkerCount = 0;
+	std::string keyTimings = " cached";
+	auto record = ReadKeysRecord(cacheRoot, identity, entryCount);
+	if (!record)
 	{
-		keyRequests[workerIt].action = shadercompiler::Action::kKeys;
-		keyRequests[workerIt].reflect = workerIt == 0;
-		for (size_t entryPointIt = workerIt; entryPointIt < entryCount; entryPointIt += keyWorkerCount)
-			keyRequests[workerIt].keyEntryPoints.push_back(static_cast<uint32_t>(entryPointIt));
+		const auto roundStart = std::filesystem::file_time_type::clock::now();
+		keyWorkerCount = std::clamp<size_t>(entryCount / kMinKeysPerWorker, 1, workerCount);
+		std::vector<shadercompiler::Request> keyRequests(keyWorkerCount, request);
+		for (size_t workerIt = 0; workerIt < keyWorkerCount; workerIt++)
+		{
+			keyRequests[workerIt].action = shadercompiler::Action::kKeys;
+			keyRequests[workerIt].reflect = workerIt == 0;
+			for (size_t entryPointIt = workerIt; entryPointIt < entryCount; entryPointIt += keyWorkerCount)
+				keyRequests[workerIt].keyEntryPoints.push_back(static_cast<uint32_t>(entryPointIt));
+		}
+		auto keysRun = RunWorkers(keyRequests, jobs / "keys", file);
+		if (!keysRun)
+			return std::unexpected(keysRun.error());
+		auto& keyResponses = *keysRun;
+		auto& reflected = keyResponses[0];
+		if (!reflected.diagnostics.empty())
+		{
+			std::print("{}", reflected.diagnostics);
+			std::fflush(stdout);
+		}
+		record.emplace(KeysRecord{.dependencies = std::move(reflected.dependencies), .shaderSet = std::move(reflected.shaderSet), .keys = std::vector<shadercompiler::EntryKey>(entryCount)});
+		for (const auto& response : keyResponses)
+			for (const auto& key : response.keys)
+				record->keys[key.entryPoint] = key;
+		keyTimings = reflected.timings;
+		WriteKeysRecord(cacheRoot, identity, *record, roundStart);
 	}
-	auto keysRun = RunWorkers(keyRequests, jobs / "keys", file);
-	if (!keysRun)
-		return std::unexpected(keysRun.error());
-	auto& keyResponses = *keysRun;
 	const auto keyed = std::chrono::steady_clock::now();
-	auto& reflected = keyResponses[0];
-	if (!reflected.diagnostics.empty())
-	{
-		std::print("{}", reflected.diagnostics);
-		std::fflush(stdout);
-	}
-	std::vector<shadercompiler::EntryKey> keys(entryCount);
-	for (const auto& response : keyResponses)
-		for (const auto& key : response.keys)
-			keys[key.entryPoint] = key;
+	const auto& keys = record->keys;
 
 	// the jobs: each entry point's code (DXIL's that read the constant, as its value 0), and DXIL's specializations, by
 	// their cache files (a hash of the key and what else makes the code: the configuration but its entry points and
@@ -377,14 +520,14 @@ static std::expected<rhi::ShaderSet, std::string> CompileInWorkers(
 
 	// the set: the reflection's, each entry point's code, and DXIL's specializations (each value's, in the configuration's
 	// order, the entry points in theirs)
-	rhi::ShaderSet shaderSet = std::move(reflected.shaderSet);
+	rhi::ShaderSet shaderSet = std::move(record->shaderSet);
 	ENSUREF(shaderSet.shaders.size() == entryCount, "the reflection of {} has {} of {} entry points", file.string(), shaderSet.shaders.size(), entryCount);
 	for (size_t entryPointIt = 0; entryPointIt < entryCount; entryPointIt++)
 		std::get<0>(shaderSet.shaders[entryPointIt]) = std::move(*allJobs[entryPointIt].code);
 	for (size_t jobIt = entryCount; jobIt < allJobs.size(); jobIt++)
 		shaderSet.specializations.push_back({.shader = allJobs[jobIt].job.entryPoint, .value = allJobs[jobIt].job.value, .code = std::move(*allJobs[jobIt].code)});
 	if (dependencies != nullptr)
-		for (const auto& dependency : reflected.dependencies)
+		for (const auto& dependency : record->dependencies)
 		{
 			if (shadercompiler::Logging())
 				std::println("File include/import: {}", dependency);
@@ -401,7 +544,7 @@ static std::expected<rhi::ShaderSet, std::string> CompileInWorkers(
 			workerCount,
 			std::chrono::duration<double>(keyed - start).count(),
 			keyWorkerCount,
-			keyResponses[0].timings,
+			keyTimings,
 			std::chrono::duration<double>(end - keyed).count(),
 			misses.size(),
 			allJobs.size(),
