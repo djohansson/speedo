@@ -143,7 +143,9 @@ std::expected<Record, std::error_code> SavePipelineCache(
 		return {}; // success
 	};
 
-	return SaveBinary<true>(cacheFilePath, saveCacheOp);
+	// (no checksum of what was written: nothing reads it, and its SHA-256 read the whole file again, 0.7 s of a run's exit
+	// at 458 MB)
+	return SaveBinary<false>(cacheFilePath, saveCacheOp);
 }
 
 } // namespace pipeline
