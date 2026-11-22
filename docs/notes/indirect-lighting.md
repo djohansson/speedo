@@ -1580,11 +1580,11 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   - Every block that holds a surface's voxels has a page, read or not, and keeps it (`cacheKeepFrameCount` unset):
     what no lookup reads traces a ray every 8 frames, unfiltered. With pages only for what was read, what bounced off
     everything the camera hadn't looked at was the probes' light, another light than the cache's.
-  - A voxel new to its clip starts from the coarser clip's voxel of the same surface (its own center moved along its
-    normal by half the difference of the voxels' sizes, where that clip's shell is) as 256 samples
-    (`kGiCacheAnchoredSeedCount`: the same light over a wider footprint, and as quiet as the coarser entry), and
-    traces 4 rays a frame for its first 256 (`kGiCacheYoungRayCount`), settled or not: at the settled rate, a ray every
-    other frame, a walking camera reached it before it had 30.
+  - A voxel new to its clip traces 4 rays a frame for its first 256 (`kGiCacheYoungRayCount`), settled or not: at the
+    settled rate, a ray every other frame, a walking camera reached it before it had 30. It started from the coarser
+    clip's voxel of the same surface as 256 samples (`kGiCacheAnchoredSeedCount`, "the same light over a wider
+    footprint"), until 2026-11-22: it starts from nothing now, the probes' light standing in by its samples (see "A
+    voxel's light is taken only where it was gathered", the seed).
 - **The cache's rays' hits take the lights' light at the hit** (step 2; `GiHitLit`, `GiHitIrradiance`,
   the measurements against `GiData::cacheLit`, `SPEEDO_GI_CACHE_LIT=0`, removed in step 4). What a ray's hit reflects was its voxel's radiance, in the
   finest clip holding the hit: a voxel takes the lights' light by a ray from its center, a voxel out along its normal,
@@ -1813,6 +1813,32 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
     marked apart (their neighbours outside see past the side), so the masks cut the ring in patches there alone. Now a
     voxel with an occupied neighbour along its own normal is at a junction (`ComputeGiCacheFilter`): the ring is gone
     with the patches. The GI pass the same (+0.01 to 0.04 ms).
+  - **A voxel new to its clip isn't seeded from the coarser clip** (`GiCacheUpdate`; the user's report, 2026-11-21,
+    walking at the client's speed between `17.2606,17.5270,1.5210,29.050,-38.099` and
+    `5.8027,7.2424,-12.9784,27.193,-39.740`: a dark patch on the bath's inner wall under the counter "fading into view
+    when moving ... fading over time", and streaks across the wall, the surface cache's, gone with it off). An anchored
+    entry new to its clip started from the coarser clip's voxel its surface was in, as 256 samples, as settled as it
+    arrived: under the counter's lip that voxel gathered its light under the counter (the patch has the shape of the
+    taps' plate), and elsewhere the coarser entries were darker than this level's (the streaks); as the entry's own
+    rays outweighed the seed (4 a frame for its first 256, then one every other frame) the patch faded over tens of
+    seconds. Measured on the irradiance view against the frame settled at the second pose (exposure 3 fixed, frames
+    counted as 6.95 ms, the user's 144 a second, the walk 260 frames, the user's 12 units a second): seeded 1.86 of
+    255 darker over the frame on arriving, 1.82 three seconds later, 1.35 after 35; now 0.17 lighter, 0.12 after a
+    second. The pair at `1.2450,14.7488,4.4895,23.745,-4.228` and `0.7593,11.8509,-2.0801,23.745,-4.228`: 0.80 darker
+    on arriving for 0.12 lighter, 0.16 for 0.10 backing out. Tried: the coarser entries around the new one's apex
+    whose own apexes see it, by their trilinear shares (as a lookup takes them): the patch gone, the streaks not (1.92
+    darker); a seed of 32 samples: fainter. Unseeded, the probes' light stands in for the entry by its samples until
+    it has its own (that the seed was for, when the light along Sponza's curtains faded in and out as the finer clips
+    scrolled): Sponza's corridor walk within 0.06 to 0.08 of 255 of the seeded one's frame for frame, and
+    salle_de_bain's, MovingInterior's and Bistro's walks within 0.06; the regression set settled within 0.04 of the
+    build before. The frame 0.04 to 0.4 ms faster (the main pass, above).
+  - Open: at the second pose a dark blob low on the bath's left (43 to 47 of 255 where the voxels a quarter the size
+    give 55), settled, the cache's (gone with it off; the same with the near field off, with every hit tested, and at
+    the build before these). There the lookup reads clip 1 and, through its fade at the edge of its box, clip 2: clip
+    1's mask leaves out its two voxels of the floor under the bath (0.0018 and 0.0026 against 0.0066 to 0.009 for the
+    rest), clip 2's leaves out none (their apexes see the point) and its voxels hold 0.0051 to 0.0068, a third darker,
+    gathered over a footprint 0.68 wide that takes in the bath's corner where its bottom meets its wall: the levels'
+    disagreement (docs/backlog.md), not light of another place.
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows

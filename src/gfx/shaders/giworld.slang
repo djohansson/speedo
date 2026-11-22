@@ -134,8 +134,8 @@ float3 GiWorldWhereOf(uint cell)
 // the samples a cell new to the table takes its parent's light as (the cell of the next level up holding it, of its
 // bucket; GiWorldSeed): new, a cell held the few samples of its first frames alone, one that met a bright surface all of
 // its light, and walking along Sponza's corridor the floor ahead was strewn with bright cells (moving against settled
-// 2.75 to 3.95 of 255 through the grid's own view, where settled it is smooth): as the clipmap's cache begins an entry
-// new to a clip from the coarser clip's (kGiCacheAnchoredSeedCount)
+// 2.75 to 3.95 of 255 through the grid's own view, where settled it is smooth): as the clipmap's cache began an entry
+// new to a clip from the coarser clip's (no longer, see GiCacheUpdate)
 static const uint kGiWorldSeedCount = 64u;
 
 // a cell new to the table begun from its parent's light (see kGiWorldSeedCount), where its parent holds any (the samples

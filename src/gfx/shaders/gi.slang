@@ -3073,8 +3073,8 @@ struct GiCacheEntry
 static const float kGiCachePrior = 16.0;
 // how many samples an entry holds once it is settled: from there on its voxel's light is the cache's alone (the probes'
 // share, the prior's over the samples and it, is scaled to reach none there: ComputeGiCacheFilter), and the probes
-// aren't resolved into the voxel (GiResolve, GiData::probes). as many as the coarser clip's seed
-// (kGiCacheAnchoredSeedCount), so that a voxel that scrolls in seeded is settled as it arrives
+// aren't resolved into the voxel (GiResolve, GiData::probes). as many as an anchored entry new to its clip traces 4 rays a
+// frame for (kGiCacheYoungRayCount), so that it is settled as it leaves them
 static const uint kGiCacheSettledCount = 256u;
 // how many samples of their mean square a voxel's variance is taken with besides its own (a voxel of few samples is
 // noise, however alike they came out: one sample has no variance)
@@ -3084,11 +3084,9 @@ static const float kGiCacheVariancePrior = 4.0;
 // it had spread from bright voxels into darker ones withdrew for as long (Sponza's interior still darkened 2400 frames
 // after a cold start, its probes settled by 300); held at this, the filter is the same once a voxel has as many
 static const float kGiCacheFilterCount = 64.0;
-// how many samples a voxel new to its clip takes the coarser clip's entry as (see GiCacheUpdate)
+// how many samples a voxel new to its clip takes the coarser clip's entry as (see GiCacheUpdate; not anchored: an anchored
+// one starts from nothing)
 static const uint kGiCacheSeedCount = 8u;
-// and anchored (GiCacheAnchored), where the coarser clip's entry is the same light over a wider footprint: enough that the
-// voxel shows it rather than its probes', and as quietly as the coarser entry is, until its own rays sharpen it
-static const uint kGiCacheAnchoredSeedCount = 256u;
 // the rays of its own under which an anchored entry is new to its clip (see GiCacheUpdate)
 static const uint kGiCacheYoungRayCount = 256u;
 // how often a voxel no lookup reads traces a ray (see GiCacheUpdate), and how many frames after a lookup read its block
@@ -3527,22 +3525,28 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	{
 		if (!fresh)
 			entry = GiCacheLoad(index);
-		else if (gi.coarser != gi.clip)
+		// a voxel new to the clip (it scrolled in, or its block came near a surface) starts from the coarser clip's entry
+		// where it is, as kGiCacheSeedCount samples, which its own rays soon outweigh: from nothing, it took the probes'
+		// light until it had samples, and the light along Sponza's curtains faded in and out near the eye as the finer clips
+		// scrolled. the coarser block is read where its page is carried over (GiCacheKeeps), so that it is its own still,
+		// not freed and taken by another: by the table it last left (see GiCoarserHalf), at its place then
+		// but anchored (GiCacheAnchored), from nothing: its own rays come 4 a frame until it has kGiCacheYoungRayCount, and
+		// the probes' light stands in for it by its samples meanwhile (ComputeGiCacheFilter). a coarser entry is another
+		// light, gathered over a wider footprint from its own apex: seeded with the one its surface was in, as 256
+		// samples (that it be settled as it arrived, kGiCacheSettledCount), bathroom2's bath, walked toward at the client's
+		// speed (12 units a second), had a patch the shape of the taps' plate under the counter (the coarser voxel there
+		// gathered its light under the counter) and streaks across its inner wall (coarser entries darker than this
+		// level's), 1.86 of 255 darker over the frame on arriving, 1.82 3 seconds later and 1.35 after 35, fading as
+		// the entry's own rays outweighed the seed's 256 samples at a ray every other frame (the user's report,
+		// 2026-11-21: "fading into view when moving ... fading over time"); seeded with the coarser entries around its
+		// apex whose own apexes see it, 1.92 (the patch gone, the streaks not). unseeded, the frame 0.17 of the settled
+		// one's on arriving, and Sponza's corridor walk within 0.06 to 0.08 of 255 of the seeded one's, frame for frame
+		else if (gi.coarser != gi.clip && !(surface && GiCacheAnchored(gi)))
 		{
-			// a voxel new to the clip (it scrolled in, or its block came near a surface) starts from the coarser clip's
-			// entry where it is, as kGiCacheSeedCount samples, which its own rays soon outweigh: from nothing, it took the
-			// probes' light until it had samples, and the light along Sponza's curtains faded in and out near the eye as
-			// the finer clips scrolled. the coarser block is read where its page is carried over (GiCacheKeeps), so that
-			// it is its own still, not freed and taken by another: by the table it last left (see GiCoarserHalf), at its
-			// place then
 			GiData coarser = GiClip(gi.coarser);
 			uint3 coarserSize = GiLevelSize(coarser, 0);
 			uint3 coarserBlocks = GiLevelSize(coarser, SHADER_TYPES_GI_FLAG_LEVEL);
-			// (anchored, the coarser clip's voxel of the same surface: half a voxel of its own off the surface, see
-			// ComputeGiVoxelize, where this one's center is half of this clip's off it)
-			bool anchoredSeed = surface && GiCacheAnchored(gi);
-			float3 seedPoint = anchoredSeed ? gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w + normal * (0.5 * (coarser.volumeOrigin.w - gi.volumeOrigin.w)) : center;
-			int3 voxel = int3(floor(GiVoxelCoordinate(coarser, seedPoint, 0)));
+			int3 voxel = int3(floor(GiVoxelCoordinate(coarser, center, 0)));
 			int3 seed = voxel + coarser.scroll.xyz;
 			if (GiInside(voxel, coarserSize) && GiInside(seed, coarserSize))
 			{
@@ -3554,7 +3558,7 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 				if (GiCacheValid(seeded))
 				{
 					entry = seeded;
-					entry.count = min(seeded.count, anchoredSeed ? kGiCacheAnchoredSeedCount : kGiCacheSeedCount);
+					entry.count = min(seeded.count, kGiCacheSeedCount);
 					entry.inside = 0u;
 					entry.sequence = 0u;
 					entry.emitterCount = min(seeded.emitterCount, 8u);
