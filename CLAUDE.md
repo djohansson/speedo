@@ -64,3 +64,4 @@ Each as deep as the subsystem's history: what was tried, what it cost, the user'
 - docs/shader-compile-plan.md: faster shader compiles: where a cold compile's time goes (step 0), the entry points keyed by their HLSL source and cached beside the executable, compiled in worker processes at once (steps 1 to 4), reloaded while the client runs (step 6).
 - docs/backlog.md: what is open across the plans and the notes, smaller items first (the user's order, 2026-11-19).
 - docs/world-cache-plan.md: the indirect lighting's light in world-anchored cells at several resolutions, side by side with the clipmap's until shown better (the user's call, 2026-11-19).
+- docs/research-scenes-plan.md: what the glTF research set needs of the renderer, held against each scene's path traced reference (`scripts/researchcompare.ps1`): the baseline, the gaps and the steps (written 2026-11-22, for the user's review).
