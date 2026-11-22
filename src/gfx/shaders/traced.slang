@@ -106,8 +106,8 @@ bool ReflectionBumpy(float packed)
 {
 	return packed >= 1.5;
 }
-// the brightest a glossy ray's sample is taken as, in multiples of white at the view's exposure (see
-// ComputeReflectionTrace)
+// the brightest light a pixel takes of a glossy ray's sample (by its weight), in multiples of white at the view's exposure
+// (see ComputeReflectionTrace)
 static const float kReflectionMostWhite = 8.0;
 // what the glossy reflections take a sample as a share of (see Shade) is what the probes and the environment predict
 // along the ray and this much of white at the view's exposure: below it the prediction is too dark for its detail to show,
@@ -739,7 +739,8 @@ void ComputeReflectionTrace(uint3 dispatchThreadId: SV_DispatchThreadID)
 	int2 pixel = int2(dispatchThreadId.xy);
 	if (any(pixel >= int2(extent)))
 		return;
-	bool glossy = gTextures[SHADER_TYPES_REFLECTION_WEIGHT_TEXTURE].Load(int3(pixel, 0)).a >= 0.0;
+	float4 weight = gTextures[SHADER_TYPES_REFLECTION_WEIGHT_TEXTURE].Load(int3(pixel, 0));
+	bool glossy = weight.a >= 0.0;
 	float4 coat = gTextures[SHADER_TYPES_REFLECTION_COAT_TEXTURE].Load(int3(pixel, 0));
 	ViewData view;
 	uint viewId;
@@ -780,20 +781,24 @@ void ComputeReflectionTrace(uint3 dispatchThreadId: SV_DispatchThreadID)
 		else
 		{
 			float3 expected = gRWTextures[SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE][pixel].rgb;
-			// where what the ray met isn't known (see TracedRadiance), what they predict, unblurred. a sample far brighter
-			// than white at the view's exposure is taken as a few times that: one that met what is very bright (a lamp's
-			// bulb, the sun's glint off a mirror), which the filter spread into a square, alone among its neighbors';
-			// tonemapped, they look the same
+			float3 predicted = expected + kReflectionPredictionLeast / max(view.exposure, 1e-6);
+			// where what the ray met isn't known (see TracedRadiance), what they predict, unblurred. a sample whose light
+			// the pixel takes (by the weight, as ComputeReflectionTemporal adds it) is far brighter than white at the view's
+			// exposure is taken as a few times that: one that met what is very bright (a lamp's bulb, the sun's glint off a
+			// mirror), which the filter spread into a square, alone among its neighbors'; tonemapped, they look the same. by
+			// the light the pixel takes, not the sample's own: a lobe's average of what it met, a bright window over a part
+			// of it, is what a faint specular takes a share of, and bathroom2's wooden floor (a coat reflecting some 5% of
+			// it) lost most of the emissive window's glossy reflection, whose samples were taken as 8 times white
 			float4 sample = float4(expected, 0.0);
 			if (valid)
 			{
-				float luminance = dot(radiance, float3(0.2126, 0.7152, 0.0722));
+				float luminance = dot(weight.rgb * radiance / predicted, float3(0.2126, 0.7152, 0.0722));
 				float most = kReflectionMostWhite / max(view.exposure, 1e-6);
 				if (luminance > most)
 					radiance *= most / luminance;
 				sample = float4(radiance, ReflectionPackDistance(min(t, kTracedMissDistance), moving));
 			}
-			sample.rgb /= expected + kReflectionPredictionLeast / max(view.exposure, 1e-6);
+			sample.rgb /= predicted;
 			gRWTextures[SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE][pixel] = sample;
 		}
 	}

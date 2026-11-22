@@ -1184,9 +1184,15 @@ before at this size (`TRACED_REFLECTION_HISTORY`); the frames they ran are above
 the history's parity).
 A ray that meets nothing takes the environment prefiltered for the roughness of the surface it leaves, as `Shade` looks it
 up: at the panorama's level, a glossy ray meeting the sun's disk took it twice (the sun is a light, its highlight the
-lobe's), a sample thousands of times the sky's, which the filter spread into a white square on MetalRoughSpheres; and a
-sample is taken as at most 8 times white at the view's exposure (`kReflectionMostWhite`: a lamp's bulb met by one ray among
-its neighbors'). Only where the reflection can show: the specular's share of its light (the split sum's
+lobe's), a sample thousands of times the sky's, which the filter spread into a white square on MetalRoughSpheres; and the
+light a pixel takes of a sample (by its weight, as Reflection Temporal adds it) is at most 8 times white at the view's
+exposure (`kReflectionMostWhite`: a lamp's bulb met by one ray among its neighbors'). It capped the sample's own
+radiance at first, which a faint specular takes a share of: the glossy reflection is the lobe's average of what its rays
+meet, and bathroom2_extended's floor, a coat reflecting some 5% of the emissive window over part of its lobe, lost most of
+it (the floor beside the window's reflection 178 to 213 of 255 at exposure 1.5; 208 to 227 by the light taken, 225 to
+238 uncapped). Elsewhere it changed 0.02 to 0.14 of 255 (ABeautifulGame, MetalRoughSpheres, ChronographWatch; Sponza's
+corridor, Bistro's street, bathroom2_core), and Bistro at night's lamps came out no brighter in what reflects them (its
+strips within the lit interiors' run-to-run noise, the frame's mean the same). Only where the reflection can show: the specular's share of its light (the split sum's
 terms by the occlusion, as luminance) from 0.005, all of it from 0.015 (`kTracedStrengthNone`, `kTracedStrengthFull`;
 a dielectric's is about 0.04 at normal incidence). San Miguel is an obj whose materials' `Ns` make walls, floors and trees
 smooth (`sqrt(2 / (Ns + 2))`, 0.14 at 96) and their `Ks` their specular faint: traced everywhere they cost 1.85 ms a frame
