@@ -943,7 +943,7 @@ struct EmitterData
 	// the emitters' caustics (see ComputeEmitterCaustics): the photons traced from them each frame toward the glass
 	// (SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT; 0 where there are none: no solid glass, View > Rendering Features > Caustics
 	// off, no ray queries), and a sphere about the glass (xyz its center, w its radius) they are aimed at. while they are
-	// traced, the emitters' shadow rays stop at solid glass (see EmitterThroughSolidGlass), whose light arrives as theirs
+	// traced, the emitters' shadow rays stop at solid glass that gathers light (see EmitterGatheredByGlass), whose light arrives as theirs
 	alignas(4) UINT1(causticPhotonCount);
 	alignas(16) FLOAT4(glass); // (at 80 bytes: no padding before it, whatever the layout's rules)
 };

@@ -103,11 +103,15 @@ struct GlassPath
 // a transmissive surface a ray met (glass, from origin along direction): where, its normal as interpolated (the
 // triangles' facets drew the caustics as polygons) on the side the ray comes from (the geometry's where they disagree),
 // and the instance that places it (see BvhHit::normalInstance), its material and what it has at the point, its ior and
-// its dielectric's reflectance at normal incidence, and how far off it a ray goes on (its rounding)
+// its dielectric's reflectance at normal incidence, and how far off it a ray goes on (its rounding). flat: its triangle's
+// corners' normals are one (kGlassFlatCosine: a pane's, a box's face, what moves by skinning), which gathers no light;
+// else the radius it curves by there (see GlassFlat)
 struct GlassSurface
 {
 	float3 position;
 	float3 normal;
+	bool flat;
+	float radius;
 	uint normalInstance;
 	MaterialData material;
 	float4 texCoord01;
@@ -117,6 +121,74 @@ struct GlassSurface
 	float eps;
 };
 
+// the cosine of the angle a triangle's corners' normals differ by at most where it counts as flat (half a degree: the
+// research set's curved glass differs by 3 to 14 degrees across a triangle, its panes and boxes by none)
+static const float kGlassFlatCosine = 0.99996192;
+
+// whether a triangle of corner normals is flat (see GlassSurface), and the radius it curves by where it isn't (at
+// positions: the least along its edges, how far apart their ends are over how much their normals differ; in the
+// triangle's own space; 1e30 flat)
+bool GlassFlat(float3 normals[3], float3 positions[3], out float radius)
+{
+	float3 a = normalize(normals[0]);
+	float3 b = normalize(normals[1]);
+	float3 c = normalize(normals[2]);
+	radius = 1e30;
+	if (!(min(dot(a, b), min(dot(b, c), dot(a, c))) < kGlassFlatCosine))
+		return true;
+	float curvature = max(
+		length(a - b) / max(length(positions[0] - positions[1]), 1e-30),
+		max(length(b - c) / max(length(positions[1] - positions[2]), 1e-30), length(a - c) / max(length(positions[0] - positions[2]), 1e-30)));
+	radius = 1.0 / max(curvature, 1e-30);
+	return false;
+}
+
+// how much longer a length of a triangle's own space is where its instance places it (the cube root of its volume's)
+float GlassPlacedScale(BvhHit glass, uint frameIndex)
+{
+	if (glass.normalInstance == ~0u)
+		return 1.0;
+	float4x4 transform = gModelInstances[frameIndex][glass.normalInstance].modelTransform;
+	return pow(abs(determinant(float3x3(transform[0].xyz, transform[1].xyz, transform[2].xyz))), 1.0 / 3.0);
+}
+
+// a transmissive triangle's normal where a ray met it (glass), interpolated from its corners' (vertexNormal) on the side
+// the ray comes from: glass that moves rigidly, following a node, by its instance as the frame placed it; skinned or
+// morphed, the triangle's own
+float3 GlassPlacedNormal(float3 vertexNormal, BvhHit glass, uint frameIndex)
+{
+	float3 normal = glass.normal;
+	if (glass.normalInstance != ~0u)
+	{
+		normal = normalize(mul(gModelInstances[frameIndex][glass.normalInstance].inverseTransposeModelTransform, float4(vertexNormal, 0.0)).xyz);
+		normal = dot(normal, glass.normal) > 0.0 ? normal : (dot(normal, glass.normal) < 0.0 ? -normal : glass.normal);
+	}
+	return all(isfinite(normal)) ? normal : glass.normal;
+}
+
+// GlassSurfaceAt's normal, flat and radius alone, for a ray that only asks which way the surface faces
+// (EmitterGatheredByGlass)
+float3 GlassNormalAt(BvhHit glass, uint frameIndex, out bool flat, out float radius)
+{
+	float3 barycentrics = float3(1.0 - glass.barycentrics.x - glass.barycentrics.y, glass.barycentrics);
+	float3 vertexNormal = 0.0;
+	float3 normals[3];
+	float3 positions[3];
+	for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
+	{
+		VertexP3fN3fTa4fT014fC4f corner = gVertexBuffer[gIndexBuffer[glass.firstIndex + cornerIt]];
+		normals[cornerIt] = corner.normal;
+		positions[cornerIt] = corner.position;
+		vertexNormal += corner.normal * barycentrics[cornerIt];
+	}
+	flat = GlassFlat(normals, positions, radius) || glass.normalInstance == ~0u;
+	if (flat)
+		radius = 1e30;
+	else
+		radius *= GlassPlacedScale(glass, frameIndex);
+	return GlassPlacedNormal(vertexNormal, glass, frameIndex);
+}
+
 GlassSurface GlassSurfaceAt(float3 origin, float3 direction, BvhHit glass, uint frameIndex)
 {
 	GlassSurface surface;
@@ -125,23 +197,24 @@ GlassSurface GlassSurfaceAt(float3 origin, float3 direction, BvhHit glass, uint 
 	float3 barycentrics = float3(1.0 - glass.barycentrics.x - glass.barycentrics.y, glass.barycentrics);
 	surface.texCoord01 = 0.0;
 	float3 vertexNormal = 0.0;
+	float3 normals[3];
+	float3 positions[3];
 	surface.vertexColor = 0.0;
 	for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
 	{
 		VertexP3fN3fTa4fT014fC4f corner = gVertexBuffer[gIndexBuffer[glass.firstIndex + cornerIt]];
 		surface.texCoord01 += corner.texCoord01 * barycentrics[cornerIt];
+		normals[cornerIt] = corner.normal;
+		positions[cornerIt] = corner.position;
 		vertexNormal += corner.normal * barycentrics[cornerIt];
 		surface.vertexColor += corner.color.rgb * barycentrics[cornerIt];
 	}
-	// (glass that moves rigidly, following a node: by its instance as the frame placed it; skinned or morphed: the
-	// triangle's own)
-	float3 normal = glass.normal;
-	if (glass.normalInstance != ~0u)
-	{
-		normal = normalize(mul(gModelInstances[frameIndex][glass.normalInstance].inverseTransposeModelTransform, float4(vertexNormal, 0.0)).xyz);
-		normal = dot(normal, glass.normal) > 0.0 ? normal : (dot(normal, glass.normal) < 0.0 ? -normal : glass.normal);
-	}
-	surface.normal = all(isfinite(normal)) ? normal : glass.normal;
+	surface.normal = GlassPlacedNormal(vertexNormal, glass, frameIndex);
+	surface.flat = GlassFlat(normals, positions, surface.radius) || glass.normalInstance == ~0u;
+	if (surface.flat)
+		surface.radius = 1e30;
+	else
+		surface.radius *= GlassPlacedScale(glass, frameIndex);
 	surface.normalInstance = glass.normalInstance;
 	surface.ior = max(surface.material.specularColor.a, 1.0);
 	surface.f0 = (surface.ior - 1.0) / (surface.ior + 1.0);

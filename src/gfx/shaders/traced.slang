@@ -432,7 +432,7 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 			float nearest = max(coneWidth, push);
 			EmitterReservoir reservoir = EmitterCandidates(position, normal, kTracedEmitterCandidateCount, nearest * nearest, random);
 			bool visible;
-			bool throughGlass; // (the highlights keep the light straight through glass, see EmitterThroughSolidGlass)
+			bool throughGlass; // (the highlights keep the light straight through glass, see EmitterGatheredByGlass)
 			float3 irradiance = EmitterShade(reservoir, position, normal, push, nearest * nearest, true, true, false, visible, throughGlass);
 			if (visible)
 			{

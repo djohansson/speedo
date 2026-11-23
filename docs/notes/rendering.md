@@ -1034,8 +1034,8 @@ place in each view, those whose pre-pass point is on its surface and seen from i
 irradiance over pi times the exposure, in fixed point rounded at random, `gEmitterCausticPhotons`), and Emitter Temporal
 adds that to the emitters' light past its clamp on what is far brighter than the history, over frames with it (the
 photons land on a caustic's pixel in some frames and not others). Light straight through solid glass would count it
-again: the emitters' shadow rays for the diffuse stop at solid glass while the photons are traced
-(`EmitterThroughSolidGlass`: one query where all glass is solid, else the glass along the way until a solid one). Not
+again: the emitters' shadow rays for the diffuse stop at solid glass that gathers their light while the photons are
+traced (`EmitterGatheredByGlass`, below: at first at any solid glass). Not
 the highlights': the photons bring irradiance alone, and glass-of-water's backdrop and table, metals of roughness 0.32,
 lost the softbox's reflection behind the glass and stream (0.738 stops off to 0.841) where only their glossy rays,
 through two glass surfaces at most, could follow it through the water, ice and bubbles; their light samples
@@ -1075,6 +1075,41 @@ user's report), its colors the reference's and its auto exposure taking a scene 
 1440p balanced (RTX 4070 Ti SUPER, cornell-caustic): Emitter Caustics 0.29 ms, Emitter Caustic Cells 0.05, Main
 Transmissive 0.37 ms more (its hidden hits; 0.74 with the area taken at each lookup, 8 polygons a hit, 0.3 of it the
 light sample), the frame 0.84 ms more; glass-of-water 0.3 ms in all; nothing where no glass is solid (Bistro).
+
+Only glass that gathers light is the photons' (the research scenes review plan's step 1, 2026-11-23). With the set's
+conditions every glass is solid, and the photons, a few a pixel, brought all the light through any of it as a grain of
+single pixels (the user's reports: lamp's floor, lit through the bulb around its emitter; modern-hall's wall behind its
+glass rail, 37687 pixels a million brighter than their 5x5 window's median by 8 of 255, 13461 with the photons off; red
+specks around spaceship's dome), where the shadow rays' light is filtered and its shadows sharp. None of that glass
+makes a caustic. So a shadow ray, walked through the glass on its line from the surface toward the emitter's point
+(`EmitterGatheredByGlass`, `EmitterGlassWalkStep` at each face), lets the light through:
+- out of a body the emitter is inside (the ray goes into a solid and ends there): a point within a convex body is nearer
+  its surface than the surface's focus, so its light leaves spread, never gathered. lamp's bulb, a single sheet taken as
+  a solid around its emitter. (An emitter under a wavy surface, a pool's light, loses its caustics above by this.)
+- through a slab, where the line goes in and comes out by faces whose normals are within 2 degrees
+  (`kEmitterSlabCosine`, the normals the vertices': facets a few degrees apart would flicker between the two) and, where
+  the light goes in by a curved face, no further apart than a quarter of the radius it curves by (`kEmitterShellReach`,
+  `GlassFlat`'s radius: a lens's middle is no slab): the rail (a box with a volume), the dome (a shell).
+- by a flat face (the triangle's corners' normals within half a degree, `GlassSurface::flat`; the set's curved glass
+  differs by 3 to 14 degrees across a triangle) to a surface inside the solid or out by another flat face: a pane taken as
+  a solid, a box's corner, bend the light all alike.
+The photons follow the same rule by the faces their own paths meet, and a photon reflected off a flat face is dropped
+(it mirrors the emitter; the rail's few were a speck each). What a rule by the glass's whole shape would miss, the
+emitter inside a bulb, and one by how far the photons are turned, the same (the bulb's are turned up to 23 degrees and
+gather nothing), this decides at each ray. Measured at the reports' poses at 3840x2160 (pixels a million brighter than
+their 5x5 window's median by 8 of 255): lamp 3682 to 2385 (2396 with the photons off), modern-hall 37687 to 13823 (13461:
+its floor and wood), spaceship 4805 to 3121 (3107), the means within 0.3 of 255 of the photons off; cornell-caustic's water
+and veach-bidir's egg as before (0.3 and 0.1 of 255, the runs' noise).
+
+What it costs is the transmissive fragment shader's size, not its rays (1440p balanced, RTX 4070 Ti SUPER, old and new
+interleaved): cornell-caustic's Main Transmissive 3.3 to 3.95 ms a frame, glass-of-water's 11.3 to 13.3, where each
+refraction's hit the screen hides takes a light sample (`TracedEmitterHidden`); Emitter Shade 0.035 to 0.042. Tried, each
+3.9 to 3.95 in cornell-caustic: the other face looked for only within the shell's reach of a curved one (a short query);
+the scene's any hit and the glass's nearest made one query of the nearest of both; any glass queried first and a curved
+back face ending it there, a query fewer than before the rule (even deciding by that hit's facing alone, with no vertex
+read). And the direction matters to the driver: the old query of any glass, traced from the emitter's point instead of
+from the surface, 4.15 against 3.35. The light sample out of the fragment shader would take the cost back (the review
+plan's step 2).
 
 ## Ray traced shadows
 

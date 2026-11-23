@@ -151,7 +151,21 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
 
 ## Open for the user
 
-- Step 1's rule, decided by the photons (an instance turning its light less than a couple of degrees passes it
-  straight), or another.
 - Step 5 spends more of the gpu while the light settles: a slower frame for the first second after a load or a jump,
   for a picture that settles sooner.
+
+## Progress
+
+- 2026-11-23, **step 1**: the rule is decided at each shadow ray, by the faces it meets, not for each glass instance
+  by how far its photons are turned as the plan had it: lamp's bulb turns its photons up to 23 degrees and gathers
+  nothing, and the set's glass measured (`temp/research-issues/glass.ps1`) showed what tells the cases apart. A ray lets
+  the light through out of a body its emitter is inside, through a slab or a shell (the faces it goes in and out by
+  within 2 degrees, a curved one's other face within a quarter of its radius), and by a flat face to a surface inside or
+  out by another flat face; the photons follow the same rule and drop what a flat face reflects
+  (`EmitterGatheredByGlass`, docs/notes/rendering.md, "The emitters' caustics"). At the reports' poses, 3840x2160, pixels
+  a million brighter than their window's median by 8 of 255: lamp 3682 to 2385 (2396 with the photons off), modern-hall
+  37687 to 13823 (13461), spaceship 4805 to 3121 (3107), each as bright as with the photons off; cornell-caustic's and
+  veach-bidir's caustics as before. The research set: modern-hall 0.178 to 0.170 blurred stops off its reference, the
+  rest within 0.003. The cost is the transmissive fragment shader's size: cornell-caustic's Main Transmissive 3.3 to
+  3.95 ms a frame at 1440p balanced, glass-of-water's 11.3 to 13.3, whatever the rule traced (three ways of fewer or
+  shorter queries measured the same); step 2 is to take the hits' light sample out of that shader.

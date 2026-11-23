@@ -392,48 +392,136 @@ float EmitterDensity(float3 position, float3 normal, float3 point)
 	return cosine > 0.0 ? probability / (0.5 * twiceArea) * distance2 / cosine : 0.0;
 }
 
-// whether solid glass (see TransmissionSolid) is between origin and a distance along direction, while the emitters'
-// caustics are traced (EmitterData::causticPhotonCount): the diffuse light that comes through it is theirs
-// (ComputeEmitterCaustics), bent where it went in and out, which the straight line would count again where it doesn't go
-// (cornell-caustic's floor under its water, lit straight through the waves and by their caustics both). the highlights
-// keep the straight line's (the photons bring irradiance alone): glass-of-water's backdrop and table, metals of a
-// roughness of 0.32, lost the softbox's reflection behind its glass and stream, which their glossy rays, through two
-// glass surfaces at most, can't follow through the water, ice and bubbles (blurred 0.738 stops off its reference to
-// 0.841). thin walls let it through as before, as the caustics' photons pass them by. every glass is solid where the
-// frame says so (TRACED_SOLID_TRANSMISSION: one query); else the glass along the way, nearest first, until a solid one,
-// through at most SHADER_TYPES_CAUSTIC_SURFACE_COUNT thin walls (past them, taken as through)
-bool EmitterThroughSolidGlass(float3 origin, float3 direction, float tmax)
+// the cosine of the angle a solid's faces where a ray goes in and comes out differ by at most where it is a slab there (2
+// degrees: a pane with a thickness, a shell), which lets the light on as it was going
+static const float kEmitterSlabCosine = 0.99939083;
+// and how far apart the two faces may be where the one the light goes in by is curved, of the radius that curves by (a
+// shell: a quarter; normals 2 degrees apart mean a thickness of a twentieth or less): a lens's middle, its faces as far
+// apart as it is thick, is no slab
+static const float kEmitterShellReach = 0.25;
+
+// whether solid glass (see TransmissionSolid) gathers the light an emitter's point sends a surface, along the ray from
+// the surface (origin, direction, as far as tmax), while the emitters' caustics are traced
+// (EmitterData::causticPhotonCount): the diffuse light that comes through it is theirs (ComputeEmitterCaustics), bent
+// where it went in and out, which the straight line would count again where it doesn't go (cornell-caustic's floor under
+// its water, lit straight through the waves and by their caustics both). the highlights keep the straight line's (the
+// photons bring irradiance alone): glass-of-water's backdrop and table, metals of a roughness of 0.32, lost the softbox's
+// reflection behind its glass and stream, which their glossy rays, through two glass surfaces at most, can't follow
+// through the water, ice and bubbles (blurred 0.738 stops off its reference to 0.841). thin walls let it through as
+// before, as the caustics' photons pass them by.
+// and so does solid glass that gathers nothing, whose light the photons brought as a grain of their own (a few a pixel,
+// where the shadow rays' light is filtered and sharp: the user's reports of 2026-11-23, docs/research-scenes-review-plan.md):
+// - a body the emitter is inside (the ray goes into it and ends there): its light leaves spread, not gathered (a point
+//   within a convex body is nearer its surface than the surface's focus). lamp's bulb, a single sheet the set's
+//   conditions take as solid, around its emitter: the floor was lit by photons alone, a grain all over it
+// - a slab, where the ray goes in and comes out (the faces' normals there within kEmitterSlabCosine, and where the light
+//   goes in by a curved one, no further apart than kEmitterShellReach): the light goes on as it was going. modern-hall's
+//   glass rail between its wall lights and the wall, spaceship's dome (a shell) over its lights
+// - a flat face the light goes in by (GlassSurface::flat), to a surface inside (the first solid face the ray meets is a
+//   back face) or out by another flat face: a pane taken as a solid, a box's corner, bend the light, all of it alike (the
+//   rail's edges threw a few photons each a speck)
+// the photons follow the same rule (ComputeEmitterCaustics): what the ray lets through they don't bring. the glass along
+// the way, nearest the surface first (a query each, and one that meets nothing), at most
+// SHADER_TYPES_CAUSTIC_SURFACE_COUNT surfaces (past them, taken as through). from the surface, as the ray was before the
+// rule: a query of any glass from the emitter's point cost cornell-caustic's Main Transmissive (its refractions' hits'
+// light samples, TracedEmitterHidden) 4.15 ms a frame at 1440p where the same from the surface cost 3.35.
+// the rule costs that pass 0.6 ms there (3.3 to 3.95; glass-of-water's 11.3 to 13.3), and it is the fragment shader's
+// size, not what it traces: with the other face looked for only near a curved one, with the scene's and the glass's
+// queries made one, or with any glass queried first and a curved back face ending it (a query fewer than before the
+// rule), it measured 3.9 to 3.95 each time. the hits' light sample out of the fragment shader would take it back (the
+// research scenes review plan, step 2). (EmitterGatheredByGlass, below the walk's state and step)
+
+#if BVH_RAY_QUERY
+// the rule's state along a ray from a surface toward an emitter's point
+struct EmitterGlassWalk
+{
+	bool first; // no solid face met yet
+	bool inside; // in a solid the ray went into
+	float3 farNormal; // of the face it went in by, where the light comes out
+	bool farFlat;
+	float thickness; // since that face
+};
+
+EmitterGlassWalk EmitterGlassWalkStart()
+{
+	EmitterGlassWalk walk;
+	walk.first = true;
+	walk.inside = false;
+	walk.farNormal = 0.0;
+	walk.farFlat = false;
+	walk.thickness = 0.0;
+	return walk;
+}
+
+// the next transmissive face a walk's ray met (hit, step further along it): whether the glass gathers the light there,
+// which ends the walk
+bool EmitterGlassWalkStep(inout EmitterGlassWalk walk, BvhHit hit, float step, uint frameIndex)
+{
+	walk.thickness += step;
+	if (!TransmissionSolid(gMaterialData[hit.flags >> BVH_TRIANGLE_MATERIAL_SHIFT].transmission.y))
+		return false;
+	bool flat;
+	float radius;
+	float3 normal = GlassNormalAt(hit, frameIndex, flat, radius);
+	if (hit.frontFace)
+	{
+		if (walk.inside) // (a body inside a body: the photons')
+			return true;
+		walk.inside = true;
+		walk.farNormal = normal;
+		walk.farFlat = flat;
+		walk.thickness = 0.0;
+	}
+	else if (walk.inside)
+	{
+		// out by the face the light went in by
+		bool slab = dot(walk.farNormal, normal) >= kEmitterSlabCosine && (flat || walk.thickness <= kEmitterShellReach * radius);
+		if (!(slab || (flat && walk.farFlat)))
+			return true;
+		walk.inside = false;
+	}
+	else if (walk.first && !flat) // the surface is inside the solid, the light into it by a curved face
+		return true;
+	walk.first = false;
+	return false;
+}
+#endif
+
+// (the rule above)
+bool EmitterGatheredByGlass(float3 origin, float3 direction, float tmax)
 {
 #if BVH_RAY_QUERY
 	if (!EmitterCausticsTraced())
 		return false;
-	if ((gPushConstants.traced & TRACED_SOLID_TRANSMISSION) != 0u)
-		return BvhHitSomething(BvhTraceInstances(origin, direction, tmax, true, BVH_RAY_QUERY_MASK_GLASS, BvhOpaque()));
+	uint frameIndex = gPushConstants.frameIndex;
+	EmitterGlassWalk walk = EmitterGlassWalkStart();
 	float3 from = origin;
 	float left = tmax;
 	for (uint surfaceIt = 0; surfaceIt < SHADER_TYPES_CAUSTIC_SURFACE_COUNT; surfaceIt++)
 	{
 		BvhHit hit = BvhTraceGlass(from, direction, left);
 		if (!BvhHitSomething(hit))
-			return false;
-		if (TransmissionSolid(gMaterialData[hit.flags >> BVH_TRIANGLE_MATERIAL_SHIFT].transmission.y))
-			return true;
+			break;
 		float3 at = from + direction * hit.t;
 		float step = hit.t + max(1e-4, 1e-5 * max(abs(at.x), max(abs(at.y), abs(at.z))));
+		if (EmitterGlassWalkStep(walk, hit, step, frameIndex))
+			return true;
 		from += direction * step;
 		left -= step;
 		if (left <= 0.0)
-			return false;
+			break;
 	}
-#endif
 	return false;
+#else
+	return false;
+#endif
 }
 
 // the irradiance a finished reservoir's point gives a surface, shadowed: its ray through the BVHs (alpha masks cut out;
 // what moves with moving), from off the surface by bias toward the point, ending short of it (the emitter's own
 // triangle), unless it is known to reach the surface (!trace); and whether it does (visible). with glass, also whether
-// solid glass is on its way while the emitters' caustics are traced (throughGlass, see EmitterThroughSolidGlass): the
-// light the caustics bring a surface's diffuse in its place
+// solid glass on its way gathers it while the emitters' caustics are traced (throughGlass, see EmitterGatheredByGlass):
+// the light the caustics bring a surface's diffuse in its place
 float3 EmitterShade(
 	EmitterReservoir reservoir, float3 position, float3 normal, float bias, float nearest2, bool moving, bool trace, bool glass, out bool visible,
 	out bool throughGlass)
@@ -453,10 +541,11 @@ float3 EmitterShade(
 	float span = sqrt(dot(direction, direction));
 	if (trace && ShadowOccluder(origin, direction / max(span, 1e-30), span * 0.999, moving) >= 0.0)
 		return 0.0;
-	throughGlass = trace && glass && EmitterThroughSolidGlass(origin, direction / max(span, 1e-30), span * 0.999);
+	throughGlass = trace && glass && EmitterGatheredByGlass(origin, direction / max(span, 1e-30), span * 0.999);
 	visible = true;
 	return point.emission * geometry * reservoir.weight;
 }
+
 
 // the light the emitters give a voxel (at position, of normal: from the front only, as the punctual lights'): count
 // samples, each resampled from candidateCount candidates and shadowed by a ray as the voxels' punctual lights are
@@ -924,7 +1013,7 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 	// point), a point found visible stays so for EmitterData::visibilityFrameCount frames, after which its ray is traced
 	// again (where something moves, which may come between, after fewer); the reservoirs mostly keep their point under a
 	// still camera, and the rays were most of the emitters' cost (Bistro's street, 2560x1440, every other pixel traced: 25 of 49 ms a frame)
-	// (a point behind solid glass reaches it for the highlights alone, see EmitterThroughSolidGlass: its ray is traced
+	// (a point behind glass that gathers its light reaches it for the highlights alone, see EmitterGatheredByGlass: its ray is traced
 	// every frame, its age kept at 0)
 	bool throughGlass = false;
 	if (reservoir.age > 0u && reservoir.age < data.visibilityFrameCount && data.raw == 0u && EmitterViewStill(view))
@@ -1510,9 +1599,10 @@ uint EmitterCausticSplat(float3 position, float3 normal, float3 flux, inout Emit
 // its share of the emitters' (their radiance by the emission's cosine over the densities it was picked with), through the
 // transmissive surfaces as the shadow views' photons go (GlassPathStep, absorbing along the path as the traced view's:
 // the set's solids by its conditions have no thickness to absorb by), until it meets an opaque surface, where it lands
-// (EmitterCausticSplat) if it crossed solid glass: met first, or through thin walls alone, it is the light the emitters'
-// shadow rays give, which they let through. a photon that starts inside a solid's volume (a filament in a bulb taken as
-// solid) leaves it, as the traced reflections' paths do
+// (EmitterCausticSplat) if solid glass gathered it (EmitterGatheredByGlass's rule, by the faces its own path met) or
+// reflected it: met first, through thin walls, out of the body its emitter is inside, through slabs or into a flat face,
+// it is the light the emitters' shadow rays give, which they let through. a photon that starts inside a solid's volume (a
+// filament in a bulb taken as solid) leaves it, as the traced reflections' paths do
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void ComputeEmitterCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -1582,8 +1672,13 @@ void ComputeEmitterCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 	path.inside = false;
 	path.attenuationColor = 1.0;
 	path.attenuationDistance = 0.0;
-	bool solid = false; // whether it crossed solid glass
-	bool reflected = false; // or was reflected off glass
+	bool gathered = false; // whether solid glass gathered it (see EmitterGatheredByGlass, whose rule this follows)
+	bool reflected = false; // or it was reflected off glass
+	bool entered = false; // in a solid it went into: by the face it went in by
+	float3 entryNormal = 0.0;
+	bool entryFlat = false;
+	float3 entryPosition = 0.0;
+	float entryReach = 0.0;
 	for (uint surfaceIt = 0; surfaceIt < SHADER_TYPES_CAUSTIC_SURFACE_COUNT; surfaceIt++)
 	{
 		bool glass;
@@ -1592,7 +1687,9 @@ void ComputeEmitterCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 			return;
 		if (!glass)
 		{
-			if (solid || reflected)
+			// (landing inside the solid it went into: gathered unless by a flat face)
+			gathered = gathered || (entered && !entryFlat);
+			if (gathered || reflected)
 			{
 				if (path.inside)
 					path.throughput *= VolumeAttenuation(path.attenuationColor, path.attenuationDistance, hit.t);
@@ -1615,12 +1712,15 @@ void ComputeEmitterCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 		// roulette: its light as it was), else on through it, its light the more by the chance (GlassPathStep takes the
 		// reflection's share off). the light glass reflects is no one else's: the shadow rays go straight, and the
 		// indirect lighting's rays don't meet glass. cornell-caustic's ceiling, lit by what its water's waves reflect up
-		// in the reference, took only the indirect light
+		// in the reference, took only the indirect light. a flat face's reflection is dropped: it mirrors the emitter,
+		// gathering nothing, a few photons of it a speck each on the walls around modern-hall's rail
 		if (!path.inside)
 		{
 			float fresnel = FresnelSchlick(float3(surface.f0), 1.0, saturate(dot(-path.direction, surface.normal))).r;
 			if (random.Next() < fresnel)
 			{
+				if (surface.flat)
+					return;
 				path.direction = reflect(path.direction, surface.normal);
 				path.origin = surface.position + surface.normal * surface.eps;
 				reflected = true;
@@ -1628,9 +1728,35 @@ void ComputeEmitterCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 			}
 			path.throughput /= max(1.0 - fresnel, 1e-6);
 		}
-		solid = solid || solidHere;
+		bool wasInside = path.inside;
+		if (solidHere)
+		{
+			if (!wasInside)
+			{
+				entered = true;
+				entryNormal = surface.normal;
+				entryFlat = surface.flat;
+				entryPosition = surface.position;
+				entryReach = kEmitterShellReach * surface.radius;
+			}
+			// out of the solid it went into: gathered unless it was a slab there (a shell's other face near, see
+			// kEmitterShellReach), or flat where it went in and here; a body inside the body gathers
+			else if (entered)
+			{
+				bool slab = dot(entryNormal, surface.normal) >= kEmitterSlabCosine && (entryFlat || distance(entryPosition, surface.position) <= entryReach);
+				if (hit.frontFace || !(slab || (entryFlat && surface.flat)))
+					gathered = true;
+			}
+		}
 		if (!GlassPathStep(path, surface, frameIndex, true))
 			return;
+		if (solidHere && wasInside)
+		{
+			if (path.inside) // reflected back inside: gathered unless off a flat face
+				gathered = gathered || (entered && !surface.flat);
+			else
+				entered = false;
+		}
 	}
 #endif
 }
