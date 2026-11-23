@@ -160,7 +160,7 @@ On macOS ray queries are opt in (`SPEEDO_RAY_QUERY=1`, see [the gpu and drivers]
 | `SPEEDO_GI_TIME_BASED` | `0` off. Default: on. | Blends by the time elapsed rather than per frame, and lets the surface cache's window grow and settle. |
 | `SPEEDO_GI_ADAPT` | Exactly `1` on. Default: off. | Probes blend faster through a change of light far beyond their noise (and never freeze). |
 | `SPEEDO_GI_PROBE_FREEZE` | `0` off. Default: on. | Once the scene has been still a while, a settled probe keeps its light rather than tracing, every second cycle. |
-| `SPEEDO_GI_STAGGER` | `0` off. Default: on. | The finest clips update every frame and the coarser levels take turns; off updates every clip every frame. |
+| `SPEEDO_GI_STAGGER` | `0` off. Default: on. | The finest clips update every frame and the coarser levels take turns (every clip every frame while a clip's cache is cold, its first 96 updates after it starts over); off updates every clip every frame. |
 | `SPEEDO_GI_RELIGHT_PHASE_COUNT` | Updates, 1 to 64. Default: 4. | When the lights change gradually (the sun moving), the static voxels are lit again over this many updates. |
 | `SPEEDO_GI_CACHE` | `0` off. Default: on. | Scene. The surface cache: rays from each voxel, accumulated and filtered along surfaces, which resolve light at the voxels' size. View > Rendering Features > Indirect Lighting... > Surface Cache. |
 | `SPEEDO_GI_CACHE_RAYS` | Rays per voxel an update, 1 to 64. Default: 1. | The cache's rays (at least 4 for its first 256 updates, where the blending is time based). |
@@ -174,7 +174,7 @@ On macOS ray queries are opt in (`SPEEDO_RAY_QUERY=1`, see [the gpu and drivers]
 | `SPEEDO_GI_WORLD_CELLS` | A power of two, 1024 to 16777216. Default: 1048576. | The world cache's cells, 148 bytes each (and a slot of sums for a quarter of them, 112 bytes each): the least lately used are given up when a search finds none free. |
 | `SPEEDO_GI_WORLD_LEVELS` | 1 to 8. Default: 5. | The world cache's levels, each cell twice the side of the one below, the finest the finest clip's voxel. |
 | `SPEEDO_GI_CACHE_KEEP_FRAMES` | Frames. Default: 1024. | How long a block of voxels keeps its cache page after a lookup last read it. Not where the rays trace the triangles (the entries the light at the surface), where every block of surface voxels keeps its page. |
-| `SPEEDO_GI_CACHE_EVERYWHERE` | Exactly `1` on. Default: off. | Traces and filters every voxel near a surface, not only those around what the view reads: for comparisons. |
+| `SPEEDO_GI_CACHE_EVERYWHERE` | Exactly `1` on. Default: off. | Traces and filters every voxel near a surface, not only those around what the view reads (as a clip's first 96 updates after its cache starts over do anyway): for comparisons. |
 | `SPEEDO_GI_NEAR` | `0` off. Default: on. | Scene. The near field: near other surfaces, short rays from the pixels light them instead of the voxels, so that contacts darken smoothly. Needs triangles. View > Rendering Features > Indirect Lighting... > Near Field. |
 | `SPEEDO_GI_NEAR_REACH` | Voxels, 0 to 64 (0 off). Default: 8. | How far the near field's rays go. |
 | `SPEEDO_GI_NEAR_CONTACT` | Voxels, 0 to 8 (and within the reach). Default: 2.5. | Scene. How near a hit is a contact, where the rays' light replaces the voxels'. View > Rendering Features > Indirect Lighting... > Near Field Contact. |

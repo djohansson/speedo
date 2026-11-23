@@ -74,6 +74,10 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
   (`GiMarkSeenHit`), but the transmissive fragments' rays' hits (the refractions, their sharp reflections) don't: there
   the stamps cost Bistro's Main Transmissive 1.7 ms a frame at 1440p, the shader's size. A pass of its own for those
   stamps, or the hits' light sample out of that shader first (below), would let them.
+- **`SPEEDO_GI_CACHE_FAST_SAMPLES=2` blows the light up** (2026-11-23, seen while measuring the review plan's step 5:
+  the kitchen's indirect light 175 of 255 off for seconds, where 0, 4, 16 and 64 are alike): the lead of a fast mean
+  of 2 samples bounced on, most likely. The variable's range says 0 to 1024; either the lead needs a floor on the
+  fast count or the range does.
 - **spaceship's speckles around its display, through the dome** (the user's report, 2026-11-23, after the review plan's
   steps 1 and 2, which they confirmed by eye): seen close through the dome's glass (roughness 0.1), red single-pixel
   specks scattered around the edges of the bright emissive display inside it (strength 20) and white ones on the dark

@@ -229,13 +229,15 @@ $checks = @(
 		# KosmicKrisp (+0.866): see ComputeGiLight's flags. 2026-11-23: +0.884 with the emitters' highlights on the untraced
 		# specular (its walls' specular reflects their emission too), +0.896 on the gpu and +0.898 on lavapipe (Windows')
 		# with the histories that average long in 32 bit floats (at half precision the light sank as they grew)
+		# 2026-11-23: +0.930 on the gpu, from 64 frames on (+0.929) to 4000 (+0.931), since a cold start's cache takes none
+		# of the probes' light once its window is full, traces every block and bounces from the 4th frame
 		Name = 'furnace'
 		Model = 'test-models/gltf/FurnaceInterior.gltf'
 		Frames = 256
 		Variables = @{ SPEEDO_CAMERA = '0,0,0,0,0'; SPEEDO_TONEMAPPER = 'linear'; SPEEDO_EXPOSURE = '-3'; SPEEDO_UPSCALING = 'off' }
 		Reference = @{ SPEEDO_GI = '0'; SPEEDO_EMISSIVE_LIGHTS = '0' }
 		Capture = @{}
-		Thresholds = @('--expect-ratio', '0.90', '--ratio', '0.03')
+		Thresholds = @('--expect-ratio', '0.93', '--ratio', '0.03')
 	}
 	[ordered]@{
 		# the hardware ray queries against the software BVH (every ray the BVHs answer: the traced shadows, the indirect

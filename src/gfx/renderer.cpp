@@ -177,8 +177,13 @@ constexpr uint64_t kGiCachePageSize = 64 * 4 * 4 * sizeof(uint32_t);
 // (a page of a filter pass's records: 3 words of 4 a voxel, see GiCacheStoreTap)
 constexpr uint64_t kGiCacheRecordPageSize = 64 * 3 * 4 * sizeof(uint32_t);
 constexpr uint32_t kGiCachePageStep = 1024;
-// the frames after a reset of the indirect lighting before its voxels take the probes' light (see InternalPlanGi)
+// the frames after a reset of the indirect lighting before its voxels take the probes' light (see InternalPlanGi), and
+// where the rays trace the triangles, whose probes' depth maps aren't provisional
 constexpr uint32_t kGiBounceDelayFrameCount = 32;
+constexpr uint32_t kGiBounceDelayTracedFrameCount = 4;
+// the updates after a clip's surface cache starts over (a load, the lights changed at once) during which it is cold:
+// every block traced and filtered as if a lookup read it, and every clip updated every frame (see InternalPlanGi)
+constexpr uint32_t kGiCacheColdFrameCount = 96;
 // the frames after the surface cache starts over during which it traces 4 rays a voxel (see cacheRayCount in InternalPlanGi)
 constexpr uint32_t kGiCacheWarmFrameCount = 256;
 // the updates after the surface cache starts over after which it is settled, its voxels tracing every other frame where
@@ -5617,7 +5622,13 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	// and every clip while something moves: a coarser clip's light then changed in steps on the frames it was updated, a
 	// flicker at half the frame rate (CommercialRefrigerator's interior as its door swung). BrainStem's frame 4.6 to 5.2 ms
 	// (2560x1440, RTX 4070 Ti SUPER); the refrigerator's 18.0 to 5.9 with the voxelizing it took (kGiVoxelizeSampledSteps)
-	bool everyClip = !myGiStagger || myGiReset || myGiCacheInit || myGiDump || myGiMovingJobCount > 0;
+	// and while a clip's cache is cold (kGiCacheColdFrameCount): the light bounces on an update at a time, and a level
+	// updated every other frame built it up in twice the frames (the glTF research set's kitchen, lit by bounces of its
+	// emitters' light: 17 of 255 under its settled light 2 seconds after a load with every block traced, 7 with every
+	// clip updated too; the user's reports, 2026-11-23, "the GI is settling slowly")
+	bool cold = frame.giSurfaceCache && myGiTimeBased &&
+				std::ranges::any_of(myGiClipClocks, [](const auto& clock) { return clock.cacheReset || clock.updatesSinceCacheReset < kGiCacheColdFrameCount; });
+	bool everyClip = !myGiStagger || myGiReset || myGiCacheInit || myGiDump || myGiMovingJobCount > 0 || cold;
 	myGiClipsUpdated[frame.frameIndex] = 0;
 	for (uint32_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
 	{
@@ -5786,7 +5797,10 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.cacheInit = myGiCacheInit ? 1U : 0U;
 		clip.cacheGrowFirst = myGiCacheGrowFirst;
 		clip.cacheSigma = myGiCacheSigma;
-		clip.cacheEverywhere = myGiCacheEverywhere ? 1U : 0U;
+		// (and while the clip's cache is cold: what no lookup reads traces a ray in 8 updates and keeps every sample it
+		// took, those of before the light had bounced too, and what the view shows is lit by it: the kitchen 24 of 255
+		// under its settled light after 2 seconds, 10 with every block traced for the first 96 updates)
+		clip.cacheEverywhere = myGiCacheEverywhere || (myGiTimeBased && clock.updatesSinceCacheReset < kGiCacheColdFrameCount) ? 1U : 0U;
 		clip.depthFirst = clip.probeFirst * kDepthTexelCount;
 		clip.depthPreviousFirst = clip.probePreviousFirst * kDepthTexelCount;
 		clip.rayFirst = clipFirst * myGiRayCount;
@@ -5818,7 +5832,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// not for the first frames after a reset: the probes' depth maps are provisional then (see ComputeGiProbeUpdate),
 		// and what leaked through them into the voxels fed the probes, which fed the voxels, for seconds (Sponza's arcade
 		// started 8 times too bright and darkened over 200 frames)
-		clip.bounce = myGiBounce && myGiFramesSinceReset >= kGiBounceDelayFrameCount ? 1 : 0;
+		// (where the rays trace the triangles they read no depth maps: a few frames, for the volumes to hold the cache's
+		// light. the 32 were half a second of every start with no light bounced at all)
+		clip.bounce = myGiBounce && myGiFramesSinceReset >= (myGiTraceBvh ? kGiBounceDelayTracedFrameCount : kGiBounceDelayFrameCount) ? 1 : 0;
 		clip.adapt = myGiAdapt ? 1 : 0;
 		clip.moving = myGiMovingJobCount > 0 ? 1 : 0;
 		clip.dumpProbe = ~0U;

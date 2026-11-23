@@ -1183,7 +1183,16 @@ shows, was each voxel's few samples unfiltered, bright blotches for seconds and 
 2026-11-23, "bright speckled noise"). Stamped every update the GI pass took 1.3 ms a frame more in Bistro's street at
 1440p (3.5 to 4.8), by rays up to a block wide the same; every 8th 0.6 to 0.7, Sponza's 0.13 to 0.2, the bathroom's 0.15, and the
 mirror's wall settles in 5 seconds as in 3. In the transmissive fragments' shader the stamps cost Bistro's Main
-Transmissive 1.7 ms (its size): left out there (docs/backlog.md). Once its window has all its samples (twice
+Transmissive 1.7 ms (its size): left out there (docs/backlog.md). A clip's first 96 updates after its cache starts over
+(a load, the lights changed at once: `kGiCacheColdFrameCount`, since 2026-11-23) trace and filter every block, and
+update every clip every frame: what no lookup reads kept every sample since the start, those of before the light had
+bounced, and lit what the view shows with them, and a level updated every other frame bounced the light on at half
+the rate. With the probes' share of a voxel's light ending when its entry's window is full (not at 256 samples, which
+the window, half the updates, holds 512 updates on) and the bounce from the 4th frame where the rays trace the
+triangles (not the 32nd), the glTF research set's kitchen, lit by its emitters' bounces alone, is 11.5, 6.7 and 4.4 of
+255 from its settled light half a second, 1 and 2 seconds after a load, where it was 47.5, 33.1 and 24.0 (the user's
+reports, 2026-11-23, "the GI is settling slowly"; docs/research-scenes-review-plan.md has what was measured, what
+made no difference, and the cost while a cache is cold: Bistro's frame 32 ms for 24). Once its window has all its samples (twice
 `SPEEDO_GI_CACHE_SAMPLES` frames after it started over, `SPEEDO_GI_CACHE_SETTLED_FRAMES` to say when) and the sun isn't
 being followed, a voxel where nothing moves traces every other frame (`GiData::cacheSettled`): the same samples over
 twice the frames, of a light that doesn't change (Bistro 57.5 to 56.3 ms, San Miguel 68.3 to 67.4, in runs of thousands

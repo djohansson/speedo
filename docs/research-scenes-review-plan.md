@@ -151,8 +151,7 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
 
 ## Open for the user
 
-- Step 5 spends more of the gpu while the light settles: a slower frame for the first second after a load or a jump,
-  for a picture that settles sooner.
+Nothing now.
 
 ## Progress
 
@@ -306,3 +305,51 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
   elsewhere (the set's other large scenes are 0.17 to 0.22 stops dark at any count), or the finer levels lose some.
   Not looked into. So the levels stay 3, the limit 4, and the classroom's blocks are the lookups' to fix (what a lookup
   does where it keeps one column of four), not the voxels' size.
+- 2026-11-23, **step 5**, a cold start. Measured first (`temp/research-issues/settle.ps1`: a pose's indirect diffuse
+  view every 30 frames from a load, 1920x1080, its mean |difference| of 255 from its own frame 1800): what settles
+  slowly is not noise but the light's level. The kitchen, lit by the bounces of its emitters' light alone, starts 40%
+  dark (its mean 74 of 255 at frame 30, 121 settled) and takes 8 seconds to come within 4: 47.5, 33.1, 24.0, 12.3, 5.9,
+  3.6 at frames 30, 60, 120, 240, 360, 480. With one bounce (`SPEEDO_GI_BOUNCE=0`) it is there at once (6.6 at frame
+  30): the bounces build up slowly, not the first one. What made no difference: the probes' blend
+  (`SPEEDO_GI_HYSTERESIS=0.9`), the cache's rays (4, 16), its fast mean (`SPEEDO_GI_CACHE_FAST_SAMPLES` 0, 4, 64),
+  every voxel's probes, the probes' freeze, the near field, and a young entry's latest samples weighed more (the
+  plan's own remedy, tried in a copy of the shaders: an entry's window is already the latest eighth of its updates).
+  What did, each a part:
+  - **The probes' share of a voxel's light.** It ended at 256 samples, and an entry's window is half the updates
+    since the cache started over: 512 updates on. Until then 14% of a voxel's light (at 2 seconds) was the probes',
+    which build up far slower, and every bounce lost that again. A settled entry is one whose window is full now
+    (`ComputeGiCacheFilter`): 24.0 to 17.9 at 2 seconds.
+  - **The blocks no lookup reads** (half the room, behind the camera): a ray in 8 updates, a mean of every sample
+    since the start, those of before the light had bounced too. Every block is traced and filtered for a clip's first
+    96 updates after its cache starts over (`kGiCacheColdFrameCount`): 17.9 to 9.9.
+  - **The coarser levels' turns**: an update every other frame, a bounce an update. Every clip is updated every frame
+    for those 96 updates: 9.9 to 6.8.
+  - **No bounce for the first 32 frames** (for the probes' provisional depth maps, which the rays read only where
+    they trace the voxels): 4 frames where they trace the triangles.
+
+  | scene, frames 30 / 60 / 120 / 240 / 480 | before | after |
+  |---|---|---|
+  | kitchen | 47.5 / 33.1 / 24.0 / 12.3 / 3.6 | 11.5 / 6.7 / 4.4 / 2.8 / 1.9 |
+  | living-room | 38.2 / 15.6 / 6.3 / 3.5 / 2.0 | 4.5 / 3.6 / 2.6 / 2.2 / 1.6 |
+  | veach-bidir | 22.5 / 6.9 / 2.1 / 1.6 / 1.2 | 2.5 / 1.9 / 1.6 / 1.3 / 1.1 |
+  | Sponza's columns | 24.7 / 9.0 / 5.2 / 3.3 / 2.8 | 6.6 / 4.9 / 4.0 / 3.3 / 2.7 |
+  | Bistro's street | 21.2 / 7.5 / 5.1 / 3.1 / 2.0 | 6.0 / 4.9 / 3.4 / 2.4 / 1.7 |
+  | classroom, veach-ajar (after alone) | | 18.3 / 10.2 / 5.4 / 3.0 / 1.9, 14.7 / 4.5 / 1.7 / 1.2 / 0.9 |
+
+  No overshoot (the means rise to their level from under it). The settled pictures: the regression poses at 900
+  frames within 1.5 of 255 of before but modern-hall's (3.0, its left wall) and bathroom2's mirror (2.2); the old
+  build's wall there was still on its way after two minutes (the region's mean 73.6 at 5 seconds, 91.9 at 15, 90.8 at
+  120) to where the new one is from 2 seconds on (88.5). The furnace check, whose exact answer is +1 stop: +0.930
+  from 64 frames to 4000, where it was +0.898 at 256 (`scripts/visualtest.ps1`, its expected value moved).
+  The cost: nothing once settled (Bistro's frame 22.5 ms, the kitchen's 10.0, Sponza's 7.8, as before). While a
+  cache is cold, as those settings cost when they are on throughout: Bistro's frame 32.4 ms for the 23.7 of its
+  warm up's 4 rays, Sponza's 13.9 for 8.8, the kitchen's 11.6 for 10.1, for 96 frames after a load or the lights
+  changing at once: the user's call, 2026-11-23, "keep the cold start cost". 16 rays a voxel while cold bring the
+  kitchen to 7.7 at frame 60 with the old delay, but Bistro's frame to 59 ms: not taken.
+  Left of the reports' settling: the first half second (the kitchen 11.5 at frame 30), the voxels' kept emitters'
+  light, whose blobs a mirror shows for 5 seconds (step 4), and veach-bidir's streaks and the kitchen's dots, which
+  are step 6's (what few rays find). `SPEEDO_GI_CACHE_FAST_SAMPLES=2` blows up (175 of 255 off; docs/backlog.md).
+  Against the references at 1500 frames (steps 4 and 5 together, from 3c3b13c1's run): 10 scenes nearer, 3 further,
+  the mean blurred stops 0.258 to 0.254: veach-mis 0.290 to 0.242, coffee-maker 0.397 to 0.355, bathroom2 0.193 to
+  0.168, modern-hall 0.170 to 0.160; living-room-2 0.245 to 0.269 (its light overall +0.164 to +0.183 stops, further
+  over), veach-ajar 0.197 to 0.206, bathroom 0.224 to 0.230. visualtest 8 of 8, the quick tier 142 of 142.

@@ -4392,7 +4392,13 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 	// (where the probes are resolved only into what shows them, GiData::probes, their share reaches none as the entry
 	// settles: the confidence over a settled entry's, so that the voxel's light doesn't step when they are left out)
 	bool probesByNeed = (gi.probes & 0xFFu) == 1u && GiCacheAnchored(gi);
-	float settledConfidence = float(kGiCacheSettledCount) / (float(kGiCacheSettledCount) + kGiCachePrior);
+	// (settled: as many samples as its window holds now, GiData::cacheSampleCount, where that is fewer. the window is
+	// half the updates since the cache started over, so an entry could hold kGiCacheSettledCount only 512 updates on,
+	// and until then a share of its voxel's light was the probes', which build up far slower: 14% of it 2 seconds after
+	// a load, which every bounce lost again. the glTF research set's kitchen was 24 of 255 under its settled light then,
+	// 18 with this)
+	float settledCount = float(min(kGiCacheSettledCount, max(gi.cacheSampleCount, 1u)));
+	float settledConfidence = settledCount / (settledCount + kGiCachePrior);
 	float confidence = gi.cacheShow != 0u ? 1.0 : (probesByNeed ? saturate(self.confidence / settledConfidence) : self.confidence);
 	float weight = max(seen, confidence);
 	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
