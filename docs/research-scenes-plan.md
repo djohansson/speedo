@@ -326,6 +326,13 @@ reference, so that they fail on a regression, not on what the renderer approxima
   0.257 to 0.202, pontiac-gto 0.330 to 0.276, kitchen 0.273 to 0.242, bathroom2 0.225 to 0.199, cornell-box 0.076 to
   0.064; some past them, brighter, what the darkening had hidden: coffee-maker 0.319 to 0.411 (its backdrop),
   living-room-2 0.204 to 0.242, veach-ajar 0.179 to 0.197, staircase 0.121 to 0.131. 0.08 ms a frame in Bistro at night.
+- 2026-11-23, **step 9** (C4, measured): crown 0.718 stops (blurred) at the baseline, 0.581 after steps 2 to 5, 0.491
+  with the 32 bit histories; its light -0.44 stops still. Its gold is a mirror in pbrt as in the glTF (alpha 0, gold's
+  measured eta and k), lit by six emissive panels (one behind it facing away, as pbrt has it, the rest toward it), and
+  no environment: the reference's band shines where speedo's mirrors the velvet's red and the dark, which is the gold's
+  reflections of itself and of the panels over many bounces (Cycles' 100), where a traced hit takes the probes' light
+  and one emitter sample. Not a step of its own in real time; C3's caustics through its gems are next to measure.
+  Steps 6 (C2) and 8 (C3) wait on the user's calls on their designs (see the report of 2026-11-23).
 - 2026-11-23, **step 7** (B4): nothing to build: the main pass already clamps its color to 65000 (`MainColor`), short of
   the half float's 65504, and cornell-caustic's light (541127) drew without infinities or NaNs, glare and balanced
   upscaling on included.
