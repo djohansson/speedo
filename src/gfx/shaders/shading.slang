@@ -357,9 +357,18 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 		return result;
 	if (debugView == DEBUG_VIEW_DIRECT)
 		result = 0.0;
-	// the emitters' light on the diffuse, as the indirect light's
-	if (emitted.x >= 0.0)
-		result += surface.diffuseColor * emitted;
+	// the emitters' light on the diffuse, as the indirect light's; and on the specular where the glossy rays don't take
+	// it (their untraced share, and all of it past kTracedGlossyRoughnessEnd: see EmitterSpecular), over frames
+	// (EmitterSpecularOverFrames)
+	{
+		float untraced = TracedGlossyHere() ? 1.0 - tracedShare : 1.0 - TracedGlossyShare(roughness, 1.0);
+		bool highlights = emitted.x >= 0.0 && untraced > 0.0 && coatGlossyShare <= 0.0;
+		float3 specular = EmitterSpecularOverFrames(highlights ? EmitterSpecular(surface, view, position) : float3(0.0), highlights);
+		if (emitted.x >= 0.0)
+			result += surface.diffuseColor * emitted;
+		if (highlights)
+			result += untraced * specular;
+	}
 
 	uint clusterFirst;
 	uint clusterCount;

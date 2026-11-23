@@ -1216,8 +1216,23 @@ divided by its chance): traced always it cost Bistro at night 0.3 ms more. veach
 spheres of falling size, went from 0.726 stops (blurred) off its reference to 0.458, its light from -0.441 stops to
 -0.209: each sphere's highlight on each traced plate, and the smallest's on the smooth plate no longer dark in its center
 (the cap's, B5); glass-of-water 1.055 to 0.739, its backdrop's highlight on the metal table; bathroom2 0.234 to 0.225,
-kitchen 0.276 to 0.271; the rest within 0.006 (crown's gold, rough or untraced, 0.596 to 0.591). The roughest plate,
-past the traced reflections' 0.6, is step 5's. It costs at 1440p balanced, in Reflection Trace: Bistro at night 0.91 ms
+kitchen 0.276 to 0.271; the rest within 0.006 (crown's gold, rough or untraced, 0.596 to 0.591). The roughest plate
+(0.5, a quarter of its reflection untraced: the traced share fades from 0.45 to 0.6) was step 5's: since 2026-11-23 the
+untraced specular takes the emitters' highlights too (`EmitterSpecular`, the visibility buffer's and a fragment's opaque
+pixels, where the emitters' diffuse is gathered): the points the four traced pixels around found reaching them that
+frame (Emitter Shade writes each, `EmitterPlacePoint`: where, and its light by its contribution weight and what its
+Russian roulette made it count for, in two more parts of `gEmitterReservoirs`), each weighed by the pixel's own specular
+lobe (`BaseLobe` without the diffuse), by where the pixel is between them and how much theirs is its surface, as the
+diffuse's upsample; unbiased where the pixel's surface is its traced pixels' (a sample and its contribution weight
+estimate the light over what that pixel could pick). A frame's alone was a grain over rough metal (veach-mis's roughest
+plate; its frames 600 and 601 apart by 0.27 of 255, 0.11 before), so it is blended over frames as the diffuse is
+(`EmitterSpecularOverFrames`, `SHADER_TYPES_EMITTER_SPECULAR_TEXTURE`: Emitter Temporal gathers the last frame's by its
+own reprojection into the frame's image, which Main Visibility blends the frame's into; 0.106 of 255 apart then).
+Reprojected in Main Visibility it cost Bistro at night 0.26 ms more, and the kept value read at the start of the pixel's
+shading (held through it) 0.3 more; each traced pixel's point fetched by the pixels 0.07 more. veach-mis 0.458 to
+0.421 (light -0.209 to -0.171), crown 0.591 to 0.581, living-room-2 0.212 to 0.204, classroom2 0.356 to 0.351,
+veach-ajar 0.182 to 0.179, the rest the same; D3D12 alike. It costs at 1440p balanced: Bistro at night Main
+Visibility 0.22 ms and Emitter Temporal 0.07, bathroom2 0.14 and 0.07, Sponza (no emitters) Main Visibility 0.06. It costs at 1440p balanced, in Reflection Trace: Bistro at night 0.91 ms
 (its 20 thousand emitter triangles' tree walked twice a glossy pixel, the pick and the density; the frame 1.06),
 glass-of-water 0.43, bathroom2 0.11, Sponza 0.02 (no emitters), and Main Visibility 0.04 more for the record's wider
 texels. Only where the reflection can show: the specular's share of its light (the split sum's

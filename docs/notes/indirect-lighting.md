@@ -1370,7 +1370,9 @@ takes a voxel's emission out), and what the emitters give arrives through these:
   by the view's last view projection, where that point was the same surface, `EmitterTolerance` and normals within 25
   degrees, not where the stencil says something moves; its count capped at `SPEEDO_EMITTER_HISTORY_CAP`, 20, times the
   candidates; kept in `gEmitterReservoirs`: three parts, the frame's before the spatial reuse and after it the frame's
-  and the last frame's, by parity; triangle, barycentrics as unorm16, W, and M and the visibility's age, 16 bits each)
+  and the last frame's, by parity; triangle, barycentrics as unorm16, W, and M and the visibility's age, 16 bits each;
+  and since 2026-11-23 two more, the frame's points as Emitter Shade found them reaching their pixels, for the untraced
+  specular's highlights, see docs/notes/rendering.md and `EmitterPlacePoint`)
   keeps a point for many frames, so Emitter Temporal's frames are of one sample, not independent ones, and gain little.
   It was the default until Bistro's string lights at night (hundreds of colored bulbs across its streets and its lit
   windows, the user's pose `-906.5073,218.3646,-40.5114,-7.916,60.803` at `SPEEDO_ENVIRONMENT_INTENSITY=0.002`,

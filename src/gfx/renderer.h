@@ -974,6 +974,8 @@ private:
 	std::array<ScreenImage, 2> myEmitterHistoryImages;
 	std::array<ScreenImage, 2> myEmitterSurfaceImages;
 	std::array<ScreenImage, 2> myEmitterPixelSurfaceImages;
+	std::array<ScreenImage, 2> myEmitterSpecularImages;
+	std::array<FrameGraph::ImageId, 2> myEmitterSpecular{};
 	std::array<FrameGraph::ImageId, 2> myEmitterHistory{};
 	std::array<FrameGraph::ImageId, 2> myEmitterSurfaces{};
 	std::array<FrameGraph::ImageId, 2> myEmitterPixelSurfaces{};

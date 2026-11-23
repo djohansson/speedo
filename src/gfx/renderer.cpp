@@ -284,6 +284,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myEmitterHistory[historyIt] = myGraph.ImportImage(std::format("Emitter History {}", historyIt));
 		myEmitterSurfaces[historyIt] = myGraph.ImportImage(std::format("Emitter Surface {}", historyIt));
 		myEmitterPixelSurfaces[historyIt] = myGraph.ImportImage(std::format("Emitter Pixel Surface {}", historyIt));
+		myEmitterSpecular[historyIt] = myGraph.ImportImage(std::format("Emitter Specular {}", historyIt));
 	}
 	myEmitterReservoirs = myGraph.ImportBuffer("Emitter Reservoirs");
 	// the aerial perspective's volume (see AerialPerspectiveData): its in-scattering and transmittance, every split view's
@@ -1150,9 +1151,12 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				for (auto image : myGiNearHistory)
 					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.Use(myGiSides, ResourceUse::Sampled(PipelineStage::kFragmentShader));
-				// the emitters' light, and the pixels' surfaces a traced hit's lookup of it checks (see TracedEmitterSeen)
-				for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterPixelSurfaces[0], myEmitterPixelSurfaces[1]})
+				// the emitters' light, and the pixels' surfaces a traced hit's lookup of it checks (see TracedEmitterSeen), and
+				// the traced pixels' points and surfaces the untraced specular takes their highlights of (EmitterSpecular)
+				for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterPixelSurfaces[0], myEmitterPixelSurfaces[1],
+								   myEmitterSurfaces[0], myEmitterSurfaces[1]})
 					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
+				builder.Use(myEmitterReservoirs, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			},
 			[this, phase, late](FrameGraph::PassContext& context)
@@ -1777,7 +1781,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myEmitterFiltered, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			for (auto image : myEmitterSurfaces)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
-			for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterPixelSurfaces[0], myEmitterPixelSurfaces[1]})
+			// and the untraced specular's highlights: the last frame's gathered by the same reprojection into the frame's
+			// image, which the visibility buffer's shading blends the frame's into (see EmitterSpecularOverFrames)
+			for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterPixelSurfaces[0], myEmitterPixelSurfaces[1],
+							   myEmitterSpecular[0], myEmitterSpecular[1]})
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
 		[this, kernel](FrameGraph::PassContext& context)
@@ -1852,6 +1859,15 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiSides, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			for (auto image : myEmitterHistory)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			// the traced pixels' points and surfaces, which the untraced specular takes the emitters' highlights of (see
+			// EmitterSpecular)
+			builder.Use(myEmitterReservoirs, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			for (auto image : myEmitterSurfaces)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			// and over frames: the last frame's Emitter Temporal gathered at the pixel, and the frame's written (see
+			// EmitterSpecularOverFrames)
+			for (auto image : myEmitterSpecular)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			// the traced reflections' rays, and what is predicted along the glossy one and its weight (see
 			// TracedReflectionRecord, TracedCoatRecord)
 			builder.Use(myReflectionRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
@@ -3446,6 +3462,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		myEmitterHistoryImages[historyIt] = screenImage(std::format("Emitter History {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
 		myEmitterPixelSurfaceImages[historyIt] = screenImage(std::format("Emitter Pixel Surface {}", historyIt), Format::kR32G32Sfloat, extent);
 		myEmitterSurfaceImages[historyIt] = screenImage(std::format("Emitter Surface {}", historyIt), Format::kR32G32B32A32Sfloat, traced);
+		// and their highlights on the untraced specular (see SHADER_TYPES_EMITTER_SPECULAR_TEXTURE)
+		myEmitterSpecularImages[historyIt] = screenImage(std::format("Emitter Specular {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
 		for (auto [image, slot, rwSlot] : std::array{
 				 std::tuple{&myGiNearHistoryImages[historyIt], SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE, SHADER_TYPES_GI_NEAR_HISTORY_RW_TEXTURE},
 				 std::tuple{
@@ -3454,7 +3472,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 					 SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_RW_TEXTURE},
 				 std::tuple{&myEmitterHistoryImages[historyIt], SHADER_TYPES_EMITTER_HISTORY_TEXTURE, SHADER_TYPES_EMITTER_HISTORY_RW_TEXTURE},
 				 std::tuple{&myEmitterPixelSurfaceImages[historyIt], SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE, SHADER_TYPES_EMITTER_PIXEL_SURFACE_RW_TEXTURE},
-				 std::tuple{&myEmitterSurfaceImages[historyIt], SHADER_TYPES_EMITTER_SURFACE_TEXTURE, SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE}})
+				 std::tuple{&myEmitterSurfaceImages[historyIt], SHADER_TYPES_EMITTER_SURFACE_TEXTURE, SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE},
+				 std::tuple{&myEmitterSpecularImages[historyIt], SHADER_TYPES_EMITTER_SPECULAR_TEXTURE, SHADER_TYPES_EMITTER_SPECULAR_RW_TEXTURE}})
 		{
 			pipeline.SetDescriptorData(
 				"gTextures",
@@ -3614,12 +3633,14 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	myEmitterHistoryValid = false;
 	myReflectionHistoryValid = false;
 	// the emitters' reservoirs at this size (see ComputeEmitterShade): per traced pixel a uint4, in three parts: the frame's
-	// before their spatial reuse, and after it the frame's and the last frame's
+	// before their spatial reuse, and after it the frame's and the last frame's; and two more, the frame's points as Emitter
+	// Shade found them reaching their pixels (kEmitterPointsPart: where, and their light), which the untraced specular
+	// takes their highlights of (EmitterSpecular)
 	{
 		uint64_t tracedCount = static_cast<uint64_t>(traced.width) * traced.height;
 		myEmitterReservoirBuffer = Buffer(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc("Emitter Reservoirs"),
-			std::max<uint64_t>(3 * tracedCount, 1) * 4 * sizeof(uint32_t),
+			std::max<uint64_t>(5 * tracedCount, 1) * 4 * sizeof(uint32_t),
 			BufferUsage::kStorage,
 			MemoryProperty::kDeviceLocal});
 		pipeline.SetDescriptorData(
@@ -4453,6 +4474,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 			myGraph.Bind(myReflectionSurface[historyIt], *myReflectionSurfaceImages[historyIt].image);
 		}
 		myGraph.Bind(myEmitterPixelSurfaces[historyIt], *myEmitterPixelSurfaceImages[historyIt].image);
+		myGraph.Bind(myEmitterSpecular[historyIt], *myEmitterSpecularImages[historyIt].image);
 	}
 	myGraph.Bind(myGiStaticVoxels, myGiStaticVoxelBuffer);
 	myGraph.Bind(myEmitterReservoirs, myEmitterReservoirBuffer);

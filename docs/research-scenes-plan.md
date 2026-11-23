@@ -311,6 +311,14 @@ reference, so that they fail on a regression, not on what the renderer approxima
   bathroom2 0.11, Sponza 0.02 (docs/notes/rendering.md; one candidate, the resampling from two measured the same for
   0.17 ms more). Left: the roughest plate (step 5),
   crown's gold (0.591; step 9 after 5 and 8).
+- 2026-11-23, **step 5** (C1, rough): the untraced specular (its share past 0.45, all of it past 0.6, and rough
+  surfaces where nothing is traced) takes the emitters' highlights from the points the four traced pixels around found
+  reaching them (`EmitterSpecular`: the plan's way, each weighed by the pixel's lobe), over frames as the diffuse's
+  (`EmitterSpecularOverFrames`: a frame's alone was a grain over rough metal). veach-mis 0.458 to 0.421 (its roughest
+  plate's highlights, light -0.209 to -0.171), crown 0.591 to 0.581, living-room-2 0.212 to 0.204, classroom2 0.356 to
+  0.351, the rest the same; frame to frame as still as before. The cost at 1440p balanced: Bistro at night 0.3 ms (Main
+  Visibility 0.22, Emitter Temporal 0.07), bathroom2 0.21; with step 4's, C1 costs Bistro at night 1.2 ms, over the
+  plan's 1 ms by a fifth (docs/notes/rendering.md for what each part cost).
 - 2026-11-23, **step 7** (B4): nothing to build: the main pass already clamps its color to 65000 (`MainColor`), short of
   the half float's 65504, and cornell-caustic's light (541127) drew without infinities or NaNs, glare and balanced
   upscaling on included.

@@ -150,7 +150,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 90; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's, the motion blur's, the starburst's, the anamorphic streaks' (SHADER_TYPES_STREAK_SUM_TEXTURE) and the indirect lighting's lookups' sides (SHADER_TYPES_GI_SIDES_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 92; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's, the motion blur's, the starburst's, the anamorphic streaks' (SHADER_TYPES_STREAK_SUM_TEXTURE), the indirect lighting's lookups' sides (SHADER_TYPES_GI_SIDES_TEXTURE) and the emitters' highlights' histories (SHADER_TYPES_EMITTER_SPECULAR_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -175,6 +175,10 @@ static_assert(
 	SHADER_TYPES_ENVIRONMENT_TEXTURE >= SHADER_TYPES_FRAME_COUNT && SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE >= SHADER_TYPES_FRAME_COUNT &&
 	kMaterialTextureId < kModelTextureFirstSlot);
 static_assert(SHADER_TYPES_GI_SIDES_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_GI_SIDES_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
+static_assert(
+	SHADER_TYPES_EMITTER_SPECULAR_TEXTURE == SHADER_TYPES_GI_SIDES_TEXTURE + 1 && SHADER_TYPES_EMITTER_SPECULAR_TEXTURE + 1 < kModelTextureFirstSlot &&
+	SHADER_TYPES_EMITTER_SPECULAR_RW_TEXTURE == SHADER_TYPES_GI_SIDES_RW_TEXTURE + 1 &&
+	SHADER_TYPES_EMITTER_SPECULAR_RW_TEXTURE + 1 < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_UI_BLUR_ROWS_TEXTURE < kModelTextureFirstSlot);
 static_assert(SHADER_TYPES_PREPASS_NORMAL_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_SHADOW_MASK_TEXTURE < kModelTextureFirstSlot);
 static_assert(

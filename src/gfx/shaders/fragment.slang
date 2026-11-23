@@ -537,7 +537,7 @@ void ShadeVisibility(int2 pixel)
 	// the traced reflections: none here, unless Shade records one (see TracedReflectionRecord, TracedCoatRecord)
 	if (TracedReflectionsOn())
 	{
-		TracedReflectionRecord(uint2(pixel), float3(0.0, 0.0, 1.0), 0.0, kReflectionUnknown, kReflectionUnknown);
+		TracedReflectionRecord(uint2(pixel), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, 1.0), kReflectionUnknown, kReflectionUnknown);
 		TracedCoatRecord(uint2(pixel), float3(0.0, 0.0, 1.0), 0.0, 0.0);
 	}
 	uint frameIndex = gPushConstants.frameIndex;

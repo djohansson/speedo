@@ -742,6 +742,27 @@ void ComputeEmitterSample(uint3 dispatchThreadId : SV_DispatchThreadID)
 	gEmitterReservoirs[index] = EmitterPack(reservoir);
 }
 
+// gEmitterReservoirs' part of the frame's points, where Emitter Shade found them reaching their traced pixels (see
+// EmitterPlacePoint), and the next part, their light
+static const uint kEmitterPointsPart = 3u;
+
+// a traced pixel's point, as Emitter Shade found it reaching the pixel (its reservoir's, or none), for the untraced
+// specular's highlights (EmitterSpecular): where it is and its normal (packed), and its emission times its contribution
+// weight and what it counts for (scale: see ComputeEmitterShade's placed), and 1 (2 double sided; 0 for none). the
+// point's own fetch (its triangle, material, vertices and texture) at each of the four traced pixels a fragment takes
+// cost Bistro at night 0.07 ms a frame more at 1440p
+void EmitterPlacePoint(uint index, uint tracedCount, EmitterReservoir reservoir, float scale)
+{
+	uint4 light = 0u;
+	if (reservoir.triangle != ~0u)
+	{
+		EmitterPoint point = EmitterPointAt(reservoir.triangle, reservoir.barycentrics);
+		gEmitterReservoirs[kEmitterPointsPart * tracedCount + index] = uint4(asuint(point.position), asuint(EmitterPackNormal(point.normal)));
+		light = uint4(asuint(point.emission * reservoir.weight * scale), point.doubleSided ? 2u : 1u);
+	}
+	gEmitterReservoirs[(kEmitterPointsPart + 1u) * tracedCount + index] = light;
+}
+
 // the Emitter Shade pass: per traced pixel, its reservoir merged with those of EmitterData::spatialCount traced pixels
 // around (within spatialRadius of them, on the same surface: their points within EmitterTolerance of its tangent plane,
 // their normals within 25 degrees); its point's light, shadowed by its ray from off the surface (by a pixel and a half,
@@ -769,6 +790,7 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 	if (!EmitterSurfaceAt(pixel, view, surface, nearest2))
 	{
 		gEmitterReservoirs[part * tracedCount + index] = EmitterPack(EmitterEmpty());
+		EmitterPlacePoint(index, tracedCount, EmitterEmpty(), 0.0);
 		raw[traced] = float4(0.0, 0.0, 0.0, -1.0);
 		surfaces[traced] = float4(0.0, 0.0, 0.0, -1.0);
 		return;
@@ -846,6 +868,9 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 	bool moving = data.movingBvh != 0u;
 	bool visible = true;
 	float3 irradiance = 0.0;
+	// what the point's light counts for as it was found (EmitterPlacePoint): once, 0 where its ray was a gamble lost (its
+	// visibility unknown, the frame takes none of its light), over the chance where won
+	float placed = 1.0;
 	// the ray, unless the point is known to reach the pixel: while the view doesn't move (the traced pixel is the same
 	// point), a point found visible stays so for EmitterData::visibilityFrameCount frames, after which its ray is traced
 	// again (where something moves, which may come between, after fewer); the reservoirs mostly keep their point under a
@@ -863,10 +888,12 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 		float shown = reservoir.target * reservoir.weight / kPi * view.exposure;
 		float chance = data.roulette > 0.0 && data.raw == 0u ? saturate(shown / data.roulette) : 1.0;
 		reservoir.age = 0u;
+		placed = 0.0;
 		if (chance >= 1.0 || random.Next() < chance)
 		{
 			irradiance = EmitterShade(reservoir, surface.position, surface.normal, bias, nearest2, moving, true, visible) / chance;
 			reservoir.age = visible && reservoir.triangle != ~0u ? 1u : 0u;
+			placed = 1.0 / chance;
 		}
 	}
 	// a point its ray finds hidden is kept for the next frame's reuse as the candidates it stood for, of no light (ReSTIR's
@@ -884,6 +911,7 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 		reservoir.weight = 0.0;
 	}
 	gEmitterReservoirs[part * tracedCount + index] = EmitterPack(reservoir);
+	EmitterPlacePoint(index, tracedCount, visible && placed > 0.0 ? reservoir : EmitterEmpty(), placed);
 	// the samples the light is the mean of go with it (the raw image's alpha), which the filter and the frames weigh it
 	// by: one, but a newly seen traced pixel's (see EmitterNew), marked here for the Emitter New pass to take more
 	float sampleCount = data.raw == 0u && data.newSampleCount > 1u && EmitterNew(view, surface, pixel, data.stride, data.frame & 1u) ? kEmitterNewPending : 1.0;
@@ -1140,10 +1168,16 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 	int2 pixel = int2(dispatchThreadId.xy);
 	ViewData view;
 	ShadowSurface surface;
+	// the last frame's highlights on the untraced specular, gathered where the pixel's point was then for the visibility
+	// buffer's shading to blend the frame's into (see EmitterSpecularOverFrames), by the diffuse's reprojection: -1 where
+	// there are none
+	RWTexture2D specular = gRWTextures[SHADER_TYPES_EMITTER_SPECULAR_RW_TEXTURE + current];
+	float4 specularKept = float4(0.0, 0.0, 0.0, -1.0);
 	if (!ViewAt(pixel, view) || !ShadowSurfaceAt(pixel, view, surface))
 	{
 		history[pixel] = kGiNearUnknown;
 		surfaces[pixel] = float4(-1.0, 0.0, 0.0, 0.0);
+		specular[pixel] = specularKept;
 		return;
 	}
 	float3 toEye = view.eyePosition.xyz - surface.position;
@@ -1164,6 +1198,13 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		float weights;
 		float held;
 		float4 total = PixelHistory(last, lastSurfaces, view, at, expected, tolerance, surface.normal, weights, held);
+		float specularWeights;
+		float specularHeld;
+		float4 specularTotal = PixelHistory(
+			gTextures[SHADER_TYPES_EMITTER_SPECULAR_TEXTURE + (current ^ 1u)], lastSurfaces, view, at, expected, tolerance, surface.normal,
+			specularWeights, specularHeld);
+		if (specularWeights > 1e-3)
+			specularKept = specularTotal / specularWeights;
 		// a mean of the frames the history holds, at most the history's (1 over the blend): blended by the blend alone, a
 		// history started over took its first frame's light as all of it and let it go at a thirty-second a frame. while
 		// the view is still and nothing may change the emitters' light, the history grows to EmitterData::stillBlend's
@@ -1189,6 +1230,7 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		}
 	}
 	history[pixel] = result;
+	specular[pixel] = specularKept;
 }
 
 // the main pass's opaque fragments' light from the emitters (see Shade): the irradiance over pi Emitter Temporal gathered
@@ -1201,4 +1243,99 @@ float3 EmitterIrradiance()
 	EmitterData data = gEmitterData[gPushConstants.frameIndex][0];
 	float4 light = gTextures[SHADER_TYPES_EMITTER_HISTORY_TEXTURE + (data.frame & 1u)].Load(int3(gFragmentPixel, 0));
 	return light.a >= 0.0 ? light.rgb : -1.0;
+}
+
+// the emitters' highlights on the main pass's opaque fragments where the glossy rays don't take them (see Shade): the
+// points the four traced pixels around the fragment's found reaching them this frame (EmitterPlacePoint), each weighed
+// by the fragment's specular lobe toward it (by its traced pixel's contribution weight: an estimate of the light over
+// the points that pixel could pick, which a fragment of the same surface can be lit by), the traced pixels by where the
+// fragment is between them and how much theirs is its surface (as EmitterUpsample's). 0 where none is
+float3 EmitterSpecular(Surface surface, float3 view, float3 position)
+{
+	EmitterData data = gEmitterData[gPushConstants.frameIndex][0];
+	uint2 extent = EmitterTracedExtent();
+	uint tracedCount = extent.x * extent.y;
+	Texture2D surfaces = gTextures[SHADER_TYPES_EMITTER_SURFACE_TEXTURE + (data.frame & 1u)];
+	float3 eye = gViewData[gPushConstants.frameIndex][gShadingViewId].eyePosition.xyz;
+	float scale = max(0.01 * distance(position, eye), 1e-6);
+	float nearest = 0.002 * distance(position, eye);
+	Surface specular = surface;
+	specular.diffuseColor = 0.0;
+	float2 at = float2(gFragmentPixel) / float(data.stride);
+	int2 base = int2(floor(at));
+	float2 f = at - float2(base);
+	float3 total = 0.0;
+	float weights = 0.0;
+	for (int corner = 0; corner < 4; corner++)
+	{
+		int2 offset = int2(corner & 1, corner >> 1);
+		int2 tap = base + offset;
+		if (any(tap < 0) || any(tap >= int2(extent)))
+			continue;
+		float4 seen = surfaces.Load(int3(tap, 0));
+		if (seen.w < 0.0)
+			continue;
+		float similar = exp(-abs(dot(seen.xyz - position, surface.geometryNormal)) / scale) *
+						pow(saturate(dot(EmitterUnpackNormal(seen.w), surface.geometryNormal)), 8.0);
+		float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y) * similar;
+		weights += w;
+		uint index = uint(tap.y) * extent.x + uint(tap.x);
+		uint4 light = gEmitterReservoirs[(kEmitterPointsPart + 1u) * tracedCount + index];
+		if (light.w == 0u)
+			continue;
+		uint4 placed = gEmitterReservoirs[kEmitterPointsPart * tracedCount + index];
+		EmitterPoint point;
+		point.position = asfloat(placed.xyz);
+		point.normal = EmitterUnpackNormal(asfloat(placed.w));
+		point.emission = asfloat(light.xyz);
+		point.area = 0.0;
+		point.doubleSided = light.w == 2u;
+		float3 toPoint;
+		float distance;
+		float geometry = EmitterGeometry(position, surface.normal, point, nearest * nearest, toPoint, distance);
+		if (geometry <= 0.0)
+			continue;
+		total += w * BaseLobe(specular, view, toPoint, dot(surface.normal, toPoint)) * point.emission * geometry;
+	}
+	return weights > 1e-4 ? total / weights : 0.0;
+}
+
+// the visibility buffer's emitter highlights (EmitterSpecular's, now; known: whether they were taken at the pixel) over
+// frames: blended into the last frame's at where the pixel's point was then, which Emitter Temporal gathered into the
+// frame's image with the diffuse's, by its reprojection, as Emitter Temporal blends the diffuse's, the frame's kept there
+// for the next (SHADER_TYPES_EMITTER_SPECULAR_TEXTURE, -1 where not known). a frame's alone, four points every stride of
+// pixels each way weighed by each pixel's lobe, was a grain over rough metal (veach-mis's roughest plate, its frames 600
+// and 601 apart by 0.27 of 255, 0.11 before); the reprojection here rather than in Emitter Temporal cost Bistro at night
+// 0.26 ms a frame more at 1440p. in compute only (see TracedReflectionRecord); a fragment's are the frame's
+float3 EmitterSpecularOverFrames(float3 now, bool known)
+{
+	__stage_switch
+	{
+	case compute:
+	{
+		EmitterData data = gEmitterData[gPushConstants.frameIndex][0];
+		RWTexture2D history = gRWTextures[SHADER_TYPES_EMITTER_SPECULAR_RW_TEXTURE + (data.frame & 1u)];
+		if (!known)
+		{
+			if (EmittersLight())
+				history[gFragmentPixel] = float4(0.0, 0.0, 0.0, -1.0);
+			return now;
+		}
+		ViewData view = gViewData[gPushConstants.frameIndex][gShadingViewId];
+		float4 result = float4(now, 1.0);
+		float4 kept = history[gFragmentPixel];
+		if (kept.a > 0.0)
+		{
+			float blend = data.raw == 1u ? 1.0 : data.blend;
+			float least = data.raw == 0u && EmitterViewStill(view) ? data.stillBlend : blend;
+			float count = min(kept.a + 1.0, 1.0 / least);
+			float3 sample = count > kEmitterFireflyFrameCount && data.raw == 0u ? HistoryFireflyClamp(now, kept.rgb, view.exposure) : now;
+			result = float4(lerp(kept.rgb, sample, saturate(max(1.0 / count, least))), count);
+		}
+		history[gFragmentPixel] = result;
+		return result.rgb;
+	}
+	default:
+		return now;
+	}
 }

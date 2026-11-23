@@ -776,6 +776,11 @@ struct FlareConstants
 // a clip's mask as a float's bits, see GiSidesMask), which the main pass's opaque fragments' lookups take (GiSidesHidden)
 #define SHADER_TYPES_GI_SIDES_TEXTURE 89u
 #define SHADER_TYPES_GI_SIDES_RW_TEXTURE 78u
+// the emissive surfaces' highlights on the visibility buffer's untraced specular over frames, at every pixel (Main
+// Visibility's, see EmitterSpecularOverFrames; RGBA16F: the light, and the frames it holds, -1 where none), the frame's
+// and the last's by EmitterData::frame's parity
+#define SHADER_TYPES_EMITTER_SPECULAR_TEXTURE 90u // and 91
+#define SHADER_TYPES_EMITTER_SPECULAR_RW_TEXTURE 79u // and 80
 #define SHADER_TYPES_STREAK_SCAN_THREAD_COUNT 256u // a row's group's threads, each a run of the row
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,
