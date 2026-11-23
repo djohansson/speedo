@@ -53,7 +53,9 @@ a model or two per feature, for iterating.
 
 The client runs scripts/test-assets/splitscreen.txt names (by label: client-<label>.log) go again in split screen, a 2x2
 grid of views turned apart about the model (SPEEDO_LAYOUT=2x2 SPEEDO_CAMERA_VIEWS=around, as <label>-splitscreen): each
-view has its own exposure, shadow cascades and indirect lighting clips.
+view has its own exposure, shadow cascades and indirect lighting clips. Those scripts/test-assets/norayqueries.txt names
+go again without ray queries (SPEEDO_RAY_QUERY=0, as <label>-norayqueries: the shaders' BVHs tracing the rays), so that
+the shaders' variant without them compiles and draws too.
 
 -Headless runs the clients without a display (SPEEDO_HEADLESS=1: glfw's null platform, no surface or swapchain, the
 frames drawn into an image): with a locked screen, or on a runner without one (a cpu driver such as lavapipe). The display
@@ -847,6 +849,22 @@ if ($Client)
 	foreach ($run in @($script:runs | Where-Object { $splitScreen -contains $_.Label }))
 	{
 		Add-ClientRun $run.Model $run.Image "$($run.Label)-splitscreen" $run.Environment '' @{ SPEEDO_LAYOUT = '2x2'; SPEEDO_CAMERA_VIEWS = 'around' }
+	}
+
+	# without ray queries: the runs scripts/test-assets/norayqueries.txt names (by label) again with SPEEDO_RAY_QUERY=0, the
+	# shaders' BVHs tracing the rays (BVH_RAY_QUERY 0, as on macOS by default and on devices without ray queries), so that
+	# the shaders' other variant compiles and draws before every commit: on 2026-11-23 a shader change used what only the
+	# ray queries' variant defines, and the tier, every client of it with ray queries on Windows, passed (the visual checks'
+	# ray-queries reference caught it). not where the clients don't take ray queries anyway (macOS without
+	# SPEEDO_RAY_QUERY=1: the same runs again)
+	if (-not $IsMacOS -or $env:SPEEDO_RAY_QUERY -eq '1')
+	{
+		$noRayQueriesList = Join-Path $root 'scripts/test-assets/norayqueries.txt'
+		$noRayQueries = if (Test-Path -LiteralPath $noRayQueriesList) { @(Get-Content -LiteralPath $noRayQueriesList | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }) } else { @() }
+		foreach ($run in @($script:runs | Where-Object { $noRayQueries -contains $_.Label }))
+		{
+			Add-ClientRun $run.Model $run.Image "$($run.Label)-norayqueries" $run.Environment '' @{ SPEEDO_RAY_QUERY = '0' }
+		}
 	}
 
 	# each run once per graphics api (see -GraphicsApi): Vulkan's labels as they were (the durations kept by label), the

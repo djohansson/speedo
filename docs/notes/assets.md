@@ -461,7 +461,12 @@ destroyed in use, `VUID-vkDestroySemaphore-semaphore-05149`: without present fen
 on load errors, asserts and validation messages. The runs `scripts/test-assets/splitscreen.txt` names (by label,
 `client-<label>.log`) go again in split screen (`<label>-splitscreen`: `SPEEDO_LAYOUT=2x2 SPEEDO_CAMERA_VIEWS=around`), each
 view with its own exposure, shadow cascades and indirect lighting clips: the quick tier's that are in it, the full sets'
-all. Every run lays out its models' material variants (the script sets `SPEEDO_AUTOLOAD_VARIANTS=all`, see "A file's
+all. Those `scripts/test-assets/norayqueries.txt` names go again without ray queries (`<label>-norayqueries`:
+`SPEEDO_RAY_QUERY=0`, the shaders' BVHs tracing the rays, `BVH_RAY_QUERY` 0), on each graphics api, but on macOS where
+the clients take none anyway: on 2026-11-23 a shader change used what only the ray queries' variant defines (a step of
+the research scenes plan's: `TracedRandom`, inside traced.slang's `#if BVH_RAY_QUERY`), every client of the tier traced
+with ray queries on Windows and it passed, and only the visual checks' ray-queries reference failed to compile (the
+user's call: the case without hardware ray tracing is supported, and checked before every commit). Every run lays out its models' material variants (the script sets `SPEEDO_AUTOLOAD_VARIANTS=all`, see "A file's
 material variants, chosen as it opens"): a gltf sample model's encodings side by side, each with its variants behind it,
 CarConcept's, DragonAttenuation's, MaterialsVariantsShoe's, SheenChair's and StainedGlassLamp's in the quick tier, and
 ChronographWatch's and GlamVelvetSofa's too in the full sets. Debug clients load the validation layer themselves (in

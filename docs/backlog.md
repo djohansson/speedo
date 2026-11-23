@@ -60,6 +60,15 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
   through glass, and the indirect lighting's voxels take it so too (their light the photons' in their place would
   bounce the caustics); the highlights through solid glass are the straight light's (the photons bring irradiance alone:
   a direction kept with it would let the specular take them). docs/notes/rendering.md, "The emitters' caustics".
+- **Rough glass closer to its references** (the user's call, 2026-11-23: step 6's lobe ray an improvement, not yet the
+  references' look): lamp's frosted bulb still shows a thin dark edge along its rim where the reference's glows to its
+  silhouette, and past roughness 0.15 most of a rough surface's light is still the transmission texture's mips, a blur
+  of the screen at the surface's own place by the roughness alone, not by how far behind it the scene is. The plan's
+  own design is the next step: the nearest glass layer's reflection and refraction each a ray of its lobe a pixel,
+  filtered and accumulated by Reflection passes of its own, as the visibility buffer's glossy reflections are, with the
+  traced share then as far as theirs (tried without the filter: bathroom2's jar's sides went orange). Judge by lamp's
+  bulb, bathroom2's jar and the glass sample models (TransmissionRoughnessTest). docs/research-scenes-plan.md, C2 and
+  step 6; docs/notes/rendering.md, "Traced reflections and refractions".
 - **Volumetric effects**: clouds and fog banks (the user's wish, 2026-11-20). Their light in the air from the clipmap's
   volumes (the probes' light and the cache's, trilinear in hardware), which is why the world cache leaves the air to
   them (docs/world-cache-plan.md, step 4); clouds mostly the sun's and the sky's (docs/notes/sky.md).
