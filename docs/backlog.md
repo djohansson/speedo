@@ -62,6 +62,10 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
   the straight light's (the photons bring irradiance alone: a direction kept with it would let the specular take them);
   and cornell-caustic's ceiling is darker than its reference's (what the waves reflect up, and the indirect light).
   docs/notes/rendering.md, "The emitters' caustics".
+- **glass-of-water at 60 Hz** (2026-11-23, the research set timed at 2560x1440, balanced: every other scene within it):
+  19.5 ms a frame, 11.3 of it Main Transmissive, its glass, water, ice and bubbles' refractions through up to
+  `SHADER_TYPES_CAUSTIC_SURFACE_COUNT` surfaces each, a hit shaded at the end; the next slowest, crown 14.7 ms and bmw-m6
+  14.5, Main Transmissive 3.3 and 3.7. docs/research-scenes-plan.md, "Where it stands".
 - **Rough glass closer to its references** (the user's call, 2026-11-23: step 6's lobe ray an improvement, not yet the
   references' look): lamp's frosted bulb still shows a thin dark edge along its rim where the reference's glows to its
   silhouette, and past roughness 0.15 most of a rough surface's light is still the transmission texture's mips, a blur

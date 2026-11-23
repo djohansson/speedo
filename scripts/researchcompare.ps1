@@ -24,8 +24,24 @@ extensions. -Only <scenes> renders those alone. -Units <scene=unit>
 gives a scene's unit (SPEEDO_UNITS) where it isn't meters. -Jobs clients run at once, each with a user directory of its
 own under -Work (their pipelines kept between runs). -Validate loads the validation layer, as visualtest.ps1 does.
 
+-Timings times each scene after the captures, one client at a time, at the research plan's target (-TimingSize,
+2560x1440, with the default upscaling, balanced; the same conditions and pose otherwise, the camera's effects off as in
+the captures), -TimingFrames frames: the frame time (the client's median of the half seconds after the lighting warmed
+up, SPEEDO_GPU_TIMINGS=1, its pipelines warm from the captures) and the costliest passes' gpu times, in the table and
+the overview. Not with -Validate (the layer's own time).
+
+-Chart <path> writes the overview as a JPEG there too, with a line saying what it is of (the commit, the graphics api,
+the gpu: -Device, else the operating system's name of it on Windows): docs/research-scenes/overview.jpg, which the plan
+tracks its progress by (docs/research-scenes-plan.md).
+
+-Reuse runs no client: it measures, sheets and charts what -Work holds from an earlier run (its captures, and with
+-Timings its timing logs).
+
 .EXAMPLE
 pwsh scripts/researchcompare.ps1 -Preset x64-windows-clang-profile -Work build/researchcompare
+
+.EXAMPLE
+pwsh scripts/researchcompare.ps1 -Preset x64-windows-clang-profile -Work build/researchcompare -Timings -Chart docs/research-scenes/overview.jpg
 #>
 [CmdletBinding()]
 param(
@@ -39,8 +55,15 @@ param(
 	[string[]] $Units,
 	[string] $Review = 'temp/review/research',
 	[string[]] $Set,
-	[switch] $Validate
+	[switch] $Validate,
+	[switch] $Timings,
+	[string] $TimingSize = '2560x1440',
+	[int] $TimingFrames = 1000,
+	[string] $Chart,
+	[string] $Device,
+	[switch] $Reuse
 )
+if ($Timings -and $Validate) { [Console]::Error.WriteLine('-Timings without -Validate: the layer would be timed too'); exit 2 }
 if (-not $env:SPEEDO_TRACY) { $env:SPEEDO_TRACY = '0' }
 $ErrorActionPreference = 'Stop'
 $Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
@@ -176,13 +199,14 @@ $scenes = foreach ($folder in Get-ChildItem -LiteralPath $scenesRoot -Directory 
 	[pscustomobject]@{ Name = $folder.Name; Folder = $folder.FullName; Model = $glb.FullName; Reference = $reference; Directory = (Join-Path $Work $folder.Name) }
 }
 
-# a scene's client run started: its variables set for it alone, then cleared
-function Start-Scene($Scene, [int] $Slot)
+# a scene's client run started: its variables set for it alone, then cleared. -Timing: the timing run (see -Timings), at
+# -TimingSize with the default upscaling, the gpu's timings in its log, no capture
+function Start-Scene($Scene, [int] $Slot, [switch] $Timing)
 {
 	New-Item -ItemType Directory -Force -Path $Scene.Directory | Out-Null
 	$capture = Join-Path $Scene.Directory 'capture.bmp'
-	$log = Join-Path $Scene.Directory 'capture.log'
-	Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue
+	$log = Join-Path $Scene.Directory $(if ($Timing) { 'timing.log' } else { 'capture.log' })
+	if (-not $Timing) { Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue }
 	$reference = $Scene.Reference
 	$set = [ordered]@{
 		SPEEDO_HEADLESS = '1'; SPEEDO_UI = '0'; SPEEDO_SHADER_RELOAD = '0'; SPEEDO_REPEATABLE = '1'
@@ -190,6 +214,14 @@ function Start-Scene($Scene, [int] $Slot)
 		SPEEDO_AUTOLOAD_MODEL = $Scene.Model; SPEEDO_AUTOLOAD_EXIT = "$Frames"; SPEEDO_CAPTURE = $capture
 		SPEEDO_TIME_FRAME_SECONDS = '0.0166667'
 		SPEEDO_LENS_GLARE = '0'; SPEEDO_MOTION_BLUR = '0'; SPEEDO_GRAIN = '0'; SPEEDO_UPSCALING = 'native'
+	}
+	if ($Timing)
+	{
+		$set.SPEEDO_WINDOW_SIZE = $TimingSize
+		$set.SPEEDO_AUTOLOAD_EXIT = "$TimingFrames"
+		$set.SPEEDO_GPU_TIMINGS = '1'
+		$set.Remove('SPEEDO_CAPTURE')
+		$set.Remove('SPEEDO_UPSCALING')
 	}
 	if ($unitOf.ContainsKey($Scene.Name)) { $set.SPEEDO_UNITS = $unitOf[$Scene.Name] }
 	foreach ($pair in $extra.Keys) { $set[$pair] = $extra[$pair] }
@@ -246,8 +278,9 @@ function Complete-Scene($Run, [bool] $TimedOut)
 	return [pscustomobject]$result
 }
 
-# the runs, -Jobs at a time, each in a user directory of its slot's
-$queue = [Collections.Generic.Queue[object]]::new([object[]]@($scenes))
+# the runs, -Jobs at a time, each in a user directory of its slot's (-Reuse: none, what -Work holds measured as if each
+# had just run)
+$queue = [Collections.Generic.Queue[object]]::new([object[]]@($(if (-not $Reuse) { $scenes })))
 $running = [Collections.Generic.List[object]]::new()
 $results = [Collections.Generic.List[object]]::new()
 $free = [Collections.Generic.Queue[int]]::new([int[]](1..$Jobs))
@@ -273,32 +306,128 @@ while ($queue.Count -gt 0 -or $running.Count -gt 0)
 		}
 	}
 }
+if ($Reuse)
+{
+	foreach ($scene in $scenes)
+	{
+		$run = [pscustomobject]@{
+			Scene = $scene; Process = [pscustomobject]@{ ExitCode = 0 }; Start = Get-Date
+			Log = Join-Path $scene.Directory 'capture.log'; Capture = Join-Path $scene.Directory 'capture.bmp'
+		}
+		$results.Add((Complete-Scene $run $false))
+	}
+}
 
-# the overview: every scene's reference and capture, the most unlike first
+# the timings (-Timings): each scene again, one client at a time in the first slot's user directory (its pipelines warm
+# from the captures), at the target; the frame time and the costliest passes (see below)
+foreach ($result in $results)
+{
+	$result | Add-Member -NotePropertyName FrameMs -NotePropertyValue $null -Force
+	$result | Add-Member -NotePropertyName Passes -NotePropertyValue '' -Force
+}
+if ($Timings)
+{
+	Write-Host ''
+	Write-Host "timings at $TimingSize, balanced upscaling, $TimingFrames frames, one client at a time:"
+	foreach ($scene in $scenes)
+	{
+		$result = $results | Where-Object Scene -eq $scene.Name | Select-Object -First 1
+		$log = Join-Path $scene.Directory 'timing.log'
+		$exit = 0
+		if (-not $Reuse)
+		{
+			$run = Start-Scene $scene 1 -Timing
+			if (-not $run.Process.WaitForExit($TimeoutSeconds * 1000)) { $run.Process.Kill($true); $run.Process.WaitForExit() }
+			$exit = $run.Process.ExitCode
+		}
+		# the frame time: the client's median of the half seconds after the lighting warmed up (the wall's, as 60 Hz is),
+		# not the gpu timings' mean over every frame, which takes in the near empty frames drawn while a panorama loads
+		# (classroom2's 2377 frames for its scene's 993 passes: 1.65 ms where the frames took 13.5); the passes' means over
+		# the frames they ran in
+		$lines = @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue)
+		$settled = $lines | Select-String -Pattern '^frame time: ([0-9.]+) ms' | Select-Object -First 1
+		$frame = $lines | Select-String -Pattern '^  Frame: ([0-9.]+) \((\d+) frames\)' | Select-Object -First 1
+		if ($settled -and $frame)
+		{
+			$result.FrameMs = [double]::Parse($settled.Matches[0].Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture)
+			$passes = @(foreach ($line in $lines)
+			{
+				if ($line -match '^  (.+): ([0-9.]+) \((\d+) frames\)$' -and $Matches[1] -ne 'Frame')
+				{
+					[pscustomobject]@{ Name = $Matches[1]; Ms = [double]::Parse($Matches[2], [Globalization.CultureInfo]::InvariantCulture); Frames = [int]$Matches[3] }
+				}
+			})
+			# (those of at least half the frames the scene was drawn in, Cull's: not its one-off voxelizing; a pass run in the
+			# frames before it was there too, a panorama loading, by its time over the scene's frames, the others' near none)
+			$cull = $passes | Where-Object Name -eq 'Cull' | Select-Object -First 1
+			$sceneFrames = if ($cull) { $cull.Frames } else { ($passes | Measure-Object -Property Frames -Maximum).Maximum }
+			foreach ($pass in $passes) { if ($pass.Frames -gt $sceneFrames) { $pass.Ms = $pass.Ms * $pass.Frames / $sceneFrames } }
+			$result.Passes = (@($passes | Where-Object { $_.Frames -ge $sceneFrames / 2 } | Sort-Object Ms -Descending | Select-Object -First 3) | ForEach-Object { '{0} {1:F2}' -f $_.Name, $_.Ms }) -join ', '
+			Write-Host ("{0,-18} {1,6:F2} ms {2,5:F0} Hz  {3}" -f $scene.Name, $result.FrameMs, (1000.0 / $result.FrameMs), $result.Passes)
+		}
+		else
+		{
+			Write-Host ("{0,-18} not timed (exit {1}, log: {2})" -f $scene.Name, $exit, $log)
+		}
+	}
+}
+
+# the overview: every scene's reference and capture (each kept in shape in its cell), the most unlike first, under a line
+# saying what it is of
 $ordered = @($results | Sort-Object @{ Expression = { if ($null -ne $_.LogBlurred) { $_.LogBlurred } else { 99 } }; Descending = $true })
 $cell = 320
-$cellHeight = 180
+$cellHeight = 240
+$label = 20
+$header = 40
 $columns = 2
-$overview = [Drawing.Bitmap]::new($cell * 2 * $columns, ($cellHeight + 20) * [Math]::Ceiling($ordered.Count / $columns))
+$overview = [Drawing.Bitmap]::new($cell * 2 * $columns, $header + ($cellHeight + $label) * [Math]::Ceiling($ordered.Count / $columns))
 $graphics = [Drawing.Graphics]::FromImage($overview)
 $graphics.Clear([Drawing.Color]::Black)
 $graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
 $font = [Drawing.Font]::new('Segoe UI', 9)
+if (-not $Device -and $IsWindows)
+{
+	$Device = (Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'NVIDIA|AMD|Radeon|Intel\(R\) Arc' } | Select-Object -First 1).Name
+}
+$commit = (& git -C $root rev-parse --short HEAD 2>$null)
+$title = "speedo ($Kind) against the glTF research set's path traced references, each pair reference | speedo, the most unlike first: " +
+	"blurred |log2| luminance off it and the light's ratio, in stops$(if ($Timings) { "; the frame time at $TimingSize, balanced upscaling" }). " +
+	"$(Get-Date -Format 'yyyy-MM-dd'), $commit, $env:SPEEDO_GRAPHICS_API$(if ($Device) { ", $Device" })"
+$graphics.DrawString($title, $font, [Drawing.Brushes]::White, [Drawing.RectangleF]::new(4, 2, $overview.Width - 8, $header))
 for ($i = 0; $i -lt $ordered.Count; $i++)
 {
 	$x = ($i % $columns) * $cell * 2
-	$y = [Math]::Floor($i / $columns) * ($cellHeight + 20)
+	$y = $header + [Math]::Floor($i / $columns) * ($cellHeight + $label)
 	$directory = Join-Path $Work $ordered[$i].Scene
 	foreach ($side in @(@('reference.bmp', 0), @('capture.bmp', 1)))
 	{
 		$file = Join-Path $directory $side[0]
-		if (Test-Path -LiteralPath $file) { $image = [Drawing.Bitmap]::new($file); $graphics.DrawImage($image, [Drawing.Rectangle]::new($x + $side[1] * $cell, $y + 20, $cell, $cellHeight)); $image.Dispose() }
+		if (-not (Test-Path -LiteralPath $file)) { continue }
+		$image = [Drawing.Bitmap]::new($file)
+		$fit = [Math]::Min($cell / $image.Width, $cellHeight / $image.Height)
+		$width = [int]($image.Width * $fit)
+		$height = [int]($image.Height * $fit)
+		$graphics.DrawImage($image, [Drawing.Rectangle]::new($x + $side[1] * $cell + [int](($cell - $width) / 2), $y + $label + [int](($cellHeight - $height) / 2), $width, $height))
+		$image.Dispose()
 	}
-	$text = if ($null -ne $ordered[$i].LogBlurred) { '{0}: blurred {1:F3}, ratio {2:+0.00;-0.00} stops' -f $ordered[$i].Scene, $ordered[$i].LogBlurred, $ordered[$i].Ratio } else { "$($ordered[$i].Scene): $($ordered[$i].Status)" }
+	# (in the invariant culture's numbers: the chart goes to docs, whatever the machine's locale)
+	$invariant = [Globalization.CultureInfo]::InvariantCulture
+	$text = if ($null -ne $ordered[$i].LogBlurred) { [string]::Format($invariant, '{0}: blurred {1:F3}, ratio {2:+0.00;-0.00} stops', $ordered[$i].Scene, $ordered[$i].LogBlurred, $ordered[$i].Ratio) } else { "$($ordered[$i].Scene): $($ordered[$i].Status)" }
+	if ($null -ne $ordered[$i].FrameMs) { $text += [string]::Format($invariant, ', {0:F1} ms', $ordered[$i].FrameMs) }
 	$graphics.DrawString($text, $font, [Drawing.Brushes]::White, [float]($x + 4), [float]($y + 3))
 }
 $graphics.Dispose()
 $overview.Save((Join-Path $Review 'overview.png'), [Drawing.Imaging.ImageFormat]::Png)
+if ($Chart)
+{
+	$chartPath = if ([IO.Path]::IsPathRooted($Chart)) { $Chart } else { Join-Path $root $Chart }
+	New-Item -ItemType Directory -Force -Path (Split-Path -Parent $chartPath) | Out-Null
+	$codec = [Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object MimeType -eq 'image/jpeg'
+	$parameters = [Drawing.Imaging.EncoderParameters]::new(1)
+	$parameters.Param[0] = [Drawing.Imaging.EncoderParameter]::new([Drawing.Imaging.Encoder]::Quality, [long]88)
+	$overview.Save($chartPath, $codec, $parameters)
+	Write-Host "chart: $chartPath"
+}
 $overview.Dispose()
 
 Write-Host ''
@@ -306,6 +435,7 @@ Write-Host 'the scenes most unlike their references first (mean |log2| luminance
 foreach ($result in $ordered)
 {
 	$measures = if ($null -ne $result.LogBlurred) { 'blurred {0:F3}  sharp {1:F3}  ratio {2:+0.000;-0.000}  mean {3,6:F2} of 255' -f $result.LogBlurred, $result.Log, $result.Ratio, $result.Mean } else { $result.Status }
+	if ($null -ne $result.FrameMs) { $measures += '  {0,6:F2} ms' -f $result.FrameMs }
 	Write-Host ("  {0,-18} {1}" -f $result.Scene, $measures)
 }
 Write-Host "sheets: $Review"

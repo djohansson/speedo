@@ -49,7 +49,12 @@ antialiasing. It writes a sheet per scene (`temp/review/research/<scene>.png`: t
 differences amplified 16 times), an overview, and a table, the scenes most unlike their references first: the mean
 |log2| of the two luminances blurred over 8 pixels (the lighting, not its noise or edges) and the ratio of their means
 (the light overall). Nothing fails on a measure: a path tracer's reference maps what is approximated, it isn't a
-regression check. `-Only`, `-Set name=value` (an experiment's variables), `-Units scene=unit`, `-Kind core`.
+regression check. `-Only`, `-Set name=value` (an experiment's variables), `-Units scene=unit`, `-Kind core`. `-Timings`
+times every scene after the captures at the target below (2560x1440, balanced upscaling, one client at a time: the
+frame time, the client's median of its settled half seconds, and the costliest passes' gpu times; `-Reuse` measures and
+charts an earlier run's work directory again without running a client), and `-Chart <path>` writes the overview as a JPEG there, the pairs kept
+in shape, each labelled with its measures and frame time, under a line naming the commit, the graphics api and the gpu:
+`-Timings -Chart docs/research-scenes/overview.jpg` makes the one "Where it stands" shows.
 
 ## The target
 
@@ -57,6 +62,50 @@ regression check. `-Only`, `-Set name=value` (an experiment's variables), `-Unit
 (the user's call, 2026-11-22: hardware scaling, the settings for slower GPUs, is revisited later). Each step below
 states what it adds at that size, at the research scenes' reference poses and the performance plan's benchmark poses
 (docs/performance-plan.md); a step over its budget is made cheaper or set aside, as the user decides.
+
+## Where it stands
+
+![Every scene of the set, its reference beside speedo's render, the most unlike first, each labelled with its blurred measure, its light's ratio and its frame time](research-scenes/overview.jpg)
+
+2026-11-23, after steps 1 to 10 (fa6671b9; Vulkan, RTX 4070 Ti SUPER; `scripts/researchcompare.ps1 -Preset
+x64-windows-clang-profile -Timings -Chart docs/research-scenes/overview.jpg`, which makes the chart above): the blurred
+mean |log2| luminance off the reference at the baseline (step 0) and now, in stops, the light's ratio now, and the frame
+time at the target (the client's median of its settled half seconds; the captures' conditions and camera, the lens's
+effects off). Every scene is within 60 Hz but glass-of-water, its glass, water, ice and bubbles 11.3 ms of Main
+Transmissive. cornell-caustic's baseline was lit by the sky its reference hasn't, without its caustics; living-room-2,
+veach-ajar and dragon are brighter than their references since the 32 bit histories, vintage-car's single sheet windows
+refract as solids by the set's conditions.
+
+| scene | baseline | now | light | frame |
+|---|---|---|---|---|
+| glass-of-water | 2.906 | 0.739 | -0.24 | 19.5 ms |
+| crown | 0.718 | 0.487 | -0.43 | 14.7 ms |
+| cornell-caustic | 0.495 | 0.470 | +0.07 | 8.5 ms |
+| coffee-maker | 0.511 | 0.397 | +0.03 | 10.8 ms |
+| bmw-m6 | 1.560 | 0.383 | -0.22 | 14.5 ms |
+| classroom2 | 0.356 | 0.337 | +0.01 | 13.5 ms |
+| breakfast-room | 0.323 | 0.321 | -0.03 | 7.1 ms |
+| living-room | 0.313 | 0.305 | +0.00 | 10.1 ms |
+| veach-mis | 0.889 | 0.289 | -0.11 | 5.6 ms |
+| pontiac-gto | 0.319 | 0.277 | -0.18 | 8.9 ms |
+| classroom | 0.287 | 0.272 | -0.04 | 8.1 ms |
+| living-room-2 | 0.202 | 0.242 | +0.16 | 10.1 ms |
+| kitchen | 0.308 | 0.236 | -0.02 | 9.6 ms |
+| veach-bidir | 0.290 | 0.232 | -0.11 | 5.5 ms |
+| bathroom | 0.266 | 0.225 | -0.02 | 10.7 ms |
+| teapot-full | 0.251 | 0.208 | +0.02 | 10.4 ms |
+| dragon | 0.198 | 0.204 | +0.08 | 4.1 ms |
+| spaceship | 0.365 | 0.201 | -0.22 | 10.4 ms |
+| veach-ajar | 0.185 | 0.197 | +0.13 | 5.9 ms |
+| bathroom2 | 0.253 | 0.197 | -0.08 | 8.8 ms |
+| lamp | 0.216 | 0.191 | +0.04 | 8.0 ms |
+| vintage-car | 0.171 | 0.188 | -0.17 | 11.4 ms |
+| modern-hall | 0.398 | 0.178 | -0.11 | 7.9 ms |
+| staircase | 0.142 | 0.130 | +0.04 | 10.0 ms |
+| house | 0.129 | 0.117 | -0.03 | 6.0 ms |
+| material-testball | 0.086 | 0.082 | -0.05 | 6.0 ms |
+| teapot | 0.081 | 0.074 | -0.06 | 6.2 ms |
+| cornell-box | 0.077 | 0.064 | -0.02 | 4.7 ms |
 
 ## How it is judged (every step)
 
@@ -358,6 +407,11 @@ reference, so that they fail on a regression, not on what the renderer approxima
   fronts through the box's open side, bluish grey where the reference's are brown. cornell-caustic 0.448 to 0.470 (its
   colors the reference's; its auto exposure without the sky's share), the rest within 0.009 or nearer (coffee-maker
   0.398); the caustics cost cornell-caustic's frame 0.84 ms at 1440p balanced (docs/notes/rendering.md).
+- 2026-11-23, the whole set timed at the target (the user's call: `researchcompare.ps1 -Timings`, and `-Chart` for the
+  overview kept in docs, "Where it stands"): every scene within 60 Hz but glass-of-water (19.5 ms, Main Transmissive 11.3);
+  the slowest of the rest crown 14.7, bmw-m6 14.5, classroom2 13.5 ms. The gpu timings' mean frame took in the near
+  empty frames drawn while a panorama loads (classroom2 1.65 ms, its frames 13.5), so the frame time is the client's
+  settled median.
 - 2026-11-23, **step 6** (C2, kept simple): the traced refraction's ray is of the surface's GGX lobe
   (`TransmittedLobeRay`: refracted about a visible microfacet normal, another each frame and pixel, which the temporal
   upscaler averages), in the share it was traced in before (all to 0.15, none from 0.4, the transmission texture's mips
