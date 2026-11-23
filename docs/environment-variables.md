@@ -130,7 +130,7 @@ A model that comes with the conditions its reference was rendered in (the glTF r
 | `SPEEDO_TRACED_REFLECTIONS` | `0` off. Default: on, where the device has ray queries. | Scene. Traces what smooth surfaces and clear coats reflect. View > Rendering Features > Ray Traced Reflections. |
 | `SPEEDO_TRACED_REFRACTIONS` | `0` off. Default: on, where the device has ray queries. | Scene. Traces what transmissive surfaces show behind them along the refracted ray. View > Rendering Features > Ray Traced Refractions. |
 | `SPEEDO_SOLID_TRANSMISSION` | Any value but `0` on. Default: off (on where a model comes with the glTF research set's conditions). | Scene. Transmissive materials without `KHR_materials_volume` refract as solids, into them and out of them, rather than as glTF's infinitely thin walls, which bend nothing. View > Rendering Features > Solid Transmission. |
-| `SPEEDO_CAUSTICS` | `0` off. Default: on, where the device has ray queries. | Scene. Refracts the lights' light through still transmissive surfaces into caustics; off, it passes straight through, tinted. View > Rendering Features > Caustics. |
+| `SPEEDO_CAUSTICS` | `0` off. Default: on, where the device has ray queries. | Scene. Refracts the lights' light through still transmissive surfaces into caustics, and the emissive surfaces' through solid glass (`SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT`); off, it passes straight through, tinted. View > Rendering Features > Caustics. |
 | `SPEEDO_EMISSIVE_LIGHTS` | `0` off. Default: on. | Scene. Emissive surfaces light the scene as area lights; off, only the indirect lighting's rays see their light. View > Rendering Features > Emissive Lights. |
 | `SPEEDO_LIGHT_SIZES` | `<light>=<size>` pairs separated by commas: the light's index (`#n` in View > Lights...), and a directional light's angular radius in degrees or a point or spot light's radius in scene units. Default: the sun's size for directional lights, 0 for the others. | The model's lights' sizes, which soften their shadows, as the Lights window's Radius. Applied once a model is in. |
 | `SPEEDO_MERGE_LIGHTS` | `0` off. Default: on. | Takes the environment's sun and a model's directional light within 5 degrees of it as one light, the model's. View > Environment > Merge with the model's lights. |
@@ -216,6 +216,7 @@ The renderer's tuning of the emissive surfaces' light (`SPEEDO_EMISSIVE_LIGHTS`)
 | `SPEEDO_EMITTER_NEW_SAMPLE_COUNT` | 1 to 64. Default: 16. | The samples, each with a shadow ray, a traced pixel's light is the mean of in the frame its point comes into view (off the screen or hidden the frame before). 1 for one, as every other pixel's. |
 | `SPEEDO_EMITTER_NEW_CANDIDATE_COUNT` | 1 to 256. Default: 8. | The emitters each of those samples picks its one from (walks down the light tree; fewer are cheaper and noisier). |
 | `SPEEDO_EMITTER_ROULETTE` | 0 or more, on screen brightness. Default: 0.02. | Below it a shadow ray is traced only by chance, in proportion; 0 traces every one. |
+| `SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT` | 0 to 4194240. Default: 262144. | The photons traced each frame from the emissive surfaces through solid glass into caustics, where the model has solid glass and caustics are on (`SPEEDO_CAUSTICS`); 0 none, and the emitters' light then passes straight through glass, untinted, as without caustics. |
 
 ## Culling and drawing
 

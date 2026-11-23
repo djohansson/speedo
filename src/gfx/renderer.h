@@ -985,6 +985,14 @@ private:
 	FrameGraph::PassId myEmitterXPass;
 	FrameGraph::PassId myEmitterYPass;
 	FrameGraph::PassId myEmitterTemporalPass;
+	// the emitters' caustics (see ComputeEmitterCaustics): their photons' light per pixel (gEmitterCausticPhotons), emptied
+	// and traced each frame there is solid glass to trace them through, and how many a frame
+	// (SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT, see EmitterData::causticPhotonCount)
+	FrameGraph::BufferId myEmitterCausticPhotons;
+	FrameGraph::PassId myEmitterCausticsClearPass;
+	FrameGraph::PassId myEmitterCausticsPass;
+	uint32_t myEmitterCausticPhotonCount = 1U << 18;
+	uint32_t myEmitterCausticsThisFrame = 0; // the photons the frame traces
 	uint32_t myEmitterCandidateCount = 8;
 	uint32_t myEmitterVoxelSampleCount = 4;
 	uint32_t myEmitterVoxelCandidateCount = 8;

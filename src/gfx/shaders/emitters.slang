@@ -31,6 +31,12 @@ bool EmittersLight()
 	return gEmitterData[gPushConstants.frameIndex][0].count > 0u;
 }
 
+// whether the emitters' caustics are traced this frame (see ComputeEmitterCaustics)
+bool EmitterCausticsTraced()
+{
+	return gEmitterData[gPushConstants.frameIndex][0].causticPhotonCount > 0u;
+}
+
 float EmitterLuminance(float3 color)
 {
 	return dot(color, float3(0.2126, 0.7152, 0.0722));
@@ -386,12 +392,54 @@ float EmitterDensity(float3 position, float3 normal, float3 point)
 	return cosine > 0.0 ? probability / (0.5 * twiceArea) * distance2 / cosine : 0.0;
 }
 
+// whether solid glass (see TransmissionSolid) is between origin and a distance along direction, while the emitters'
+// caustics are traced (EmitterData::causticPhotonCount): the diffuse light that comes through it is theirs
+// (ComputeEmitterCaustics), bent where it went in and out, which the straight line would count again where it doesn't go
+// (cornell-caustic's floor under its water, lit straight through the waves and by their caustics both). the highlights
+// keep the straight line's (the photons bring irradiance alone): glass-of-water's backdrop and table, metals of a
+// roughness of 0.32, lost the softbox's reflection behind its glass and stream, which their glossy rays, through two
+// glass surfaces at most, can't follow through the water, ice and bubbles (blurred 0.738 stops off its reference to
+// 0.841). thin walls let it through as before, as the caustics' photons pass them by. every glass is solid where the
+// frame says so (TRACED_SOLID_TRANSMISSION: one query); else the glass along the way, nearest first, until a solid one,
+// through at most SHADER_TYPES_CAUSTIC_SURFACE_COUNT thin walls (past them, taken as through)
+bool EmitterThroughSolidGlass(float3 origin, float3 direction, float tmax)
+{
+#if BVH_RAY_QUERY
+	if (!EmitterCausticsTraced())
+		return false;
+	if ((gPushConstants.traced & TRACED_SOLID_TRANSMISSION) != 0u)
+		return BvhHitSomething(BvhTraceInstances(origin, direction, tmax, true, BVH_RAY_QUERY_MASK_GLASS, BvhOpaque()));
+	float3 from = origin;
+	float left = tmax;
+	for (uint surfaceIt = 0; surfaceIt < SHADER_TYPES_CAUSTIC_SURFACE_COUNT; surfaceIt++)
+	{
+		BvhHit hit = BvhTraceGlass(from, direction, left);
+		if (!BvhHitSomething(hit))
+			return false;
+		if (TransmissionSolid(gMaterialData[hit.flags >> BVH_TRIANGLE_MATERIAL_SHIFT].transmission.y))
+			return true;
+		float3 at = from + direction * hit.t;
+		float step = hit.t + max(1e-4, 1e-5 * max(abs(at.x), max(abs(at.y), abs(at.z))));
+		from += direction * step;
+		left -= step;
+		if (left <= 0.0)
+			return false;
+	}
+#endif
+	return false;
+}
+
 // the irradiance a finished reservoir's point gives a surface, shadowed: its ray through the BVHs (alpha masks cut out;
 // what moves with moving), from off the surface by bias toward the point, ending short of it (the emitter's own
-// triangle), unless it is known to reach the surface (!trace); and whether it does (visible)
-float3 EmitterShade(EmitterReservoir reservoir, float3 position, float3 normal, float bias, float nearest2, bool moving, bool trace, out bool visible)
+// triangle), unless it is known to reach the surface (!trace); and whether it does (visible). with glass, also whether
+// solid glass is on its way while the emitters' caustics are traced (throughGlass, see EmitterThroughSolidGlass): the
+// light the caustics bring a surface's diffuse in its place
+float3 EmitterShade(
+	EmitterReservoir reservoir, float3 position, float3 normal, float bias, float nearest2, bool moving, bool trace, bool glass, out bool visible,
+	out bool throughGlass)
 {
 	visible = false;
+	throughGlass = false;
 	if (reservoir.triangle == ~0u)
 		return 0.0;
 	EmitterPoint point = EmitterPointAt(reservoir.triangle, reservoir.barycentrics);
@@ -405,6 +453,7 @@ float3 EmitterShade(EmitterReservoir reservoir, float3 position, float3 normal, 
 	float span = sqrt(dot(direction, direction));
 	if (trace && ShadowOccluder(origin, direction / max(span, 1e-30), span * 0.999, moving) >= 0.0)
 		return 0.0;
+	throughGlass = trace && glass && EmitterThroughSolidGlass(origin, direction / max(span, 1e-30), span * 0.999);
 	visible = true;
 	return point.emission * geometry * reservoir.weight;
 }
@@ -875,9 +924,12 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 	// point), a point found visible stays so for EmitterData::visibilityFrameCount frames, after which its ray is traced
 	// again (where something moves, which may come between, after fewer); the reservoirs mostly keep their point under a
 	// still camera, and the rays were most of the emitters' cost (Bistro's street, 2560x1440, every other pixel traced: 25 of 49 ms a frame)
+	// (a point behind solid glass reaches it for the highlights alone, see EmitterThroughSolidGlass: its ray is traced
+	// every frame, its age kept at 0)
+	bool throughGlass = false;
 	if (reservoir.age > 0u && reservoir.age < data.visibilityFrameCount && data.raw == 0u && EmitterViewStill(view))
 	{
-		irradiance = EmitterShade(reservoir, surface.position, surface.normal, bias, nearest2, moving, false, visible);
+		irradiance = EmitterShade(reservoir, surface.position, surface.normal, bias, nearest2, moving, false, false, visible, throughGlass);
 		reservoir.age++;
 	}
 	else
@@ -891,11 +943,13 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 		placed = 0.0;
 		if (chance >= 1.0 || random.Next() < chance)
 		{
-			irradiance = EmitterShade(reservoir, surface.position, surface.normal, bias, nearest2, moving, true, visible) / chance;
-			reservoir.age = visible && reservoir.triangle != ~0u ? 1u : 0u;
+			irradiance = EmitterShade(reservoir, surface.position, surface.normal, bias, nearest2, moving, true, true, visible, throughGlass) / chance;
+			reservoir.age = visible && !throughGlass && reservoir.triangle != ~0u ? 1u : 0u;
 			placed = 1.0 / chance;
 		}
 	}
+	// (the point's light for the highlights, EmitterPlacePoint's, as is; the diffuse's none)
+	float3 diffuse = throughGlass ? 0.0 : irradiance;
 	// a point its ray finds hidden is kept for the next frame's reuse as the candidates it stood for, of no light (ReSTIR's
 	// visibility reuse, RTXDI's discard of invisible samples): a pixel's reservoir then holds on to what it sees. kept as
 	// it was, a back wall's held a brighter cube behind the partition as often as its own, by its target alone, and half
@@ -919,15 +973,16 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 	// estimates, each its own candidates resampled and its own shadow ray, nothing reused or filtered
 	if (data.raw == 2u)
 	{
-		irradiance = 0.0;
+		diffuse = 0.0;
 		for (uint sampleIt = 0; sampleIt < SHADER_TYPES_EMITTER_REFERENCE_SAMPLE_COUNT; sampleIt++)
 		{
 			EmitterReservoir candidates = EmitterCandidates(surface.position, surface.normal, data.candidateCount, nearest2, random);
-			irradiance += EmitterShade(candidates, surface.position, surface.normal, bias, nearest2, moving, true, visible);
+			float3 sample = EmitterShade(candidates, surface.position, surface.normal, bias, nearest2, moving, true, true, visible, throughGlass);
+			diffuse += throughGlass ? 0.0 : sample;
 		}
-		irradiance /= float(SHADER_TYPES_EMITTER_REFERENCE_SAMPLE_COUNT);
+		diffuse /= float(SHADER_TYPES_EMITTER_REFERENCE_SAMPLE_COUNT);
 	}
-	raw[traced] = float4(irradiance / kPi, sampleCount);
+	raw[traced] = float4(diffuse / kPi, sampleCount);
 }
 
 // the Emitter New pass, a group per traced pixel: where Emitter Shade marked its point newly seen (see EmitterNew), its
@@ -971,8 +1026,10 @@ void ComputeEmitterNew(uint3 groupId : SV_GroupID, uint thread : SV_GroupIndex)
 			for (uint sampleIt = thread; sampleIt < count; sampleIt += SHADER_TYPES_EMITTER_NEW_THREAD_COUNT)
 			{
 				bool visible;
+				bool throughGlass;
 				EmitterReservoir candidates = EmitterCandidates(surface.position, surface.normal, data.newCandidateCount, nearest2, random);
-				sum += EmitterShade(candidates, surface.position, surface.normal, bias, nearest2, data.movingBvh != 0u, true, visible);
+				float3 sample = EmitterShade(candidates, surface.position, surface.normal, bias, nearest2, data.movingBvh != 0u, true, true, visible, throughGlass);
+				sum += throughGlass ? 0.0 : sample;
 			}
 		}
 	}
@@ -1183,7 +1240,11 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float3 toEye = view.eyePosition.xyz - surface.position;
 	surfaces[pixel] = float4(length(toEye), EmitterPackNormal(surface.normal), 0.0, 0.0);
 	float4 now = EmitterUpsample(pixel, surface.position, surface.normal, view.eyePosition.xyz, data.stride, current);
-	float4 result = now;
+	// and the light the emitters' caustics brought the pixel this frame, over frames with the rest but past the clamp on
+	// what is far brighter than its history (see kFireflyRise): a caustic's photons land on a pixel in some frames and
+	// not others, each then many frames' worth of its light
+	float3 caustics = now.a >= 0.0 ? EmitterCausticsAt(pixel, view) : 0.0;
+	float4 result = float4(now.rgb + caustics, now.a);
 	float blend = data.raw == 1u ? 1.0 : data.blend;
 	bool moves = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
 	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
@@ -1226,7 +1287,7 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 			// light those rare frames carry, which this leaves out, and the whole frame within 0.1% of it (at 4 times: 19% there,
 			// 1% over the frame)
 			float3 sample = count > kEmitterFireflyFrameCount && data.raw == 0u ? HistoryFireflyClamp(now.rgb, kept, view.exposure) : now.rgb;
-			result = float4(lerp(kept, sample, saturate(max(now.a / count, least))), count);
+			result = float4(lerp(kept, sample + caustics, saturate(max(now.a / count, least))), count);
 		}
 	}
 	history[pixel] = result;
@@ -1338,4 +1399,235 @@ float3 EmitterSpecularOverFrames(float3 now, bool known)
 	default:
 		return now;
 	}
+}
+
+// the emitters' caustics: the light the emissive surfaces send through solid glass (see TransmissionSolid), which their
+// shadow rays stop at while these are traced (EmitterThroughSolidGlass), as photons into the pixels they land on, which
+// Emitter Temporal adds to the emitters' light and accumulates over frames with it. the shadow views' photons
+// (ComputeCaustics) are the punctual lights' and the sun's alone, landing in their views' tiles of the shadow
+// transmittance, of which an emitter has none: cornell-caustic's water (the glTF research set's: a small emissive quad
+// over a box filled up to two thirds with water) cast none, and the floor and walls under it were lit straight through
+// the waves, a flat light where the reference's is a net of bright lines (docs/research-scenes-plan.md, C3)
+
+// a triangle by its share of the emitters' power (as the tree's nodes bound it, see EmitterNode): down from the root,
+// each child by its power's share of the two; and the probability it was picked with (0 for none)
+uint EmitterPickByPower(inout EmitterRandom random, out float probability)
+{
+	probability = 1.0;
+	uint node = 0;
+	for (uint depthIt = 0; depthIt < EMITTER_NODE_DEPTH_MOST; depthIt++)
+	{
+		uint bits = asuint(gEmitterTree[node].axis.w);
+		if ((bits & EMITTER_NODE_LEAF) != 0u)
+			return bits & EMITTER_NODE_INDEX_MASK;
+		uint second = bits & EMITTER_NODE_INDEX_MASK;
+		float first = gEmitterTree[node + 1u].low.w;
+		float other = gEmitterTree[second].low.w;
+		if (!(first + other > 0.0))
+			break;
+		float share = first / (first + other);
+		if (random.Next() < share)
+		{
+			node = node + 1u;
+			probability *= share;
+		}
+		else
+		{
+			node = second;
+			probability *= 1.0 - share;
+		}
+	}
+	probability = 0.0;
+	return ~0u;
+}
+
+// a photon landing on an opaque surface (at position, its normal toward where the photon came from; flux its light): in
+// each view, into the 2x2 pixels around where it is in the view (bilinear) that see that surface there (their pre-pass
+// point within the depth two pixels make along their surface, and seen from the side the photon came from), each its
+// share over the pixel's area on the surface, the irradiance over pi as the frame shows it (times the view's exposure),
+// added in fixed point (rounded at random, so that what is below a unit adds up as it should over many)
+void EmitterCausticSplat(float3 position, float3 normal, float3 flux, inout EmitterRandom random)
+{
+	uint frameIndex = gPushConstants.frameIndex;
+	uint2 extent;
+	gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].GetDimensions(extent.x, extent.y);
+	for (uint viewIt = 0; viewIt < gPushConstants.viewCount; viewIt++)
+	{
+		ViewData view = gViewData[frameIndex][viewIt];
+		float4 clip = mul(view.viewProjection, float4(position, 1.0));
+		if (clip.w <= 0.0)
+			continue;
+		float2 at = (clip.xy / clip.w * 0.5 + 0.5) * view.viewport.zw + view.viewport.xy - 0.5;
+		int2 base = int2(floor(at));
+		float2 f = at - float2(base);
+		float3 axis = ViewRay(view, 0.0);
+		for (uint cornerIt = 0; cornerIt < 4; cornerIt++)
+		{
+			int2 offset = int2(cornerIt & 1u, cornerIt >> 1u);
+			int2 pixel = base + offset;
+			if (any(float2(pixel) < view.viewport.xy) || any(float2(pixel) >= view.viewport.xy + view.viewport.zw))
+				continue;
+			ShadowSurface surface;
+			if (!ShadowSurfaceAt(pixel, view, surface) || dot(surface.normal, normal) < 0.5)
+				continue;
+			float3 toEye = view.eyePosition.xyz - surface.position;
+			float eye = max(length(toEye), 1e-30);
+			float slant = max(abs(dot(surface.normal, toEye / eye)), 0.05);
+			float tolerance = 0.002 * eye + 2.0 * surface.metersPerPixel * sqrt(max(1.0 - slant * slant, 0.0)) / slant;
+			if (abs(dot(position - surface.position, surface.normal)) > tolerance)
+				continue;
+			// the pixel's area on the surface: a pixel's width at its depth squared (across the view's axis), by the
+			// cosine of its ray off the axis, over the surface's facing the eye
+			float area = surface.metersPerPixel * surface.metersPerPixel * abs(dot(toEye / eye, axis)) / slant;
+			float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y);
+			float3 amount = flux * (w / max(area, 1e-30) / kPi * view.exposure * SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE);
+			uint index = (uint(pixel.y) * extent.x + uint(pixel.x)) * 3u;
+			for (uint channel = 0; channel < 3; channel++)
+			{
+				uint units = uint(min(amount[channel] + random.Next(), 1073741824.0));
+				if (units > 0u)
+					InterlockedAdd(gEmitterCausticPhotons[index + channel], units);
+			}
+		}
+	}
+}
+
+// the Emitter Caustics pass: EmitterData::causticPhotonCount photons, each from a point of an emitter triangle picked by
+// its power (EmitterPickByPower; a point of it uniformly), toward the glass (uniformly within the cone of the sphere about
+// it, EmitterData::glass, from outside it; cosine weighted about the emitter's facing from inside it), each the light of
+// its share of the emitters' (their radiance by the emission's cosine over the densities it was picked with), through the
+// transmissive surfaces as the shadow views' photons go (GlassPathStep, absorbing along the path as the traced view's:
+// the set's solids by its conditions have no thickness to absorb by), until it meets an opaque surface, where it lands
+// (EmitterCausticSplat) if it crossed solid glass: met first, or through thin walls alone, it is the light the emitters'
+// shadow rays give, which they let through. a photon that starts inside a solid's volume (a filament in a bulb taken as
+// solid) leaves it, as the traced reflections' paths do
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void ComputeEmitterCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+#if BVH_RAY_QUERY
+	uint frameIndex = gPushConstants.frameIndex;
+	EmitterData data = gEmitterData[frameIndex][0];
+	uint photon = dispatchThreadId.x;
+	if (photon >= data.causticPhotonCount)
+		return;
+	EmitterRandom random = EmitterRandomAt(uint2(photon, 0x632be5abu), data.frame);
+	float probability;
+	uint triangle = EmitterPickByPower(random, probability);
+	float2 barycentrics = EmitterBarycentrics(random);
+	if (triangle == ~0u || !(probability > 0.0))
+		return;
+	EmitterPoint point = EmitterPointAt(triangle, barycentrics);
+	if (!any(point.emission > 0.0))
+		return;
+	float3 direction;
+	float density; // per solid angle
+	float3 t;
+	float3 b;
+	float3 toGlass = data.glass.xyz - point.position;
+	float distance2 = dot(toGlass, toGlass);
+	float radius2 = data.glass.w * data.glass.w;
+	if (distance2 > radius2)
+	{
+		float within = radius2 / distance2;
+		float span = within / (1.0 + sqrt(1.0 - within)); // 1 less the cosine of the cone's half angle, unrounded
+		float cosine = 1.0 - random.Next() * span;
+		float sine = sqrt(max(1.0 - cosine * cosine, 0.0));
+		float angle = random.Next() * 6.28318530718;
+		float3 axis = toGlass * rsqrt(distance2);
+		ShadowBasis(axis, t, b);
+		direction = axis * cosine + (t * cos(angle) + b * sin(angle)) * sine;
+		density = 1.0 / (6.28318530718 * span);
+	}
+	else
+	{
+		float3 facing = point.normal;
+		float sides = 1.0;
+		if (point.doubleSided)
+		{
+			sides = 0.5;
+			if (random.Next() < 0.5)
+				facing = -facing;
+		}
+		float u = random.Next();
+		float angle = random.Next() * 6.28318530718;
+		float cosine = sqrt(1.0 - u);
+		float sine = sqrt(u);
+		ShadowBasis(facing, t, b);
+		direction = facing * cosine + (t * cos(angle) + b * sin(angle)) * sine;
+		density = sides * cosine / kPi;
+	}
+	float emitted = dot(point.normal, direction);
+	if (point.doubleSided)
+		emitted = abs(emitted);
+	if (!(emitted > 0.0) || !(density > 0.0))
+		return;
+	float eps = max(1e-4, 1e-5 * max(abs(point.position.x), max(abs(point.position.y), abs(point.position.z))));
+	GlassPath path;
+	path.origin = point.position + point.normal * (dot(point.normal, direction) > 0.0 ? eps : -eps);
+	path.direction = direction;
+	path.throughput = point.emission * (emitted * point.area / (probability * density * float(data.causticPhotonCount)));
+	path.inside = false;
+	path.attenuationColor = 1.0;
+	path.attenuationDistance = 0.0;
+	bool solid = false; // whether it crossed solid glass
+	bool reflected = false; // or was reflected off glass
+	for (uint surfaceIt = 0; surfaceIt < SHADER_TYPES_CAUSTIC_SURFACE_COUNT; surfaceIt++)
+	{
+		bool glass;
+		BvhHit hit = BvhTraceSceneOrGlass(path.origin, path.direction, 1e30, GiAlphaMask(), glass);
+		if (!BvhHitSomething(hit))
+			return;
+		if (!glass)
+		{
+			if (solid || reflected)
+			{
+				if (path.inside)
+					path.throughput *= VolumeAttenuation(path.attenuationColor, path.attenuationDistance, hit.t);
+				EmitterCausticSplat(path.origin + path.direction * hit.t, hit.normal, path.throughput, random);
+			}
+			return;
+		}
+		GlassSurface surface = GlassSurfaceAt(path.origin, path.direction, hit, frameIndex);
+		bool solidHere = TransmissionSolid(surface.material.transmission.y);
+		if (surfaceIt == 0u && solidHere && !hit.frontFace)
+		{
+			path.inside = true;
+			path.attenuationColor = surface.material.attenuationColor.rgb;
+			path.attenuationDistance = surface.material.transmission.z;
+		}
+		// at a surface it meets from outside, reflected as often as the surface's Fresnel reflection says (Russian
+		// roulette: its light as it was), else on through it, its light the more by the chance (GlassPathStep takes the
+		// reflection's share off). the light glass reflects is no one else's: the shadow rays go straight, and the
+		// indirect lighting's rays don't meet glass. cornell-caustic's ceiling, lit by what its water's waves reflect up
+		// in the reference, took only the indirect light
+		if (!path.inside)
+		{
+			float fresnel = FresnelSchlick(float3(surface.f0), 1.0, saturate(dot(-path.direction, surface.normal))).r;
+			if (random.Next() < fresnel)
+			{
+				path.direction = reflect(path.direction, surface.normal);
+				path.origin = surface.position + surface.normal * surface.eps;
+				reflected = true;
+				continue;
+			}
+			path.throughput /= max(1.0 - fresnel, 1e-6);
+		}
+		solid = solid || solidHere;
+		if (!GlassPathStep(path, surface, frameIndex, true))
+			return;
+	}
+#endif
+}
+
+// the light the emitters' caustics brought a pixel this frame (see EmitterCausticSplat): the irradiance over pi
+float3 EmitterCausticsAt(int2 pixel, ViewData view)
+{
+	if (!EmitterCausticsTraced())
+		return 0.0;
+	uint2 extent;
+	gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].GetDimensions(extent.x, extent.y);
+	uint index = (uint(pixel.y) * extent.x + uint(pixel.x)) * 3u;
+	float3 units = float3(gEmitterCausticPhotons[index], gEmitterCausticPhotons[index + 1u], gEmitterCausticPhotons[index + 2u]);
+	return units / (SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE * max(view.exposure, 1e-30));
 }

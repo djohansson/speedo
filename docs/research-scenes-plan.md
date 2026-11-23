@@ -333,6 +333,23 @@ reference, so that they fail on a regression, not on what the renderer approxima
   reflections of itself and of the panels over many bounces (Cycles' 100), where a traced hit takes the probes' light
   and one emitter sample. Not a step of its own in real time; C3's caustics through its gems are next to measure.
   Steps 6 (C2) and 8 (C3) wait on the user's calls on their designs (see the report of 2026-11-23).
+- 2026-11-23, the user's calls: step 8 as proposed (photons from the emitters through the glass into a screen space
+  buffer, averaged over frames; the emitters' shadow rays stop at solid glass, thin glass passes as before); step 6 kept
+  simple.
+- 2026-11-23, **step 8** (C3): the emitters' caustics (`ComputeEmitterCaustics`, docs/notes/rendering.md, "The emitters'
+  caustics"): 262144 photons a frame from the emitters by their power, aimed at the glass, refracted through it and
+  reflected off it by its Fresnel term, landing on the pixels that show where they land, over frames with the emitters'
+  light; the diffuse's shadow rays stop at solid glass while they are traced. The highlights keep the straight light (the
+  photons bring irradiance alone: glass-of-water's metal backdrop and table lost the softbox's reflection behind the glass,
+  0.738 to 0.841, with them stopped too). A refraction's hit the screen has something else in front of (cornell-caustic's
+  wall beside its cubes, through the water's front face) takes the light nearest it on its own plane on the screen: before,
+  the voxels' straight light drew the cubes' hard shadows beside them (the user's report: "an additional light").
+  cornell-caustic 0.669 to 0.448 (blurred, 1500 frames), every other scene within 0.007, glass-of-water as before
+  (0.739: its light is its metals' highlights, which no photon carries), D3D12 the same; CausticSpheres and the
+  punctual lights' caustics as before (no emitters). Cost at 1440p balanced: 0.23 ms for the photons, 0.6 ms a frame in
+  cornell-caustic and 0.3 in glass-of-water in all; none without solid glass (Bistro). Left: the photons' light in the
+  indirect lighting's voxels (the voxels still take the emitters' light straight through glass), what is off the screen,
+  and the highlights through glass.
 - 2026-11-23, **step 7** (B4): nothing to build: the main pass already clamps its color to 65000 (`MainColor`), short of
   the half float's 65504, and cornell-caustic's light (541127) drew without infinities or NaNs, glare and balanced
   upscaling on included.

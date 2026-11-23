@@ -408,8 +408,13 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 	// lookup on the screen first saved little: a wave waits for its slowest thread
 	if (EmittersLight())
 	{
-		float3 seen = TracedEmitterSeen(position, normal);
-		radiance += seen.x >= 0.0 ? surface.diffuseColor * seen : TracedEmitterKept(surface, view, position, normal, hit);
+		// (none for a metal, which has no diffuse to take it: glass-of-water's backdrop and table, seen through its glass,
+		// spent 0.6 ms a frame at 1440p on the screen's search around hidden hits, see TracedEmitterSeenAround)
+		if (any(surface.diffuseColor > 0.0))
+		{
+			float3 seen = TracedEmitterSeen(position, normal);
+			radiance += seen.x >= 0.0 ? surface.diffuseColor * seen : TracedEmitterKept(surface, view, position, normal, hit);
+		}
 		float3 specularShare = EnvironmentBrdfApprox(surface.f0, surface.f90, surface.roughness, nDotV);
 		if (dot(specularShare, float3(0.2126, 0.7152, 0.0722)) >= kTracedEmitterSpecularLeast)
 		{
@@ -417,7 +422,8 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 			float nearest = max(coneWidth, push);
 			EmitterReservoir reservoir = EmitterCandidates(position, normal, kTracedEmitterCandidateCount, nearest * nearest, random);
 			bool visible;
-			float3 irradiance = EmitterShade(reservoir, position, normal, push, nearest * nearest, true, true, visible);
+			bool throughGlass; // (the highlights keep the light straight through glass, see EmitterThroughSolidGlass)
+			float3 irradiance = EmitterShade(reservoir, position, normal, push, nearest * nearest, true, true, false, visible, throughGlass);
 			if (visible)
 			{
 				Surface specular = surface;
@@ -492,9 +498,58 @@ float3 TracedEmitterSeen(float3 position, float3 normal)
 	float2 seen = gTextures[SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE + current].Load(int3(texel, 0)).xy;
 	float expected = distance(view.eyePosition.xyz, position);
 	if (seen.x < 0.0 || abs(seen.x - expected) > 0.01 * expected || dot(EmitterUnpackNormal(seen.y), normal) < 0.9)
-		return -1.0;
+		return EmitterCausticsTraced() ? TracedEmitterSeenAround(view, at, position, normal, expected) : -1.0;
 	float4 light = gTextures[SHADER_TYPES_EMITTER_HISTORY_TEXTURE + current].Load(int3(texel, 0));
 	return light.a >= 0.0 ? light.rgb : -1.0;
+}
+
+// where the emitters' caustics are traced and a hit is on the screen but hidden there (TracedEmitterSeen's), the light the
+// main pass gathered nearest it on its own surface: the pixels on rings around its place (kTracedSeenRingCount of them,
+// each twice as far as the last, kTracedSeenRingTapCount a ring), the first ring's whose points are on the hit's plane
+// (within a hundredth of its distance from the eye, their normals within 25 degrees), their mean; -1 where none are, or
+// the hit faces away from the eye (the cubes' backs the water's inside reflects: no pixel shows them). the caustics land
+// on what the screen shows (EmitterCausticSplat), and a refraction shows what is hidden there: cornell-caustic's back
+// wall beside its cubes, seen through the water's front face, took the light its voxels keep (TracedEmitterKept),
+// straight through the water and shadowed by the cube as if it weren't there, a hard shadow beside each (the user's
+// report, 2026-11-23), where the reference has the caustics' net. Main Transmissive took 0.45 ms a frame more there at
+// 1440p with 5 rings of 8 taps, every hidden hit
+static const uint kTracedSeenRingCount = 4u;
+static const uint kTracedSeenRingTapCount = 6u;
+static const float kTracedSeenRingFirst = 4.0; // pixels
+
+float3 TracedEmitterSeenAround(ViewData view, float2 at, float3 position, float3 normal, float expected)
+{
+	if (dot(normal, view.eyePosition.xyz - position) <= 0.0)
+		return -1.0;
+	uint current = gEmitterData[gPushConstants.frameIndex][0].frame & 1u;
+	float turn = float(ShadowHash(uint2(at)) & 0xffffu) / 65536.0 * 6.28318530718;
+	for (uint ringIt = 0; ringIt < kTracedSeenRingCount; ringIt++)
+	{
+		float radius = kTracedSeenRingFirst * float(1u << ringIt);
+		float3 total = 0.0;
+		float count = 0.0;
+		for (uint tapIt = 0; tapIt < kTracedSeenRingTapCount; tapIt++)
+		{
+			float angle = turn + float(tapIt) * (6.28318530718 / float(kTracedSeenRingTapCount));
+			float2 tap = at + radius * float2(cos(angle), sin(angle));
+			if (any(tap < view.viewport.xy) || any(tap >= view.viewport.xy + view.viewport.zw))
+				continue;
+			int2 texel = int2(tap);
+			float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(texel, 0)).r;
+			float2 seen = gTextures[SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE + current].Load(int3(texel, 0)).xy;
+			if (depth <= 0.0 || seen.x < 0.0 || dot(EmitterUnpackNormal(seen.y), normal) < 0.9 ||
+				abs(dot(ShadowPosition(view, float2(texel), depth) - position, normal)) > 0.01 * expected)
+				continue;
+			float4 light = gTextures[SHADER_TYPES_EMITTER_HISTORY_TEXTURE + current].Load(int3(texel, 0));
+			if (light.a < 0.0)
+				continue;
+			total += light.rgb;
+			count += 1.0;
+		}
+		if (count > 0.0)
+			return total / count;
+	}
+	return -1.0;
 }
 
 // the emitters' light a traced hit's voxel keeps (gGiKept: what arrives there and the way it arrives from, taken once at

@@ -940,7 +940,16 @@ struct EmitterData
 	// candidates each of them resamples (SPEEDO_EMITTER_NEW_CANDIDATE_COUNT)
 	alignas(4) UINT1(newSampleCount);
 	alignas(4) UINT1(newCandidateCount);
+	// the emitters' caustics (see ComputeEmitterCaustics): the photons traced from them each frame toward the glass
+	// (SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT; 0 where there are none: no solid glass, View > Rendering Features > Caustics
+	// off, no ray queries), and a sphere about the glass (xyz its center, w its radius) they are aimed at. while they are
+	// traced, the emitters' shadow rays stop at solid glass (see EmitterThroughSolidGlass), whose light arrives as theirs
+	alignas(4) UINT1(causticPhotonCount);
+	alignas(16) FLOAT4(glass); // (at 80 bytes: no padding before it, whatever the layout's rules)
 };
+// the emitters' caustics' light as the photons land on the frame's pixels (gEmitterCausticPhotons: a uint per channel
+// and pixel), the irradiance over pi times the view's exposure in 1 / SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE
+#define SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE 4096.0
 
 // a view a light's shadow is drawn from: world to clip space (depth reversed, 1 at its near plane to 0 at its far), drawn
 // in a tile of the atlas

@@ -133,6 +133,8 @@ constexpr uint8_t kGiWorldFoldEntryPoint = 73;
 constexpr uint8_t kGiWorldFilterEntryPoint = 74;
 // the lookups' sides (see ComputeGiSides)
 constexpr uint8_t kGiSidesEntryPoint = 75;
+// the emitters' caustics' photons (see ComputeEmitterCaustics)
+constexpr uint8_t kEmitterCausticsEntryPoint = 76;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -163,8 +165,9 @@ constexpr float kAerialPerspectiveHistoryBlend = 0.9F;
 // kVisibilityRecountFrameCount-th frame anyway, to count them again
 constexpr float kVisibilityTieredShare = 0.125F;
 constexpr uint64_t kVisibilityRecountFrameCount = 16;
-// diagnostic: the ray query replay's (see gfx/rayquerywatch.h), after the others, where the shaders have the watch
-constexpr uint8_t kRayQueryReplayEntryPoint = 53;
+// diagnostic: the ray query replay's (see gfx/rayquerywatch.h), after the others, where the shaders have the watch (it
+// was 53, the lens's, once entry points were added before it)
+constexpr uint8_t kRayQueryReplayEntryPoint = 77;
 // the bytes of a page of the cache (a block's 64 entries of 4 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 4 * 4 * sizeof(uint32_t);
@@ -463,6 +466,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		 .persistent = true});
 	myCausticPhotons = myGraph.CreateBuffer(
 		{.name = "Caustic Photons", .size = uint64_t{shadows::kAtlasSize / 2} * (shadows::kAtlasSize / 2) * 3 * sizeof(uint32_t)});
+	myEmitterCausticPhotons = myGraph.CreateBuffer(
+		{.name = "Emitter Caustic Photons", .sizeOf = [](Extent2d extent) { return PixelCount(extent) * 3 * sizeof(uint32_t); }});
 	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 	{
 		myShadowViewBuffers.emplace_back(BufferCreateDesc{
@@ -1771,6 +1776,26 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myEmitterFiltered, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[tracedKernel](FrameGraph::PassContext& context) { tracedKernel(context.cmd, kEmitterYEntryPoint); });
+	// the emitters' caustics (see ComputeEmitterCaustics): their photons' light emptied, then the photons traced from the
+	// emitters through the solid glass into the pixels they land on, which Emitter Temporal adds
+	myEmitterCausticsClearPass = myGraph.AddPass(
+		"Emitter Caustics Clear",
+		[this](FrameGraph::PassBuilder& builder) { builder.Use(myEmitterCausticPhotons, ResourceUse::TransferDestination()); },
+		[this](FrameGraph::PassContext& context)
+		{
+			CommandEncoder(context.cmd)
+				.FillBuffer(context.graph.GetBuffer(myEmitterCausticPhotons), 0, PixelCount(myGraph.GetExtent()) * 3 * sizeof(uint32_t), 0);
+		});
+	myEmitterCausticsPass = myGraph.AddPass(
+		"Emitter Caustics",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myEmitterCausticPhotons, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{ kernel(context.cmd, ComputePipelineVariant{.entryPoint = kEmitterCausticsEntryPoint}, myEmitterCausticsThisFrame, 1); });
 	// then per pixel: upsampled from the traced pixels around and accumulated over frames (see ComputeEmitterTemporal)
 	myEmitterTemporalPass = myGraph.AddPass(
 		"Emitter Temporal",
@@ -1779,6 +1804,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myEmitterFiltered, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myEmitterCausticPhotons, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			for (auto image : myEmitterSurfaces)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			// and the untraced specular's highlights: the last frame's gathered by the same reprojection into the frame's
@@ -2797,6 +2823,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	count("SPEEDO_EMITTER_VISIBILITY_FRAME_COUNT", myEmitterVisibilityFrameCount, 1, 1024);
 	count("SPEEDO_EMITTER_NEW_SAMPLE_COUNT", myEmitterNewSampleCount, 1, 64);
 	count("SPEEDO_EMITTER_NEW_CANDIDATE_COUNT", myEmitterNewCandidateCount, 1, 256);
+	// (0 for none; at most a dispatch's 65535 groups of 64)
+	count("SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT", myEmitterCausticPhotonCount, 0, 65535 * 64);
 	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
 	myCollectTimings = collect != nullptr && std::string_view(collect) == "1";
 }
@@ -3429,6 +3457,9 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			"gReprojectedDepth", BufferBinding{.buffer = myGraph.GetBuffer(myReprojectedDepth), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 		pipeline.SetDescriptorData(
 			"gUpscaleDepth", BufferBinding{.buffer = myGraph.GetBuffer(myUpscaleDepth), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+		pipeline.SetDescriptorData(
+			"gEmitterCausticPhotons", BufferBinding{.buffer = myGraph.GetBuffer(myEmitterCausticPhotons), .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 		myPreviousValid = false;
 	}
 	// the near field's history at this size (holding nothing yet), bound once, both of each: the frame's parity picks
@@ -4082,6 +4113,43 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		data.roulette = myEmitterRoulette;
 		data.newSampleCount = myEmitterNewSampleCount;
 		data.newCandidateCount = myEmitterNewCandidateCount;
+		// the emitters' caustics, where some of the glass is solid (a volume's thickness, or all of it by the frame's
+		// setting: see TransmissionSolid; thin walls let the emitters' shadow rays through, and Bistro's, all thin, would
+		// trace photons for nothing) and the device's ray queries trace it (see ComputeEmitterCaustics), aimed at the sphere
+		// about the transmissive phase's glass draws
+		myEmitterCausticsThisFrame = 0;
+		if (myEmittersOn && frame.caustics && myTwoPhases && frame.model->GetAccelerationStructures() != nullptr)
+		{
+			const auto& materials = frame.model->GetDesc().materials;
+			bool solid = false;
+			std::optional<Bounds3f> glass;
+			for (const auto& item : myDrawLists[std::to_underlying(MainPassPhase::kTransmissive)].items)
+			{
+				auto material = static_cast<int32_t>(item.materialSlot) - 1;
+				if (item.variant.topology != PrimitiveTopology::kTriangleList || material < 0 || std::cmp_greater_equal(material, materials.size()))
+					continue;
+				const auto& desc = materials[static_cast<size_t>(material)];
+				if (desc.blend || desc.transmission <= 0.0F)
+					continue;
+				solid = solid || frame.solidTransmission || desc.thickness > 0.0F;
+				if (glass)
+					glass->Merge(item.bounds);
+				else
+					glass = item.bounds;
+			}
+			if (solid && glass)
+			{
+				myEmitterCausticsThisFrame = myEmitterCausticPhotonCount;
+				auto center = glass->Center();
+				data.glass[0] = center.x;
+				data.glass[1] = center.y;
+				data.glass[2] = center.z;
+				data.glass[3] = glass->Radius();
+			}
+		}
+		data.causticPhotonCount = myEmitterCausticsThisFrame;
+		myGraph.SetEnabled(myEmitterCausticsClearPass, myEmitterCausticsThisFrame > 0);
+		myGraph.SetEnabled(myEmitterCausticsPass, myEmitterCausticsThisFrame > 0);
 		// fewer where something moves, which may come between a point and the pixel
 		data.visibilityFrameCount = data.movingBvh != 0U ? std::max(myEmitterVisibilityFrameCount / 4, 1U) : myEmitterVisibilityFrameCount;
 		data.raw = frame.pushConstants.debugView == DEBUG_VIEW_EMITTERS_RAW ? 1U : (frame.pushConstants.debugView == DEBUG_VIEW_EMITTERS_REFERENCE ? 2U : 0U);

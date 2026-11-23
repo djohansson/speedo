@@ -1017,6 +1017,48 @@ drawn every frame, the dish's frame 5.67 ms against 4.48 now, its render the sam
 rough glass's spread, the photons' light in the indirect lighting's voxels, and the caustics' noise where few photons
 land (a texel's 16).
 
+**The emitters' caustics** (2026-11-23, the research scenes plan's C3; `ComputeEmitterCaustics`, the Emitter Caustics
+pass, before Emitter Temporal): the shadow views' photons are the punctual lights' and the sun's, landing in their views'
+tiles of the transmittance, of which an emissive surface has none: cornell-caustic's water (a small emissive quad over a
+box filled to two thirds with water) cast nothing, and the walls under it were lit straight through the waves, a flat
+light where the reference's is a net of bright lines. Where some glass is solid (a volume's thickness, or all of it by
+the research set's conditions, `TransmissionSolid`; Bistro's, thin walls all, traces none) and caustics are on,
+`SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT` photons a frame (262144) leave points of the emitter triangles picked by their power
+(`EmitterPickByPower`, down the light tree by the nodes' power alone), aimed at the sphere about the transmissive draws
+(`EmitterData::glass`: uniformly in its cone from outside it, cosine weighted from inside), each its share of the light
+(the radiance by the emission's cosine over the densities it was picked with), through the glass as the shadow views'
+photons go (`GlassPathStep`, absorbing along the path), reflected at a surface met from outside as often as its Fresnel
+term says (Russian roulette) and on through it otherwise. One that lands on an opaque surface having crossed solid glass
+or been reflected by glass adds its light to the pixels that show that point (`EmitterCausticSplat`: the 2x2 around its
+place in each view, those whose pre-pass point is on its surface and seen from its side, by the pixel's area there: the
+irradiance over pi times the exposure, in fixed point rounded at random, `gEmitterCausticPhotons`), and Emitter Temporal
+adds that to the emitters' light past its clamp on what is far brighter than the history, over frames with it (the
+photons land on a caustic's pixel in some frames and not others). Light straight through solid glass would count it
+again: the emitters' shadow rays for the diffuse stop at solid glass while the photons are traced
+(`EmitterThroughSolidGlass`: one query where all glass is solid, else the glass along the way until a solid one). Not
+the highlights': the photons bring irradiance alone, and glass-of-water's backdrop and table, metals of roughness 0.32,
+lost the softbox's reflection behind the glass and stream (0.738 stops off to 0.841) where only their glossy rays,
+through two glass surfaces at most, could follow it through the water, ice and bubbles; their light samples
+(`TracedGlossyEmitters`, `TracedHitRadiance`'s) and the untraced specular's points still see through glass. The
+reflected photons are no one else's light either (the shadow rays go straight, the indirect lighting's rays don't meet
+glass): cornell-caustic's ceiling and upper walls, lit by what the waves reflect up in the reference, took only the
+indirect light (0.495 stops off to 0.446). The research set at 1500 frames: cornell-caustic 0.669 to 0.448 blurred stops
+off its reference (its net of caustics over the walls, floor and cubes under the water as the reference's), every other
+scene within 0.007 (veach-bidir 0.240 to 0.232, coffee-maker 0.411 to 0.406; glass-of-water as before, its light the
+highlights'), D3D12 the same. The cost at 1440p balanced (RTX 4070 Ti SUPER): Emitter Caustics 0.23 ms, its clear
+0.015; Main Transmissive 0.33 ms more in cornell-caustic (the search beside its cubes); the frame 0.6 ms more there, 0.3 in
+glass-of-water; nothing where no glass is solid (Bistro).
+
+The photons land on what the screen shows, and a refraction shows what is hidden there: cornell-caustic's back wall
+beside its cubes, seen through the water's front face where the screen has the cube, took what its voxels keep
+(`TracedEmitterKept`: straight through the water, shadowed by the cube as if it weren't there), a hard shadow beside each
+(the user's report, 2026-11-23: "an additional light"). Such a hit takes the light gathered nearest it on its own plane
+on rings around its place (`TracedEmitterSeenAround`: 4 rings of 6 taps from 4 pixels out, each twice as far; none for a
+hit facing away from the eye, which no pixel shows), and none of it where the hit has no diffuse (a metal's: glass-of-water
+spent 0.6 ms of Main Transmissive on the search otherwise). What is off the screen or hidden all around still takes the
+voxels' straight light, and the indirect lighting's voxels take the emitters' light straight through glass (no photons
+land there).
+
 ## Ray traced shadows
 
 Lights have a size (`LightData::size`): a directional light's angular radius in radians, a point or spot light's radius
