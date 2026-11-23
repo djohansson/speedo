@@ -151,6 +151,14 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
 
 ## Open for the user
 
+- Step 3, how a lookup that leaves voxels out stays continuous. (a) Each left out voxel takes the mean of the kept
+  voxels beside it in the grid (its 6 neighbours, read beyond the lookup's 8): continuous, some 30 more texel reads where
+  voxels are left out, and a neighbour outside the 8 is taken as seen, untested. (b) The lookup over the 27 voxels
+  around the point by a smooth weight (a quadratic B-spline), all 27 tested for sight: continuous by construction and
+  blurrier, and the sight test of all 27 cost 1.0 ms a frame at bathroom2's pose and 2.1 at Bistro's when it was tried.
+  (c) Leave fewer out: find which surface voxels fail the sight test on plain ceilings and walls and whether they
+  should (the surface's own, by where their entries' rays start, or its other side's), which may be most of it and costs
+  nothing. My recommendation: (c) first, then (a) for what is left.
 - Step 5 spends more of the gpu while the light settles: a slower frame for the first second after a load or a jump,
   for a picture that settles sooner.
 
@@ -179,3 +187,16 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
   arriving after the move the places behind the cubes are as the wall around them, where they were holes and grain.
   docs/notes/rendering.md, "The emitters' caustics". Not done: the hits' light sample out of the transmissive fragment
   shader (step 1's cost stands, docs/backlog.md).
+- 2026-11-23, **step 3**, looked into, nothing built: the blocks and teeth are where a lookup leaves voxels of its 8 out
+  and takes the others by their weights' sum (`GiSampleClipWithout`). Where a left out voxel is the nearest, the others'
+  weights are all small and their ratio jumps from one kept voxel's light to the next's across it: a square a voxel
+  wide. Marked in the indirect diffuse view, most of the classroom's ceiling, walls and floor leave voxels out: the
+  sight test (`GiSidesHidden`) leaves out surface voxels only (never the air's), and the far sides' rule
+  (`GiFarSides`) leaves out more in patches of the floor, the windows and stripes down cornell-box's faces. With the far
+  sides' rule off (`SPEEDO_GI_CACHE_THIN=0`) cornell-box's teeth are nearly gone and the classroom's wall is smoother;
+  with the sight test off (`SPEEDO_SKIP_PASSES="GI Sides"`) the classroom leaks light in wedges (it is needed);
+  veach-ajar's squares around the door's handle stay either way. Tried: what the left out voxels would have counted
+  given to the next clip's light at the point (continuous where the clips are). The classroom's wall was then the next
+  level's own blocks, larger, and a bright wedge where that level's lookup has no sight test of its own (the pass
+  tests the clips that light the point by their weights, one near the eye). Open, for the user: how the left out
+  voxels' share is filled so that the light stays continuous (below).
