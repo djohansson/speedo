@@ -392,3 +392,13 @@ Nothing now.
     street 0.39, the kitchen 0.33, living-room 0.11 (900 frames, 1920x1080). Not in the repository yet: the user's
     call. The kitchen's and living-room's blocks it doesn't touch: those want the surface's light from its voxels
     beyond the 8, or smoothing on the screen.
+- 2026-11-24, **the classroom's squares** (report 3; the user: "bring the classroom fix in"): `GiFarSides`' clause for
+  a voxel behind a single sided surface isn't taken for a voxel that holds a drawn side facing the lookup's surface's
+  way within 60 degrees. The classroom's walls and ceiling interpolate again
+  (`temp/review/research-issues/s6-classroom-indirect.png`, `farown-classroom-wall.png`). The regression poses at 900
+  frames within 0.54 of 255 of step 5's (salle_de_bain framed 0.05, at its shelves 0.25, bathroom2's niche 0.24 and
+  mirror 0.14, Bistro's street 0.54). Against the references nothing moves but veach-ajar (0.206 to 0.201) and
+  living-room-2 (0.269 to 0.277): the classroom's number is its light's level, not its squares (0.262 either way).
+  The cost: none to measure as it is (Bistro's frame 22.54 ms against 22.53 at 1440p balanced, the classroom's 7.92
+  against 7.82); with the voxel's normal looked at for every voxel of the 8, as first written, Bistro's Reflection
+  Trace took 0.75 ms more and its Main Transmissive 0.76. visualtest 8 of 8, the quick tier 142 of 142.

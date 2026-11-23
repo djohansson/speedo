@@ -5248,10 +5248,21 @@ uint GiFarSides(GiClipView gi, float3 coordinate, float3 normal, float3 surface)
 		// (one behind a single sided surface, by the ways the sides never drawn that wrote it face: the surface is within a
 		// voxel of its center that way back, so a point more than kGiBehindReach of a voxel back is taken to be in front
 		// of it. the voxels past the end of salle_de_bain's niche, see ComputeGiCacheFilter)
+		// (not one that holds a drawn side facing the lookup's surface's way, within 60 degrees: it stands for that
+		// surface too, whatever else wrote it. a large voxel holds several things, single sided ones among them: the
+		// glTF research set's classroom's floor is 222 m wide, its finest voxels 0.5 m, written by undrawn sides facing 5
+		// ways of 6, and every lookup on its walls took each neighbour half a voxel to the side for one behind such a
+		// surface: one or two of its surface's four voxels left, the light a voxel's, flat, with a step to the next (the
+		// user's report, 2026-11-23, "large square patches with sharp discontinuities"). the poses the rule was made
+		// for as they were: salle_de_bain framed 0.05 of 255 and at its shelves 0.25, bathroom2's niche 0.23)
+		// (its normal looked at only where the clause would leave it out: for every voxel of the 8, Bistro's Reflection
+		// Trace took 0.75 ms a frame more at 1440p and its Main Transmissive 0.76)
 		uint undrawn = (voxel.emissionB >> kGiVoxelUndrawnShift) & 0x3Fu;
-		for (uint facingIt = 0; facingIt < 6u; facingIt++)
-			if ((undrawn & (1u << facingIt)) != 0u && dot(offset, GiFacingAxis(facingIt)) < -kGiBehindReach)
-				far |= 1u << cornerIt;
+		bool behind = false;
+		for (uint facingIt = 0; facingIt < 6u && undrawn != 0u; facingIt++)
+			behind = behind || ((undrawn & (1u << facingIt)) != 0u && dot(offset, GiFacingAxis(facingIt)) < -kGiBehindReach);
+		if (behind && !((voxel.normal & kGiVoxelNormalDrawn) != 0u && dot(GiVoxelNormal(voxel.normal), normal) >= 0.5))
+			far |= 1u << cornerIt;
 		if (!GiVoxelSided(voxel, sheets))
 			continue;
 		// (and one facing against the lookup's surface whose center is behind that surface, the point's (in voxels,

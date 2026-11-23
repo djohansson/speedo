@@ -2051,6 +2051,18 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
       and the classroom is further off with every level (0.265, 0.387, 0.429, 0.421), 0.18 stops darker at 6 than at 3
       though its blocks are gone: why the finer levels' room is darker isn't looked into
       (docs/research-scenes-review-plan.md has the table).
+    - **The classroom's patches were the far sides' rule's** (2026-11-24). Counted by rule (of a lookup's 8, the voxels
+      that hold a surface facing the pixel's way, and how many each rule keeps), the sight test and the facing rule
+      keep the wall's four and `GiFarSides` leaves one or two: its clause for a voxel behind a single sided surface
+      (the ways its undrawn sides face, a point more than half a voxel back along one) is true of nearly every
+      neighbour where a voxel is 0.5 m and holds several things, single sided ones among them, facing 5 ways of 6. The
+      clause isn't taken for a voxel that holds a drawn side facing the lookup's surface's way within 60 degrees: it
+      stands for that surface too. The squares are gone, the poses the rule was made for as they were (salle_de_bain
+      framed 0.05 of 255, its shelves 0.25, bathroom2's niche 0.24). Deciding what a lookup keeps for the voxel the
+      pixel is in rather than the pixel changed nothing (the pixels of a voxel decide alike already), and jittering the
+      lookup's place made ramps of the steps under a dither (the user: new artifacts). What is left of blocks is where
+      the 8 hold fewer than four voxels of the surface at all (behind the kitchen's toaster, around living-room's
+      arches): docs/research-scenes-review-plan.md.
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows
