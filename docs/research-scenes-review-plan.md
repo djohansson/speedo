@@ -202,3 +202,23 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
   voxels' share is filled so that the light stays continuous (below).
 - 2026-11-23, the user confirmed steps 1 and 2 by eye. Left in spaceship: specks around its display seen through the
   dome (docs/backlog.md). Step 3, the user's call: (c) first, then (a), and (b) only if those two aren't enough.
+- 2026-11-23, **step 3**, (c) and (a) tried, nothing kept (the experiment is `temp/research-issues/step3-across-fill.patch`):
+  - (c): the voxels the sight test leaves out are never the surface's own. Marked by how they face the lookup's surface,
+    they are surface voxels facing against it (a wall's or a ceiling's other side) or across it (the grooves between the
+    classroom's ceiling tiles, cornell-box's top face beside its sides); none facing its way, and no air. They are left
+    out for what they are: nothing to gain by leaving fewer out.
+  - (a): each left out voxel filled with the mean of its grid neighbours that may stand for the surface (in front of its
+    plane, air or facing its way, not left out themselves, no further off the surface). The classroom's wall a little
+    smoother and 3 of 255 brighter; cornell-box's teeth and veach-ajar's squares as they were. Not the cause alone.
+  - What does remove them: the voxels facing across or against the surface left out everywhere, not only where their
+    apex doesn't see the point (their light is of the half of the directions their own surface faces; the sight test
+    takes them in some columns of voxels and not in others, which is the teeth), in the sides' mask (`GiSidesMask`: in
+    the lookup itself the shaders took 11 minutes to compile), with (a)'s fill. veach-ajar's squares gone, the
+    classroom's ceiling and wall smooth, cornell-box's left face without teeth (the front face faintly). But the rooms
+    come out brighter and living-room's ceiling takes a bright line along its cornice and its shutters more light: with
+    the surfaces' voxels gone from a lookup among mouldings, what is left is the air's light, the probes', which leaks.
+    The research set (blurred stops off the reference, the light's ratio): living-room 0.305 to 0.363 (+0.00 to +0.06),
+    classroom 0.272 to 0.294 (-0.04 to +0.06), bathroom 0.224 to 0.238; pontiac-gto 0.276 to 0.252, veach-ajar 0.201 to
+    0.194, spaceship 0.202 to 0.195, bathroom2 0.197 to 0.192; 9 scenes nearer and 7 further. Only where one of the
+    lookup's 8 holds the surface's own voxel: living-room 0.358, classroom 0.290, the line still there.
+  Open: what a lookup takes in place of the voxels that face another way, where the air's light isn't to be trusted.
