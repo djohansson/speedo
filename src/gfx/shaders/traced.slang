@@ -32,6 +32,20 @@ static const uint kTracedReflectionGlassSurfaceCount = 2u;
 // it), from this many candidates, one shadow ray
 static const float kTracedEmitterSpecularLeast = 0.1;
 static const uint kTracedEmitterCandidateCount = 2u;
+// the candidates a glossy reflection's light sample is resampled from (see TracedGlossyEmitters: one, the tree's pick
+// alone; two cost Bistro at night 0.17 ms a frame more at 1440p and measured the same, settled and at 8 frames), and
+// below how much of white at the view's exposure (of what the pixel takes of it) its shadow ray is traced only at random,
+// as often as its share of this (Russian roulette: what it gives, divided by that chance, is the same on average; the ray
+// traced always cost Bistro at night 0.3 ms more)
+static const uint kTracedGlossyEmitterCandidateCount = 1u;
+static const float kTracedGlossyEmitterTracedLeast = 0.25;
+
+// what the last traced path's hit emits toward it (TracedHitRadiance's emission, less what the glass on the way kept: see
+// TracedPath), where it is, and whether the emitters' light samples could have picked it (a hit of what doesn't move, where
+// emitters are lights; see emitters::Build): what the Reflection Trace pass weighs against its light sample
+static float3 gTracedHitEmission;
+static float3 gTracedHitPoint;
+static bool gTracedHitEmitter;
 // the share of a reflection's light the specular takes (the split sum's terms by the occlusion, as luminance) below which
 // none of it is traced, and from which all of it: below, what a trace changes wouldn't show. a dielectric's is about 0.04
 // at normal incidence (glass, water: traced), and grows toward grazing angles; an obj material of a faint Ks (its Ns
@@ -155,19 +169,21 @@ bool TracedGlossyHere()
 }
 
 // the visibility buffer's shading's glossy reflection at a pixel, which the Reflection Trace pass traces (see
-// ComputeReflectionTrace): the ray's direction and the surface's roughness, and what the probes and the environment
-// predict along it (expected, where the trace writes the ray's radiance as a share of it and its hit distance), and the
-// specular's weight of the pixel's own prediction with the surface's roughness (see Shade; ComputeReflectionTemporal adds
-// the filtered share's product with it to the main color); kReflectionUnknown in both where none is traced. in compute
-// only: a fragment shader's storage writes turn its early depth test off, even on a path never taken (see GiMarch's cap)
-void TracedReflectionRecord(uint2 pixel, float3 direction, float roughness, float4 expected, float4 weight)
+// ComputeReflectionTrace): the ray's direction and the normal its lobe is about (octahedral, 32 bits each: the light
+// sample's weight against the ray takes the lobe's density, which a mirror's narrow lobe makes sensitive to a normal's
+// rounding, see TracedGlossyEmitters), and what the probes and the environment predict along it (expected, where the
+// trace writes the ray's radiance as a share of it and its hit distance), and the specular's weight of the pixel's own
+// prediction with the surface's roughness (see Shade; ComputeReflectionTemporal adds the filtered share's product with it
+// to the main color); kReflectionUnknown in both where none is traced. in compute only: a fragment shader's storage
+// writes turn its early depth test off, even on a path never taken (see GiMarch's cap)
+void TracedReflectionRecord(uint2 pixel, float3 direction, float3 normal, float4 expected, float4 weight)
 {
 	__stage_switch
 	{
 	case compute:
 		gRWTextures[SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE][pixel] = expected;
 		gRWTextures[SHADER_TYPES_REFLECTION_WEIGHT_RW_TEXTURE][pixel] = weight;
-		gRWTextures[SHADER_TYPES_REFLECTION_RAY_RW_TEXTURE][pixel] = float4(GiOctahedral(direction), roughness, 0.0);
+		gRWTextures[SHADER_TYPES_REFLECTION_RAY_RW_TEXTURE][pixel] = float4(GiOctahedral(direction), GiOctahedral(normal));
 		return;
 	case fragment:
 		return;
@@ -331,6 +347,9 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 	float3 view = -direction;
 	float nDotV = max(dot(normal, view), 1e-4);
 	float3 radiance = emission;
+	gTracedHitEmission = emission;
+	gTracedHitPoint = position;
+	gTracedHitEmitter = hit.modelInstance != ~0u && any(emission > 0.0) && EmittersLight();
 
 	// the lights: of the hit's cell of the finest clip whose box around the eye holds it (as the voxels are lit), else
 	// every one
@@ -595,6 +614,8 @@ float3 TracedPath(
 	bool going = true;
 	bool crossedGlass = false; // whether the path has met a transmissive surface (see TracedShade's fromGlass)
 	BvhHit hit = BvhNothing(kTracedFar);
+	gTracedHitEmission = 0.0;
+	gTracedHitEmitter = false;
 	[loop]
 	for (uint queryIt = 0; queryIt < queryCount && going; queryIt++)
 	{
@@ -650,6 +671,7 @@ float3 TracedPath(
 			TracedShade(hit, path.origin, path.direction, cone, roughness, !reflection || crossedGlass, shadedT, valid, shadedMoving);
 		moving = moving || shadedMoving;
 		light += path.throughput * radiance;
+		gTracedHitEmission *= path.throughput;
 	}
 	return light;
 }
@@ -759,6 +781,92 @@ float3 TracedGlossyDirection(float3 geometryNormal, float3 normal, float3 view, 
 	return TracedAboveGeometry(direction, geometryNormal);
 }
 
+// the density, per solid angle, of a glossy ray's direction (TracedGlossyDirection: view reflected about a normal of the
+// GGX lobe of alpha about normal, by the normals visible from view) toward direction: the visible normals' density at the
+// half vector over the reflection's Jacobian, G1(view) D(h) / (4 n.v); 0 below the surface
+float TracedGlossyDensity(float3 normal, float3 view, float alpha, float3 direction)
+{
+	if (dot(normal, direction) <= 0.0)
+		return 0.0;
+	float nDotV = max(dot(normal, view), 1e-4);
+	float nDotH = saturate(dot(normal, normalize(view + direction)));
+	float alpha2 = alpha * alpha;
+	float d = nDotH * nDotH * (alpha2 - 1.0) + 1.0;
+	float g1 = 2.0 * nDotV / (nDotV + sqrt(alpha2 + (1.0 - alpha2) * nDotV * nDotV));
+	return g1 * alpha2 / (3.14159265 * d * d) / (4.0 * nDotV);
+}
+
+// the emitters' highlights in a glossy reflection (docs/research-scenes-plan.md, C1): a light sample beside its ray, an
+// emitter point resampled (RIS) from kTracedGlossyEmitterCandidateCount candidates (EmitterPick's, a point of each) by
+// what it gives the lobe (its emission's luminance by the lobe's density toward it, TracedGlossyDensity, and its area's
+// solid angle), shadowed by a ray from off the surface (push, along geometryNormal), weighed against the ray meeting it by
+// chance by the balance heuristic (the light's density EmitterDensity's, the lobe's its own: see ComputeReflectionTrace
+// for the ray's share). its estimate of the lobe's average of the emitters' light, as the ray's radiance is of all of it.
+// a point nearer than nearest (squared) is taken as that far, as the emitters' samples take it. take: what the pixel
+// takes of the estimate (its weight over the ray's prediction, see ComputeReflectionTrace), least: kTracedGlossyEmitterTracedLeast
+// of white at the view's exposure, below which the shadow ray is a gamble (by the estimate unshadowed, as the pixel takes it)
+float3 TracedGlossyEmitters(
+	float3 position, float3 geometryNormal, float3 normal, float3 view, float alpha, float push, float nearest2, float3 take, float least, uint2 pixel)
+{
+	EmitterRandom random = EmitterRandomAt(pixel ^ uint2(0x7f4au, 0x1b87u), TracedFrame());
+	EmitterReservoir reservoir = EmitterEmpty();
+	// the chosen candidate's point, the lobe's density toward it, and what it gives the lobe unshadowed (by its emission)
+	EmitterPoint chosen;
+	chosen.position = 0.0;
+	chosen.normal = 0.0;
+	chosen.emission = 0.0;
+	chosen.area = 0.0;
+	chosen.doubleSided = false;
+	float chosenLobe = 0.0;
+	float chosenGives = 0.0;
+	for (uint candidateIt = 0; candidateIt < kTracedGlossyEmitterCandidateCount; candidateIt++)
+	{
+		float probability;
+		uint triangle = EmitterPick(random, position, normal, probability);
+		float2 barycentrics = EmitterBarycentrics(random);
+		if (triangle == ~0u)
+			continue;
+		EmitterPoint point = EmitterPointAt(triangle, barycentrics);
+		float3 offset = point.position - position;
+		float distance2 = dot(offset, offset);
+		float3 toPoint = offset * rsqrt(max(distance2, 1e-30));
+		float emitted = -dot(point.normal, toPoint);
+		if (point.doubleSided)
+			emitted = abs(emitted);
+		float lobe = dot(geometryNormal, toPoint) > 0.0 ? TracedGlossyDensity(normal, view, alpha, toPoint) : 0.0;
+		float gives = lobe * max(emitted, 0.0) / max(distance2, nearest2);
+		float target = EmitterLuminance(point.emission) * gives;
+		// its density per area: the triangle's probability, uniformly over it
+		if (reservoir.Add(triangle, barycentrics, target, target * point.area / max(probability, 1e-30), random))
+		{
+			chosen = point;
+			chosenLobe = lobe;
+			chosenGives = gives;
+		}
+	}
+	reservoir.count = float(kTracedGlossyEmitterCandidateCount);
+	reservoir.Finish();
+	if (reservoir.triangle == ~0u)
+		return 0.0;
+	float light = EmitterDensity(position, normal, chosen.position);
+	float3 estimate = chosen.emission * chosenGives * reservoir.weight * (light / (light + chosenLobe));
+	// Russian roulette on the shadow ray, by what the pixel would take of the estimate
+	float takes = EmitterLuminance(take * estimate);
+	if (takes < least)
+	{
+		float chance = takes / least;
+		if (!(random.Next() < chance))
+			return 0.0;
+		estimate /= chance;
+	}
+	float3 origin = position + geometryNormal * push;
+	float3 ray = chosen.position - origin;
+	float span = length(ray);
+	if (ShadowOccluder(origin, ray / max(span, 1e-30), span * 0.999, gEmitterData[gPushConstants.frameIndex][0].movingBvh != 0u) >= 0.0)
+		return 0.0;
+	return estimate;
+}
+
 // a fragment's sharp rays from its point at position (see kTracedFragmentBase), those traced says (none in compute):
 // light their light (rgb, and in a 1 where what it met is known, see TracedRadiance's valid; 0 where none is traced).
 // the reflections leave the surface as TracedReflection's ray does. the refractions from the surface along their
@@ -861,12 +969,13 @@ void ComputeReflectionTrace(uint3 dispatchThreadId: SV_DispatchThreadID)
 		bool isCoat = rayIt == 1u;
 		float3 direction = GiFromOctahedral(isCoat ? coat.xy : ray.xy);
 		// the glossy ray's cone widens by its lobe (as its alpha); the coat's is a mirror's, as a fragment's sharp one
-		float roughness = isCoat ? 0.0 : ray.z;
+		float roughness = isCoat ? 0.0 : ReflectionRoughness(weight.a);
 		float spread = isCoat ? 0.0 : max(roughness * roughness, 1e-3);
 		float t;
 		bool valid;
 		bool moving;
 		float3 radiance = TracedReflection(surface.position, surface.normal, direction, spread, roughness, t, valid, moving);
+		float3 emitted = gTracedHitEmitter && !isCoat ? gTracedHitEmission : float3(0.0);
 		// through the air between the surface and what the ray met, as if that lay along the eye's ray that much farther
 		// (AerialPerspectiveBetween); a miss has the fog toward the sky (TracedShade)
 		if (valid && t < kTracedMissDistance)
@@ -876,6 +985,7 @@ void ComputeReflectionTrace(uint3 dispatchThreadId: SV_DispatchThreadID)
 			float near = distance(view.eyePosition.xyz, surface.position);
 			AerialPerspectiveBetween(near, near + t, airLight, airTransmittance);
 			radiance = radiance * airTransmittance + airLight;
+			emitted *= airTransmittance;
 		}
 		if (isCoat)
 		{
@@ -896,11 +1006,34 @@ void ComputeReflectionTrace(uint3 dispatchThreadId: SV_DispatchThreadID)
 			float4 sample = float4(expected, 0.0);
 			if (valid)
 			{
+				// the emitters' highlights, where emissive surfaces are lights: what the ray met of them by the balance
+				// heuristic's share (the lobe's density toward it against the light samples', EmitterDensity), and a light
+				// sample (TracedGlossyEmitters) the rest; neither capped below, a small bright light's highlight being
+				// theirs (the cap had the smooth plate's image of veach-mis's smallest sphere dark in its center)
+				float3 highlights = 0.0;
+				if (EmittersLight())
+				{
+					radiance -= emitted;
+					float3 glossyNormal = GiFromOctahedral(ray.zw);
+					float3 toEye = normalize(view.eyePosition.xyz - surface.position);
+					float alpha = max(roughness * roughness, 1e-3);
+					if (any(emitted > 0.0))
+					{
+						float lobe = TracedGlossyDensity(glossyNormal, toEye, alpha, direction);
+						float light = EmitterDensity(surface.position, glossyNormal, gTracedHitPoint);
+						highlights = lobe + light > 0.0 ? emitted * (lobe / (lobe + light)) : emitted;
+					}
+					TracedCone cone = TracedPixelCone(surface.position);
+					float push = max(1.5 * cone.width, 1e-4 * distance(view.eyePosition.xyz, surface.position));
+					highlights += TracedGlossyEmitters(
+						surface.position, surface.normal, glossyNormal, toEye, alpha, push, push * push, weight.rgb / predicted,
+						kTracedGlossyEmitterTracedLeast / max(view.exposure, 1e-6), uint2(pixel));
+				}
 				float luminance = dot(weight.rgb * radiance / predicted, float3(0.2126, 0.7152, 0.0722));
 				float most = kReflectionMostWhite / max(view.exposure, 1e-6);
 				if (luminance > most)
 					radiance *= most / luminance;
-				sample = float4(radiance, ReflectionPackDistance(min(t, kTracedMissDistance), moving));
+				sample = float4(radiance + highlights, ReflectionPackDistance(min(t, kTracedMissDistance), moving));
 			}
 			sample.rgb /= predicted;
 			gRWTextures[SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE][pixel] = sample;

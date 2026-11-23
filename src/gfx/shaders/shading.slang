@@ -274,7 +274,7 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 				float least = kReflectionPredictionLeast / max(gViewData[gPushConstants.frameIndex][gShadingViewId].exposure, 1e-6);
 				float3 weight = (debugView == DEBUG_VIEW_TRACED_REFLECTIONS ? float3(share) : specular * share) * (own + least);
 				TracedReflectionRecord(
-					gFragmentPixel, direction, glossyRoughness, float4(expected, 0.0),
+					gFragmentPixel, direction, glossyNormal, float4(expected, 0.0),
 					float4(weight, ReflectionPackRoughness(glossyRoughness, dot(glossyNormal, surface.geometryNormal) < 0.995)));
 				if (coat)
 				{

@@ -262,7 +262,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myReflectionWeight = myGraph.CreateImage({.name = "Reflection Weight", .format = Format::kR16G16B16A16Sfloat});
 		myReflectionRows = myGraph.CreateImage({.name = "Reflection Rows", .format = Format::kR16G16B16A16Sfloat});
 		myReflectionFiltered = myGraph.CreateImage({.name = "Reflection Filtered", .format = Format::kR16G16B16A16Sfloat});
-		myReflectionRay = myGraph.CreateImage({.name = "Reflection Ray", .format = Format::kR16G16B16A16Sfloat});
+		// the direction and the lobe's normal, octahedral at 32 bits (see TracedReflectionRecord)
+		myReflectionRay = myGraph.CreateImage({.name = "Reflection Ray", .format = Format::kR32G32B32A32Sfloat});
 		myReflectionCoat = myGraph.CreateImage({.name = "Reflection Coat", .format = Format::kR16G16B16A16Sfloat});
 		for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 		{

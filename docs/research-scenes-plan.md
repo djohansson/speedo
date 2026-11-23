@@ -300,6 +300,17 @@ reference, so that they fail on a regression, not on what the renderer approxima
   `alongPath`; the caustics' photons by the thickness still, whose shadows the user judged by it), the untraced lookup by
   the thickness: modern-hall's green panel clear (0.284 to 0.234), teapot-full's tea a little lighter (0.186 to 0.208,
   its nested interface volumes), the glass sample models within 0.26 of 255, the cost a distance and a power a segment.
+- 2026-11-23, **step 4** (C1, glossy): a glossy reflection's emitter highlights by the balance heuristic between its
+  ray and a light sample beside it (`TracedGlossyEmitters`: a pick down the light tree, its light by the lobe's density,
+  a shadow ray, Russian roulette below a quarter of white in what the pixel takes), the light density a walk of the tree
+  toward the point (`EmitterDensity`: a function of the point alone, so that the weights sum to one, with no lookup from
+  a hit to its emitter); the cap left to what the ray met besides the emitters, which takes B5 with it (the smallest
+  sphere's highlight on the smooth plate whole). veach-mis 0.726 to 0.458 (light -0.441 to -0.209), glass-of-water 1.055
+  to 0.739, bathroom2 0.234 to 0.225, kitchen 0.276 to 0.271, the rest within 0.006; D3D12 the same (veach-mis 0.464).
+  The cost in Reflection Trace at 1440p balanced: Bistro at night 0.91 ms (the frame 1.06), glass-of-water 0.43,
+  bathroom2 0.11, Sponza 0.02 (docs/notes/rendering.md; one candidate, the resampling from two measured the same for
+  0.17 ms more). Left: the roughest plate (step 5),
+  crown's gold (0.591; step 9 after 5 and 8).
 - 2026-11-23, **step 7** (B4): nothing to build: the main pass already clamps its color to 65000 (`MainColor`), short of
   the half float's 65504, and cornell-caustic's light (541127) drew without infinities or NaNs, glare and balanced
   upscaling on included.

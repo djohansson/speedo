@@ -1200,7 +1200,27 @@ meet, and bathroom2_extended's floor, a coat reflecting some 5% of the emissive 
 it (the floor beside the window's reflection 178 to 213 of 255 at exposure 1.5; 208 to 227 by the light taken, 225 to
 238 uncapped). Elsewhere it changed 0.02 to 0.14 of 255 (ABeautifulGame, MetalRoughSpheres, ChronographWatch; Sponza's
 corridor, Bistro's street, bathroom2_core), and Bistro at night's lamps came out no brighter in what reflects them (its
-strips within the lit interiors' run-to-run noise, the frame's mean the same). Only where the reflection can show: the specular's share of its light (the split sum's
+strips within the lit interiors' run-to-run noise, the frame's mean the same). Since 2026-11-23 the cap leaves the
+emissive surfaces' light alone (docs/research-scenes-plan.md, C1, step 4): where they are lights, a glossy ray's sample
+is what it met less its emission (the hit's, `gTracedHitEmission`, less what the glass on the way kept), capped, plus
+the emitters' highlights by the balance heuristic between the ray and a light sample beside it
+(`TracedGlossyEmitters`): an emitter point picked down the light tree from the pixel (one candidate; the resampling by
+the lobe from two cost Bistro at night 0.17 ms more and measured the same), its light by the lobe's density toward it
+(`TracedGlossyDensity`, the visible normals' G1 D / 4 n.v, about the lobe's own normal, which the ray record carries now,
+32 bits a coordinate) and its area's solid angle, shadowed by a ray. The ray's emission takes lobe / (lobe + light) of
+itself, the light sample light / (lobe + light), the light density `EmitterDensity`: the tree walked toward the child
+whose box is nearest the point, a function of the point alone, so that the two weights sum to one at every point
+whatever the boxes' overlaps (the walk is the pick's own path where they don't), and no hit has to be traced back to its
+emitter. The shadow ray is a gamble below a quarter of white in what the pixel takes (Russian roulette, its estimate
+divided by its chance): traced always it cost Bistro at night 0.3 ms more. veach-mis, its plates' highlights of four
+spheres of falling size, went from 0.726 stops (blurred) off its reference to 0.458, its light from -0.441 stops to
+-0.209: each sphere's highlight on each traced plate, and the smallest's on the smooth plate no longer dark in its center
+(the cap's, B5); glass-of-water 1.055 to 0.739, its backdrop's highlight on the metal table; bathroom2 0.234 to 0.225,
+kitchen 0.276 to 0.271; the rest within 0.006 (crown's gold, rough or untraced, 0.596 to 0.591). The roughest plate,
+past the traced reflections' 0.6, is step 5's. It costs at 1440p balanced, in Reflection Trace: Bistro at night 0.91 ms
+(its 20 thousand emitter triangles' tree walked twice a glossy pixel, the pick and the density; the frame 1.06),
+glass-of-water 0.43, bathroom2 0.11, Sponza 0.02 (no emitters), and Main Visibility 0.04 more for the record's wider
+texels. Only where the reflection can show: the specular's share of its light (the split sum's
 terms by the occlusion, as luminance) from 0.005, all of it from 0.015 (`kTracedStrengthNone`, `kTracedStrengthFull`;
 a dielectric's is about 0.04 at normal incidence). San Miguel is an obj whose materials' `Ns` make walls, floors and trees
 smooth (`sqrt(2 / (Ns + 2))`, 0.14 at 96) and their `Ks` their specular faint: traced everywhere they cost 1.85 ms a frame

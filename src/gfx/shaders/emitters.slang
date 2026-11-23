@@ -330,6 +330,62 @@ EmitterReservoir EmitterCandidates(float3 position, float3 normal, uint count, f
 	return reservoir;
 }
 
+// a point of an emitter's, down the tree as EmitterPick goes (each child by its importance's share of the two), but
+// toward the child whose box is nearest the point (the first where both hold it) rather than at random: the probability
+// of that walk, and the triangle of the leaf it ends at. what the picks' density at a point is, where the boxes don't
+// overlap; a function of the point alone, so that what weighs a light sample against a ray that met the point by chance
+// is the same either way (see EmitterDensity)
+float EmitterWalk(float3 position, float3 normal, float3 point, out uint triangle)
+{
+	triangle = ~0u;
+	float probability = 1.0;
+	uint node = 0;
+	for (uint depthIt = 0; depthIt < EMITTER_NODE_DEPTH_MOST; depthIt++)
+	{
+		uint bits = asuint(gEmitterTree[node].axis.w);
+		if ((bits & EMITTER_NODE_LEAF) != 0u)
+		{
+			triangle = bits & EMITTER_NODE_INDEX_MASK;
+			return probability;
+		}
+		uint second = bits & EMITTER_NODE_INDEX_MASK;
+		EmitterNode firstNode = gEmitterTree[node + 1u];
+		EmitterNode secondNode = gEmitterTree[second];
+		float first = EmitterImportance(firstNode, position, normal);
+		float other = EmitterImportance(secondNode, position, normal);
+		if (!(first + other > 0.0))
+			return 0.0;
+		float3 outsideFirst = max(max(firstNode.low.xyz - point, point - firstNode.high.xyz), 0.0);
+		float3 outsideSecond = max(max(secondNode.low.xyz - point, point - secondNode.high.xyz), 0.0);
+		bool toFirst = dot(outsideFirst, outsideFirst) <= dot(outsideSecond, outsideSecond);
+		probability *= (toFirst ? first : other) / (first + other);
+		node = toFirst ? node + 1u : second;
+	}
+	return 0.0;
+}
+
+// the density, per solid angle, the emitters' samples have at a point of an emitter seen from a surface (at position, of
+// normal): the walk's probability (EmitterWalk) uniformly over its triangle's area, by the area's solid angle (its
+// distance squared over the cosine it faces the surface at); 0 where it faces away. the candidates' picks', not what the
+// resampling makes of them: the balance heuristic's light density where a glossy reflection's light sample and its ray
+// share the emitters' highlights (see TracedGlossyEmitters)
+float EmitterDensity(float3 position, float3 normal, float3 point)
+{
+	uint triangle;
+	float probability = EmitterWalk(position, normal, point, triangle);
+	if (!(probability > 0.0))
+		return 0.0;
+	EmitterTriangle emitter = gEmitters[triangle];
+	float3 across = cross(emitter.edge1.xyz, emitter.edge2.xyz);
+	float twiceArea = max(length(across), 1e-30);
+	float3 offset = point - position;
+	float distance2 = dot(offset, offset);
+	float cosine = -dot(across / twiceArea, offset * rsqrt(max(distance2, 1e-30)));
+	if ((asuint(emitter.edge2.w) & EMITTER_FLAG_DOUBLE_SIDED) != 0u)
+		cosine = abs(cosine);
+	return cosine > 0.0 ? probability / (0.5 * twiceArea) * distance2 / cosine : 0.0;
+}
+
 // the irradiance a finished reservoir's point gives a surface, shadowed: its ray through the BVHs (alpha masks cut out;
 // what moves with moving), from off the surface by bias toward the point, ending short of it (the emitter's own
 // triangle), unless it is known to reach the surface (!trace); and whether it does (visible)
