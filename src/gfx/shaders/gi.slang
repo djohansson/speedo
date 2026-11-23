@@ -5739,12 +5739,17 @@ bool GiMovingSurface(float3 position, float3 normal)
 // light is smooth (MovingInterior's sphere, 2026-11-18)
 // moving: whether it is such a surface (the cache on or off), whose lookup's weight is the probes' alone (see
 // GiLookupTrust)
-float3 GiSurfaceBias(float3 position, float3 normal, float3 view, out bool moving)
+float3 GiSurfaceBias(float3 normal, float3 view, bool moving)
 {
 	uint frameIndex = gPushConstants.frameIndex;
 	bool anchored = gGi[frameIndex][0].trace == GI_TRACE_BVH && gGi[frameIndex][0].cacheRayCount != 0u;
-	moving = GiMovingSurface(position, normal);
 	return anchored && !moving ? normal * 0.5 : normal * 0.75 + view * 1.5;
+}
+
+float3 GiSurfaceBias(float3 position, float3 normal, float3 view, out bool moving)
+{
+	moving = GiMovingSurface(position, normal);
+	return GiSurfaceBias(normal, view, moving);
 }
 
 float3 GiSurfaceBias(float3 position, float3 normal, float3 view)
@@ -5799,6 +5804,51 @@ void GiMarkSeen(float3 position, float3 normal, float3 view, bool early = false)
 		int3 block = int3(floor(coordinate / float(1u << SHADER_TYPES_GI_FLAG_LEVEL)));
 		if (early)
 			block += gGi[gPushConstants.frameIndex][clipIt].scroll.xyz / int(1u << SHADER_TYPES_GI_FLAG_LEVEL);
+		uint3 blocks = GiLevelVoxels(clip.volumeSize.xyz, SHADER_TYPES_GI_FLAG_LEVEL);
+		if (!GiInside(block, blocks))
+			continue;
+		uint index = clip.flagFirst + GiVoxelIndex(uint3(block), blocks) * SHADER_TYPES_GI_FLAG_WORD_COUNT + 2u;
+		if (gGiFlags[index] != clip.frameStamp)
+			gGiFlags[index] = clip.frameStamp;
+	}
+}
+
+// how wide a traced ray's cone may be at its hit, in the voxels of a clip that lights it, for the hit's lookup to stamp
+// the block it reads (GiMarkSeenHit): a voxel, so that a reflection that shows the voxels one by one has them filtered
+static const float kGiSeenHitWidth = 1.0;
+// and every how many of the clip's updates it stamps it: the block is traced for the 3 updates after (see
+// kGiCacheReadFrameCount) and filtered throughout, where the filter goes on for as many updates after a stamp
+// (GiData::cacheSeenFrameCount, a second's)
+static const uint kGiSeenHitPeriod = 8u;
+
+// the blocks a traced ray's hit's lookup reads (TracedIndirect's, at position off the hit by GiSurfaceBias's bias),
+// stamped as a pixel's are (GiMarkSeen), where the ray shows the hit's light no wider than a voxel of the clip (width:
+// its cone's at the hit): a mirror shows what the view doesn't, whose blocks no pixel's lookup stamps, so they trace a
+// ray every 8th update and take their own light unfiltered (see ComputeGiResolve). the wall beside the camera in the
+// glTF research set's bathroom, which its mirror shows, was mottled with each voxel's few samples, bright blotches for
+// the first seconds and patches after 15 (the user's report, 2026-11-23, "bright speckled noise"; smooth with
+// SPEEDO_GI_CACHE_EVERYWHERE=1 and with the cache off). stamped every update, and by rays up to a block wide, the cache
+// traced and filtered Bistro's street's reflections' blocks for 1.3 ms a frame at 1440p; a voxel wide the same (its
+// voxels are 0.26 m); every 8th update 0.7, Sponza's 0.13, the bathroom's 0.15, and the mirror's wall settles in 5
+// seconds as in 3
+void GiMarkSeenHit(float3 position, float3 bias, float width)
+{
+	if (gGi[gPushConstants.frameIndex][0].cacheRayCount == 0u)
+		return;
+	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
+	float remaining = 1.0;
+	for (uint clipIt = 0; clipIt < clipCount && remaining > 0.0; clipIt++)
+	{
+		GiClipView clip = GiClipViewAt(clipIt);
+		float weight = GiClipWeight(clip, position);
+		if (weight <= 0.0)
+			continue;
+		remaining -= remaining * weight;
+		uint period = gGi[gPushConstants.frameIndex][clipIt].cacheSeenFrameCount >= kGiSeenHitPeriod ? kGiSeenHitPeriod : 1u;
+		if (width > kGiSeenHitWidth * clip.volumeOrigin.w || clip.frameStamp % period != 0u)
+			continue;
+		float3 coordinate = (position + bias * clip.volumeOrigin.w - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+		int3 block = int3(floor(coordinate / float(1u << SHADER_TYPES_GI_FLAG_LEVEL)));
 		uint3 blocks = GiLevelVoxels(clip.volumeSize.xyz, SHADER_TYPES_GI_FLAG_LEVEL);
 		if (!GiInside(block, blocks))
 			continue;

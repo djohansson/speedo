@@ -254,3 +254,32 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
   at 1440p balanced: the frame 7.74 ms with 3 levels, 8.18 with 4, 8.36 with 5, 8.50 with 6 (the GI pass 0.52 to 0.72,
   GI Sides 0.47 to 0.67, the main pass 1.03 to 1.17), the indirect lighting's memory 146, 189, 231 and 278 MB.
   Not changed yet: how many levels a scene gets is the user's call ("Open for the user").
+- 2026-11-23, **step 4**, the bathroom's mirror (report 2): three things were wrong with the wall it shows, none of
+  them the one voxel's light the plan named first.
+  - **The wall's blocks were never read.** It is beside the camera, off the screen, so no pixel's lookup stamps its
+    blocks, and the cache traces them a ray every 8th update and doesn't filter them: bright blotches for the first
+    seconds, a mottle after 15 (smooth with `SPEEDO_GI_CACHE_EVERYWHERE=1`). The reflections' hits stamp the blocks
+    they read now (`GiMarkSeenHit`), where the ray shows the hit no wider than a voxel, every 8th update (traced 3
+    updates of 8, filtered throughout), in the visibility buffer's reflections alone.
+  - **The wall took no emitters' light off the screen.** The wallpaper is a double sided sheet, each side a voxel's,
+    and the hit's voxel, a twentieth in, was the other side's: `TracedEmitterKept` found nothing facing the hit. It
+    looks in the voxel beside it out along the normal too, and takes the 4 columns around the hit by their shares, in
+    the clips that light it as their lookups blend them: the one voxel showed as squares of the last level's voxels
+    while their light settled, the finest clip alone as a step where the next takes over.
+  - **A patch of grain under the shelf**, where the wall is on the screen behind the bath: such a hit took a light
+    sample of its own while the caustics are traced (`TracedEmitterHidden`), a sample a pixel a frame, which a sharp
+    reflection doesn't filter. It takes the voxels' light now where the sample's emitter's light meets no glass that
+    gathers it on the way (shadowed or not), the cells' caustics as before where it does.
+  The wall in the mirror is smooth from 5 seconds on, soft blobs before that as the voxels' light settles (step 5's),
+  where it was blotches, then a mottle and the patch (`temp/review/research-issues/s4-bathroom-mirror-final.png`: before
+  at 900 frames, after at 60, 300 and 900). bathroom2's mirror the same way (`s4-regress-bathroom2-mirror.png`).
+  cornell-caustic's cubes and walls as they were; the strip of its right wall at the picture's edge, seen off the
+  screen through the water, is lit now as the wallpaper is (`s4-regress-cornell-caustic-strip.png`: the voxels' light,
+  straight through the water, where it had none). The regression poses within 1.1 of 255 of before but the mirrors'
+  (2.4). The cost at 1440p balanced, interleaved with HEAD's: Bistro's frame 21.7 to 22.2 ms by day (the GI pass 3.53
+  to 4.10, the blocks its reflections show; Reflection Trace 6.14 to 6.36; Main Transmissive 5.67 to 5.79), about
+  the same more at night; the bathroom's 11.1 to 11.5 (Reflection Trace 2.50 to 2.72, GI 1.32 to 1.46);
+  cornell-caustic's 10.2 to 10.4; Sponza's 7.8 to 8.0 (GI 2.59 to 2.79). Stamped every update the GI pass took 1.3 ms
+  more in Bistro, not 0.6. Left out for its cost: the stamps at the hits of the transmissive fragments' rays (the
+  refractions, their sharp reflections), 1.7 ms of Bistro's Main Transmissive, the shader's size (docs/backlog.md).
+  visualtest 8 of 8, the quick tier 142 of 142.

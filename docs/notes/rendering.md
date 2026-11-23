@@ -1141,7 +1141,10 @@ the two coarser levels: with all three, 4.0, and 0.55 more at its reference pose
 
 What it costs is the transmissive fragment shader's size, not its rays (1440p balanced, RTX 4070 Ti SUPER, old and new
 interleaved): cornell-caustic's Main Transmissive 3.3 to 3.95 ms a frame, glass-of-water's 11.3 to 13.3, where each
-refraction's hit the screen hides takes a light sample (`TracedEmitterHidden`); Emitter Shade 0.035 to 0.042. Tried, each
+refraction's hit the screen hides takes a light sample (`TracedEmitterHidden`; since 2026-11-23 the sample only says
+whether solid glass gathers its emitter's light on the way to the hit, shadowed or not, and where none does the light
+is the voxels', `TracedEmitterKept`'s: a sample a pixel a frame was a patch of grain on the wall in the bathroom's
+mirror, which shows it sharp, beside the voxels' smooth light where the wall is off the screen); Emitter Shade 0.035 to 0.042. Tried, each
 3.9 to 3.95 in cornell-caustic: the other face looked for only within the shell's reach of a curved one (a short query);
 the scene's any hit and the glass's nearest made one query of the nearest of both; any glass queried first and a curved
 back face ending it there, a query fewer than before the rule (even deciding by that hit's facing alone, with no vertex
@@ -1429,8 +1432,14 @@ courtyard, in orange flames; they cost Main Visibility 0.09 ms at the user's pos
 alone; fading such hits' light out instead cost nothing, but left golden patches along the corridor's hems), plus its
 emission, plus the emissive surfaces' light (since 2026-11-23, docs/research-scenes-plan.md, step 2): the diffuse where
 the hit is on the screen as the main pass gathered it at the pixel there (`TracedEmitterSeen`: Emitter Temporal's
-history, where its pixel surfaces say that pixel's surface is the hit's), else as the hit's voxel keeps it (`gGiKept`,
-`TracedEmitterKept`: the voxel the hit is in, as the indirect lighting's rays' hits take it); the specular, where the
+history, where its pixel surfaces say that pixel's surface is the hit's), else as the voxels at the hit keep it (`gGiKept`,
+`TracedEmitterKept`, as the indirect lighting's rays' hits take it: the 4 columns of voxels around the hit across its
+normal's main axis by their shares, in each the voxel at the hit's depth where it holds a surface facing the hit's way,
+else the one beside it out along the axis, in the clips that light the hit as their lookups blend them. The one voxel
+the hit is in, as it was until 2026-11-23, is the other side's where a double sided sheet is by a voxel's face, each
+side a voxel's: the glTF research set's bathroom's wallpaper took no emitters' light in its mirror, off the screen;
+and it showed as squares of the last level's voxels for the 5 seconds their light takes to settle, the finest clip
+alone as a step where the next takes over); the specular, where the
 hit's specular takes at least `kTracedEmitterSpecularLeast` (0.1) of the light, from a point resampled from
 `kTracedEmitterCandidateCount` (2) candidates down the light tree and its shadow ray (`EmitterCandidates`,
 `EmitterShade`), by the specular lobe. Without, what the emitters light was lit by the probes alone wherever a ray met

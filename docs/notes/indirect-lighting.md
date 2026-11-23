@@ -1175,7 +1175,15 @@ lights the pixel), and the resolve marks a block active (`SHADER_TYPES_GI_FLAG_C
 it was read in the last 2 frames (at its place then, by the scroll; a thread each of the 27 blocks: by the first alone,
 one after another, the frame took 0.16 to 0.34 ms more); the others trace a ray every 8th frame and take their
 own light unfiltered, so that the bounce doesn't change with where the camera looks (`SPEEDO_GI_CACHE_EVERYWHERE=1` does
-them all: a turn in place differs from it by a mean of 1 to 2 of 765). Once its window has all its samples (twice
+them all: a turn in place differs from it by a mean of 1 to 2 of 765). The reflections' hits stamp the blocks their lookups read too
+(`GiMarkSeenHit`, since 2026-11-23: where the ray's cone at the hit is no wider than a voxel of the clip, every 8th of
+the clip's updates, so traced 3 updates of 8 and filtered throughout; in the visibility buffer's reflections alone): a
+mirror shows what the view doesn't, and the wall beside the camera in the glTF research set's bathroom, which its mirror
+shows, was each voxel's few samples unfiltered, bright blotches for seconds and a mottle after 15 (the user's report,
+2026-11-23, "bright speckled noise"). Stamped every update the GI pass took 1.3 ms a frame more in Bistro's street at
+1440p (3.5 to 4.8), by rays up to a block wide the same; every 8th 0.6 to 0.7, Sponza's 0.13 to 0.2, the bathroom's 0.15, and the
+mirror's wall settles in 5 seconds as in 3. In the transmissive fragments' shader the stamps cost Bistro's Main
+Transmissive 1.7 ms (its size): left out there (docs/backlog.md). Once its window has all its samples (twice
 `SPEEDO_GI_CACHE_SAMPLES` frames after it started over, `SPEEDO_GI_CACHE_SETTLED_FRAMES` to say when) and the sun isn't
 being followed, a voxel where nothing moves traces every other frame (`GiData::cacheSettled`): the same samples over
 twice the frames, of a light that doesn't change (Bistro 57.5 to 56.3 ms, San Miguel 68.3 to 67.4, in runs of thousands

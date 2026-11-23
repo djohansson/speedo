@@ -69,6 +69,11 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
   the straight light's (the photons bring irradiance alone: a direction kept with it would let the specular take them);
   and cornell-caustic's ceiling is darker than its reference's (what the waves reflect up, and the indirect light).
   docs/notes/rendering.md, "The emitters' caustics".
+- **The refractions' hits don't stamp the cache's blocks** (2026-11-23, the review plan's step 4): what a mirror shows
+  off the screen is traced and filtered since the visibility buffer's reflections' hits stamp the blocks they read
+  (`GiMarkSeenHit`), but the transmissive fragments' rays' hits (the refractions, their sharp reflections) don't: there
+  the stamps cost Bistro's Main Transmissive 1.7 ms a frame at 1440p, the shader's size. A pass of its own for those
+  stamps, or the hits' light sample out of that shader first (below), would let them.
 - **spaceship's speckles around its display, through the dome** (the user's report, 2026-11-23, after the review plan's
   steps 1 and 2, which they confirmed by eye): seen close through the dome's glass (roughness 0.1), red single-pixel
   specks scattered around the edges of the bright emissive display inside it (strength 20) and white ones on the dark

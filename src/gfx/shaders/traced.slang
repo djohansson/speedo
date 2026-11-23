@@ -409,21 +409,24 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 	if (EmittersLight())
 	{
 		// (none for a metal, which has no diffuse to take it). where the screen hides the hit while the emitters' caustics
-		// are traced, the caustics' cells and a light sample (TracedEmitterHidden): the voxels' light is the emitters'
-		// straight through the glass, which the caustics take the place of
+		// are traced, the caustics' cells and the voxel's light but what solid glass gathers on its way
+		// (TracedEmitterHidden): the voxels' light is the emitters' straight through the glass, which the caustics take
+		// the place of
 		if (any(surface.diffuseColor > 0.0))
 		{
 			bool hidden;
 			float3 seen = TracedEmitterSeen(position, normal, hidden);
-			if (seen.x >= 0.0)
-				radiance += surface.diffuseColor * seen;
-			else if (hidden && EmitterCausticsTraced())
+			if (seen.x < 0.0)
 			{
-				float nearest = max(coneWidth, push);
-				radiance += surface.diffuseColor * TracedEmitterHidden(position, normal, hit.normal, push, nearest * nearest);
+				bool kept;
+				seen = TracedEmitterKept(position, normal, hit.normal, kept);
+				if (hidden && EmitterCausticsTraced())
+				{
+					float nearest = max(coneWidth, push);
+					seen = TracedEmitterHidden(position, normal, hit.normal, push, nearest * nearest, seen, kept);
+				}
 			}
-			else
-				radiance += TracedEmitterKept(surface, view, position, normal, hit);
+			radiance += surface.diffuseColor * seen;
 		}
 		float3 specularShare = EnvironmentBrdfApprox(surface.f0, surface.f90, surface.roughness, nDotV);
 		if (dot(specularShare, float3(0.2126, 0.7152, 0.0722)) >= kTracedEmitterSpecularLeast)
@@ -446,7 +449,7 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 
 	float3 indirect;
 	float3 specularRadiance;
-	TracedIndirect(position, normal, direction, surface.roughness, hit.normal, push, indirect, specularRadiance);
+	TracedIndirect(position, normal, direction, surface.roughness, hit.normal, push, coneWidth, indirect, specularRadiance);
 	radiance += surface.diffuseColor * indirect +
 				EnvironmentBrdfApprox(surface.f0, surface.f90, surface.roughness, nDotV) * specularRadiance;
 	return radiance;
@@ -461,7 +464,7 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 // Sponza's curtains, lit by that try from the courtyard beyond them, was the light the gold strip at their foot reflected
 // in orange flames and blocks
 void TracedIndirect(
-	float3 position, float3 normal, float3 direction, float roughness, float3 nearNormal, float nearBias, out float3 indirect,
+	float3 position, float3 normal, float3 direction, float roughness, float3 nearNormal, float nearBias, float width, out float3 indirect,
 	out float3 specularRadiance)
 {
 	EnvironmentData environment = gEnvironment[0];
@@ -473,6 +476,11 @@ void TracedIndirect(
 	// 0.6 and 0.9 ms more a frame in Bistro at night, for a light they show blurred; docs/world-cache-plan.md, step 5)
 	bool moving;
 	GiSample sample = GiSampleSurface(position, normal, -direction, GiSeenAt(position, normal), voxel <= 0.0, moving, false);
+	// (and the blocks it reads are the cache's to trace and filter, as those the view's pixels read: GiMarkSeenHit;
+	// width: the ray's cone's at the hit, negative for none. the visibility buffer's reflections' alone: in the
+	// transmissive fragments' shader the stamps cost Bistro's Main Transmissive 1.7 ms a frame at 1440p, 5.7 to 7.4)
+	if (TracedGlossyHere() && width >= 0.0 && !moving)
+		GiMarkSeenHit(position, GiSurfaceBias(normal, -direction, false), width);
 	float trust = voxel > 0.0 ? GiLookupTrust(sample) : 1.0;
 	indirect = sample.valid ? GiEvaluate(sample, normal) : (sample.inside ? 0.0 : -1.0);
 	if (indirect.x >= 0.0)
@@ -525,49 +533,123 @@ float3 TracedEmitterSeen(float3 position, float3 normal, out bool hidden)
 // the water weren't there (the user's report, 2026-11-23: "an additional light"); the light the screen gathered nearest
 // it on its own plane in its place, rings of taps around its place, drew blocks of the wall's caustics from elsewhere
 // among patches of the voxels' where no ring met the wall ("broken and corrupted"). the irradiance over pi
-float3 TracedEmitterHidden(float3 position, float3 normal, float3 geometryNormal, float push, float nearest2)
+// where the voxels keep light for the hit (kept, found: TracedEmitterKept's), the sample only says whether solid glass
+// gathers its emitter's light on the way to the hit, shadowed or not (EmitterGatheredByGlass along the whole way), and
+// where none does the light is the voxels', not the sample's own: a sample a pixel a frame is grain in a sharp
+// reflection, which nothing filters, beside the voxels' smooth light where the hit is off the screen. the glTF research
+// set's bathroom's wall in its mirror, where the bath hides it on the screen, was a patch of white grain beside the
+// rest of the wall (the user's report, 2026-11-23: "bright speckled noise"), its lamps in glass globes that gather
+// nothing. (by the sample's own answer, which is none where it is shadowed, the voxels' light came back in what
+// cornell-caustic's cubes shadow)
+float3 TracedEmitterHidden(float3 position, float3 normal, float3 geometryNormal, float push, float nearest2, float3 kept, bool found)
 {
 	float3 light = EmitterCausticCellLight(position, geometryNormal, false, 1);
 	EmitterRandom random = EmitterRandomAt(gFragmentPixel ^ uint2(0x9e37u, 0x79b9u), gEmitterData[gPushConstants.frameIndex][0].frame);
 	EmitterReservoir reservoir = EmitterCandidates(position, normal, kTracedEmitterCandidateCount, nearest2, random);
+	if (reservoir.triangle == ~0u)
+		return light + (found ? kept : 0.0);
+	float3 origin = position + normal * push;
+	float3 direction = EmitterPointAt(reservoir.triangle, reservoir.barycentrics).position - origin;
+	float span = sqrt(dot(direction, direction));
+	if (EmitterGatheredByGlass(origin, direction / max(span, 1e-30), span * 0.999))
+		return light;
+	if (found)
+		return light + kept;
 	bool visible;
 	bool throughGlass;
-	float3 irradiance = EmitterShade(reservoir, position, normal, push, nearest2, true, true, true, visible, throughGlass);
-	return light + (throughGlass ? 0.0 : irradiance / kPi);
+	return light + EmitterShade(reservoir, position, normal, push, nearest2, true, true, false, visible, throughGlass) / kPi;
 }
 
-// the emitters' light a traced hit's voxel keeps (gGiKept: what arrives there and the way it arrives from, taken once at
-// a static voxel's voxelizing, GiEmitterKept), as the indirect lighting's rays' hits take it (GiHitLitAt): its diffuse,
-// what arrives at the hit's normal by the diffuse color over pi. the voxel the hit is in (a twentieth of a voxel into its surface)
-// of the finest clip holding it, where it holds a surface facing the hit's way; none where it moves (its light isn't
-// kept apart) or nothing facing so is voxelized there. the voxel that stands for the hit by GiHitVoxel's search of the
-// voxels beside it cost Bistro at night 1.2 ms a frame at 1440p
-float3 TracedEmitterKept(Surface surface, float3 view, float3 position, float3 normal, BvhHit hit)
+// the emitters' light a clip's voxels at a traced hit keep (see TracedEmitterKept): the 4 columns of voxels around it
+// across its normal's main axis, each by its share; over pi. weights: the shares of those that keep any (0: none)
+float3 TracedEmitterKeptIn(GiClipView clip, bool moves, float3 position, float3 normal, float3 geometryNormal, out float weights)
 {
+	uint3 size = clip.volumeSize.xyz;
+	float3 along = abs(geometryNormal);
+	int3 axis = int3(along.x >= along.y && along.x >= along.z, along.y > along.x && along.y >= along.z, along.z > along.x && along.z > along.y);
+	int3 out = axis * int3(sign(geometryNormal));
+	int3 acrossA = axis.x != 0 ? int3(0, 1, 0) : int3(1, 0, 0);
+	int3 acrossB = axis.z != 0 ? int3(0, 1, 0) : int3(0, 0, 1);
+	float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w - geometryNormal * 0.05;
+	float3 tap = coordinate - 0.5;
+	// (the columns' first voxels: the taps' across the axis, the hit's own along it)
+	int3 base = int3(floor(tap)) * (1 - axis) + int3(floor(coordinate)) * axis;
+	float2 fraction = float2(dot(tap - floor(tap), float3(acrossA)), dot(tap - floor(tap), float3(acrossB)));
+	float3 light = 0.0;
+	weights = 0.0;
+	for (uint columnIt = 0; columnIt < 4u; columnIt++)
+	{
+		float weight = ((columnIt & 1u) != 0u ? fraction.x : 1.0 - fraction.x) * ((columnIt & 2u) != 0u ? fraction.y : 1.0 - fraction.y);
+		if (weight <= 0.0)
+			continue;
+		int3 at = base + acrossA * int(columnIt & 1u) + acrossB * int(columnIt >> 1);
+		for (uint tryIt = 0; tryIt < 2u; tryIt++, at += out)
+		{
+			if (any(at < 0) || any(at >= int3(size)))
+				continue;
+			uint index = clip.voxelFirst + GiVoxelIndex(uint3(at), size);
+			GiVoxel voxel = gGiVoxels[index];
+			if ((voxel.albedo >> 24) == 0u || dot(GiVoxelNormal(voxel.normal), geometryNormal) < 0.5)
+				continue;
+			bool still = true;
+			if (moves)
+			{
+				GiVoxel kept = gGiStaticVoxels[index];
+				still = kept.albedo == voxel.albedo && kept.normal == voxel.normal;
+			}
+			uint2 kept = gGiKept[index];
+			if (still && !GiKeptInside(kept))
+			{
+				light += weight * GiKeptIrradiance(kept, normal);
+				weights += weight;
+			}
+			break;
+		}
+	}
+	return weights > 0.0 ? light / (weights * 3.14159265) : 0.0;
+}
+
+// the emitters' light the voxels at a traced hit keep (gGiKept: what arrives there and the way it arrives from, taken at
+// a static voxel's voxelizing, GiEmitterKept, and made since by its entry of the surface cache), as the indirect
+// lighting's rays' hits take it (GiHitLitAt): what arrives at the hit's normal, over pi. of the clips that light the hit,
+// blended as their lookups are (GiSampleAt), the 4 columns of voxels around it across its normal's main axis
+// (geometryNormal: the hit's, toward the ray), each by its share: in each the voxel at the hit's depth (a twentieth of
+// a voxel into its surface) where it holds a surface facing the hit's way, else the one beside it out along the axis. a
+// double sided sheet's two sides are each a voxel's, the one on its side (see GiVoxelSided), and the voxel a twentieth
+// in is the other side's wherever the sheet is by a voxel's face: the glTF research set's bathroom's wallpaper is such
+// a sheet, and all of it in the mirror took no emitters' light where the screen doesn't show it. the one voxel alone
+// showed as squares of the last level's voxels' size while their light settled, 5 seconds there, and the finest clip
+// alone a step where the next takes over (the user's report, 2026-11-23, "bright speckled noise" on the wall in the
+// mirror). none (found) where every column moves (its light isn't kept apart), holds nothing facing so or an entry
+// inside something. the voxel that stands for the hit by GiHitVoxel's search of the voxels beside it cost Bistro at
+// night 1.2 ms a frame at 1440p
+float3 TracedEmitterKept(float3 position, float3 normal, float3 geometryNormal, out bool found)
+{
+	found = false;
 	GiData gi = GiClip(0);
 	if (gi.enabled == 0u)
 		return 0.0;
-	uint clipIt = 0;
-	for (; clipIt + 1u < gi.clipCount; clipIt++)
+	bool moves = gi.moving != 0u;
+	float3 light = 0.0;
+	float remaining = 1.0;
+	float covered = 0.0;
+	for (uint clipIt = 0; clipIt < gi.clipCount && remaining > 0.0; clipIt++)
 	{
-		GiClipView fade = GiClipViewAt(clipIt);
-		if (all(abs(position - fade.fadeCenter.xyz) < fade.fadeExtent.xyz))
-			break;
+		GiClipView clip = GiClipViewAt(clipIt);
+		float weight = GiClipWeight(clip, position);
+		if (weight <= 0.0)
+			continue;
+		float share = remaining * weight;
+		remaining -= share;
+		float weights;
+		float3 kept = TracedEmitterKeptIn(clip, moves, position, normal, geometryNormal, weights);
+		if (weights <= 0.0)
+			continue;
+		light += share * kept;
+		covered += share;
 	}
-	GiClipView clip = GiClipViewAt(clipIt);
-	int3 at = int3(floor((position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w - hit.normal * 0.05));
-	uint3 size = clip.volumeSize.xyz;
-	if (any(at < 0) || any(at >= int3(size)))
-		return 0.0;
-	uint index = clip.voxelFirst + GiVoxelIndex(uint3(at), size);
-	GiVoxel voxel = gGiVoxels[index];
-	if ((voxel.albedo >> 24) == 0u || dot(GiVoxelNormal(voxel.normal), hit.normal) < 0.5)
-		return 0.0;
-	GiVoxel still = gGiStaticVoxels[index];
-	if (still.albedo != voxel.albedo || still.normal != voxel.normal)
-		return 0.0;
-	uint2 kept = gGiKept[index];
-	return GiKeptInside(kept) ? 0.0 : surface.diffuseColor / 3.14159265 * GiKeptIrradiance(kept, normal);
+	found = covered > 0.0;
+	return found ? light / covered : 0.0;
 }
 
 // the near field rays a traced hit's light takes where its lookup is weak (see TracedIndirect): one in the visibility
@@ -688,7 +770,7 @@ float3 TracedPath(
 					}
 					float3 indirect;
 					float3 specularRadiance;
-					TracedIndirect(surface.position, surface.normal, path.direction, glassRoughness, surface.normal, 0.0, indirect, specularRadiance);
+					TracedIndirect(surface.position, surface.normal, path.direction, glassRoughness, surface.normal, 0.0, -1.0, indirect, specularRadiance);
 					float nDotV = max(dot(surface.normal, -path.direction), 1e-4);
 					light += EnvironmentBrdfApprox(float3(surface.f0), 1.0, glassRoughness, nDotV) * specularRadiance;
 				}
