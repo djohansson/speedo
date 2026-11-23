@@ -353,3 +353,19 @@ Nothing now.
   the mean blurred stops 0.258 to 0.254: veach-mis 0.290 to 0.242, coffee-maker 0.397 to 0.355, bathroom2 0.193 to
   0.168, modern-hall 0.170 to 0.160; living-room-2 0.245 to 0.269 (its light overall +0.164 to +0.183 stops, further
   over), veach-ajar 0.197 to 0.206, bathroom 0.224 to 0.230. visualtest 8 of 8, the quick tier 142 of 142.
+- 2026-11-23, **the blocks while the light settles** (the user's question: could they be smoothed or interpolated;
+  ideas first, nothing built). Checked with what there is, at the kitchen's, living-room's and the classroom's poses,
+  frames 30 to 120 after a load (step 5 in): the filter's edge stop off (`SPEEDO_GI_CACHE_SIGMA=1000`), and 4 passes
+  at every level with it, change nothing that shows; and the squares are where the lookups keep one or two of their
+  four columns of voxels (the tint of step 3's classroom, `temp/research-issues/s2/dbg6.pl`, from a copy of the
+  shaders): the band around living-room's arched windows, a row of teeth along each arch; the kitchen's wall behind
+  its toaster and socket; nearly all of the classroom (`temp/review/research-issues/blocks-<scene>-<place>.png`: frame
+  30, frame 120, frame 30 without the edge stop, the tint). On the open walls, floors and cupboards, where all four
+  are kept, there are no blocks half a second after a load. So the blocks are not the young entries' noise, which
+  the filter already spreads, but the lookups' steps, there once settled too and plainest while neighbours still
+  differ. What would smooth them, by what it costs to try: a lookup's place jittered within a voxel a pixel a frame
+  (the frames' accumulation makes a ramp of a step); the indirect light blurred on the screen along its surface, as
+  far as the voxels it read are young or left out (the near field's passes); and which neighbours a voxel's light
+  goes with decided between the two voxels once, in the filter's pass, not at each pixel (the same voxel is kept on
+  one side of a cell's face and left out on the other while its share is still large: the step), which would mend
+  the settled picture too.
