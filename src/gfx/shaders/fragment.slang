@@ -333,7 +333,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 		for (uint channel = 0; channel < 3u; channel++)
 			tracing[kTracedFragmentRefraction + channel] = transmission > 0.0 && (dispersion || channel == 0u) &&
 				TransmittedTraced(normal, view, v.position, surface.roughness, transmissionIors[channel], transmissionThickness, viewId,
-					directions[kTracedFragmentRefraction + channel]);
+					channel, directions[kTracedFragmentRefraction + channel]);
 		TracedFragmentRays(
 			v.position, geometryNormal, directions, tracing, TransmissionSolid(transmissionThickness), material.attenuationColor.rgb,
 			material.transmission.z, traced);

@@ -792,11 +792,17 @@ float3 TracedReflection(
 // gradient noise (each coordinate its own), so that neighbors sample other directions and each pixel all of them in turn
 float2 TracedRandom(uint2 pixel)
 {
+	return TracedRandom(pixel, TracedFrame());
+}
+
+// and its index-th point (several a frame: see TransmittedLobeRay)
+float2 TracedRandom(uint2 pixel, uint index)
+{
 	float2 at = float2(pixel);
 	float2 offset = float2(
 		frac(52.9829189 * frac(dot(at, float2(0.06711056, 0.00583715)))),
 		frac(52.9829189 * frac(dot(at + 17.0, float2(0.00583715, 0.06711056)))));
-	return frac(offset + float(TracedFrame() & 0xffffu) * float2(0.7548776662, 0.5698402910));
+	return frac(offset + float(index & 0xffffu) * float2(0.7548776662, 0.5698402910));
 }
 
 // a microfacet normal of the GGX lobe of alpha about +z, by the normals visible from view (in the same frame, z up):

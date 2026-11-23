@@ -350,6 +350,16 @@ reference, so that they fail on a regression, not on what the renderer approxima
   cornell-caustic and 0.3 in glass-of-water in all; none without solid glass (Bistro). Left: the photons' light in the
   indirect lighting's voxels (the voxels still take the emitters' light straight through glass), what is off the screen,
   and the highlights through glass.
+- 2026-11-23, **step 6** (C2, kept simple): the traced refraction's ray is of the surface's GGX lobe
+  (`TransmittedLobeRay`: refracted about a visible microfacet normal, another each frame and pixel, which the temporal
+  upscaler averages), in the share it was traced in before (all to 0.15, none from 0.4, the transmission texture's mips
+  the rest). lamp's frosted bulb is smooth where the sharp ray drew its emitter's edge in grainy notches along its rim;
+  the research set within 0.004 of step 8 (lamp 0.191, bathroom2 0.199, spaceship 0.201, classroom2 0.337; veach-ajar's
+  0.004 its indirect light's run to run noise), the cost the same. Tried and left: three rays a pixel (a little
+  smoother; Main Transmissive 0.45 ms more a frame in lamp at 1440p, 0.25 in bathroom2, 0.14 in Bistro at night), and
+  the traced share as far as the glossy reflections' (bathroom2's jar's sides orange with the counter seen through them,
+  where the reference's show the wall behind). The plan's own design (the nearest glass layer's rays filtered and
+  accumulated by Reflection passes of its own) stays open, for where frosted glass fills the view.
 - 2026-11-23, **step 7** (B4): nothing to build: the main pass already clamps its color to 65000 (`MainColor`), short of
   the half float's 65504, and cornell-caustic's light (541127) drew without infinities or NaNs, glare and balanced
   upscaling on included.

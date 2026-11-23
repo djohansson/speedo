@@ -1292,9 +1292,17 @@ glass beyond, to the first opaque surface or the environment, at most `SHADER_TY
 which the screen space lookup's is kept; the opaque scene's structures hold no glass, and the ray passed through its
 own volume without leaving it: a ball showed what is behind it shifted rather than upside down, and a thin wall was
 refracted as a volume's face; the glass that moves is in a structure of its own: passed through, IridescentDishWithOlives'
-cover, a shell, magnified the olives under it as a solid lens would, which it now shows as they are), sharp
-where the transmission texture's mips wouldn't blur it much (`roughness * saturate(2 ior - 2)`), what is
-behind out of the view as well; and, whatever the roughness, where the screen space lookup leaves the view (its last 5%,
+cover, a shell, magnified the olives under it as a solid lens would, which it now shows as they are), where the
+transmission texture's mips wouldn't blur it much (`roughness * saturate(2 ior - 2)`), what is behind out of the view as
+well, along a ray of the surface's lobe (`TransmittedLobeRay`, since 2026-11-23, the research scenes plan's step 6: the
+view refracted about a microfacet normal of its GGX lobe, by the normals visible from the view, another each frame and
+pixel, which the temporal upscaler averages; a thin wall's out again through its other face as parallel to this one).
+The sharp refraction drew what is behind rough glass sharp in its share (a quarter of the light at 0.32): lamp's frosted
+bulb showed its emitter's edge in grainy notches along its rim, where the reference's is a glow; the lobe's ray draws it
+smooth, and the research set measures the same (lamp 0.191 blurred stops, bathroom2 0.199). Three rays a pixel were a
+little smoother and cost Main Transmissive 0.45 ms more a frame in lamp at 1440p, 0.25 in bathroom2, 0.14 in Bistro at
+night; the traced share as far as the glossy reflections' (all to 0.45, none from 0.6) drew bathroom2's jar's edges
+orange, the counter below seen through the bottle's sides, where the reference's show the wall behind as the mips do; and, whatever the roughness, where the screen space lookup leaves the view (its last 5%,
 where untraced glass fades to the environment along the ray) the trace stands in for the environment: rough glass, partly
 the transmission texture's, faded to the sky toward the view's edges as untraced glass does. Nothing else of the traced
 reflections or refractions fades toward the view's edges (with traced refractions off, ABeautifulGame's glass pieces do,

@@ -80,21 +80,56 @@ bool TransmissionSolid(float thickness)
 	return thickness > 0.0 || (gPushConstants.traced & TRACED_SOLID_TRANSMISSION) != 0u;
 }
 
-// how much of the light from behind a surface its traced refraction gives (see TransmittedLight): sharp where the
-// transmission texture's mips wouldn't blur it much (the blur its lookup takes, by the roughness and the ior)
+// how much of the light from behind a surface its traced refraction gives (see TransmittedLight): all of it where the
+// transmission texture's mips wouldn't blur it much (the blur its lookup takes, by the roughness and the ior), none from
+// kTracedRoughnessEnd
 float TransmittedTracedShare(float roughness, float ior)
 {
 	return TracedShare(roughness * saturate(ior * 2.0 - 2.0));
 }
 
+// the traced refraction's ray (sample: dispersion's color): a ray of the surface's lobe, the view refracted by ior about
+// a microfacet normal of the GGX lobe of the roughness, by the normals visible from view (Walter et al. 2007's
+// transmission, sampled as Heitz 2018's TracedVisibleNormal), another a frame and pixel (averaged over frames by the
+// temporal upscaler), then (a thin wall) out through its other face, as parallel to this one, so that a smooth wall's
+// goes on as the view; the sharp refraction where the normal refracts nothing or out of the surface. the sharp ray alone
+// drew what is behind rough glass sharp in the traced share (a quarter of the light at 0.32, lamp's frosted bulb and
+// bathroom2's jar: the bulb's emitter's edge in grainy notches along its rim, where the reference's bulb is a glow;
+// docs/research-scenes-plan.md, C2). three rays a pixel (in the slots of dispersion's colors) were a little smoother and
+// cost Main Transmissive 0.45 ms a frame more in lamp at 1440p, 0.25 in bathroom2, 0.14 in Bistro at night; the traced
+// share as far as the glossy reflections' (all to 0.45, none from 0.6) drew bathroom2's jar's edges orange, the counter
+// below seen through the bottle's sides, where the reference's show the wall behind as the mips do
+float3 TransmittedLobeRay(float3 normal, float3 view, float roughness, float ior, bool solid, uint sample)
+{
+	float3 sharp = TransmittedRay(normal, view, ior);
+#if !BVH_RAY_QUERY
+	return solid ? sharp : -view; // (nothing is traced: see TransmittedTraced)
+#else
+	float alpha = max(roughness * roughness, 1e-3);
+	float3 tangent = normalize(abs(normal.z) < 0.999 ? cross(float3(0.0, 0.0, 1.0), normal) : cross(float3(1.0, 0.0, 0.0), normal));
+	float3 bitangent = cross(normal, tangent);
+	float3 local = normalize(float3(dot(view, tangent), dot(view, bitangent), max(dot(view, normal), 1e-4)));
+	float3 h = TracedVisibleNormal(local, alpha, TracedRandom(gFragmentPixel, TracedFrame() * 3u + sample));
+	float3 microfacet = normalize(h.x * tangent + h.y * bitangent + h.z * normal);
+	float3 into = refract(-view, microfacet, 1.0 / max(ior, 1e-4));
+	if (dot(into, into) == 0.0 || dot(into, normal) >= 0.0)
+		into = sharp;
+	into = normalize(into);
+	if (solid)
+		return into;
+	float3 through = refract(into, normal, ior);
+	return dot(through, through) == 0.0 ? -view : normalize(through);
+#endif
+}
+
 // whether a fragment traces its refraction (View > Rendering Features > Ray Traced Refractions, where the device has ray queries; see
-// TransmittedLight), and along which direction: the refracted ray into a volume (thickness), the view's through a thin
-// wall (the screen space lookup's place is the surface's own, behind it)
+// TransmittedLight), and along which direction: a ray of its lobe (TransmittedLobeRay; sample: dispersion's color), into a
+// volume (thickness), or through a thin wall (the screen space lookup's place is the surface's own, behind it)
 bool TransmittedTraced(
-	float3 normal, float3 view, float3 position, float roughness, float ior, float thickness, uint viewId, out float3 direction)
+	float3 normal, float3 view, float3 position, float roughness, float ior, float thickness, uint viewId, uint sample, out float3 direction)
 {
 	float3 ray = TransmittedRay(normal, view, ior);
-	direction = TransmissionSolid(thickness) ? ray : -view;
+	direction = TransmittedLobeRay(normal, view, roughness, ior, TransmissionSolid(thickness), sample);
 	float2 local;
 	return TracedRefractionsOn() && !TracedGlossyHere() &&
 		   (TransmittedTracedShare(roughness, ior) > 0.0 ||
