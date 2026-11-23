@@ -55,7 +55,7 @@ struct Manifest
 	std::vector<Entry> entries;
 };
 
-constexpr std::array kManifestNames{"mcguire.txt", "gltf.txt", "environments.txt", "research.txt"};
+constexpr std::array kManifestNames{"mcguire.txt", "gltf.txt", "environments.txt", "research-files.txt", "research.txt"};
 // transfers at once (curl's handles, each its own connection: the port has no HTTP/2), and tries of a file
 constexpr size_t kTransferCount = 8;
 constexpr uint32_t kAttemptCount = 3;

@@ -300,3 +300,16 @@ reference, so that they fail on a regression, not on what the renderer approxima
   `alongPath`; the caustics' photons by the thickness still, whose shadows the user judged by it), the untraced lookup by
   the thickness: modern-hall's green panel clear (0.284 to 0.234), teapot-full's tea a little lighter (0.186 to 0.208,
   its nested interface volumes), the glass sample models within 0.26 of 255, the cost a distance and a power a segment.
+- 2026-11-23, **step 7** (B4): nothing to build: the main pass already clamps its color to 65000 (`MainColor`), short of
+  the half float's 65504, and cornell-caustic's light (541127) drew without infinities or NaNs, glare and balanced
+  upscaling on included.
+- 2026-11-23, **step 10**: two research checks in `visualtest.ps1`, which CI runs on lavapipe (its software ray queries
+  included): cornell-box (its emitter and the indirect lighting's bounces, 256x256, 256 frames) and material-testball (a
+  panorama, the coat and the metals, 320x180, 64 frames), each against its reference scaled to the capture's size
+  (`imagecompare --fit`: a png reference, area averaged in linear light). Their files come from the set's repository one
+  by one (`research-files.txt`, 14 MB at the release's commit, GitHub's raw downloads serving the LFS files), which the
+  quick tier names, so CI's `-Minimal` fetch has them without the 1.1 GB archive. Measured (blurred stops, light):
+  cornell-box on lavapipe 0.108, -0.063, 103 s warm; on the gpu Vulkan 0.115, -0.069, D3D12 0.118, -0.074;
+  material-testball on lavapipe 0.074, -0.036, 53 s; on the gpu 0.076, -0.039 both. The thresholds hold them about where
+  they are: cornell-box 0.16 blurred and -0.07 ± 0.08 of light, material-testball 0.11 and -0.04 ± 0.06. Cornell-box
+  needs its frames, the indirect lighting settling: 0.29 at 64 frames, 0.20 at 128, 0.10 at 512.

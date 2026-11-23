@@ -1,8 +1,12 @@
 // compares a capture of the client's with a reference (bmps, see capture.h): what a visual check passes or fails by (see
 // docs/visual-testing-plan.md, step 2).
 //
-// usage: imagecompare <reference.bmp> <capture.bmp> [--diff <out.bmp>] [--blur <pixels>] [thresholds]
+// usage: imagecompare <reference.bmp|png> <capture.bmp> [--diff <out.bmp>] [--fit <out.bmp>] [--blur <pixels>] [thresholds]
 //        imagecompare --self-test
+//
+// the reference may be a png (a path tracer's: the glTF research set's references, scripts/visualtest.ps1's research
+// checks), and with --fit one of another size, of the capture's aspect: scaled to the capture's size (capture::Fit, an
+// area average in linear light) and written to <out.bmp>, then measured as any reference.
 //
 // measures the capture against the reference: per channel the largest and the mean difference, in levels of 255; the
 // share of the pixels whose largest channel difference passes 0, 1, 4 and 16 levels, and where those are (their bounding
@@ -19,7 +23,16 @@
 
 #include "capture.h"
 
+#include <core/file.h>
 #include <core/math.h>
+
+// png alone, its implementation here, in this executable's one source (it links no gfx, whose copy is in
+// gfx/libraries.cpp), its functions static
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_STATIC
+#define STBI_ONLY_PNG
+#define STBI_NO_STDIO
+#include <stb_image.h>
 
 #include <algorithm>
 #include <array>
@@ -27,6 +40,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <print>
@@ -37,6 +51,31 @@
 
 namespace
 {
+
+// a bmp (capture::Load), or a png decoded from its mapped bytes (its alpha dropped, 16 bit channels to 8)
+[[nodiscard]] std::optional<capture::Image> LoadImage(const std::filesystem::path& path)
+{
+	auto file = core::file::Map(path);
+	constexpr std::array<uint8_t, 8> kPngSignature{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+	if (!file || file->size() < kPngSignature.size() ||
+		!std::equal(kPngSignature.begin(), kPngSignature.end(), reinterpret_cast<const uint8_t*>(file->data())))
+		return capture::Load(path);
+	int width = 0;
+	int height = 0;
+	int channels = 0;
+	std::unique_ptr<stbi_uc, decltype(&stbi_image_free)> rgb(
+		stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(file->data()), static_cast<int>(file->size()), &width, &height, &channels, 3), &stbi_image_free);
+	if (!rgb)
+	{
+		std::println(stderr, "{}: can't decode it: {}", path.string(), stbi_failure_reason());
+		return std::nullopt;
+	}
+	capture::Image image{width, height, std::vector<uint8_t>(static_cast<size_t>(width) * height * 3)};
+	for (size_t pixelIt = 0; pixelIt < static_cast<size_t>(width) * height; pixelIt++)
+		for (size_t channelIt = 0; channelIt < 3; channelIt++)
+			image.bgr[(pixelIt * 3) + channelIt] = rgb.get()[(pixelIt * 3) + 2 - channelIt];
+	return image;
+}
 
 constexpr std::array<int, 4> kOverLevels{0, 1, 4, 16};
 constexpr int kDiffScale = 16;
@@ -226,6 +265,17 @@ struct Thresholds
 		auto measures = Compare(make(half(true)), make(half(false)), kBlur);
 		expect(std::abs(measures.ratio) < 0.001 && measures.log > 1.0, "light moved, not lost: a ratio of 0, a large log difference");
 	}
+	{
+		// a checkerboard of black and white pixels fitted to half its size: each pixel half the light, srgb 188 (0.5
+		// linear), not 128; and to a third of a pixel more (3 of 4 pixels across a target): the mean light the same
+		auto checker = make([](int x, int y, int /*channel*/) { return uint8_t((x + y) % 2 == 0 ? 255 : 0); });
+		auto half = capture::Fit(checker, kWidth / 2, kHeight / 2);
+		expect(half.width == kWidth / 2 && std::ranges::all_of(half.bgr, [](uint8_t level) { return level == 188; }), "a checkerboard fitted to half its size: 0.5 linear");
+		auto odd = capture::Fit(checker, (kWidth * 3) / 4, (kHeight * 3) / 4);
+		auto luminance = capture::Luminance(odd);
+		double mean = std::accumulate(luminance.begin(), luminance.end(), 0.0) / static_cast<double>(luminance.size());
+		expect(std::abs(mean - 0.5) < 0.01, "and to three quarters of it: the mean light kept");
+	}
 	std::println("{} of the self test's checks failed", failures);
 	return failures == 0 ? 0 : 1;
 }
@@ -238,7 +288,7 @@ int main(int argc, char** argv)
 		return SelfTest();
 	if (argc < 3)
 	{
-		std::println(stderr, "usage: imagecompare <reference.bmp> <capture.bmp> [--diff <out.bmp>] [--blur <pixels>] [--max <levels>] [--mean <levels>]");
+		std::println(stderr, "usage: imagecompare <reference.bmp|png> <capture.bmp> [--diff <out.bmp>] [--fit <out.bmp>] [--blur <pixels>] [--max <levels>] [--mean <levels>]");
 		std::println(stderr, "                    [--over <levels>:<percent>]... [--log <stops>] [--log-blurred <stops>]");
 		std::println(stderr, "       imagecompare --self-test");
 		return 2;
@@ -246,6 +296,7 @@ int main(int argc, char** argv)
 	std::filesystem::path referencePath = argv[1];
 	std::filesystem::path imagePath = argv[2];
 	std::optional<std::filesystem::path> diffPath;
+	std::optional<std::filesystem::path> fitPath;
 	int blur = 8;
 	Thresholds thresholds;
 	for (int argIt = 3; argIt < argc; argIt++)
@@ -259,6 +310,8 @@ int main(int argc, char** argv)
 		const char* value = argv[++argIt];
 		if (name == "--diff")
 			diffPath = value;
+		else if (name == "--fit")
+			fitPath = value;
 		else if (name == "--blur")
 			blur = std::max(std::atoi(value), 0);
 		else if (name == "--max")
@@ -291,10 +344,24 @@ int main(int argc, char** argv)
 		}
 	}
 
-	auto reference = capture::Load(referencePath);
+	auto reference = LoadImage(referencePath);
 	auto image = capture::Load(imagePath);
 	if (!reference || !image)
 		return 2;
+	if (fitPath)
+	{
+		// the same aspect, to within a pixel of the capture's: scaled, not cropped or stretched
+		double scale = static_cast<double>(reference->width) / image->width;
+		if (std::abs((reference->height / scale) - image->height) > 1.0)
+		{
+			std::println(stderr, "aspects differ: {}x{} and {}x{}", reference->width, reference->height, image->width, image->height);
+			return 2;
+		}
+		std::println("the reference, {}x{}, fitted to the capture's size", reference->width, reference->height);
+		reference = capture::Fit(*reference, image->width, image->height);
+		if (!capture::Save(*fitPath, *reference))
+			return 2;
+	}
 	if (reference->width != image->width || reference->height != image->height)
 	{
 		std::println(stderr, "sizes differ: {}x{} and {}x{}", reference->width, reference->height, image->width, image->height);

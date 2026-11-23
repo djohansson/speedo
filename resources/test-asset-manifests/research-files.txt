@@ -1,0 +1,20 @@
+# two of the glTF research scenes (research.txt's), file by file from its repository at the commit of the release
+# research.txt pins (v1.2.0), with the panorama one of them is lit by: what the quick tier names of the set, for the
+# research checks (scripts/visualtest.ps1) where the whole archive (1.1 GB) is too much to fetch (CI). GitHub's raw
+# downloads, which serve the Git LFS files' content too (the pngs, bins and the panorama). <size>, <sha256> and <path>
+# (under the url too), tab separated. the scenes' licenses are in the repository: both CC0-1.0, and the panorama the set
+# put in place of the material test ball's own (which isn't redistributable) CC0-1.0, its license beside it
+dir	gltf-research-scenes/files
+url	https://github.com/ErfanMo77/gltf-research-scenes/raw/3ad81e0443ee0f37c4f5474c83d95fab6624c8f3
+1864	0a3bbecb335d187defabb036981be1f14645cb6d5ed1f70c59a680efc8c60f15	scenes/cornell-box/gltf/conversion.yaml
+847069	b7d48b581846173e855088d675abc4f36c7a43cc096ea43328c8e901ff137763	scenes/cornell-box/gltf/cornell-box.png
+2520	89d9327e3858c8ba22c0b09dd9b795737a1d0df5fb15a7616d601982532a0809	scenes/cornell-box/gltf/cornell_box.bin
+15755	25169607a87085b91860ed6653d2116c6e19ed9dfe1cf762b768df491643217c	scenes/cornell-box/gltf/cornell_box_core.gltf
+18809	9861528c48083069eba216c6b0a92d277fb66145caa1a67b2f4bb0513895b798	scenes/cornell-box/gltf/cornell_box_extended.gltf
+4044	e2a197fda094a4a2e51bd516f11f5dfca332ecc6a891cb18fabdeab8104877ff	scenes/material-testball/gltf/conversion.yaml
+919173	6476ee400ca52477d64552a865b57b2fb62500ee5c602248119b3831686c2a3e	scenes/material-testball/gltf/material-testball.png
+5954828	cb094ecf3a278422f6df815752bdd8a63220da9651e6cd38866e6b397bcbb0f1	scenes/material-testball/gltf/material_testball.bin
+10591	2525bb71c6a521ebc3913ff107bfde8b87cfdf469b534023e895b8db320b7df6	scenes/material-testball/gltf/material_testball_core.gltf
+14348	caba6eb75323e516e132d0369565d1cb4564a5da7753249f81f9d66e4014ae57	scenes/material-testball/gltf/material_testball_extended.gltf
+5833408	41f7955743120a2cc8c0380028c810e8f17c7e8a2c949308758fe0719b57d97c	scenes/common/sunflowers_environment.hdr
+799	8c4a6ae57caecb647028b04cad95e79f96d551af46ed6b360a148ef18f3baba1	scenes/common/sunflowers_environment_LICENSE.txt

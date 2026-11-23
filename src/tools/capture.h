@@ -103,8 +103,8 @@ struct Image
 	return true;
 }
 
-// the linear luminance (rec. 709 weights over the srgb decoded channels), top row first
-[[nodiscard]] inline std::vector<float> Luminance(const Image& image)
+// each srgb level's linear value
+[[nodiscard]] inline const std::array<float, 256>& SrgbLevels()
 {
 	static const auto kSrgb = []
 	{
@@ -116,6 +116,72 @@ struct Image
 		}
 		return table;
 	}();
+	return kSrgb;
+}
+
+// a linear value's srgb level, rounded
+[[nodiscard]] inline uint8_t SrgbLevel(float value)
+{
+	double c = std::clamp(static_cast<double>(value), 0.0, 1.0);
+	double encoded = c <= 0.0031308 ? c * 12.92 : (1.055 * core::Pow(c, 1.0 / 2.4)) - 0.055;
+	return static_cast<uint8_t>((encoded * 255.0) + 0.5);
+}
+
+// the image scaled to width x height, each pixel the mean of the linear light over the part of the image it covers (an
+// area average, separable): a reference rendered larger than the capture, as the capture's pixels would have gathered it
+[[nodiscard]] inline Image Fit(const Image& image, int width, int height)
+{
+	struct Weight
+	{
+		int source = 0;
+		float weight = 0.0F;
+	};
+	// one axis: each target's span of the sources, [at, at + 1) times the scale, each source by its overlap
+	auto spans = [](int from, int to)
+	{
+		std::vector<std::vector<Weight>> result(static_cast<size_t>(to));
+		double scale = static_cast<double>(from) / to;
+		for (int at = 0; at < to; at++)
+		{
+			double begin = at * scale;
+			double end = (at + 1) * scale;
+			for (int source = static_cast<int>(begin); source < from && source < end; source++)
+			{
+				double overlap = std::min(static_cast<double>(source + 1), end) - std::max(static_cast<double>(source), begin);
+				if (overlap > 0.0)
+					result[static_cast<size_t>(at)].push_back({source, static_cast<float>(overlap / scale)});
+			}
+		}
+		return result;
+	};
+	const auto& linear = SrgbLevels();
+	auto columns = spans(image.width, width);
+	auto rows = spans(image.height, height);
+	// across each row, then down each column
+	std::vector<float> across(static_cast<size_t>(width) * image.height * 3, 0.0F);
+	for (int y = 0; y < image.height; y++)
+		for (int x = 0; x < width; x++)
+			for (const auto& [source, weight] : columns[static_cast<size_t>(x)])
+				for (size_t channelIt = 0; channelIt < 3; channelIt++)
+					across[((static_cast<size_t>(y) * width + x) * 3) + channelIt] +=
+						weight * linear[image.bgr[((static_cast<size_t>(y) * image.width + source) * 3) + channelIt]];
+	Image fitted{width, height, std::vector<uint8_t>(static_cast<size_t>(width) * height * 3)};
+	for (int y = 0; y < height; y++)
+		for (int x = 0; x < width; x++)
+			for (size_t channelIt = 0; channelIt < 3; channelIt++)
+			{
+				float sum = 0.0F;
+				for (const auto& [source, weight] : rows[static_cast<size_t>(y)])
+					sum += weight * across[((static_cast<size_t>(source) * width + x) * 3) + channelIt];
+				fitted.bgr[((static_cast<size_t>(y) * width + x) * 3) + channelIt] = SrgbLevel(sum);
+			}
+	return fitted;
+}
+
+// the linear luminance (rec. 709 weights over the srgb decoded channels), top row first
+[[nodiscard]] inline std::vector<float> Luminance(const Image& image)
+{
+	const auto& kSrgb = SrgbLevels();
 	std::vector<float> values(static_cast<size_t>(image.width) * image.height);
 	for (size_t pixelIt = 0; pixelIt < values.size(); pixelIt++)
 	{

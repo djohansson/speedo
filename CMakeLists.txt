@@ -920,6 +920,8 @@ target_link_libraries(
 		${SPEEDO_MIMALLOC}
 		core
 )
+# stb_image, for the png references (the glTF research set's), its implementation in imagecompare.cpp
+target_include_directories(imagecompare SYSTEM PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include)
 
 # the executables' narrow strings are UTF-8 on windows too (windows.manifest sets the process's ANSI code page):
 # libc++'s path::string() threw on file names the system's code page can't represent. lld-link can merge a manifest into

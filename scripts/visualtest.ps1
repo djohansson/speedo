@@ -10,6 +10,10 @@ it past the check's thresholds. A check fails too where a client does (its log i
 differences image are kept under <work>/<check>. Prints each check's result and how long it took: no time budget is set
 yet, it is measured first (the user's call, 2026-11-11).
 
+The research checks render once: a scene of the glTF research set in its own conditions, against its path tracer's
+reference image, scaled to the capture's size (imagecompare --fit, kept as reference.bmp): what the renderer
+approximates, held where it is (docs/research-scenes-plan.md, step 10).
+
 The thresholds leave a few times what was measured when each check was made (in its comment), so that they fail on a
 real change and not on a run's noise: a check whose measures move should be looked at, not loosened.
 
@@ -245,6 +249,42 @@ $checks = @(
 		Thresholds = @('--over', '16:0.1', '--log-blurred', '0.005', '--ratio', '0.005')
 		NeedsRayQueries = $true
 	}
+	# the research checks: a scene of the glTF research set (research-files.txt's, which the quick tier names) against
+	# its path tracer's reference (Image: Blender Cycles', thousands of samples a pixel), scaled to the capture's size
+	# (imagecompare --fit), in the conditions of its conversion.yaml, which the client reads (Conditions: the exposure
+	# theirs, not pinned; docs/research-scenes-plan.md, step 10): one client run, the renderer's approximations measured
+	# against the light's, held where they are, not where they would pass. the camera's own effects off, as
+	# researchcompare.ps1 renders them, native size
+	[ordered]@{
+		# a closed box lit by its emissive ceiling alone (no environment): the emitters' light and its bounces between
+		# the red and green walls (the indirect lighting), the boxes' soft shadows. 256 frames, the indirect lighting
+		# settled (64: 0.29 stops blurred, -0.22 of light; 128: 0.20, -0.16; 512: 0.10, -0.05, on an RTX 4070 Ti SUPER).
+		# measured 2026-11-23: on lavapipe (Windows') 0.108 stops blurred, -0.063 of light, 103 s; on the gpu, Vulkan
+		# 0.115, -0.069; D3D12 0.118, -0.074
+		Name = 'research-cornell-box'
+		Model = 'test-assets/gltf-research-scenes/files/scenes/cornell-box/gltf/cornell_box_extended.gltf'
+		Image = 'test-assets/gltf-research-scenes/files/scenes/cornell-box/gltf/cornell-box.png'
+		Size = '256x256'
+		Frames = 256
+		Conditions = $true
+		Variables = @{ SPEEDO_LENS_GLARE = '0'; SPEEDO_MOTION_BLUR = '0'; SPEEDO_GRAIN = '0'; SPEEDO_UPSCALING = 'native' }
+		Capture = @{}
+		Thresholds = @('--log-blurred', '0.16', '--expect-ratio', '-0.07', '--ratio', '0.08')
+	}
+	[ordered]@{
+		# a test ball's coated and rough metal under a panorama (the set's sunflowers, at its strength): the
+		# environment's light, its reflections, the clear coat. measured 2026-11-23: on lavapipe (Windows') 0.074 stops
+		# blurred, -0.036 of light, 53 s; on the gpu, Vulkan 0.076, -0.039; D3D12 the same
+		Name = 'research-material-testball'
+		Model = 'test-assets/gltf-research-scenes/files/scenes/material-testball/gltf/material_testball_extended.gltf'
+		Image = 'test-assets/gltf-research-scenes/files/scenes/material-testball/gltf/material-testball.png'
+		Size = '320x180'
+		Frames = 64
+		Conditions = $true
+		Variables = @{ SPEEDO_LENS_GLARE = '0'; SPEEDO_MOTION_BLUR = '0'; SPEEDO_GRAIN = '0'; SPEEDO_UPSCALING = 'native' }
+		Capture = @{}
+		Thresholds = @('--log-blurred', '0.11', '--expect-ratio', '-0.04', '--ratio', '0.06')
+	}
 )
 
 # a check's asset: relative to resources/, as the autoloads take them, but test-assets/ where SPEEDO_TEST_ASSETS puts them
@@ -266,6 +306,9 @@ function Invoke-Capture($Check, [string] $Side, [hashtable] $Variables, [string]
 	Remove-Item -LiteralPath $capture -ErrorAction SilentlyContinue
 	$set = [ordered]@{}
 	foreach ($name in $pinned.Keys) { $set[$name] = $pinned[$name] }
+	# a research check's model in its own conditions: its exposure its conversion.yaml's (set variables come first)
+	if ($Check.Conditions) { $set.Remove('SPEEDO_AUTO_EXPOSURE'); $set.Remove('SPEEDO_EXPOSURE') }
+	if ($Check.Size) { $set.SPEEDO_WINDOW_SIZE = $Check.Size }
 	$set.SPEEDO_AUTOLOAD_MODEL = Resolve-Asset $Check.Model
 	$set.SPEEDO_AUTOLOAD_EXIT = "$($Check.Frames)"
 	$set.SPEEDO_CAPTURE = $capture
@@ -350,7 +393,8 @@ foreach ($check in $checks)
 	$directory = Join-Path $Work $check.Name
 	New-Item -ItemType Directory -Force -Path $directory | Out-Null
 	$start = Get-Date
-	$captured = (Invoke-Capture $check 'reference' $check.Reference $directory) -and (Invoke-Capture $check 'capture' $check.Capture $directory)
+	# a research check's reference is its image, the others' a run of their own
+	$captured = ($check.Image -or (Invoke-Capture $check 'reference' $check.Reference $directory)) -and (Invoke-Capture $check 'capture' $check.Capture $directory)
 	$seconds = [int]((Get-Date) - $start).TotalSeconds
 	if (-not $captured)
 	{
@@ -366,6 +410,14 @@ foreach ($check in $checks)
 		continue
 	}
 	$arguments = @((Join-Path $directory 'reference.bmp'), (Join-Path $directory 'capture.bmp'), '--diff', (Join-Path $directory 'differences.bmp')) + $check.Thresholds
+	# the image scaled to the capture's size, kept as reference.bmp
+	if ($check.Image)
+	{
+		$image = Resolve-Asset $check.Image
+		if (-not [IO.Path]::IsPathRooted($image)) { $image = Join-Path $root "resources/$image" }
+		$arguments[0] = $image
+		$arguments += @('--fit', (Join-Path $directory 'reference.bmp'))
+	}
 	$output = & $compareExe @arguments
 	$exitCode = $LASTEXITCODE
 	$output | Set-Content -LiteralPath (Join-Path $directory 'compare.txt')

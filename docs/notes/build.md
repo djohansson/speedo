@@ -783,7 +783,10 @@ looked into. The validated visual checks, which took their place, took 10 min 17
 first run on 7a0676ca hung in its asset checks (assettest silent for two hours after the zips' extraction, the job
 cancelled at its timeout); its rerun passed them in 1 min 42 s, and assettest on 2 and 3 threads doesn't hang
 (SPEEDO_EXECUTOR_THREAD_COUNT, which it honors since): a one-off, to look at if it comes back. No time budget yet (the user, 2026-11-11: measure
-first). What it found on the way:
+first). The visual checks took 33 min on Linux, 35 min on macOS and 32 min on Windows (2026-11-22), the jobs 41 to 58 of
+their 120; since 2026-11-23 two research checks join them (a scene of the glTF research set against its path traced
+reference, docs/research-scenes-plan.md, step 10: 2.6 min warm on lavapipe here, a few times that on a runner's cores),
+their files from the quick tier's fetch. What it found on the way:
 
 - **A deadlock on 2 executor threads** (a 4-core runner's): the client's `Rpc` task looped until a server answered,
   loads slept in `WaitUntilReady`, and moodycamel's dequeue starved the draw chain; both clients timed out at 30 minutes

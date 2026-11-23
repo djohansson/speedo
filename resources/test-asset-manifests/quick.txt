@@ -48,3 +48,8 @@ mcguire/sponza.zip
 mcguire/sibenik.zip
 # an environment with dominant lights
 glTF-Sample-Environments/neutral.hdr
+# the glTF research set (its files, research-files.txt): a scene lit by its emitter alone, and one by a panorama, each in
+# its conversion.yaml's conditions, against which visualtest.ps1's research checks hold the path traced references
+gltf-research-scenes/files/scenes/cornell-box
+gltf-research-scenes/files/scenes/material-testball
+gltf-research-scenes/files/scenes/common/sunflowers_environment.hdr

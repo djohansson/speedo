@@ -25,7 +25,8 @@ their LFS pointers'.
 -Research: the glTF research scenes (https://github.com/ErfanMo77/gltf-research-scenes, glTF 2.0 versions of the classic
 research scenes), its release's archive of .glb files at the version research.txt pins (about 1.1 GB, from GitHub's
 release downloads, its sha256 GitHub's digest of the asset), extracted into <dir>/gltf-research-scenes/scenes (the archive's
-scenes directory printed: a client run a scene).
+scenes directory printed: a client run a scene); and two of its scenes file by file from its repository
+(research-files.txt, about 14 MB, into <dir>/gltf-research-scenes/files), which the quick tier names.
 
 Without any of them, all are fetched. The hand-made models in resources/test-models/gltf and resources/test-models/obj (for
 what no downloaded model covers, e.g. sparse index accessors, or bump map tangents) are always printed too. The dir defaults to $env:SPEEDO_TEST_ASSETS, or
@@ -34,7 +35,7 @@ are kept, so running it again only fetches what is missing.
 
 -Quick prints only the quick tier's paths (resources/test-asset-manifests/quick.txt: a model or two per feature, for
 iterating), after fetching the sets as above.
--Minimal fetches only what the quick tier names (its McGuire archives, glTF models and panoramas, a few hundred MB rather
+-Minimal fetches only what the quick tier names (its McGuire archives, glTF models, panoramas and research scenes, a few hundred MB rather
 than about 5.6 GB) and prints them as -Quick does: for CI (.github/workflows/ci.yml). It never narrows what is there.
 
 Prints the paths to pass to scripts/assettest.ps1 (progress and errors go to stderr), e.g.
@@ -263,6 +264,9 @@ if ($Environments)
 
 if ($Research)
 {
+	# two of its scenes file by file (research-files.txt), for the quick tier and visualtest.ps1's research checks, which
+	# -Minimal fetches without the archive; the scenes dir printed is the archive's
+	$failed = -not (Sync-Manifest (Read-Manifest 'research-files.txt')) -or $failed
 	$manifest = Read-Manifest 'research.txt'
 	$failed = -not (Sync-Manifest $manifest) -or $failed
 	$scenes = Join-Path (Join-Path $Dir $manifest.Dir) 'scenes'

@@ -361,3 +361,16 @@ image, a pixel off by 50 in red (and where), an edge moved a pixel (one column, 
 noise, twice the light (a stop, sharp and blurred). Not yet FLIP. On step 1's repeatable pairs: KosmicKrisp's at most 7
 levels, 0.23% past 1, 0.0013 stops blurred; lavapipe's at most 9, 0.10% past 1, 0.00004 stops blurred: both within
 `--max 16 --over 1:1`, and lavapipe against KosmicKrisp far past it.
+
+### Step 4, a path tracer's references (2026-11-23)
+
+The offline renderer's cross-check, from the glTF research set (docs/research-scenes-plan.md, step 10): its scenes come
+with Blender Cycles' references at thousands of samples a pixel, and their `conversion.yaml`'s conditions, which the
+client reads. Two of them are research checks in `visualtest.ps1`: cornell-box (an emitter and the indirect lighting's
+bounces) and material-testball (a panorama, a coat, metals), each one client run in its conditions against its
+reference, a png that `imagecompare --fit` scales to the capture's size (an area average in linear light;
+`capture::Fit`, which the self test checks on a checkerboard). What they measure is the renderer's approximation
+(cornell-box 0.108 stops blurred on lavapipe, 0.115 on the gpu), held about where it is rather than at zero. The files
+come one by one from the set's repository (`research-files.txt`, 14 MB), which the quick tier names, so CI fetches them
+with the rest. On lavapipe, Windows', warm: cornell-box 103 s (256 frames at 256x256), material-testball 53 s (64 at
+320x180).

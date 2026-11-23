@@ -535,14 +535,18 @@ Khronos glTF-Sample-Environments panoramas (about 400 MB; Git LFS files, from Gi
 `assettest` checks each, and `assettest.ps1 -Client` runs the client once per panorama) and the glTF research scenes
 (https://github.com/ErfanMo77/gltf-research-scenes: glTF 2.0 versions of the classic research scenes, Veach's, the Bitterli
 set's rooms, cars, the crown; its release's archive of .glb files at a pinned version, about 1.1 GB, its sha256 GitHub's
-digest of the asset, extracted into `gltf-research-scenes/scenes`; the user's ask, 2026-11-21) into `resources/test-assets`
+digest of the asset, extracted into `gltf-research-scenes/scenes`; the user's ask, 2026-11-21; and two of its scenes,
+cornell-box and material-testball, with the panorama the second is lit by, file by file from its repository at the
+release's commit, about 14 MB into `gltf-research-scenes/files`: `research-files.txt`, GitHub's raw downloads, which
+serve the LFS files' content too, what the quick tier names of the set and visualtest.ps1's research checks hold against
+their references, since 2026-11-23) into `resources/test-assets`
 (gitignored; the client's file browser opens there; or `$SPEEDO_TEST_ASSETS`; each research scene's `conversion.yaml` says
 how it was converted and the conditions of its path traced reference render, which the client opens it in and
 `scripts/researchcompare.ps1` holds it against: see docs/research-scenes-plan.md and "A model's own conditions" below),
 and prints the paths to test:
 `scripts/assettest.ps1 -Client (scripts/fetch-test-assets.ps1)` (from pwsh; from another shell,
 `pwsh scripts/assettest.ps1 -Client $(pwsh scripts/fetch-test-assets.ps1)`). Each set is a manifest in
-`resources/test-asset-manifests` (`mcguire.txt`, `gltf.txt`, `environments.txt`, `research.txt`; the client downloads the same): its
+`resources/test-asset-manifests` (`mcguire.txt`, `gltf.txt`, `environments.txt`, `research-files.txt`, `research.txt`; the client downloads the same): its
 directory, the url its files are under, the zips to extract (Bistro's parts, side by side), and each file's size and sha256,
 tab separated, the path last (some glTF paths have spaces, one UTF-8; the url escapes each segment). A file is downloaded
 unless it is there with its size and sha256, 8 at once, and one that doesn't match is kept as `.unverified` and reported
