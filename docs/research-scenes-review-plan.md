@@ -402,3 +402,17 @@ Nothing now.
   The cost: none to measure as it is (Bistro's frame 22.54 ms against 22.53 at 1440p balanced, the classroom's 7.92
   against 7.82); with the voxel's normal looked at for every voxel of the 8, as first written, Bistro's Reflection
   Trace took 0.75 ms more and its Main Transmissive 0.76. visualtest 8 of 8, the quick tier 142 of 142.
+- 2026-11-24, **the wider fetch, tried in the copy of the shaders** (`temp/research-issues/s2/wide.pl`; the user: "bring
+  the classroom fix in, then try the wider fetch"): where a lookup leaves out some of its 8, their share taken from
+  the pixel's own surface's voxels among the 27 around its voxel (a drawn side facing its way within 60 degrees, on
+  its plane within 3/4 of a voxel), a tent 1.5 voxels wide, not given to the ones kept. Alone it changes little
+  (living-room's arches as they were, the kitchen's squares rearranged). With the 8's voxels that hold another surface
+  left out too where the 27 hold any of its own, a good part of the arches' teeth is gone by two seconds and the
+  kitchen's wall behind its toaster has fewer, fainter squares, but blocks are left in both, and the classroom's
+  ceiling and upper walls are brighter (its lit picture 2.3 of 255 from before) with new light squares along its
+  beams: a leak or not, not looked into (`temp/review/research-issues/wide-<scene>-<place>-f<frame>.png`: off, the
+  fill, the fill with the others left out; `wide-classroom-indirect.png`). The regression poses at 900 frames within
+  0.8 of 255 (Bistro's street 0.76, Sponza's columns 0.58, the rest under 0.4); the cost not measured. It patches a
+  lookup that still starts from the 8 around the point, so the light still steps from cell to cell where few are kept.
+  Not in the repository. Next, the user's to choose: the whole lookup from the surface's own voxels where it has
+  any, smoothing on the screen, or step 6.
