@@ -1441,16 +1441,24 @@ uint EmitterPickByPower(inout EmitterRandom random, out float probability)
 	return ~0u;
 }
 
+// where a photon landed, as the screen has it (see EmitterCausticSplat): out of every view, in a view but hidden there
+// (behind what its pixels show), or shown
+static const uint kEmitterCausticOffScreen = 0u;
+static const uint kEmitterCausticHidden = 1u;
+static const uint kEmitterCausticShown = 2u;
+
 // a photon landing on an opaque surface (at position, its normal toward where the photon came from; flux its light): in
 // each view, into the 2x2 pixels around where it is in the view (bilinear) that see that surface there (their pre-pass
 // point within the depth two pixels make along their surface, and seen from the side the photon came from), each its
 // share over the pixel's area on the surface, the irradiance over pi as the frame shows it (times the view's exposure),
-// added in fixed point (rounded at random, so that what is below a unit adds up as it should over many)
-void EmitterCausticSplat(float3 position, float3 normal, float3 flux, inout EmitterRandom random)
+// added in fixed point (rounded at random, so that what is below a unit adds up as it should over many). where it landed
+// as the screen has it (kEmitterCausticOffScreen, Hidden or Shown)
+uint EmitterCausticSplat(float3 position, float3 normal, float3 flux, inout EmitterRandom random)
 {
 	uint frameIndex = gPushConstants.frameIndex;
 	uint2 extent;
 	gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].GetDimensions(extent.x, extent.y);
+	uint landed = kEmitterCausticOffScreen;
 	for (uint viewIt = 0; viewIt < gPushConstants.viewCount; viewIt++)
 	{
 		ViewData view = gViewData[frameIndex][viewIt];
@@ -1458,6 +1466,8 @@ void EmitterCausticSplat(float3 position, float3 normal, float3 flux, inout Emit
 		if (clip.w <= 0.0)
 			continue;
 		float2 at = (clip.xy / clip.w * 0.5 + 0.5) * view.viewport.zw + view.viewport.xy - 0.5;
+		if (all(at >= view.viewport.xy - 0.5) && all(at < view.viewport.xy + view.viewport.zw - 0.5))
+			landed = max(landed, kEmitterCausticHidden);
 		int2 base = int2(floor(at));
 		float2 f = at - float2(base);
 		float3 axis = ViewRay(view, 0.0);
@@ -1488,8 +1498,10 @@ void EmitterCausticSplat(float3 position, float3 normal, float3 flux, inout Emit
 				if (units > 0u)
 					InterlockedAdd(gEmitterCausticPhotons[index + channel], units);
 			}
+			landed = kEmitterCausticShown;
 		}
 	}
+	return landed;
 }
 
 // the Emitter Caustics pass: EmitterData::causticPhotonCount photons, each from a point of an emitter triangle picked by
@@ -1584,7 +1596,10 @@ void ComputeEmitterCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 			{
 				if (path.inside)
 					path.throughput *= VolumeAttenuation(path.attenuationColor, path.attenuationDistance, hit.t);
-				EmitterCausticSplat(path.origin + path.direction * hit.t, hit.normal, path.throughput, random);
+				float3 landing = path.origin + path.direction * hit.t;
+				uint landed = EmitterCausticSplat(landing, hit.normal, path.throughput, random);
+				if (landed != kEmitterCausticOffScreen)
+					EmitterCausticCellAdd(landing, hit.normal, path.throughput, landed == kEmitterCausticHidden, random);
 			}
 			return;
 		}
@@ -1630,4 +1645,253 @@ float3 EmitterCausticsAt(int2 pixel, ViewData view)
 	uint index = (uint(pixel.y) * extent.x + uint(pixel.x)) * 3u;
 	float3 units = float3(gEmitterCausticPhotons[index], gEmitterCausticPhotons[index + 1u], gEmitterCausticPhotons[index + 2u]);
 	return units / (SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE * max(view.exposure, 1e-30));
+}
+
+// the photons' cells of the world (gEmitterCausticCells, SHADER_TYPES_EMITTER_CAUSTIC_CELL_COUNT): where they land, whatever
+// the screen shows there, for the traced hits the screen hides (TracedEmitterHidden). the screen's pixels are where the
+// photons land otherwise (EmitterCausticSplat), and a refraction shows what is hidden there: cornell-caustic's back wall
+// beside its cubes, seen through the water's front face where the screen has the cube, took the voxels' light, straight
+// through the water and shadowed by the cube as if it weren't there; then the light the screen gathered nearest it on its
+// own plane, rings of taps around its place, blocks of the wall's caustics from elsewhere among patches of the voxels'
+// (the user's reports, 2026-11-23: "an additional light", then "broken and corrupted"). a hash table as the world
+// cache's (GiWorldMix): a cell is a cube about kEmitterCausticCellPixels pixels wide at its distance from the first view's
+// eye, to a power of two (its level), of a normal bucket (GiWorldBucket: the two sides of a wall cells apart), found by
+// linear probing, the stalest of those probed taken back where none is empty (a policy, not a capacity: see
+// kGiWorldProbeCount). a frame's photons add their light over the cell's area of their surface's plane
+// (EmitterPlaneBoxArea) to its sums (fixed point, rounded at random), which Emitter Caustic Cells folds into its mean over
+// frames: irradiance, as the screen's pixels hold it; a lookup interpolates the 8 cells around a point
+
+// a cell's words: its key (0: empty), the frame a photon last landed in it (EmitterData::frame), the frames its mean is of
+// (a float), a spare, the frame's sums (3 words, in 1 / SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE of the irradiance
+// over pi, times the first view's exposure) and their mean over frames (3 floats, the irradiance over pi)
+static const uint kEmitterCausticCellKey = 0u;
+static const uint kEmitterCausticCellStamp = 1u;
+static const uint kEmitterCausticCellCount = 2u;
+static const uint kEmitterCausticCellSums = 4u;
+static const uint kEmitterCausticCellMean = 7u;
+static const uint kEmitterCausticCellProbeCount = 16u;
+// a cell's side, in pixels at its distance (to a power of two: 1.4 to 2.8 of them). the cells are made where the screen
+// hides a photon's landing alone (see EmitterCausticCellAdd): made wherever the photons landed, each face of
+// cornell-caustic's box was some 260000 cells at 1024x1024, the table's size, and they were taken back for other places
+// all the time and started over, a grain over what the screen hides; at 6 pixels the table held them, but what the screen
+// hides beside its cubes was a blur beside the caustics' lines around it
+static const float kEmitterCausticCellPixels = 2.0;
+// the grid's offset, in sides: off whole numbers, where models' walls lie (cornell-caustic's at 1 and -1), so that a wall's
+// photons fall in one layer of cells, not in two by their rounding
+static const float kEmitterCausticCellOffset = 0.3819660113;
+
+uint EmitterCausticCellWord(uint cell, uint word)
+{
+	return cell * SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT + word;
+}
+
+// the side of a point's cells, and its level (the side's log2)
+float EmitterCausticCellSide(float3 position, out int level)
+{
+	ViewData view = gViewData[gPushConstants.frameIndex][0];
+	float pixel = length(ViewRay(view, float2(0.0, 0.0)) - ViewRay(view, float2(2.0 / view.viewport.z, 0.0)));
+	float wanted = max(distance(position, view.eyePosition.xyz) * pixel * kEmitterCausticCellPixels, 1e-30);
+	level = clamp(int(round(log2(wanted))), -120, 120);
+	return exp2(float(level));
+}
+
+int3 EmitterCausticCellPlace(float3 position, float side)
+{
+	return int3(floor(position / side + kEmitterCausticCellOffset));
+}
+
+// where a cell's probe begins and the key it is told apart by (two hashes independent of each other, see GiWorldHash)
+uint EmitterCausticCellHash(int3 place, int level, uint bucket)
+{
+	return GiWorldMix(uint(place.x) * 73856093u ^ GiWorldMix(uint(place.y) * 19349663u ^ GiWorldMix(uint(place.z) * 83492791u ^ (uint(level + 128) << 3) ^ bucket)));
+}
+
+uint EmitterCausticCellKey(int3 place, int level, uint bucket)
+{
+	return GiWorldMix(uint(place.z) * 0x632BE59Bu ^ GiWorldMix(uint(place.x) * 0x85157AF5u ^ GiWorldMix(uint(place.y) * 0x9E3779B1u ^ (uint(level + 128) << 3) ^ bucket ^ 0xA511E9B3u))) | 1u;
+}
+
+// a cell's index, ~0 where there is none: found by its key along the probe from its hash, or (insert) made in the first
+// empty one, else in place of the stalest probed if no photon landed in that this frame (emptied: its light another
+// place's)
+uint EmitterCausticCellFind(int3 place, int level, uint bucket, bool insert)
+{
+	uint frame = gEmitterData[gPushConstants.frameIndex][0].frame;
+	uint hash = EmitterCausticCellHash(place, level, bucket);
+	uint key = EmitterCausticCellKey(place, level, bucket);
+	uint stalest = ~0u;
+	uint stalestAge = 0u;
+	for (uint probeIt = 0; probeIt < kEmitterCausticCellProbeCount; probeIt++)
+	{
+		uint index = (hash + probeIt) & (SHADER_TYPES_EMITTER_CAUSTIC_CELL_COUNT - 1u);
+		uint keyWord = EmitterCausticCellWord(index, kEmitterCausticCellKey);
+		uint found = gEmitterCausticCells[keyWord];
+		if (found == key)
+			return index;
+		if (found == 0u)
+		{
+			if (!insert)
+				return ~0u;
+			uint previous;
+			InterlockedCompareExchange(gEmitterCausticCells[keyWord], 0u, key, previous);
+			if (previous == 0u || previous == key)
+				return index;
+			continue;
+		}
+		uint age = frame - gEmitterCausticCells[EmitterCausticCellWord(index, kEmitterCausticCellStamp)];
+		if (age > stalestAge)
+		{
+			stalestAge = age;
+			stalest = index;
+		}
+	}
+	if (!insert || stalest == ~0u)
+		return ~0u;
+	uint keyWord = EmitterCausticCellWord(stalest, kEmitterCausticCellKey);
+	uint old = gEmitterCausticCells[keyWord];
+	uint previous;
+	InterlockedCompareExchange(gEmitterCausticCells[keyWord], old, key, previous);
+	if (previous != old)
+		return previous == key ? stalest : ~0u;
+	for (uint wordIt = 1u; wordIt < SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT; wordIt++)
+		gEmitterCausticCells[EmitterCausticCellWord(stalest, wordIt)] = 0u;
+	return stalest;
+}
+
+// a photon landing (at position, its normal toward where it came from; flux its light) added to its cell's frame: making
+// the cell where the screen hides where it landed (make), else only where the cell is there (made by the hidden photons
+// beside it: a cell across the edge of what is hidden holds the light of all of it, as its area at a lookup is all of it)
+void EmitterCausticCellAdd(float3 position, float3 normal, float3 flux, bool make, inout EmitterRandom random)
+{
+	int level;
+	float side = EmitterCausticCellSide(position, level);
+	uint cell = EmitterCausticCellFind(EmitterCausticCellPlace(position, side), level, GiWorldBucket(normal), make);
+	if (cell == ~0u)
+		return;
+	gEmitterCausticCells[EmitterCausticCellWord(cell, kEmitterCausticCellStamp)] = gEmitterData[gPushConstants.frameIndex][0].frame;
+	float exposure = gViewData[gPushConstants.frameIndex][0].exposure;
+	// over the cell's area of the surface's plane where it landed (at least a tenth of the cell's side squared: a cell
+	// the plane barely cuts would take its few photons as very bright), so that the cell holds irradiance and a lookup
+	// interpolates it as it is: by the area at each lookup, 8 polygons a hidden hit, cornell-caustic's Main Transmissive
+	// took 0.45 ms a frame more at 1440p
+	float3 low = (float3(EmitterCausticCellPlace(position, side)) - kEmitterCausticCellOffset) * side;
+	float area = max(EmitterPlaneBoxArea(low, low + side, position, normal), 0.1 * side * side);
+	float3 amount = flux * (exposure / (kPi * area) * SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE);
+	for (uint channel = 0; channel < 3; channel++)
+	{
+		uint units = uint(min(amount[channel] + random.Next(), 1073741824.0));
+		if (units > 0u)
+			InterlockedAdd(gEmitterCausticCells[EmitterCausticCellWord(cell, kEmitterCausticCellSums + channel)], units);
+	}
+}
+
+// the Emitter Caustic Cells pass, a thread per cell: its frame's sums folded into its mean, by 1 over the frames it holds,
+// at least EmitterData::stillBlend (the cells are the world's: they change as the light and the glass do, not as the view
+// does; the blend where the model moves), and emptied. a cell no photon landed in this frame takes a frame of none
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void ComputeEmitterCausticCells(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+	uint cell = dispatchThreadId.x;
+	if (cell >= SHADER_TYPES_EMITTER_CAUSTIC_CELL_COUNT || gEmitterCausticCells[EmitterCausticCellWord(cell, kEmitterCausticCellKey)] == 0u)
+		return;
+	EmitterData data = gEmitterData[gPushConstants.frameIndex][0];
+	float exposure = max(gViewData[gPushConstants.frameIndex][0].exposure, 1e-30);
+	float3 frameLight = 0.0;
+	float3 mean = 0.0;
+	for (uint channel = 0; channel < 3; channel++)
+	{
+		uint sumWord = EmitterCausticCellWord(cell, kEmitterCausticCellSums + channel);
+		frameLight[channel] = float(gEmitterCausticCells[sumWord]) / (SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE * exposure);
+		gEmitterCausticCells[sumWord] = 0u;
+		mean[channel] = asfloat(gEmitterCausticCells[EmitterCausticCellWord(cell, kEmitterCausticCellMean + channel)]);
+	}
+	uint countWord = EmitterCausticCellWord(cell, kEmitterCausticCellCount);
+	float count = min(asfloat(gEmitterCausticCells[countWord]) + 1.0, 1.0 / max(data.stillBlend, 1e-6));
+	mean = lerp(mean, frameLight, 1.0 / count);
+	gEmitterCausticCells[countWord] = asuint(count);
+	for (uint channel = 0; channel < 3; channel++)
+		gEmitterCausticCells[EmitterCausticCellWord(cell, kEmitterCausticCellMean + channel)] = asuint(mean[channel]);
+}
+
+// a box's corner (index: its bits x, y and z, the high side's where set)
+float3 EmitterBoxCorner(float3 low, float3 high, uint index)
+{
+	return float3((index & 1u) != 0u ? high.x : low.x, (index & 2u) != 0u ? high.y : low.y, (index & 4u) != 0u ? high.z : low.z);
+}
+
+// the area of a plane (through point, of unit normal) inside a box (low to high): the polygon the box's edges cut it to
+// (3 to 6 corners), about their mean in order of their angle
+float EmitterPlaneBoxArea(float3 low, float3 high, float3 point, float3 normal)
+{
+	float distances[8];
+	for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
+		distances[cornerIt] = dot(EmitterBoxCorner(low, high, cornerIt) - point, normal);
+	float3 points[6];
+	uint count = 0;
+	for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
+		for (uint axisIt = 0; axisIt < 3; axisIt++)
+		{
+			uint other = cornerIt | (1u << axisIt);
+			if (other == cornerIt || (distances[cornerIt] < 0.0) == (distances[other] < 0.0) || count >= 6u)
+				continue;
+			points[count] = lerp(
+				EmitterBoxCorner(low, high, cornerIt), EmitterBoxCorner(low, high, other), distances[cornerIt] / (distances[cornerIt] - distances[other]));
+			count++;
+		}
+	if (count < 3u)
+		return 0.0;
+	float3 center = 0.0;
+	for (uint pointIt = 0; pointIt < count; pointIt++)
+		center += points[pointIt];
+	center /= float(count);
+	float3 t;
+	float3 b;
+	ShadowBasis(normal, t, b);
+	float angles[6];
+	for (uint pointIt = 0; pointIt < count; pointIt++)
+		angles[pointIt] = atan2(dot(points[pointIt] - center, b), dot(points[pointIt] - center, t));
+	for (uint pointIt = 1; pointIt < count; pointIt++)
+		for (uint backIt = pointIt; backIt > 0u && angles[backIt - 1u] > angles[backIt]; backIt--)
+		{
+			float angle = angles[backIt];
+			angles[backIt] = angles[backIt - 1u];
+			angles[backIt - 1u] = angle;
+			float3 at = points[backIt];
+			points[backIt] = points[backIt - 1u];
+			points[backIt - 1u] = at;
+		}
+	float area = 0.0;
+	for (uint pointIt = 0; pointIt < count; pointIt++)
+		area += dot(cross(points[pointIt] - center, points[(pointIt + 1u) % count] - center), normal);
+	return 0.5 * abs(area);
+}
+
+// the emitters' caustics' light at a point (normal: its surface's, toward where it is seen from) from the cells around it:
+// over the 8 nearest (trilinear), those not made left out (the screen shows them, see EmitterCausticCellAdd, or nothing
+// landed there: taken as none, the edge of what the screen hides was darker); 0 where none is. the irradiance over pi
+float3 EmitterCausticCellLight(float3 position, float3 normal)
+{
+	int level;
+	float side = EmitterCausticCellSide(position, level);
+	uint bucket = GiWorldBucket(normal);
+	float3 at = position / side + kEmitterCausticCellOffset - 0.5;
+	int3 base = int3(floor(at));
+	float3 f = at - float3(base);
+	float3 total = 0.0;
+	float weights = 0.0;
+	for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
+	{
+		int3 offset = int3(cornerIt & 1u, (cornerIt >> 1u) & 1u, cornerIt >> 2u);
+		uint cell = EmitterCausticCellFind(base + offset, level, bucket, false);
+		if (cell == ~0u)
+			continue;
+		float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y) * (offset.z != 0 ? f.z : 1.0 - f.z);
+		float3 mean = 0.0;
+		for (uint channel = 0; channel < 3; channel++)
+			mean[channel] = asfloat(gEmitterCausticCells[EmitterCausticCellWord(cell, kEmitterCausticCellMean + channel)]);
+		total += w * mean;
+		weights += w;
+	}
+	return weights > 1e-6 ? total / weights : 0.0;
 }

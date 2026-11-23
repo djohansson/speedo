@@ -991,6 +991,15 @@ private:
 	FrameGraph::BufferId myEmitterCausticPhotons;
 	FrameGraph::PassId myEmitterCausticsClearPass;
 	FrameGraph::PassId myEmitterCausticsPass;
+	// and the cells of the world they land in (gEmitterCausticCells, kept from frame to frame), emptied where they hold
+	// nothing of this model's yet (made at a resize, the caustics just begun, another model), and their frame's light
+	// folded into their means (see ComputeEmitterCausticCells)
+	Buffer myEmitterCausticCellBuffer;
+	FrameGraph::BufferId myEmitterCausticCells;
+	FrameGraph::PassId myEmitterCausticCellsClearPass;
+	FrameGraph::PassId myEmitterCausticCellsPass;
+	bool myEmitterCausticCellsValid = false;
+	const Model* myEmitterCausticCellsModel = nullptr;
 	uint32_t myEmitterCausticPhotonCount = 1U << 18;
 	uint32_t myEmitterCausticsThisFrame = 0; // the photons the frame traces
 	uint32_t myEmitterCandidateCount = 8;

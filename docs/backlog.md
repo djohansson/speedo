@@ -56,10 +56,12 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
   worlds (model instances, streaming and level of detail, async compute, recording on several threads, quality presets
   aimed at a frame time). docs/performance-plan.md.
 - **The emitters' caustics beyond the screen** (2026-11-23, the research scenes plan's step 8): the photons land on the
-  pixels that show where they land, so what is off the screen or hidden all around takes the voxels' light straight
-  through glass, and the indirect lighting's voxels take it so too (their light the photons' in their place would
-  bounce the caustics); the highlights through solid glass are the straight light's (the photons bring irradiance alone:
-  a direction kept with it would let the specular take them). docs/notes/rendering.md, "The emitters' caustics".
+  pixels that show where they land, and in cells of the world where the screen hides them; what is off the screen takes
+  the voxels' light straight through glass, and the indirect lighting's voxels take it so too (their light the
+  photons' in their place would bounce the caustics: the cells could hold it); the highlights through solid glass are
+  the straight light's (the photons bring irradiance alone: a direction kept with it would let the specular take them);
+  and cornell-caustic's ceiling is darker than its reference's (what the waves reflect up, and the indirect light).
+  docs/notes/rendering.md, "The emitters' caustics".
 - **Rough glass closer to its references** (the user's call, 2026-11-23: step 6's lobe ray an improvement, not yet the
   references' look): lamp's frosted bulb still shows a thin dark edge along its rim where the reference's glows to its
   silhouette, and past roughness 0.15 most of a rough surface's light is still the transmission texture's mips, a blur

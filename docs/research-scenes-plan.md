@@ -350,6 +350,14 @@ reference, so that they fail on a regression, not on what the renderer approxima
   cornell-caustic and 0.3 in glass-of-water in all; none without solid glass (Bistro). Left: the photons' light in the
   indirect lighting's voxels (the voxels still take the emitters' light straight through glass), what is off the screen,
   and the highlights through glass.
+- 2026-11-23, step 8 after the user's review ("broken and corrupted" beside the right cube; its front brightened): the
+  photons land in cells of the world too where the screen hides them (`gEmitterCausticCells`), which a refraction's
+  hidden hit takes with a light sample of the rest, in place of the rings of taps (blocks of other places' caustics
+  among the voxels' straight light): the strips beside the cubes have the caustics' lines of the wall around them. And
+  a reference without an environment (cornell-caustic's, pbrt's) is drawn without one: the default sky lit the cubes'
+  fronts through the box's open side, bluish grey where the reference's are brown. cornell-caustic 0.448 to 0.470 (its
+  colors the reference's; its auto exposure without the sky's share), the rest within 0.009 or nearer (coffee-maker
+  0.398); the caustics cost cornell-caustic's frame 0.84 ms at 1440p balanced (docs/notes/rendering.md).
 - 2026-11-23, **step 6** (C2, kept simple): the traced refraction's ray is of the surface's GGX lobe
   (`TransmittedLobeRay`: refracted about a visible microfacet normal, another each frame and pixel, which the temporal
   upscaler averages), in the share it was traced in before (all to 0.15, none from 0.4, the transmission texture's mips

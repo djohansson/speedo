@@ -1045,19 +1045,36 @@ glass): cornell-caustic's ceiling and upper walls, lit by what the waves reflect
 indirect light (0.495 stops off to 0.446). The research set at 1500 frames: cornell-caustic 0.669 to 0.448 blurred stops
 off its reference (its net of caustics over the walls, floor and cubes under the water as the reference's), every other
 scene within 0.007 (veach-bidir 0.240 to 0.232, coffee-maker 0.411 to 0.406; glass-of-water as before, its light the
-highlights'), D3D12 the same. The cost at 1440p balanced (RTX 4070 Ti SUPER): Emitter Caustics 0.23 ms, its clear
-0.015; Main Transmissive 0.33 ms more in cornell-caustic (the search beside its cubes); the frame 0.6 ms more there, 0.3 in
-glass-of-water; nothing where no glass is solid (Bistro).
+highlights'), D3D12 the same.
 
 The photons land on what the screen shows, and a refraction shows what is hidden there: cornell-caustic's back wall
 beside its cubes, seen through the water's front face where the screen has the cube, took what its voxels keep
 (`TracedEmitterKept`: straight through the water, shadowed by the cube as if it weren't there), a hard shadow beside each
-(the user's report, 2026-11-23: "an additional light"). Such a hit takes the light gathered nearest it on its own plane
-on rings around its place (`TracedEmitterSeenAround`: 4 rings of 6 taps from 4 pixels out, each twice as far; none for a
-hit facing away from the eye, which no pixel shows), and none of it where the hit has no diffuse (a metal's: glass-of-water
-spent 0.6 ms of Main Transmissive on the search otherwise). What is off the screen or hidden all around still takes the
-voxels' straight light, and the indirect lighting's voxels take the emitters' light straight through glass (no photons
-land there).
+(the user's report, 2026-11-23: "an additional light"). The light the screen gathered nearest it on its own plane in its
+place (rings of taps around its place) drew blocks of the wall's caustics from elsewhere among patches of the voxels'
+where no ring met the wall ("broken and corrupted"). So the photons land in the world too: cells of a hash table
+(`gEmitterCausticCells`, `EmitterCausticCellFind`, as the world cache's: 262144 cells, a cube about 2 pixels wide at its
+distance from the first view's eye to a power of two, of a normal bucket, found by linear probing, the stalest probed
+taken back where none is empty), each the irradiance its photons brought (their light over the cell's area of their
+plane, `EmitterPlaneBoxArea`), over frames (Emitter Caustic Cells: as long as the emitters' history while the model is
+still, the view or not: the cells are the world's). A photon the screen hides makes its cell; one it shows adds to a cell
+that is there alone (a cell across the edge of what is hidden takes all of its light), and one out of every view to
+none: made wherever the photons land, each face of cornell-caustic's box was some 260000 cells, the table's size, and they
+were taken back all the time, a grain; at 6 pixels the table held them, and the strip beside the cube was a blur among
+the caustics' lines. A traced hit the screen hides (`TracedEmitterSeen`'s hidden) takes the cells' light, interpolated
+over the 8 around it (those not made left out), and a light sample of the rest whose shadow ray stops at solid glass
+(`TracedEmitterHidden`); none where the hit has no diffuse (a metal's). The strip beside each cube has the caustics'
+lines now, as the wall around it. What is off the screen still takes the voxels' straight light, and the indirect
+lighting's voxels take the emitters' light straight through glass (no photons land there).
+
+Measured with the cells (the research set at 1500 frames): every scene within 0.009 of before or nearer its reference
+(coffee-maker 0.407 to 0.398, its carafe's bottom; kitchen, crown 0.004 nearer), but cornell-caustic 0.448 to 0.470: its
+conditions now light it without the sky (`ReadModelConditions`: a reference without an environment, pbrt's, has none;
+the default sky lit its cubes' fronts through the box's open side, a bluish grey where the reference's are brown, the
+user's report), its colors the reference's and its auto exposure taking a scene without the sky's share. The cost at
+1440p balanced (RTX 4070 Ti SUPER, cornell-caustic): Emitter Caustics 0.29 ms, Emitter Caustic Cells 0.05, Main
+Transmissive 0.37 ms more (its hidden hits; 0.74 with the area taken at each lookup, 8 polygons a hit, 0.3 of it the
+light sample), the frame 0.84 ms more; glass-of-water 0.3 ms in all; nothing where no glass is solid (Bistro).
 
 ## Ray traced shadows
 

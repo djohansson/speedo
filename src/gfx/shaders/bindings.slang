@@ -277,6 +277,8 @@ struct ModelInstancesSet
 	// the emitters' caustics' photons' light as they land, per pixel of the frame and channel, in fixed point (see
 	// SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE), emptied each frame they are traced in
 	RWStructuredBuffer<uint> gEmitterCausticPhotons;
+	// and the cells of the world they land in (see SHADER_TYPES_EMITTER_CAUSTIC_CELL_COUNT), kept from frame to frame
+	RWStructuredBuffer<uint> gEmitterCausticCells;
 	// the frame's aerial perspective (see AerialPerspectiveData), per frame index
 	StructuredBuffer<AerialPerspectiveData> gAerialPerspectiveData[SHADER_TYPES_FRAME_COUNT];
 	// the camera's lens (see LensData): what the Lens pass and the flares take, per frame index. gLensData[frame][0]
@@ -351,6 +353,7 @@ ParameterBlock<ModelInstancesSet> gSetModelInstances;
 #define gVisibilityStatistics gSetModelInstances.gVisibilityStatistics
 #define gCausticPhotons gSetModelInstances.gCausticPhotons
 #define gEmitterCausticPhotons gSetModelInstances.gEmitterCausticPhotons
+#define gEmitterCausticCells gSetModelInstances.gEmitterCausticCells
 #define gAerialPerspectiveData gSetModelInstances.gAerialPerspectiveData
 #define gLensData gSetModelInstances.gLensData
 #define gLensGhosts gSetModelInstances.gLensGhosts

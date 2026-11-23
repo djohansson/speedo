@@ -489,6 +489,7 @@ std::vector<ShaderLayout> SceneShaderLayouts(const std::filesystem::path& shader
 			{"ComputeGiWorldFilter", SLANG_STAGE_COMPUTE}, // and its filter, in the same pass
 			{"ComputeGiSides", SLANG_STAGE_COMPUTE}, // see the GI Sides pass
 			{"ComputeEmitterCaustics", SLANG_STAGE_COMPUTE}, // see the Emitter Caustics pass
+			{"ComputeEmitterCausticCells", SLANG_STAGE_COMPUTE}, // see the Emitter Caustic Cells pass
 		},
 		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 		.debugInfoLevel = kShaderDebugInfoLevel,

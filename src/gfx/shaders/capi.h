@@ -950,6 +950,11 @@ struct EmitterData
 // the emitters' caustics' light as the photons land on the frame's pixels (gEmitterCausticPhotons: a uint per channel
 // and pixel), the irradiance over pi times the view's exposure in 1 / SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE
 #define SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE 4096.0
+// and in the world (gEmitterCausticCells, see EmitterCausticCellFind): a hash table of cells (a power of two of them),
+// each of SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT words, the light of the photons that landed in it, over frames,
+// which the traced hits the screen hides take (see TracedEmitterHidden)
+#define SHADER_TYPES_EMITTER_CAUSTIC_CELL_COUNT 262144u
+#define SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT 10u
 
 // a view a light's shadow is drawn from: world to clip space (depth reversed, 1 at its near plane to 0 at its far), drawn
 // in a tile of the atlas
