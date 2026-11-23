@@ -567,6 +567,8 @@ float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float ro
 	path.direction = direction;
 	path.throughput = 1.0;
 	path.inside = false;
+	path.attenuationColor = 1.0;
+	path.attenuationDistance = 0.0;
 	return TracedPath(path, cone, 0.0, roughness, 1u + kTracedReflectionGlassSurfaceCount, true, t, valid, moving);
 }
 
@@ -613,6 +615,9 @@ float3 TracedPath(
 			if (reflection && queryIt == 0u)
 			{
 				path.inside = TransmissionSolid(surface.material.transmission.y) && !hit.frontFace;
+				// (inside, it absorbs as the volume it met the back of does, from where it started)
+				path.attenuationColor = path.inside ? surface.material.attenuationColor.rgb : float3(1.0);
+				path.attenuationDistance = path.inside ? surface.material.transmission.z : 0.0;
 				if (!path.inside)
 				{
 					float glassRoughness = surface.material.roughness;
@@ -629,7 +634,7 @@ float3 TracedPath(
 				}
 			}
 			traveled += hit.t;
-			if (!GlassPathStep(path, surface, frameIndex))
+			if (!GlassPathStep(path, surface, frameIndex, true))
 			{
 				valid = true;
 				going = false;
@@ -775,7 +780,7 @@ float3 TracedGlossyDirection(float3 geometryNormal, float3 normal, float3 view, 
 // KosmicKrisp, its pipeline half a minute to make cold
 void TracedFragmentRays(
 	float3 position, float3 geometryNormal, float3 directions[kTracedFragmentRayCount], bool traced[kTracedFragmentRayCount],
-	bool volume, out float4 light[kTracedFragmentRayCount])
+	bool volume, float3 attenuationColor, float attenuationDistance, out float4 light[kTracedFragmentRayCount])
 {
 	TracedCone cone = TracedPixelCone(position);
 	float3 eye = gViewData[gPushConstants.frameIndex][gShadingViewId].eyePosition.xyz;
@@ -793,6 +798,10 @@ void TracedFragmentRays(
 			path.origin = position + (refraction ? path.direction : geometryNormal) * push;
 			path.throughput = 1.0;
 			path.inside = refraction && volume;
+			// (a refraction into the volume absorbs as the surface's material has it, along the path to where it leaves:
+			// see GlassPathStep's alongPath; TransmittedLight leaves the thickness's absorption out of it)
+			path.attenuationColor = path.inside ? attenuationColor : float3(1.0);
+			path.attenuationDistance = path.inside ? attenuationDistance : 0.0;
 			float t;
 			bool valid;
 			bool moving;

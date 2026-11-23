@@ -296,3 +296,7 @@ reference, so that they fail on a regression, not on what the renderer approxima
   glass refract as the reference's do (its measure held up by its darker table), teapot-full 0.251 to 0.186; the cars'
   single sheet windows refracted too, vintage-car 0.171 to 0.197, pontiac-gto 0.320 to 0.330. If the user takes
   quality over the cost here, the light sample at every hit is a constant's change away.
+- 2026-11-23, **step 3**: the traced view's paths absorb along their length inside a volume (`GlassPathStep`'s
+  `alongPath`; the caustics' photons by the thickness still, whose shadows the user judged by it), the untraced lookup by
+  the thickness: modern-hall's green panel clear (0.284 to 0.234), teapot-full's tea a little lighter (0.186 to 0.208,
+  its nested interface volumes), the glass sample models within 0.26 of 255, the cost a distance and a power a segment.

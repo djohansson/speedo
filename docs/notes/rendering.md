@@ -971,8 +971,16 @@ which it met). At each surface (at most `SHADER_TYPES_CAUSTIC_SURFACE_COUNT`, 8;
 traced refractions walk too) a photon keeps what it
 lets through (the transmission of the dielectric, the base color at the point, less Schlick's Fresnel by its ior), is
 refracted about the normal as interpolated (the facets drew polygons), and in a volume attenuated over its thickness as
-the view through it takes it (`VolumeAttenuation` at the entry, the factor by the texture and the instance's scale: along
-the path inside, DragonAttenuation's dragon passed almost nothing), reflected back in where it can't leave; a thin wall
+the screen space lookup takes it (`VolumeAttenuation` at the entry, the factor by the texture and the instance's scale: along
+the path inside, DragonAttenuation's dragon passed almost nothing, and cast a black shadow), reflected back in where it
+can't leave; a thin wall. The traced view's paths (`TracedPath`, `GlassPathStep`'s `alongPath`, since 2026-11-23)
+absorb along each segment inside instead, by the attenuation the path took where it went in, as KHR_materials_volume has
+a ray tracer take it (its thickness is a rasterizer's stand in for the path's length), and `TransmittedLight` takes the
+thickness's absorption for the untraced lookup alone: the glTF research set's modern-hall has a green glass panel whose
+thickness factor 8.84 at an attenuation distance of 2 passed 1% of the light, an opaque slab, where its reference's
+panel is clear (0.284 stops off to 0.234); the glass sample models within 0.26 of 255 (DragonAttenuation 0.16,
+CompareVolume 0.25, AttenuationTest 0.10; IridescentDishWithOlives' olives differ from run to run by more); teapot-full's
+tea, in its glass as two interface volumes, a little lighter (0.186 to 0.208). A thin wall
 lets it through as it was going. It lands on the first opaque surface (alpha masks cut out) if what it crossed was
 transmissive, inside a volume too (a core in a shell, a mosquito in amber, the ground behind glass modelled as one
 surface of a thickness, which no photon leaves: dropped there, as at first, what is inside the glass took no light,

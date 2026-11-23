@@ -149,11 +149,11 @@ float3 TransmittedLight(
 		environment = environment * fogTransmittance + fogLight;
 	}
 	seen += (1.0 - behind.a) * environment;
-	float3 light = lerp(environment, seen, inside);
+	// attenuated through the volume: the untraced by its thickness (KHR_materials_volume's stand in for the path's length,
+	// as a rasterizer takes it); the traced along its path inside (see GlassPathStep's alongPath), as a ray tracer takes it
+	float3 absorbed = attenuationDistance > 0.0 ? pow(max(attenuationColor, 1e-6), thickness / attenuationDistance) : float3(1.0);
+	float3 light = lerp(environment, seen, inside) * absorbed;
 	if (traced.a > 0.0)
-		light = lerp(lerp(traced.rgb, seen, inside), traced.rgb, TransmittedTracedShare(roughness, ior));
-
-	if (attenuationDistance > 0.0)
-		light *= pow(max(attenuationColor, 1e-6), thickness / attenuationDistance);
+		light = lerp(lerp(traced.rgb, seen * absorbed, inside), traced.rgb, TransmittedTracedShare(roughness, ior));
 	return light;
 }

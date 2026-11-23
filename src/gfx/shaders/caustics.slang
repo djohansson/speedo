@@ -94,6 +94,10 @@ struct GlassPath
 	float3 direction;
 	float3 throughput;
 	bool inside;
+	// the volume it is inside's attenuation (KHR_materials_volume's color and distance, 0 none), where it absorbs along
+	// the path (see GlassPathStep's alongPath)
+	float3 attenuationColor;
+	float attenuationDistance;
 };
 
 // a transmissive surface a ray met (glass, from origin along direction): where, its normal as interpolated (the
@@ -152,8 +156,12 @@ GlassSurface GlassSurfaceAt(float3 origin, float3 direction, BvhHit glass, uint 
 // into a volume (a thickness factor; a thin wall lets it through as it was going), attenuated over its thickness
 // (KHR_materials_volume's attenuation, as the view through it has it); out of a volume, less its Fresnel reflection, or
 // reflected back in where it can't leave. false where it carries nothing on. surface: GlassSurfaceAt's of the path's
-// origin and direction
-bool GlassPathStep(inout GlassPath path, GlassSurface surface, uint frameIndex)
+// origin and direction. alongPath: the volume absorbs along the path inside it (each segment's length, by the
+// attenuation the path took where it went in, see GlassPath), as KHR_materials_volume has a ray tracer take it (its
+// thickness is a rasterizer's stand in for that length): the traced view's (TracedPath). else by the thickness where it
+// goes in, as the screen space lookup takes it: the caustics' photons', whose shadows the user judged by that
+// (DragonAttenuation's, below)
+bool GlassPathStep(inout GlassPath path, GlassSurface surface, uint frameIndex, bool alongPath)
 {
 	float3 position = surface.position;
 	float3 normal = surface.normal;
@@ -166,6 +174,12 @@ bool GlassPathStep(inout GlassPath path, GlassSurface surface, uint frameIndex)
 
 	if (path.inside)
 	{
+		// what the volume absorbed between the path's origin (where it went in, or reflected inside) and here: modern-hall's
+		// green glass panel, its thickness factor 8.84 at an attenuation distance of 2, passed 1% of the light by its
+		// thickness, an opaque slab where the reference's panel is clear (the research set's, docs/research-scenes-plan.md,
+		// B2)
+		if (alongPath)
+			path.throughput *= VolumeAttenuation(path.attenuationColor, path.attenuationDistance, distance(path.origin, position));
 		// out of the volume: refracted out about the normal facing back inside, else reflected back in
 		float3 refracted = refract(path.direction, normal, ior);
 		if (dot(refracted, refracted) == 0.0)
@@ -227,16 +241,22 @@ bool GlassPathStep(inout GlassPath path, GlassSurface surface, uint frameIndex)
 		float4x4 transform = gModelInstances[frameIndex][surface.normalInstance].modelTransform;
 		thickness *= pow(abs(determinant(float3x3(transform[0].xyz, transform[1].xyz, transform[2].xyz))), 1.0 / 3.0);
 	}
-	path.throughput *= VolumeAttenuation(material.attenuationColor.rgb, material.transmission.z, thickness);
+	if (alongPath)
+	{
+		path.attenuationColor = material.attenuationColor.rgb;
+		path.attenuationDistance = material.transmission.z;
+	}
+	else
+		path.throughput *= VolumeAttenuation(material.attenuationColor.rgb, material.transmission.z, thickness);
 	path.direction = normalize(refract(path.direction, normal, 1.0 / ior));
 	path.origin = position - normal * eps;
 	path.inside = true;
 	return true;
 }
 
-bool GlassPathStep(inout GlassPath path, BvhHit glass, uint frameIndex)
+bool GlassPathStep(inout GlassPath path, BvhHit glass, uint frameIndex, bool alongPath)
 {
-	return GlassPathStep(path, GlassSurfaceAt(path.origin, path.direction, glass, frameIndex), frameIndex);
+	return GlassPathStep(path, GlassSurfaceAt(path.origin, path.direction, glass, frameIndex), frameIndex, alongPath);
 }
 #endif
 
@@ -286,6 +306,8 @@ void ComputeCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 	path.direction = normalize(farPoint.xyz / farPoint.w - path.origin);
 	path.throughput = 1.0 / float(photons * photons);
 	path.inside = false;
+	path.attenuationColor = 1.0;
+	path.attenuationDistance = 0.0;
 	bool passed = false; // through a transmissive surface
 	for (uint surfaceIt = 0; surfaceIt < SHADER_TYPES_CAUSTIC_SURFACE_COUNT; surfaceIt++)
 	{
@@ -304,7 +326,7 @@ void ComputeCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 			return;
 		}
 		passed = passed || !path.inside;
-		if (!GlassPathStep(path, hit, frameIndex))
+		if (!GlassPathStep(path, hit, frameIndex, false))
 			return;
 	}
 #endif
