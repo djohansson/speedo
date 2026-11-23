@@ -69,6 +69,12 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
   the straight light's (the photons bring irradiance alone: a direction kept with it would let the specular take them);
   and cornell-caustic's ceiling is darker than its reference's (what the waves reflect up, and the indirect light).
   docs/notes/rendering.md, "The emitters' caustics".
+- **spaceship's speckles around its display, through the dome** (the user's report, 2026-11-23, after the review plan's
+  steps 1 and 2, which they confirmed by eye): seen close through the dome's glass (roughness 0.1), red single-pixel
+  specks scattered around the edges of the bright emissive display inside it (strength 20) and white ones on the dark
+  parts beside it; the ground's specks are gone. Not looked into: likely the traced refraction's ray of the rough
+  surface's lobe (the research scenes plan's step 6, `TransmittedLobeRay`), a pixel's ray meeting the display in some
+  frames and not others beside its edge. docs/research-scenes-review-plan.md.
 - **The traced hits' light sample out of the transmissive fragment shader** (2026-11-23, the review plan's step 1): a
   refraction's hit the screen hides takes a light sample (`TracedEmitterHidden`), and the rule that tells glass that
   gathers light from glass that doesn't made that shader slower by its size alone, whatever it traced: cornell-caustic's

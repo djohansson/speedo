@@ -200,3 +200,5 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
   level's own blocks, larger, and a bright wedge where that level's lookup has no sight test of its own (the pass
   tests the clips that light the point by their weights, one near the eye). Open, for the user: how the left out
   voxels' share is filled so that the light stays continuous (below).
+- 2026-11-23, the user confirmed steps 1 and 2 by eye. Left in spaceship: specks around its display seen through the
+  dome (docs/backlog.md). Step 3, the user's call: (c) first, then (a), and (b) only if those two aren't enough.
