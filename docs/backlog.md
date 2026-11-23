@@ -12,6 +12,12 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
 
 ## Larger
 
+- **The research scenes as the user saw them in the client** (the user's review, 2026-11-23, eleven reports): the
+  emitters' caustic photons carry the light through glass that doesn't focus (speckles in lamp, modern-hall,
+  spaceship) and mottle cornell-caustic's hidden places; the surface cache's finest entries show as blocks and teeth
+  (classroom, veach-ajar, cornell-box, the bathroom's mirror); the indirect light takes 4 to 6 seconds to settle, with
+  splotches moving meanwhile (kitchen, living-room, veach-bidir). Six steps, the photons first.
+  docs/research-scenes-review-plan.md.
 - **The thorough voxel test for every ray** (the user's call, 2026-11-22): the hits' voxel choice is thorough
   (`GiHitVoxel<kThorough>`: other surfaces' voxels tested too, not only those marked apart) for the main pass's near
   field alone; try it for the reflections' near field (`GiNearTrace<false>` in `traced.slang`), the surface cache's and

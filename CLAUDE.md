@@ -66,3 +66,4 @@ Each as deep as the subsystem's history: what was tried, what it cost, the user'
 - docs/backlog.md: what is open across the plans and the notes, smaller items first (the user's order, 2026-11-19).
 - docs/world-cache-plan.md: the indirect lighting's light in world-anchored cells at several resolutions, side by side with the clipmap's until shown better (the user's call, 2026-11-19).
 - docs/research-scenes-plan.md: what the glTF research set needs of the renderer, held against each scene's path traced reference (`scripts/researchcompare.ps1`): the baseline, the gaps and the steps (written 2026-11-22, for the user's review).
+- docs/research-scenes-review-plan.md: the artifacts the user saw in the research scenes in the client (2026-11-23), their poses, the three causes measured and the steps to fix them.

@@ -435,3 +435,5 @@ reference, so that they fail on a regression, not on what the renderer approxima
   material-testball on lavapipe 0.074, -0.036, 53 s; on the gpu 0.076, -0.039 both. The thresholds hold them about where
   they are: cornell-box 0.16 blurred and -0.07 ± 0.08 of light, material-testball 0.11 and -0.04 ± 0.06. Cornell-box
   needs its frames, the indirect lighting settling: 0.29 at 64 frames, 0.20 at 128, 0.10 at 512.
+- 2026-11-23, the user's review of the extended scenes in the client (eleven reports): what they are and the steps to
+  fix them are a plan of their own, docs/research-scenes-review-plan.md; step 8's photons are one of its three causes.
