@@ -369,3 +369,26 @@ Nothing now.
   goes with decided between the two voxels once, in the filter's pass, not at each pixel (the same voxel is kept on
   one side of a cell's face and left out on the other while its share is still large: the step), which would mend
   the settled picture too.
+- 2026-11-23, **the blocks, tried in a copy of the shaders** (`temp/shader-sandbox`, nothing in the repository's):
+  - *The lookup's place jittered within a voxel* (`temp/research-issues/s2/jitter.pl`): the classroom's steps become
+    ramps, but a dither shows on top and living-room's teeth stay. The user: "it just creates new artifacts, while the
+    blocky pattern does not go away completely". Dropped.
+  - *What a lookup keeps decided for the voxel the pixel is in, not the pixel* (`s2/pair.pl`: the sight test's and the
+    far sides' point snapped to the voxel's center along the surface): nothing changes that shows. The pixels of a
+    voxel already decide alike; what they leave out is left out for the whole voxel.
+  - So what is left out, counted (`s2/dbg12.pl`: of a lookup's 8, the voxels that hold a surface facing the pixel's
+    way within 60 degrees, and how many it keeps, by each rule alone; `temp/review/research-issues/own-<scene>-<place>.png`:
+    the picture, every rule, the sight test, with the facing rule, the far sides): two causes, by scene.
+    The classroom's wall has its four voxels and the sight test and the facing rule keep them; the far sides rule
+    (`GiFarSides`) leaves out all but one or two, by its clause for a voxel behind a single sided surface (the ways its
+    undrawn sides face): a voxel of 0.5 m holds several things, single sided ones among them, facing 5 ways of 6, and
+    every neighbour half a voxel to the side counts as behind one. The kitchen's wall behind its toaster and the band
+    around living-room's arches hold fewer than four such voxels to begin with, whatever the rules: each voxel there
+    stands for something else (the toaster, the socket, the arch's mouldings).
+  - *That clause not taken for a voxel that holds a drawn side facing the lookup's surface's way* (`s2/farown.pl`): the
+    classroom's squares are gone, at half a second and at two (`farown-classroom-wall.png`,
+    `farown-classroom-indirect.png`), and the poses the rule was made for are as they were: salle_de_bain framed 0.05
+    of 255 from before and at its shelves 0.25, bathroom2's niche 0.23 and mirror 0.14, Sponza's columns 0.28, Bistro's
+    street 0.39, the kitchen 0.33, living-room 0.11 (900 frames, 1920x1080). Not in the repository yet: the user's
+    call. The kitchen's and living-room's blocks it doesn't touch: those want the surface's light from its voxels
+    beyond the 8, or smoothing on the screen.
