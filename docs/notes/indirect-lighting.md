@@ -2037,8 +2037,11 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
       by the facing rule under the desks; and one column or two of the four along the surface are left, a voxel's light
       flat with a step to the next. With 6 levels (the limit raised to try it; finest voxels 0.062 m) the ceiling's
       patches are gone and a few squares are left on the far walls, which a coarser level lights from there; 0.76 ms a
-      frame and 133 MB more. How many levels a scene gets is open (docs/research-scenes-review-plan.md, "Open for the
-      user").
+      frame and 133 MB more. Not kept (the user's call: prove it a clear improvement first): against the references,
+      12 of the set's 13 scenes with such a floor or backdrop are within 0.007 blurred stops at 3, 4, 5 and 6 levels,
+      and the classroom is further off with every level (0.265, 0.387, 0.429, 0.421), 0.18 stops darker at 6 than at 3
+      though its blocks are gone: why the finer levels' room is darker isn't looked into
+      (docs/research-scenes-review-plan.md has the table).
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows

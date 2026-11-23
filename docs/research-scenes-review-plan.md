@@ -151,10 +151,6 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
 
 ## Open for the user
 
-- The levels a scene gets (step 3, the classroom): by the scene's size, so that the finest voxel is no larger than a
-  size in metres (0.06 m as Sponza's would give the classroom 6 levels, Bistro, whose finest is 0.26 m, 5 or 6: about
-  0.2 to 0.25 ms a frame and 43 MB a level more), or 3 as now with the large scenes left coarse. And up to how many (8
-  fit as tried).
 - Step 5 spends more of the gpu while the light settles: a slower frame for the first second after a load or a jump,
   for a picture that settles sooner.
 
@@ -283,3 +279,30 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
   more in Bistro, not 0.6. Left out for its cost: the stamps at the hits of the transmissive fragments' rays (the
   refractions, their sharp reflections), 1.7 ms of Bistro's Main Transmissive, the shader's size (docs/backlog.md).
   visualtest 8 of 8, the quick tier 142 of 142.
+- 2026-11-23, **more levels, measured: not kept** (the user's call: "We need to prove that raising the number of
+  levels is a clear improvement to motivate it"; the sheet of the classroom at 3 and 6 levels shows blocks either
+  way). The 13 scenes of the set with a floor or a backdrop far larger than what they show, against their references
+  at 3, 4, 5 and 6 levels (`scripts/researchcompare.ps1 -Set SPEEDO_GI_CLIP_COUNT=<n>`, from a worktree with the
+  limit raised to 8, `temp/research-issues/levels-8.patch`; the sheets in `temp/review/research-levels/c<n>`; blurred
+  stops off the reference):
+
+  | scene | 3 | 4 | 5 | 6 | the light overall at 3, at 6 (stops) |
+  |---|---|---|---|---|---|
+  | classroom | 0.265 | 0.387 | 0.429 | 0.421 | -0.033, -0.211 |
+  | house | 0.116 | 0.115 | 0.111 | 0.109 | -0.027, -0.022 |
+  | lamp | 0.185 | 0.184 | 0.182 | 0.180 | +0.048, +0.042 |
+  | pontiac-gto | 0.271 | 0.272 | 0.268 | 0.264 | -0.179, -0.170 |
+  | bathroom2 | 0.182 | 0.185 | 0.185 | 0.186 | -0.078, -0.083 |
+  | vintage-car | 0.187 | 0.191 | 0.190 | 0.189 | -0.170, -0.176 |
+  | veach-mis | 0.243 | 0.244 | 0.245 | 0.246 | -0.087, -0.088 |
+  | crown | 0.478 | 0.483 | 0.483 | 0.482 | -0.433, -0.438 |
+  | bmw-m6, spaceship, teapot, teapot-full, glass-of-water | | | | | within 0.003 at every count |
+
+  Twelve of the 13 are within 0.007 of where they were, either way: nothing to motivate the 0.25 ms and 43 MB a level.
+  The classroom, the one scene whose picture changes, is further from its reference with every level added, by its
+  light overall: 0.18 stops darker at 6 levels than at 3. Its blocks do go (the differences from the reference are
+  smooth at 6 levels, patches at 3), so the finer voxels do what they were tried for, but the room they light is
+  darker than the coarse ones': either the 0.5 m voxels leak light in that happens to make up for light lost
+  elsewhere (the set's other large scenes are 0.17 to 0.22 stops dark at any count), or the finer levels lose some.
+  Not looked into. So the levels stay 3, the limit 4, and the classroom's blocks are the lookups' to fix (what a lookup
+  does where it keeps one column of four), not the voxels' size.
