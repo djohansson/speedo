@@ -255,7 +255,11 @@ stops, PBR Neutral, no ground plane, and transmission without a volume as solids
 solids, which Cycles' importer refracts as solids, where glTF has them as infinitely thin walls; the user's call,
 2026-11-22, `SPEEDO_SOLID_TRANSMISSION`, `TransmissionSolid`), printed as it reads them. The autoload and a pasted pose take them under their own
 variables (the process's, the pose's), File > Open..., Open Recent and the browser apply them as the model opens
-(`ApplyModelConditions`, its environment loaded in the same load), skipping what the process's variables set. A camera
+(`ApplyModelConditions`, its environment loaded in the same load), skipping what the process's variables set, a
+variable set empty counting as unset (PowerShell's `Start-Process` hands a child the variables its script cleared as
+empty ones: visualtest.ps1's research checks, run after the checks that set `SPEEDO_AUTOLOAD_ENVIRONMENT` and the
+exposure, took the sky and auto exposure, cornell-box +1.19 stops off its reference, until the lookups skipped empty
+variables, 2026-11-23). A camera
 node whose transform is a reflection (pbrt's `Scale -1 1 1`; the set's bmw-m6) is rendered mirrored across, as Blender
 and pbrt render it (`SceneCamera::mirrored`, `VIEW_FLAG_MIRRORED`: the Sharpen pass, which writes the output, reads each
 pixel from across its view); bmw-m6 was 1.56 stops off its reference for that alone, 0.39 now. A sun disk drawn into the sky's panorama (`environment::AddSun`, 4x4

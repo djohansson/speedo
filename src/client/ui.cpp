@@ -688,7 +688,12 @@ void ApplyModelConditions(const ModelConditions& conditions, std::atomic_uint8_t
 	for (const auto& [name, value] : conditions.variables)
 		list += std::format(" {}={}", name, value);
 	std::println("the model's conditions (its conversion.yaml):{}", list);
-	auto lookup = [&conditions](const char* name) -> const char* { return std::getenv(name) != nullptr ? nullptr : conditions.Get(name); };
+	// the variables set (not empty, see the autoload's lookup) keep theirs
+	auto lookup = [&conditions](const char* name) -> const char*
+	{
+		const char* value = std::getenv(name);
+		return value != nullptr && *value != '\0' ? nullptr : conditions.Get(name);
+	};
 	ui::ApplyPoseSettings(App().GetScene().GetSettings(), lookup, false);
 	if (const char* environment = lookup("SPEEDO_AUTOLOAD_ENVIRONMENT"))
 		App().GetScene().LoadEnvironment(std::string(environment), progress);
@@ -2422,9 +2427,12 @@ void WindowedApplication::PrepareDraw()
 				list += std::format(" {}={}", name, value);
 			std::println("the model's conditions (its conversion.yaml), under the variables set:{}", list);
 		}
+		// a variable set empty is unset, as everywhere the client reads them (PowerShell's Start-Process hands a child the
+		// variables its script cleared as empty ones: visualtest.ps1's research checks lost their conditions' environment
+		// and exposure to the checks before them, 2026-11-23)
 		auto autoLookup = [&autoConditions](const char* name) -> const char*
 		{
-			if (const char* value = std::getenv(name))
+			if (const char* value = std::getenv(name); value != nullptr && *value != '\0')
 				return value;
 			return autoConditions ? autoConditions->Get(name) : nullptr;
 		};
