@@ -209,7 +209,7 @@ void ComputeGiSides(uint3 dispatchThreadId : SV_DispatchThreadID)
 	ShadowSurface surface;
 	if (ViewAt(pixel, view) && ShadowSurfaceAt(pixel, view, surface))
 	{
-		GiSeen seen = GiSeenAt(surface.position, surface.normal);
+		GiSeen seen = GiSeenFacingAt(surface.position, surface.normal);
 		masks[0] = seen.masks[0];
 		masks[1] = seen.masks[1];
 	}

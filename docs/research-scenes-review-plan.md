@@ -151,14 +151,6 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
 
 ## Open for the user
 
-- Step 3, how a lookup that leaves voxels out stays continuous. (a) Each left out voxel takes the mean of the kept
-  voxels beside it in the grid (its 6 neighbours, read beyond the lookup's 8): continuous, some 30 more texel reads where
-  voxels are left out, and a neighbour outside the 8 is taken as seen, untested. (b) The lookup over the 27 voxels
-  around the point by a smooth weight (a quadratic B-spline), all 27 tested for sight: continuous by construction and
-  blurrier, and the sight test of all 27 cost 1.0 ms a frame at bathroom2's pose and 2.1 at Bistro's when it was tried.
-  (c) Leave fewer out: find which surface voxels fail the sight test on plain ceilings and walls and whether they
-  should (the surface's own, by where their entries' rays start, or its other side's), which may be most of it and costs
-  nothing. My recommendation: (c) first, then (a) for what is left.
 - Step 5 spends more of the gpu while the light settles: a slower frame for the first second after a load or a jump,
   for a picture that settles sooner.
 
@@ -222,3 +214,16 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
     0.194, spaceship 0.202 to 0.195, bathroom2 0.197 to 0.192; 9 scenes nearer and 7 further. Only where one of the
     lookup's 8 holds the surface's own voxel: living-room 0.358, classroom 0.290, the line still there.
   Open: what a lookup takes in place of the voxels that face another way, where the air's light isn't to be trusted.
+- 2026-11-23, **step 3**, the user's call after seeing both: keep the facing rule and fix its leak. The leak was the
+  fill's, not the rule's: with the rule alone the rooms are as near their references as before or nearer (living-room
+  0.305 to 0.302, classroom 0.272 to 0.266, bathroom the same) and living-room's cornice is as it was. So the fill is
+  gone, and what is kept is the rule, in the GI Sides pass's masks (`GiSidesMaskFacing`): a pixel's lookups leave out
+  the voxels that hold a surface facing more than 84 degrees off its own, where one of their 8 holds the pixel's own
+  surface. cornell-box's left face is without teeth (report 1; its front face faintly still), veach-ajar's squares gone
+  but a small one by the door's handle (report 10); the research set 7 scenes nearer, 2 further by 0.005 at most
+  (teapot, living-room-2); the indirect lighting's regression poses within 1.1 of 255, no leak new; the GI Sides pass
+  cheaper (Bistro's 1.09 to 0.73 ms a frame at 1440p balanced), the frame with it. docs/notes/indirect-lighting.md, "The
+  voxels that face another way are left out too", has what was tried on the way.
+  Left of step 3: the classroom's patches (report 3) are not the lookups'. They are in the cache's own light
+  (`SPEEDO_GI_CACHE_SHOW=1`), rectangles the size of its blocks of 4 voxels with straight edges; and the bathroom's
+  mirror (report 2, step 4).

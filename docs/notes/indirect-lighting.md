@@ -1983,6 +1983,46 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
     off: a faint line along the sill at 128, the masks made only where a voxel is marked apart, as the main pass's);
     the refactor otherwise the same picture (the mirror's pose 0.03 of 255 from the fix before it, the corners' 0.10,
     the regression set within its noise, bathroom2's left strips 0.27 darker: its mirrors). Not timed yet.
+  - **The voxels that face another way are left out too** (`GiSidesMaskFacing`, `GiSeenFacingAt`, `kGiFacingCosine`;
+    the research scenes review plan's step 3; the user's reports, 2026-11-23: cornell-box at
+    `0.0000,1.0000,6.8000,-0.000,0.000`, "top of leftmost box has regular, jagged artifacts"; veach-ajar at
+    `4.0540,1.6165,-2.3065,1.851,-82.109`, "large voxel square artifacts without interpolation"; the classroom at
+    `-1.6905,1.2716,5.8865,-1.622,8.705`, "large square patches with sharp discontinuities"). All three are gone with the
+    cache off. Marked in the indirect diffuse view, the voxels the sight test leaves out are never the surface's own
+    nor the air's: they are surfaces' voxels that face against the lookup's surface (a wall's or a ceiling's other side)
+    or across it (the grooves between the classroom's ceiling tiles, cornell-box's top face beside its sides, the
+    handle on veach-ajar's door). A surface's voxel's light is what arrives over the half of the directions its surface
+    faces (its entry's rays leave that side), which for a surface across the lookup's is another half, and the sight
+    test left such a voxel out where its apex didn't see the point and took it where it did, by where the voxel is
+    beside an edge: along the tall box's top edge, turned against the grid, the top's voxels were taken by the sides in
+    every other column, a row of teeth. So the GI Sides pass leaves out of a pixel's 8 every voxel that holds a surface
+    facing more than 84 degrees off the pixel's (`kGiFacingCosine`, 0.1; at 60 degrees veach-ajar's door kept a square
+    by its handle), marked or not and without a ray, where one of the 8 does hold the pixel's own surface (where none
+    does, among a cornice's mouldings, those are all the lookup has of surfaces, and without them the air's light, the
+    probes', which leaks). cornell-box's left face is without teeth (the front face faintly still), veach-ajar's
+    squares but a small one by the handle are gone; the research set, blurred stops off the references: classroom 0.272
+    to 0.266, pontiac-gto 0.276 to 0.271, bathroom2 0.197 to 0.193, veach-ajar 0.201 to 0.197, living-room 0.305 to
+    0.302, teapot 0.074 to 0.079, the rest within 0.003; the regression poses (Sponza's columns, salle_de_bain framed
+    and at its shelves, Bistro's street, bathroom2's niche and mirror) within 0.07 to 1.1 of 255 of before, no leak new.
+    The pass is cheaper for it, a voxel left out by its facing needing no ray: Bistro's GI Sides 1.09 to 0.73 ms a frame
+    at 1440p balanced, the classroom's 0.77 to 0.47, bathroom2's 0.43 to 0.39.
+    - **Only the pixels' masks, in a function of their own.** The rule is the pass's alone, not the traced hits'
+      (`GiSeenAt`, as it was): in `GiSidesMask` itself, even gated to run only beside a marked voxel, Bistro's Reflection
+      Trace took 6.25 to 7.2 ms a frame and its Main Transmissive 5.68 to 6.56, their shaders' size and not what they
+      ran; in the lookup (`GiSampleClip`, 8 voxels read at every lookup) the shaders took 11 minutes to compile where
+      they take 2.
+    - **What is left out is not filled** (tried, the plan's (a)). Each left out voxel given the mean of its neighbours in
+      the grid beyond the 8 (those in front of the surface's plane, air or facing its way) made the classroom's ceiling
+      and wall smooth, but nothing has tested what those neighbours hold: living-room's ceiling took a bright line along
+      its cornice and its shutters more light, and the rooms came out brighter and further from their references
+      (living-room 0.305 to 0.363, classroom 0.272 to 0.294, bathroom 0.224 to 0.238), with the surfaces' neighbours
+      alone as well (living-room 0.356). The 8 as 4 columns along the normal, each column's light its own surface's
+      voxel's, changed nothing: the lookup's weights weren't what drew the classroom's patches. Nor is the left out
+      share given to the next clip (tried first: the next level's own patches, larger, and a bright wedge where that
+      level's lookup has no mask).
+    - **Left: the classroom's patches.** They are the cache's own light (`SPEEDO_GI_CACHE_SHOW=1` shows them, in
+      rectangles of the 4 voxel blocks' size with straight edges), not the lookups': the next thing to look at
+      (docs/research-scenes-review-plan.md).
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows

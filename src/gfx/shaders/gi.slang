@@ -5201,6 +5201,9 @@ GiSample GiSampleClipAt(GiClipView gi, float3 coordinate)
 	return result;
 }
 
+// the cosine of the angle from a lookup's surface's normal past which a voxel's surface doesn't face its way (see
+// GiSidesMask)
+static const float kGiFacingCosine = 0.1;
 // how far back from a voxel's center the way a side never drawn that wrote it faces, in voxels, a lookup's point is
 // taken to be in front of that side's surface (GiFarSides)
 static const float kGiBehindReach = 0.5;
@@ -5355,6 +5358,85 @@ uint GiSidesMask(GiClipView clip, float3 position, float3 normal)
 	return mask;
 }
 
+// GiSidesMask for the main pass's pixels (the GI Sides pass), with the voxels that face another way left out too. a
+// function of its own: in the traced rays' hits' masks (GiSeenAt, in the reflections' kernel and the transmissive
+// fragments' shader) the same code cost Bistro's Reflection Trace 0.95 ms a frame at 1440p and its Main Transmissive
+// 0.9, even where it ran only beside a marked voxel: their shaders' size
+uint GiSidesMaskFacing(GiClipView clip, float3 position, float3 normal)
+{
+	static_assert(SHADER_TYPES_GI_LEVEL_COUNT <= 4u, "a clip's level in two bits");
+	// (the voxels the lookup reads tested whatever they are, where any of the 27 is marked apart: the air voxels inside
+	// bathroom2's pillar, whose light is the pillar's inside, are never marked, and a ray for each marked voxel alone left
+	// the corner's column as it was. where the far sides' marks counted too, which bathroom2's double sided walls have
+	// everywhere, the pass took 1.4 ms at its pose, 2.4 at Bistro's)
+	uint3 size = clip.volumeSize.xyz;
+	int3 voxel = int3(floor((position + normal * (kGiSidesPush * clip.volumeOrigin.w) - clip.volumeOrigin.xyz) / clip.volumeOrigin.w));
+	bool marked = false;
+	for (uint voxelIt = 0; voxelIt < 27u && !marked; voxelIt++)
+	{
+		int3 at = voxel + int3(voxelIt % 3u, (voxelIt / 3u) % 3u, voxelIt / 9u) - 1;
+		marked = GiInside(at, size) && GiMarkedApart(gGiVolumes[4].Load(int4(at.x + int(clip.volumeImageX), at.y, at.z + int(clip.volumeImage.w), 0)));
+	}
+	// and the voxels of the 8 that hold a surface not facing the point's surface's way (kGiFacingCosine: across it or
+	// against it), whether any is marked or not: a surface's voxel's light is what arrives over the half of the directions
+	// its surface faces (its entry's rays leave that side, GiCacheAnchor), which for a surface across the point's or
+	// against it is another half. the sight test alone left such a voxel out where its apex didn't see the point and took
+	// it where it did, by where the voxel is beside an edge: along the top edge of cornell-box's tall box (the glTF
+	// research set), turned against the grid, the voxels that stand for the top were taken by the sides in every other
+	// column, a row of teeth, and veach-ajar's door took its handle's voxels in squares (the user's reports, 2026-11-23;
+	// docs/research-scenes-review-plan.md, step 3). where the cache's entries are the surface's (GiCacheAnchored). within
+	// 60 degrees of the normal as the test, veach-ajar's door kept one square by its handle, the handle's voxels left out
+	// that face the door's way within 84
+	uint frameIndex = gPushConstants.frameIndex;
+	bool facings = gGi[frameIndex][0].trace == GI_TRACE_BVH && gGi[frameIndex][0].cacheRayCount != 0u && dot(normal, normal) > 0.5;
+	if (!marked && !facings)
+		return 0u;
+	// (the 8 the lookup reads off the surface along its normal, GiSurfaceBias's, the others taken as seen: all 27, the
+	// pass took 1.0 ms at bathroom2's pose and 2.1 at Bistro's)
+	uint mask = kGiSidesComputed | ((clip.level & 3u) << 27u) | ((1u << 27u) - 1u);
+	float3 coordinate = (position + normal * (0.5 * clip.volumeOrigin.w) - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+	int3 base = int3(floor(clamp(coordinate, 0.5, float3(size) - 0.5) - 0.5));
+	// (only where one of the 8 holds a surface that does face the point's way, the point's own: where none does, among
+	// a cornice's mouldings, the others are all the lookup has of surfaces, and without them the air's light alone, the
+	// probes', which leaks. what is left out isn't filled from the voxels beyond the 8 either: nothing has tested what
+	// those hold, and living-room's ceiling took a bright line along its cornice from them, the scene 0.06 stops brighter
+	// and further from its reference, 0.305 to 0.363)
+	uint acrossBits = 0u;
+	bool own = false;
+	if (facings)
+		for (uint cornerIt = 0; cornerIt < 8u; cornerIt++)
+		{
+			int3 at = base + int3(cornerIt & 1u, (cornerIt >> 1) & 1u, cornerIt >> 2);
+			if (!GiInside(at, size))
+				continue;
+			GiVoxel held = gGiVoxels[clip.voxelFirst + GiVoxelIndex(uint3(at), size)];
+			if ((held.albedo >> 24) == 0u)
+				continue;
+			if (dot(GiVoxelNormal(held.normal), normal) < kGiFacingCosine)
+				acrossBits |= 1u << cornerIt;
+			else
+				own = true;
+		}
+	if (!own)
+		acrossBits = 0u;
+	if (!marked && acrossBits == 0u)
+		return 0u;
+	bool left = false;
+	for (uint cornerIt = 0; cornerIt < 8u; cornerIt++)
+	{
+		int3 at = base + int3(cornerIt & 1u, (cornerIt >> 1) & 1u, cornerIt >> 2);
+		int3 offset = at - voxel;
+		if (any(abs(offset) > 1) || !GiInside(at, size))
+			continue;
+		bool across = (acrossBits & (1u << cornerIt)) != 0u;
+		if (!across && (!marked || GiClipSees(clip, position, normal, at)))
+			continue;
+		mask &= ~(1u << uint((offset.z + 1) * 9 + (offset.y + 1) * 3 + offset.x + 1));
+		left = true;
+	}
+	return left ? mask : 0u;
+}
+
 // the clips that light a point, as GiSampleAt goes through them: the first two, their index (~0u: none)
 void GiSidesClips(float3 position, out uint clips[2])
 {
@@ -5406,6 +5488,17 @@ GiSeen GiSeenAt(float3 position, float3 normal)
 	GiSeen seen;
 	for (uint slotIt = 0; slotIt < 2u; slotIt++)
 		seen.masks[slotIt] = clips[slotIt] != ~0u ? GiSidesMask(GiClipViewAt(clips[slotIt]), position, normal) : 0u;
+	return seen;
+}
+
+// and by GiSidesMaskFacing: the main pass's pixels' (the GI Sides pass)
+GiSeen GiSeenFacingAt(float3 position, float3 normal)
+{
+	uint clips[2];
+	GiSidesClips(position, clips);
+	GiSeen seen;
+	for (uint slotIt = 0; slotIt < 2u; slotIt++)
+		seen.masks[slotIt] = clips[slotIt] != ~0u ? GiSidesMaskFacing(GiClipViewAt(clips[slotIt]), position, normal) : 0u;
 	return seen;
 }
 
