@@ -103,6 +103,9 @@ struct FrameInputs
 	// whether the transmissive surfaces refract the lights' light into caustics (see ComputeCaustics), where the shaders have
 	// the device's ray queries and the model its structures, else they tint it as it goes straight through
 	bool caustics = true;
+	// the first view's exposure (ViewData::exposure), which the emitters' caustics' cells take the unit of their sums from
+	// when they are emptied (see EmitterData::causticUnit)
+	float exposure = 1.0F;
 	// whether the model's emissive surfaces light the scene (see EmitterData), where it has BVHs for their shadow rays
 	bool emissiveLights = true;
 	// the aerial perspective (see AerialPerspectiveData): whether the sky's atmosphere is between the eye and what it sees
@@ -985,21 +988,26 @@ private:
 	FrameGraph::PassId myEmitterXPass;
 	FrameGraph::PassId myEmitterYPass;
 	FrameGraph::PassId myEmitterTemporalPass;
-	// the emitters' caustics (see ComputeEmitterCaustics): their photons' light per pixel (gEmitterCausticPhotons), emptied
-	// and traced each frame there is solid glass to trace them through, and how many a frame
-	// (SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT, see EmitterData::causticPhotonCount)
-	FrameGraph::BufferId myEmitterCausticPhotons;
-	FrameGraph::PassId myEmitterCausticsClearPass;
+	// the emitters' caustics (see ComputeEmitterCaustics): their photons traced each frame there is solid glass to trace
+	// them through, and how many a frame (SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT, see EmitterData::causticPhotonCount)
 	FrameGraph::PassId myEmitterCausticsPass;
-	// and the cells of the world they land in (gEmitterCausticCells, kept from frame to frame), emptied where they hold
-	// nothing of this model's yet (made at a resize, the caustics just begun, another model), and their frame's light
-	// folded into their means (see ComputeEmitterCausticCells)
+	// the cells of the world they land in (gEmitterCausticCells, kept from frame to frame: as many as
+	// myEmitterCausticCellCount, by the frame's size), emptied where they hold nothing of this model's yet (made at a
+	// resize, the caustics just begun, another model: with the unit their sums are in from then on,
+	// EmitterData::causticUnit), a share of them looked after each frame (see ComputeEmitterCausticCells), and their light
+	// at every pixel (the Emitter Caustic Light pass, SHADER_TYPES_EMITTER_CAUSTIC_TEXTURE)
 	Buffer myEmitterCausticCellBuffer;
 	FrameGraph::BufferId myEmitterCausticCells;
 	FrameGraph::PassId myEmitterCausticCellsClearPass;
 	FrameGraph::PassId myEmitterCausticCellsPass;
+	FrameGraph::ImageId myEmitterCausticLight;
+	FrameGraph::PassId myEmitterCausticLightPass;
 	bool myEmitterCausticCellsValid = false;
 	const Model* myEmitterCausticCellsModel = nullptr;
+	uint32_t myEmitterCausticCellCount = 1;
+	float myEmitterCausticUnit = 1.0F;
+	// the frames a cell's light is the mean of at most while the model is still (SPEEDO_EMITTER_CAUSTIC_FRAME_COUNT)
+	uint32_t myEmitterCausticFrameCount = 4096;
 	uint32_t myEmitterCausticPhotonCount = 1U << 18;
 	uint32_t myEmitterCausticsThisFrame = 0; // the photons the frame traces
 	uint32_t myEmitterCandidateCount = 8;

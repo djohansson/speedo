@@ -217,6 +217,7 @@ The renderer's tuning of the emissive surfaces' light (`SPEEDO_EMISSIVE_LIGHTS`)
 | `SPEEDO_EMITTER_NEW_CANDIDATE_COUNT` | 1 to 256. Default: 8. | The emitters each of those samples picks its one from (walks down the light tree; fewer are cheaper and noisier). |
 | `SPEEDO_EMITTER_ROULETTE` | 0 or more, on screen brightness. Default: 0.02. | Below it a shadow ray is traced only by chance, in proportion; 0 traces every one. |
 | `SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT` | 0 to 4194240. Default: 262144. | The photons traced each frame from the emissive surfaces through solid glass into caustics (what gathers their light: not out of a body an emitter is inside, through slabs or by flat faces, which pass it straight), where the model has solid glass and caustics are on (`SPEEDO_CAUSTICS`); 0 none, and the emitters' light then passes straight through glass, untinted, as without caustics. |
+| `SPEEDO_EMITTER_CAUSTIC_FRAME_COUNT` | Frames, 1 to 1048576. Default: 4096. | How many frames the emitters' caustics' light is the mean of at most, in the cells of the world the photons land in, while the model is still (the history's frames where it moves): longer is smoother, and slower to follow an emitter or glass that changes. |
 
 ## Culling and drawing
 

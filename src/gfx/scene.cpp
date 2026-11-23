@@ -150,7 +150,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 92; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's, the motion blur's, the starburst's, the anamorphic streaks' (SHADER_TYPES_STREAK_SUM_TEXTURE), the indirect lighting's lookups' sides (SHADER_TYPES_GI_SIDES_TEXTURE) and the emitters' highlights' histories (SHADER_TYPES_EMITTER_SPECULAR_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 93; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's, the motion blur's, the starburst's, the anamorphic streaks' (SHADER_TYPES_STREAK_SUM_TEXTURE), the indirect lighting's lookups' sides (SHADER_TYPES_GI_SIDES_TEXTURE) the emitters' highlights' histories (SHADER_TYPES_EMITTER_SPECULAR_TEXTURE) and their caustics' light (SHADER_TYPES_EMITTER_CAUSTIC_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -179,6 +179,10 @@ static_assert(
 	SHADER_TYPES_EMITTER_SPECULAR_TEXTURE == SHADER_TYPES_GI_SIDES_TEXTURE + 1 && SHADER_TYPES_EMITTER_SPECULAR_TEXTURE + 1 < kModelTextureFirstSlot &&
 	SHADER_TYPES_EMITTER_SPECULAR_RW_TEXTURE == SHADER_TYPES_GI_SIDES_RW_TEXTURE + 1 &&
 	SHADER_TYPES_EMITTER_SPECULAR_RW_TEXTURE + 1 < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
+static_assert(
+	SHADER_TYPES_EMITTER_CAUSTIC_TEXTURE == SHADER_TYPES_EMITTER_SPECULAR_TEXTURE + 2 && SHADER_TYPES_EMITTER_CAUSTIC_TEXTURE < kModelTextureFirstSlot &&
+	SHADER_TYPES_EMITTER_CAUSTIC_RW_TEXTURE == SHADER_TYPES_EMITTER_SPECULAR_RW_TEXTURE + 2 &&
+	SHADER_TYPES_EMITTER_CAUSTIC_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_UI_BLUR_ROWS_TEXTURE < kModelTextureFirstSlot);
 static_assert(SHADER_TYPES_PREPASS_NORMAL_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_SHADOW_MASK_TEXTURE < kModelTextureFirstSlot);
 static_assert(
@@ -490,6 +494,7 @@ std::vector<ShaderLayout> SceneShaderLayouts(const std::filesystem::path& shader
 			{"ComputeGiSides", SLANG_STAGE_COMPUTE}, // see the GI Sides pass
 			{"ComputeEmitterCaustics", SLANG_STAGE_COMPUTE}, // see the Emitter Caustics pass
 			{"ComputeEmitterCausticCells", SLANG_STAGE_COMPUTE}, // see the Emitter Caustic Cells pass
+			{"ComputeEmitterCausticLight", SLANG_STAGE_COMPUTE}, // see the Emitter Caustic Light pass
 		},
 		.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 		.debugInfoLevel = kShaderDebugInfoLevel,
@@ -3870,6 +3875,7 @@ struct Scene::Impl
 				.tracedRefractions = mySettings.tracedRefractions.load(std::memory_order_relaxed),
 				.solidTransmission = mySettings.solidTransmission.load(std::memory_order_relaxed),
 				.caustics = mySettings.caustics.load(std::memory_order_relaxed),
+				.exposure = exposures[0],
 				.emissiveLights = mySettings.emissiveLights.load(std::memory_order_relaxed),
 				.aerialPerspective = mySettings.aerialPerspective.load(std::memory_order_relaxed) && mySkyInstalled.load(std::memory_order_relaxed) && !SkyReplaced(),
 				.skySun = skySun,

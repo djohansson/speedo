@@ -1028,7 +1028,8 @@ the research set's conditions, `TransmissionSolid`; Bistro's, thin walls all, tr
 (`EmitterData::glass`: uniformly in its cone from outside it, cosine weighted from inside), each its share of the light
 (the radiance by the emission's cosine over the densities it was picked with), through the glass as the shadow views'
 photons go (`GlassPathStep`, absorbing along the path), reflected at a surface met from outside as often as its Fresnel
-term says (Russian roulette) and on through it otherwise. One that lands on an opaque surface having crossed solid glass
+term says (Russian roulette) and on through it otherwise. As first built (the cells of the world have it all since, below),
+one that lands on an opaque surface having crossed solid glass
 or been reflected by glass adds its light to the pixels that show that point (`EmitterCausticSplat`: the 2x2 around its
 place in each view, those whose pre-pass point is on its surface and seen from its side, by the pixel's area there: the
 irradiance over pi times the exposure, in fixed point rounded at random, `gEmitterCausticPhotons`), and Emitter Temporal
@@ -1101,6 +1102,43 @@ their 5x5 window's median by 8 of 255): lamp 3682 to 2385 (2396 with the photons
 its floor and wood), spaceship 4805 to 3121 (3107), the means within 0.3 of 255 of the photons off; cornell-caustic's water
 and veach-bidir's egg as before (0.3 and 0.1 of 255, the runs' noise).
 
+The caustics are kept in the world, not on the screen (the review plan's step 2, 2026-11-23). On the screen, the
+photons landed in a buffer of sums a pixel and were averaged over frames in the emitters' history: 256 frames while the
+view was still and 32 once it moved, a few photons a pixel, so a grain that began again with every move of the camera,
+and the cells, made only where the screen hid a landing, 2 pixels wide and of the same 256 frames, were mottled (the
+user's report: "settle slowly, and look unnatural behind objects after moving the camera"). But the emitters' caustics
+are the same from wherever they are seen while the glass and the emitters are still. So every photon that lands in a
+view lands in cells (`EmitterCausticCellsAdd`): the one about 2 pixels wide where it lands (by the pixel's footprint on
+the surface, `EmitterCausticCellLevel`: wider where the surface slants from the eye; by the distance alone a floor at a
+low angle was several cells a pixel, more than the table holds) and the two levels coarser, each twice as wide. A cell
+holds the sum of its photons' light since the frame it was made in (fixed point, in a unit taken from the exposure when
+the cells were emptied, `EmitterData::causticUnit`), their count and its area of the surface's plane, and its light is
+the sum over the frames since (the photon that makes a cell adds nothing, nor the others of that frame: with it, a cell
+where few land would be the brighter the younger it is); a share of the table is looked after each frame (Emitter
+Caustic Cells: a cell past `SPEEDO_EMITTER_CAUSTIC_FRAME_COUNT` frames, 4096, or near what a word holds, is halved; the
+history's 32 where the model moves). A lookup (`EmitterCausticCellLight`) takes the coarsest level's light and each
+finer one's over it by the photons its cells hold (none below 8, all from 48), each level interpolated over its 8 cells
+around the point, a young cell counting by its frames (of 32) or its photons (of 16): the picture is smooth from its
+first frames and sharpens level by level, and after a move of the camera it is as it was. The frame's pixels take it in
+a pass of their own (Emitter Caustic Light, into `SHADER_TYPES_EMITTER_CAUSTIC_TEXTURE`, which `EmitterIrradiance` and
+`TracedEmitterSeen` add to the emitters' light), stamping the cells they take, and a traced hit the screen hides as
+before (`TracedEmitterHidden`, from the two coarser levels); a cell nothing has used for 64 frames may be taken back for another place. The table is
+half as many cells as the frame has pixels, to a power of two (34 MB at 2560x1440 balanced, 67 at 3840x2160).
+
+Two things went wrong on the way. A cell was taken back by swapping its key, so a thread could take the cell another had
+taken the moment before, which went on to write its area into it: cells with the area of another level's, 16 times too
+dark or too bright, dark dots over cornell-caustic's walls and the whole 40% too bright with the table full; now by
+swapping the stale stamp it saw for the frame's (`EmitterCausticCellFind`). And a just made cell counted in full, a dark
+dot until its photons came. Measured at the user's pose in cornell-caustic, 3840x2160: pixels a million brighter than
+their 5x5 window's median by 8 of 255, 44591 to 6246 at 1500 frames, the mean the same (111.9 and 111.2 of 255); from a
+cold start, 8.0 of 255 off the frame at 1500 after 1 second, 3.4 after 3 and 2.1 after 7 (softer, then sharper, never a
+grain); and on arriving after the move the places behind the cubes are as the wall around them. The cost at 1440p
+balanced, cornell-caustic: Emitter Caustics 0.33 to 0.23 ms (no pixels to test), Emitter Caustic Cells 0.05 to 0.003,
+Emitter Temporal 0.25 to 0.21, Emitter Caustic Light 0.43 (0.25 in kitchen, whose glasses' caustics are small: a place
+whose two coarsest levels have no cells isn't looked up further), Main Transmissive 3.95 to 3.84 (its hidden hits take
+the two coarser levels: with all three, 4.0, and 0.55 more at its reference pose). The research set as before
+(cornell-caustic 0.470 to 0.472 blurred stops off its reference, the rest within their runs' noise).
+
 What it costs is the transmissive fragment shader's size, not its rays (1440p balanced, RTX 4070 Ti SUPER, old and new
 interleaved): cornell-caustic's Main Transmissive 3.3 to 3.95 ms a frame, glass-of-water's 11.3 to 13.3, where each
 refraction's hit the screen hides takes a light sample (`TracedEmitterHidden`); Emitter Shade 0.035 to 0.042. Tried, each
@@ -1108,8 +1146,8 @@ refraction's hit the screen hides takes a light sample (`TracedEmitterHidden`); 
 the scene's any hit and the glass's nearest made one query of the nearest of both; any glass queried first and a curved
 back face ending it there, a query fewer than before the rule (even deciding by that hit's facing alone, with no vertex
 read). And the direction matters to the driver: the old query of any glass, traced from the emitter's point instead of
-from the surface, 4.15 against 3.35. The light sample out of the fragment shader would take the cost back (the review
-plan's step 2).
+from the surface, 4.15 against 3.35. The hits' light sample out of the fragment shader would take the cost back
+(docs/backlog.md).
 
 ## Ray traced shadows
 

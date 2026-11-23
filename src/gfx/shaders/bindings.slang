@@ -274,10 +274,8 @@ struct ModelInstancesSet
 	// the caustics' photons' light as they land, per texel of the shadow transmittance and channel, in fixed point (see
 	// SHADER_TYPES_SHADOWS_CAUSTICS), emptied each frame they are traced in
 	RWStructuredBuffer<uint> gCausticPhotons;
-	// the emitters' caustics' photons' light as they land, per pixel of the frame and channel, in fixed point (see
-	// SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE), emptied each frame they are traced in
-	RWStructuredBuffer<uint> gEmitterCausticPhotons;
-	// and the cells of the world they land in (see SHADER_TYPES_EMITTER_CAUSTIC_CELL_COUNT), kept from frame to frame
+	// the cells of the world the emitters' caustics' photons land in (see EmitterData::causticCellCount), kept from frame
+	// to frame
 	RWStructuredBuffer<uint> gEmitterCausticCells;
 	// the frame's aerial perspective (see AerialPerspectiveData), per frame index
 	StructuredBuffer<AerialPerspectiveData> gAerialPerspectiveData[SHADER_TYPES_FRAME_COUNT];
@@ -352,7 +350,6 @@ ParameterBlock<ModelInstancesSet> gSetModelInstances;
 #define gUpscaleDepth gSetModelInstances.gUpscaleDepth
 #define gVisibilityStatistics gSetModelInstances.gVisibilityStatistics
 #define gCausticPhotons gSetModelInstances.gCausticPhotons
-#define gEmitterCausticPhotons gSetModelInstances.gEmitterCausticPhotons
 #define gEmitterCausticCells gSetModelInstances.gEmitterCausticCells
 #define gAerialPerspectiveData gSetModelInstances.gAerialPerspectiveData
 #define gLensData gSetModelInstances.gLensData

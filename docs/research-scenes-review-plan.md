@@ -169,3 +169,13 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
   rest within 0.003. The cost is the transmissive fragment shader's size: cornell-caustic's Main Transmissive 3.3 to
   3.95 ms a frame at 1440p balanced, glass-of-water's 11.3 to 13.3, whatever the rule traced (three ways of fewer or
   shorter queries measured the same); step 2 is to take the hits' light sample out of that shader.
+- 2026-11-23, **step 2**: the caustics are kept in the world, not on the screen: every photon that lands in a view lands
+  in cells of three sizes (2, 4 and 8 pixels where it lands, by the pixel's footprint on the surface), each the sum of
+  its photons since it was made, up to 4096 frames; a lookup takes the coarsest level and each finer one over it by the
+  photons its cells hold, so the picture is smooth from the start and sharpens as the photons come, and a move of the
+  camera leaves it as it was. The plan's radius by the photons around a pixel is these levels. At the user's pose in
+  cornell-caustic, 3840x2160: the grain 44591 to 6246 pixels a million (brighter than their window's median by 8 of 255)
+  at the same light; from a cold start 8.0 of 255 off the settled frame after 1 second, 3.4 after 3, 2.1 after 7; on
+  arriving after the move the places behind the cubes are as the wall around them, where they were holes and grain.
+  docs/notes/rendering.md, "The emitters' caustics". Not done: the hits' light sample out of the transmissive fragment
+  shader (step 1's cost stands, docs/backlog.md).

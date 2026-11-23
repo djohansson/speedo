@@ -513,7 +513,7 @@ float3 TracedEmitterSeen(float3 position, float3 normal, out bool hidden)
 	if (hidden)
 		return -1.0;
 	float4 light = gTextures[SHADER_TYPES_EMITTER_HISTORY_TEXTURE + current].Load(int3(texel, 0));
-	return light.a >= 0.0 ? light.rgb : -1.0;
+	return light.a >= 0.0 ? light.rgb + EmitterCausticsAt(texel) : -1.0;
 }
 
 // the emitters' light at a traced hit the screen hides (TracedEmitterSeen's hidden) while their caustics are traced: the
@@ -527,7 +527,7 @@ float3 TracedEmitterSeen(float3 position, float3 normal, out bool hidden)
 // among patches of the voxels' where no ring met the wall ("broken and corrupted"). the irradiance over pi
 float3 TracedEmitterHidden(float3 position, float3 normal, float3 geometryNormal, float push, float nearest2)
 {
-	float3 light = EmitterCausticCellLight(position, geometryNormal);
+	float3 light = EmitterCausticCellLight(position, geometryNormal, false, 1);
 	EmitterRandom random = EmitterRandomAt(gFragmentPixel ^ uint2(0x9e37u, 0x79b9u), gEmitterData[gPushConstants.frameIndex][0].frame);
 	EmitterReservoir reservoir = EmitterCandidates(position, normal, kTracedEmitterCandidateCount, nearest2, random);
 	bool visible;

@@ -61,15 +61,22 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
 - **Performance**: the shadow maps of static casters cached (virtual shadow maps longer term), and step 5's rich
   worlds (model instances, streaming and level of detail, async compute, recording on several threads, quality presets
   aimed at a frame time). docs/performance-plan.md.
-- **The emitters' caustics beyond the screen** (2026-11-23, the research scenes plan's step 8): the photons land on the
-  pixels that show where they land, and in cells of the world where the screen hides them; what is off the screen takes
-  the voxels' light straight through glass, and the indirect lighting's voxels take it so too (their light the
+- **The emitters' caustics beyond the views** (2026-11-23, the research scenes plan's step 8; in cells of the world
+  since the review plan's step 2): the photons land in the cells of what the views hold, shown or hidden; what is out of
+  every view takes the voxels' light straight through glass (a coarse level of cells for every landing would give it
+  them, and what comes into view its light at once), and the indirect lighting's voxels take it so too (their light the
   photons' in their place would bounce the caustics: the cells could hold it); the highlights through solid glass are
   the straight light's (the photons bring irradiance alone: a direction kept with it would let the specular take them);
   and cornell-caustic's ceiling is darker than its reference's (what the waves reflect up, and the indirect light).
   docs/notes/rendering.md, "The emitters' caustics".
+- **The traced hits' light sample out of the transmissive fragment shader** (2026-11-23, the review plan's step 1): a
+  refraction's hit the screen hides takes a light sample (`TracedEmitterHidden`), and the rule that tells glass that
+  gathers light from glass that doesn't made that shader slower by its size alone, whatever it traced: cornell-caustic's
+  Main Transmissive 3.3 to 3.95 ms a frame at 1440p balanced, glass-of-water's 11.3 to 13.3. The direct light kept in
+  cells of the world as the caustics' are, sampled in a compute pass for the cells the hits ask for, would take the
+  sample and the rule out of it. docs/notes/rendering.md, "The emitters' caustics".
 - **glass-of-water at 60 Hz** (2026-11-23, the research set timed at 2560x1440, balanced: every other scene within it):
-  19.5 ms a frame, 11.3 of it Main Transmissive, its glass, water, ice and bubbles' refractions through up to
+  19.5 ms a frame (21.9 since the review plan's step 1, above), 11.3 of it Main Transmissive (13.2), its glass, water, ice and bubbles' refractions through up to
   `SHADER_TYPES_CAUSTIC_SURFACE_COUNT` surfaces each, a hit shaded at the end; the next slowest, crown 14.7 ms and bmw-m6
   14.5, Main Transmissive 3.3 and 3.7. docs/research-scenes-plan.md, "Where it stands".
 - **Rough glass closer to its references** (the user's call, 2026-11-23: step 6's lobe ray an improvement, not yet the

@@ -781,6 +781,11 @@ struct FlareConstants
 // and the last's by EmitterData::frame's parity
 #define SHADER_TYPES_EMITTER_SPECULAR_TEXTURE 90u // and 91
 #define SHADER_TYPES_EMITTER_SPECULAR_RW_TEXTURE 79u // and 80
+// the emitters' caustics' light at every pixel, from the photons' cells around its point (the Emitter Caustic Light pass;
+// RGBA16F: the irradiance over pi), which the readers of the emitters' light add to it while the caustics are traced
+// (EmitterIrradiance, TracedEmitterSeen)
+#define SHADER_TYPES_EMITTER_CAUSTIC_TEXTURE 92u
+#define SHADER_TYPES_EMITTER_CAUSTIC_RW_TEXTURE 81u
 #define SHADER_TYPES_STREAK_SCAN_THREAD_COUNT 256u // a row's group's threads, each a run of the row
 
 // the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,
@@ -946,15 +951,25 @@ struct EmitterData
 	// traced, the emitters' shadow rays stop at solid glass that gathers light (see EmitterGatheredByGlass), whose light arrives as theirs
 	alignas(4) UINT1(causticPhotonCount);
 	alignas(16) FLOAT4(glass); // (at 80 bytes: no padding before it, whatever the layout's rules)
+	// the photons' cells (gEmitterCausticCells, see EmitterCausticCellFind): how many the table holds (a power of two, by
+	// the frame's size), what a unit of their sums is (SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE times the first
+	// view's exposure when they were emptied: the irradiance over pi as the frame showed it then), and the frames a cell's
+	// light is the mean of at most (SPEEDO_EMITTER_CAUSTIC_FRAME_COUNT; the history's where the model moves)
+	alignas(4) UINT1(causticCellCount);
+	alignas(4) FLOAT1(causticUnit);
+	alignas(4) UINT1(causticFrameCap);
+	alignas(4) UINT1(padding0);
 };
-// the emitters' caustics' light as the photons land on the frame's pixels (gEmitterCausticPhotons: a uint per channel
-// and pixel), the irradiance over pi times the view's exposure in 1 / SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE
+// the emitters' caustics' light in the world (gEmitterCausticCells, see EmitterCausticCellFind): a hash table of cells
+// (EmitterData::causticCellCount), each of SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT words, the light of the photons
+// that landed in it since it was made, in units of EmitterData::causticUnit (the irradiance over pi times an exposure in
+// 1 / SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE), which the frame's pixels (the Emitter Caustic Light pass, into
+// SHADER_TYPES_EMITTER_CAUSTIC_TEXTURE) and the traced hits the screen hides (TracedEmitterHidden) take
 #define SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE 4096.0
-// and in the world (gEmitterCausticCells, see EmitterCausticCellFind): a hash table of cells (a power of two of them),
-// each of SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT words, the light of the photons that landed in it, over frames,
-// which the traced hits the screen hides take (see TracedEmitterHidden)
-#define SHADER_TYPES_EMITTER_CAUSTIC_CELL_COUNT 262144u
-#define SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT 10u
+#define SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT 8u
+// how many of the table's cells the Emitter Caustic Cells pass looks after each frame (1 in that many: see
+// ComputeEmitterCausticCells)
+#define SHADER_TYPES_EMITTER_CAUSTIC_CELL_SLICE_COUNT 64u
 
 // a view a light's shadow is drawn from: world to clip space (depth reversed, 1 at its near plane to 0 at its far), drawn
 // in a tile of the atlas

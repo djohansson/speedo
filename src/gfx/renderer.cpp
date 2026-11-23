@@ -136,6 +136,8 @@ constexpr uint8_t kGiSidesEntryPoint = 75;
 // the emitters' caustics' photons (see ComputeEmitterCaustics), and their cells' frames folded (ComputeEmitterCausticCells)
 constexpr uint8_t kEmitterCausticsEntryPoint = 76;
 constexpr uint8_t kEmitterCausticCellsEntryPoint = 77;
+// and the cells' light at the frame's pixels (ComputeEmitterCausticLight)
+constexpr uint8_t kEmitterCausticLightEntryPoint = 78;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -168,7 +170,7 @@ constexpr float kVisibilityTieredShare = 0.125F;
 constexpr uint64_t kVisibilityRecountFrameCount = 16;
 // diagnostic: the ray query replay's (see gfx/rayquerywatch.h), after the others, where the shaders have the watch (it
 // was 53, the lens's, once entry points were added before it)
-constexpr uint8_t kRayQueryReplayEntryPoint = 78;
+constexpr uint8_t kRayQueryReplayEntryPoint = 79;
 // the bytes of a page of the cache (a block's 64 entries of 4 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 4 * 4 * sizeof(uint32_t);
@@ -283,6 +285,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myEmitterRaw = myGraph.CreateImage({.name = "Emitter Raw", .format = Format::kR16G16B16A16Sfloat, .downscale = myEmitterStride});
 	myEmitterRows = myGraph.CreateImage({.name = "Emitter Rows", .format = Format::kR16G16B16A16Sfloat, .downscale = myEmitterStride});
 	myEmitterFiltered = myGraph.CreateImage({.name = "Emitter Filtered", .format = Format::kR16G16B16A16Sfloat, .downscale = myEmitterStride});
+	myEmitterCausticLight = myGraph.CreateImage({.name = "Emitter Caustic Light", .format = Format::kR16G16B16A16Sfloat});
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
 		myEmitterHistory[historyIt] = myGraph.ImportImage(std::format("Emitter History {}", historyIt));
@@ -468,8 +471,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		 .persistent = true});
 	myCausticPhotons = myGraph.CreateBuffer(
 		{.name = "Caustic Photons", .size = uint64_t{shadows::kAtlasSize / 2} * (shadows::kAtlasSize / 2) * 3 * sizeof(uint32_t)});
-	myEmitterCausticPhotons = myGraph.CreateBuffer(
-		{.name = "Emitter Caustic Photons", .sizeOf = [](Extent2d extent) { return PixelCount(extent) * 3 * sizeof(uint32_t); }});
 	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 	{
 		myShadowViewBuffers.emplace_back(BufferCreateDesc{
@@ -1166,6 +1167,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.Use(myEmitterReservoirs, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				// (and the caustics' cells, which a traced hit the screen hides takes, see TracedEmitterHidden)
 				builder.Use(myEmitterCausticCells, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
+				builder.Use(myEmitterCausticLight, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			},
 			[this, phase, late](FrameGraph::PassContext& context)
@@ -1780,18 +1782,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myEmitterFiltered, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[tracedKernel](FrameGraph::PassContext& context) { tracedKernel(context.cmd, kEmitterYEntryPoint); });
-	// the emitters' caustics (see ComputeEmitterCaustics): their photons' light emptied, then the photons traced from the
-	// emitters through the solid glass into the pixels they land on, which Emitter Temporal adds
-	myEmitterCausticsClearPass = myGraph.AddPass(
-		"Emitter Caustics Clear",
-		[this](FrameGraph::PassBuilder& builder) { builder.Use(myEmitterCausticPhotons, ResourceUse::TransferDestination()); },
-		[this](FrameGraph::PassContext& context)
-		{
-			CommandEncoder(context.cmd)
-				.FillBuffer(context.graph.GetBuffer(myEmitterCausticPhotons), 0, PixelCount(myGraph.GetExtent()) * 3 * sizeof(uint32_t), 0);
-		});
-	// the cells of the world the photons land in (see EmitterCausticCellFind), emptied where they hold nothing of this
-	// model's yet: made at a resize, the caustics just begun, another model
+	// the emitters' caustics (see ComputeEmitterCaustics): the cells of the world the photons land in (see
+	// EmitterCausticCellFind), emptied where they hold nothing of this model's yet: made at a resize, the caustics just
+	// begun, another model
 	myEmitterCausticCellsClearPass = myGraph.AddPass(
 		"Emitter Caustic Cells Clear",
 		[this](FrameGraph::PassBuilder& builder) { builder.Use(myEmitterCausticCells, ResourceUse::TransferDestination()); },
@@ -1800,26 +1793,42 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			CommandEncoder(context.cmd)
 				.FillBuffer(
 					context.graph.GetBuffer(myEmitterCausticCells), 0,
-					uint64_t{SHADER_TYPES_EMITTER_CAUSTIC_CELL_COUNT} * SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT * sizeof(uint32_t), 0);
+					uint64_t{myEmitterCausticCellCount} * SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT * sizeof(uint32_t), 0);
 		});
+	// the photons traced from the emitters through the glass into the cells
 	myEmitterCausticsPass = myGraph.AddPass(
 		"Emitter Caustics",
 		[this](FrameGraph::PassBuilder& builder)
-		{
-			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
-			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
-			builder.Use(myEmitterCausticPhotons, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
-			builder.Use(myEmitterCausticCells, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
-		},
+		{ builder.Use(myEmitterCausticCells, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite)); },
 		[this, kernel](FrameGraph::PassContext& context)
 		{ kernel(context.cmd, ComputePipelineVariant{.entryPoint = kEmitterCausticsEntryPoint}, myEmitterCausticsThisFrame, 1); });
-	// and after the photons, each cell's frame folded into its mean (see ComputeEmitterCausticCells)
+	// after them, the frame's share of the cells looked after (see ComputeEmitterCausticCells)
 	myEmitterCausticCellsPass = myGraph.AddPass(
 		"Emitter Caustic Cells",
 		[this](FrameGraph::PassBuilder& builder)
 		{ builder.Use(myEmitterCausticCells, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite)); },
-		[kernel](FrameGraph::PassContext& context)
-		{ kernel(context.cmd, ComputePipelineVariant{.entryPoint = kEmitterCausticCellsEntryPoint}, SHADER_TYPES_EMITTER_CAUSTIC_CELL_COUNT, 1); });
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			kernel(
+				context.cmd, ComputePipelineVariant{.entryPoint = kEmitterCausticCellsEntryPoint},
+				myEmitterCausticCellCount / SHADER_TYPES_EMITTER_CAUSTIC_CELL_SLICE_COUNT, 1);
+		});
+	// and the cells' light at every pixel (see ComputeEmitterCausticLight), which the readers of the emitters' light add
+	myEmitterCausticLightPass = myGraph.AddPass(
+		"Emitter Caustic Light",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			// (written too: the cells a pixel takes are stamped as used)
+			builder.Use(myEmitterCausticCells, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myEmitterCausticLight, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			auto extent = myGraph.GetExtent();
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kEmitterCausticLightEntryPoint}, extent.width, extent.height);
+		});
 	// then per pixel: upsampled from the traced pixels around and accumulated over frames (see ComputeEmitterTemporal)
 	myEmitterTemporalPass = myGraph.AddPass(
 		"Emitter Temporal",
@@ -1828,7 +1837,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myEmitterFiltered, ResourceUse::Sampled(PipelineStage::kComputeShader));
-			builder.Use(myEmitterCausticPhotons, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			for (auto image : myEmitterSurfaces)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			// and the untraced specular's highlights: the last frame's gathered by the same reprojection into the frame's
@@ -1910,6 +1918,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			for (auto image : myEmitterHistory)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myEmitterCausticCells, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myEmitterCausticLight, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			// the traced pixels' points and surfaces, which the untraced specular takes the emitters' highlights of (see
 			// EmitterSpecular)
 			builder.Use(myEmitterReservoirs, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
@@ -2017,6 +2026,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterPixelSurfaces[0], myEmitterPixelSurfaces[1]})
 					builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				builder.Use(myEmitterCausticCells, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				builder.Use(myEmitterCausticLight, ResourceUse::Sampled(PipelineStage::kComputeShader));
 				for (auto volume : myGiVolumes)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 				builder.Use(myGiWorld, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
@@ -2852,6 +2862,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	count("SPEEDO_EMITTER_NEW_CANDIDATE_COUNT", myEmitterNewCandidateCount, 1, 256);
 	// (0 for none; at most a dispatch's 65535 groups of 64)
 	count("SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT", myEmitterCausticPhotonCount, 0, 65535 * 64);
+	count("SPEEDO_EMITTER_CAUSTIC_FRAME_COUNT", myEmitterCausticFrameCount, 1, 1U << 20);
 	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
 	myCollectTimings = collect != nullptr && std::string_view(collect) == "1";
 }
@@ -3252,6 +3263,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			 std::pair{myEmitterRaw, SHADER_TYPES_EMITTER_RAW_TEXTURE},
 			 std::pair{myEmitterRows, SHADER_TYPES_EMITTER_ROWS_TEXTURE},
 			 std::pair{myEmitterFiltered, SHADER_TYPES_EMITTER_FILTERED_TEXTURE},
+			 std::pair{myEmitterCausticLight, SHADER_TYPES_EMITTER_CAUSTIC_TEXTURE},
 			 std::pair{myComposite, SHADER_TYPES_COMPOSITE_TEXTURE},
 			 std::pair{myUpscaleDilatedDepth, SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE},
 			 std::pair{myUpscaleDilatedMotion, SHADER_TYPES_UPSCALE_DILATED_MOTION_TEXTURE},
@@ -3316,6 +3328,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			 std::pair{myEmitterRaw, SHADER_TYPES_EMITTER_RAW_RW_TEXTURE},
 			 std::pair{myEmitterRows, SHADER_TYPES_EMITTER_ROWS_RW_TEXTURE},
 			 std::pair{myEmitterFiltered, SHADER_TYPES_EMITTER_FILTERED_RW_TEXTURE},
+			 std::pair{myEmitterCausticLight, SHADER_TYPES_EMITTER_CAUSTIC_RW_TEXTURE},
 			 std::pair{myComposite, SHADER_TYPES_COMPOSITE_RW_TEXTURE},
 			 std::pair{myUpscaleDilatedDepth, SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE},
 			 std::pair{myUpscaleDilatedMotion, SHADER_TYPES_UPSCALE_DILATED_MOTION_RW_TEXTURE},
@@ -3484,9 +3497,6 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			"gReprojectedDepth", BufferBinding{.buffer = myGraph.GetBuffer(myReprojectedDepth), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 		pipeline.SetDescriptorData(
 			"gUpscaleDepth", BufferBinding{.buffer = myGraph.GetBuffer(myUpscaleDepth), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-		pipeline.SetDescriptorData(
-			"gEmitterCausticPhotons", BufferBinding{.buffer = myGraph.GetBuffer(myEmitterCausticPhotons), .offset = 0},
-			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 		myPreviousValid = false;
 	}
 	// the near field's history at this size (holding nothing yet), bound once, both of each: the frame's parity picks
@@ -3713,9 +3723,15 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			"gEmitterReservoirs", BufferBinding{.buffer = myEmitterReservoirBuffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 		// the caustics' cells (made with the rest: what is bound stays put while frames are in flight), emptied before their
 		// first use (Emitter Caustic Cells Clear)
+		// as many as hold the cells of a frame of this size: a third of its pixels (the finest cells 4 pixels each, the two
+		// coarser levels a quarter and a sixteenth as many) and half as many again for what is in the views behind what
+		// they show, in a table two thirds full at most (a power of two; one cell where no ray queries trace the photons).
+		// 67 MB at 3840x2160 balanced, 34 at 2560x1440
+		myEmitterCausticCellCount =
+			device.GetLimits().rayQuery ? std::bit_ceil(static_cast<uint32_t>(std::max<uint64_t>(renderer::PixelCount(extent) / 2, 1U << 16))) : 1U;
 		myEmitterCausticCellBuffer = Buffer(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc("Emitter Caustic Cells"),
-			uint64_t{SHADER_TYPES_EMITTER_CAUSTIC_CELL_COUNT} * SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT * sizeof(uint32_t),
+			uint64_t{myEmitterCausticCellCount} * SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT * sizeof(uint32_t),
 			BufferUsage::kStorage | BufferUsage::kTransferDestination,
 			MemoryProperty::kDeviceLocal});
 		pipeline.SetDescriptorData(
@@ -3760,6 +3776,8 @@ void Renderer::RestartSequences()
 	myGiNearFrame = 0;
 	myReflectionFrame = 0;
 	myEmitterFrame = 0;
+	// (and the caustics' cells, whose frames are counted by it, emptied)
+	myEmitterCausticCellsValid = false;
 	myEmitterReferenceFrameCount = 0;
 	myGiStaggerFrame = 0;
 	myGiStillFrameCount = 0;
@@ -4185,14 +4203,24 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 			}
 		}
 		data.causticPhotonCount = myEmitterCausticsThisFrame;
-		myGraph.SetEnabled(myEmitterCausticsClearPass, myEmitterCausticsThisFrame > 0);
 		myGraph.SetEnabled(myEmitterCausticsPass, myEmitterCausticsThisFrame > 0);
-		// their cells, emptied where they hold nothing of this model's yet (see myEmitterCausticCellsValid)
+		// their cells, emptied where they hold nothing of this model's yet (see myEmitterCausticCellsValid), their sums from
+		// then on in units of the exposure the frame has then (the first view's: what the frame shows as white some 4096
+		// units a frame, whatever the scene's light)
 		bool cellsKept = myEmitterCausticCellsValid && myEmitterCausticCellsModel == frame.model;
+		if (myEmitterCausticsThisFrame > 0 && !cellsKept)
+			myEmitterCausticUnit = static_cast<float>(SHADER_TYPES_EMITTER_CAUSTIC_FIXED_POINT_SCALE) * std::max(frame.exposure, 1e-20F);
 		myGraph.SetEnabled(myEmitterCausticCellsClearPass, myEmitterCausticsThisFrame > 0 && !cellsKept);
 		myGraph.SetEnabled(myEmitterCausticCellsPass, myEmitterCausticsThisFrame > 0);
+		myGraph.SetEnabled(myEmitterCausticLightPass, myEmitterCausticsThisFrame > 0);
 		myEmitterCausticCellsValid = myEmitterCausticsThisFrame > 0;
 		myEmitterCausticCellsModel = frame.model;
+		data.causticCellCount = myEmitterCausticCellCount;
+		data.causticUnit = myEmitterCausticUnit;
+		// (what moves may change where the photons go: the history's frames, as the emitters' light's)
+		data.causticFrameCap =
+			frame.model != nullptr && frame.model->Moves() ? std::max(static_cast<uint32_t>(std::lround(1.0F / std::max(myEmitterBlend, 1e-6F))), 1U)
+														   : myEmitterCausticFrameCount;
 		// fewer where something moves, which may come between a point and the pixel
 		data.visibilityFrameCount = data.movingBvh != 0U ? std::max(myEmitterVisibilityFrameCount / 4, 1U) : myEmitterVisibilityFrameCount;
 		data.raw = frame.pushConstants.debugView == DEBUG_VIEW_EMITTERS_RAW ? 1U : (frame.pushConstants.debugView == DEBUG_VIEW_EMITTERS_REFERENCE ? 2U : 0U);
