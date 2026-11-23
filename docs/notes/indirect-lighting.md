@@ -2020,9 +2020,17 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
       voxel's, changed nothing: the lookup's weights weren't what drew the classroom's patches. Nor is the left out
       share given to the next clip (tried first: the next level's own patches, larger, and a bright wedge where that
       level's lookup has no mask).
-    - **Left: the classroom's patches.** They are the cache's own light (`SPEEDO_GI_CACHE_SHOW=1` shows them, in
-      rectangles of the 4 voxel blocks' size with straight edges), not the lookups': the next thing to look at
-      (docs/research-scenes-review-plan.md).
+    - **Left: the classroom's patches**, which are its voxels' size. Its floor is a plane 222 m wide around a room of 9
+      by 12 m, so the finest of its 3 levels has voxels of 0.495 m, and the patches are single voxels: not the cache's
+      filter (the same with `SPEEDO_GI_CACHE_SIGMA` 0 or 1000, with one pass, with `SPEEDO_GI_CACHE_EVERYWHERE=1`), not
+      still settling (the same at 3600 frames as at 900). A voxel that size holds several surfaces (the ceiling and a
+      beam's side, the floor and a desk's legs, the wall and the blackboard's frame) and stands for one, so nearly every
+      lookup in the room leaves out most of its 8: by the far sides rule the most, by the sight test at the junctions,
+      by the facing rule under the desks; and one column or two of the four along the surface are left, a voxel's light
+      flat with a step to the next. With 6 levels (the limit raised to try it; finest voxels 0.062 m) the ceiling's
+      patches are gone and a few squares are left on the far walls, which a coarser level lights from there; 0.76 ms a
+      frame and 133 MB more. How many levels a scene gets is open (docs/research-scenes-review-plan.md, "Open for the
+      user").
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows

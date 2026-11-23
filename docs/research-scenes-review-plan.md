@@ -151,6 +151,10 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
 
 ## Open for the user
 
+- The levels a scene gets (step 3, the classroom): by the scene's size, so that the finest voxel is no larger than a
+  size in metres (0.06 m as Sponza's would give the classroom 6 levels, Bistro, whose finest is 0.26 m, 5 or 6: about
+  0.2 to 0.25 ms a frame and 43 MB a level more), or 3 as now with the large scenes left coarse. And up to how many (8
+  fit as tried).
 - Step 5 spends more of the gpu while the light settles: a slower frame for the first second after a load or a jump,
   for a picture that settles sooner.
 
@@ -227,3 +231,26 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
   Left of step 3: the classroom's patches (report 3) are not the lookups'. They are in the cache's own light
   (`SPEEDO_GI_CACHE_SHOW=1`), rectangles the size of its blocks of 4 voxels with straight edges; and the bathroom's
   mirror (report 2, step 4).
+- 2026-11-23, **step 3**, the classroom's patches (report 3) looked into: they are single voxels of the finest level,
+  0.5 m a side, and not the cache's blocks nor its filter (the same with `SPEEDO_GI_CACHE_SIGMA` 0 or 1000, one filter
+  pass, `SPEEDO_GI_CACHE_EVERYWHERE=1`, and at 3600 frames as at 900: they are not still settling). Two causes:
+  - **The model's floor is 222 m wide** (`35_Floor`, around a room of 9 by 12 m), and the last level covers the scene at
+    128 voxels: 1.98 m a voxel, the finest of 3 levels 0.495 m. Twelve of the set's scenes have such a floor or backdrop
+    (`temp/research-issues/glbbounds.ps1`: vintage-car 227 m, crown 200, teapot 160, pontiac-gto 118, lamp 114,
+    spaceship 78, bathroom2 76, house 66, bmw-m6 55, veach-mis and glass-of-water 47), their finest voxels 0.09 to
+    0.44 m where Sponza's are 0.06.
+  - **At that size nearly every lookup in the room leaves out most of its 8 voxels**, and what is left is one column or
+    two of the four along the surface, so the light is one voxel's, flat, with a step to the next
+    (`temp/review/research-issues/s3-classroom-columns.png`: blue 4 columns kept, green 3, yellow 2, red 1, white
+    none; `s3-classroom-columns-by-rule.png`: by the masks, by the sight test alone, by the far sides, by the voxels'
+    weights). The far sides rule (`GiFarSides`) leaves out the most (the ceiling beside its beams and lights, the floor
+    under the desks, the wall beside the blackboard: each voxel stands for one of several surfaces in it, and the
+    neighbour's is another), the sight test at the junctions, the facing rule under the desks and by the windows.
+  Tried, with the levels' limit raised to 8 (`temp/research-issues/levels-8.patch`: the constant, and the level in the
+  sides' masks in three bits): `SPEEDO_GI_CLIP_COUNT` 4, 5 and 6, finest voxels 0.247, 0.124 and 0.062 m. With 6 the
+  ceiling's patches are gone, the desks and chairs take their contacts' light, and what is left is a few squares on the
+  far walls (`s3-classroom-3-vs-6-levels.png`), which a coarser level lights from there: a voxel is never smaller than
+  a 32nd of the distance to its level's edge, so more levels don't change how large a far wall's voxels look. The cost
+  at 1440p balanced: the frame 7.74 ms with 3 levels, 8.18 with 4, 8.36 with 5, 8.50 with 6 (the GI pass 0.52 to 0.72,
+  GI Sides 0.47 to 0.67, the main pass 1.03 to 1.17), the indirect lighting's memory 146, 189, 231 and 278 MB.
+  Not changed yet: how many levels a scene gets is the user's call ("Open for the user").
