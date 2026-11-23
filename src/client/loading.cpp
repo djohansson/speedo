@@ -92,27 +92,29 @@ std::optional<ModelConditions> ReadModelConditions(const std::filesystem::path& 
 
 	ModelConditions conditions;
 	auto set = [&conditions](std::string name, std::string value) { conditions.variables.emplace_back(std::move(name), std::move(value)); };
-	// the environment: none (null), a uniform color ("uniform color [0.3, 0.3, 0.3]"), or a panorama beside the file or
-	// in a common folder above it (the set's own: scenes/common)
-	if (environment)
+	// the environment: none (null, or no key: pbrt lights a scene with what it declares alone, and cornell-caustic, the
+	// set's one reference of pbrt's, names none; the client's default sky lit its cubes' fronts through the box's open
+	// side, a bluish grey where the reference's are brown: the user's report, 2026-11-23), a uniform color ("uniform color
+	// [0.3, 0.3, 0.3]"), or a panorama beside the file or in a common folder above it (the set's own: scenes/common)
 	{
-		if (*environment == "null")
+		std::string name = environment.value_or("null");
+		if (name == "null")
 			set("SPEEDO_AUTOLOAD_ENVIRONMENT", gfx::environment::UniformName(glm::vec3(0.0F)));
-		else if (auto open = environment->find('['); environment->starts_with("uniform") && open != std::string::npos)
+		else if (auto open = name.find('['); name.starts_with("uniform") && open != std::string::npos)
 		{
-			std::string values = environment->substr(open + 1, environment->find(']') - open - 1);
+			std::string values = name.substr(open + 1, name.find(']') - open - 1);
 			std::erase(values, ' ');
 			if (auto color = gfx::environment::ParseUniform("uniform:" + values))
 				set("SPEEDO_AUTOLOAD_ENVIRONMENT", gfx::environment::UniformName(*color));
 			else
-				std::println(stderr, "{}: environment_map {} not understood", yaml.string(), *environment);
+				std::println(stderr, "{}: environment_map {} not understood", yaml.string(), name);
 		}
 		else
 		{
 			std::optional<std::filesystem::path> found;
 			for (auto directory = model.parent_path(); !found && !directory.empty(); directory = directory.parent_path())
 			{
-				for (const auto& candidate : {directory / *environment, directory / "common" / *environment})
+				for (const auto& candidate : {directory / name, directory / "common" / name})
 					if (std::filesystem::is_regular_file(candidate, error))
 					{
 						found = candidate;
@@ -124,7 +126,7 @@ std::optional<ModelConditions> ReadModelConditions(const std::filesystem::path& 
 			if (found)
 				set("SPEEDO_AUTOLOAD_ENVIRONMENT", std::filesystem::absolute(*found, error).string());
 			else
-				std::println(stderr, "{}: environment_map {} is neither beside it nor in a common folder above it", yaml.string(), *environment);
+				std::println(stderr, "{}: environment_map {} is neither beside it nor in a common folder above it", yaml.string(), name);
 		}
 	}
 	if (strength)

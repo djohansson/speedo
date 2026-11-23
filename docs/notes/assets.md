@@ -248,8 +248,11 @@ model's distant light, merged only when they aligned within 5 degrees, lit the r
 **A model's own conditions** (the user's call, 2026-11-22, docs/research-scenes-plan.md, A1): the glTF research set's
 scenes come with a `conversion.yaml` whose `reference_render` says how their path traced references were made, and the
 client opens such a model in them (`windowedapplication::ReadModelConditions`, a reader of that block's flat keys:
-`environment_map`, a panorama found beside the file or in a `common` folder above it, `uniform color [r, g, b]`, or null;
-`environment_strength`; `exposure_multiplier`), as the `SPEEDO_*` variables a pose names (the panorama or
+`environment_map`, a panorama found beside the file or in a `common` folder above it, `uniform color [r, g, b]`, or null,
+none too where the key isn't there: pbrt lights a scene with what it declares alone, and cornell-caustic's reference,
+the set's one of pbrt's, names no environment, where the client's default sky lit its cubes' fronts through the box's open
+side, a bluish grey where the reference's are brown, the user's report, 2026-11-23; `environment_strength`;
+`exposure_multiplier`, the exposure automatic without it, as cornell-caustic's), as the `SPEEDO_*` variables a pose names (the panorama or
 `uniform:`, the intensity, a manual exposure at f/16, 1/160 s and ISO 100, the renderer's 0 stops, plus the multiplier's
 stops, PBR Neutral, no ground plane, and transmission without a volume as solids: the set's dielectrics are pbrt's
 solids, which Cycles' importer refracts as solids, where glTF has them as infinitely thin walls; the user's call,
