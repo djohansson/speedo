@@ -3452,18 +3452,26 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	};
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
-		myGiNearHistoryImages[historyIt] = screenImage(std::format("GI Near History {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
+		// the histories that average hundreds of frames while the view is still (the near field's, the emitters' light's and
+		// their highlights': 1/256 of a frame blended in) in 32 bit floats: at half precision a frame's small step up was
+		// rounded away while the rare large step down (a sample its shadow ray found hidden) was kept, and the light sank
+		// with the history's length: veach-mis's emitters' view 0.109 stops darker at 1500 frames than at 64 (0.001 at
+		// 32 bit), the furnace's light +0.884 stops of its +1 (+0.896), the glTF research set mostly nearer its references
+		// (veach-mis 0.421 to 0.290 stops blurred, crown 0.581 to 0.491, modern-hall 0.235 to 0.177), some past them
+		// (coffee-maker's backdrop 0.319 to 0.411). 0.08 ms a frame more at 1440p (Bistro at night: Emitter Temporal 0.05,
+		// GI Near Temporal 0.02)
+		myGiNearHistoryImages[historyIt] = screenImage(std::format("GI Near History {}", historyIt), Format::kR32G32B32A32Sfloat, extent);
 		// and its pixels' surfaces (distance and packed normal, as the emitters', and the frames its history holds), which the
 		// next frame checks its history by
 		myGiNearHistoryDistanceImages[historyIt] =
 			screenImage(std::format("GI Near Surface {}", historyIt), Format::kR32G32B32A32Sfloat, extent);
 		// and the emitters' light's per pixel and the pixels' surfaces (distance and packed normal), and the traced
 		// pixels' surfaces (see SHADER_TYPES_EMITTER_SURFACE_TEXTURE)
-		myEmitterHistoryImages[historyIt] = screenImage(std::format("Emitter History {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
+		myEmitterHistoryImages[historyIt] = screenImage(std::format("Emitter History {}", historyIt), Format::kR32G32B32A32Sfloat, extent);
 		myEmitterPixelSurfaceImages[historyIt] = screenImage(std::format("Emitter Pixel Surface {}", historyIt), Format::kR32G32Sfloat, extent);
 		myEmitterSurfaceImages[historyIt] = screenImage(std::format("Emitter Surface {}", historyIt), Format::kR32G32B32A32Sfloat, traced);
 		// and their highlights on the untraced specular (see SHADER_TYPES_EMITTER_SPECULAR_TEXTURE)
-		myEmitterSpecularImages[historyIt] = screenImage(std::format("Emitter Specular {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
+		myEmitterSpecularImages[historyIt] = screenImage(std::format("Emitter Specular {}", historyIt), Format::kR32G32B32A32Sfloat, extent);
 		for (auto [image, slot, rwSlot] : std::array{
 				 std::tuple{&myGiNearHistoryImages[historyIt], SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE, SHADER_TYPES_GI_NEAR_HISTORY_RW_TEXTURE},
 				 std::tuple{

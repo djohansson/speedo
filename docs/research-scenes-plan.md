@@ -319,6 +319,13 @@ reference, so that they fail on a regression, not on what the renderer approxima
   0.351, the rest the same; frame to frame as still as before. The cost at 1440p balanced: Bistro at night 0.3 ms (Main
   Visibility 0.22, Emitter Temporal 0.07), bathroom2 0.21; with step 4's, C1 costs Bistro at night 1.2 ms, over the
   plan's 1 ms by a fifth (docs/notes/rendering.md for what each part cost).
+- 2026-11-23, found on the way (veach-mis nearer its reference at 8 frames than at 1500): the histories that average
+  256 frames while the view is still (the emitters' light's, the near field's, the highlights') sank at half precision,
+  their small steps up rounded away and their rare large steps down kept; 32 bit since. Against step 5, most scenes
+  nearer their references: veach-mis 0.421 to 0.290, crown 0.581 to 0.491, modern-hall 0.235 to 0.177, spaceship
+  0.257 to 0.202, pontiac-gto 0.330 to 0.276, kitchen 0.273 to 0.242, bathroom2 0.225 to 0.199, cornell-box 0.076 to
+  0.064; some past them, brighter, what the darkening had hidden: coffee-maker 0.319 to 0.411 (its backdrop),
+  living-room-2 0.204 to 0.242, veach-ajar 0.179 to 0.197, staircase 0.121 to 0.131. 0.08 ms a frame in Bistro at night.
 - 2026-11-23, **step 7** (B4): nothing to build: the main pass already clamps its color to 65000 (`MainColor`), short of
   the half float's 65504, and cornell-caustic's light (541127) drew without infinities or NaNs, glare and balanced
   upscaling on included.

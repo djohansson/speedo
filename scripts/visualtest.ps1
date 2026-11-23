@@ -226,14 +226,16 @@ $checks = @(
 		# frames on KosmicKrisp and lavapipe (the mesa port's, macOS) alike, 0.0002 apart (about 8% of the light missing;
 		# on KosmicKrisp the emitters as lights alone +0.53, one bounce, 1 + a, being +0.58). it found the voxels' lighting
 		# skipping most of them on lavapipe (the probes' light no further than the emission, +0.73), and a few blocks on
-		# KosmicKrisp (+0.866): see ComputeGiLight's flags
+		# KosmicKrisp (+0.866): see ComputeGiLight's flags. 2026-11-23: +0.884 with the emitters' highlights on the untraced
+		# specular (its walls' specular reflects their emission too), +0.896 on the gpu and +0.898 on lavapipe (Windows')
+		# with the histories that average long in 32 bit floats (at half precision the light sank as they grew)
 		Name = 'furnace'
 		Model = 'test-models/gltf/FurnaceInterior.gltf'
 		Frames = 256
 		Variables = @{ SPEEDO_CAMERA = '0,0,0,0,0'; SPEEDO_TONEMAPPER = 'linear'; SPEEDO_EXPOSURE = '-3'; SPEEDO_UPSCALING = 'off' }
 		Reference = @{ SPEEDO_GI = '0'; SPEEDO_EMISSIVE_LIGHTS = '0' }
 		Capture = @{}
-		Thresholds = @('--expect-ratio', '0.88', '--ratio', '0.03')
+		Thresholds = @('--expect-ratio', '0.90', '--ratio', '0.03')
 	}
 	[ordered]@{
 		# the hardware ray queries against the software BVH (every ray the BVHs answer: the traced shadows, the indirect
@@ -260,7 +262,8 @@ $checks = @(
 		# the red and green walls (the indirect lighting), the boxes' soft shadows. 256 frames, the indirect lighting
 		# settled (64: 0.29 stops blurred, -0.22 of light; 128: 0.20, -0.16; 512: 0.10, -0.05, on an RTX 4070 Ti SUPER).
 		# measured 2026-11-23: on lavapipe (Windows') 0.108 stops blurred, -0.063 of light, 103 s; on the gpu, Vulkan
-		# 0.115, -0.069; D3D12 0.118, -0.074
+		# 0.115, -0.069; D3D12 0.118, -0.074. with the histories that average long in 32 bit floats: lavapipe 0.096, -0.036;
+		# the gpu 0.103, -0.044
 		Name = 'research-cornell-box'
 		Model = 'test-assets/gltf-research-scenes/files/scenes/cornell-box/gltf/cornell_box_extended.gltf'
 		Image = 'test-assets/gltf-research-scenes/files/scenes/cornell-box/gltf/cornell-box.png'
@@ -269,7 +272,7 @@ $checks = @(
 		Conditions = $true
 		Variables = @{ SPEEDO_LENS_GLARE = '0'; SPEEDO_MOTION_BLUR = '0'; SPEEDO_GRAIN = '0'; SPEEDO_UPSCALING = 'native' }
 		Capture = @{}
-		Thresholds = @('--log-blurred', '0.16', '--expect-ratio', '-0.07', '--ratio', '0.08')
+		Thresholds = @('--log-blurred', '0.15', '--expect-ratio', '-0.04', '--ratio', '0.08')
 	}
 	[ordered]@{
 		# a test ball's coated and rough metal under a panorama (the set's sunflowers, at its strength): the

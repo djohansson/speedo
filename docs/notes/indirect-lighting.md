@@ -1473,7 +1473,12 @@ takes a voxel's emission out), and what the emitters give arrives through these:
   haven't changed, nor are being followed: the volume it reads is lit again as the time of day advances), its count in
   its surfaces' third channel (RGBA32F; its alpha holds the contact share): the light in a lit window's opening, the
   user's pose over Bistro's facades `724.7479,659.6074,-2775.4233,-21.034,93.844` at 02:14, changed by 1.36 of 255 over
-  20 frames, 0.22 with the near field off, now 0.28. Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`) take
+  20 frames, 0.22 with the near field off, now 0.28. Both histories, and the emitters' highlights' since, are 32 bit
+  floats (2026-11-23): at half precision, a frame's 256th was a step below the rounding where a sample came in a little
+  above the mean, and kept where one came in far below it (a point its shadow ray found hidden, a gamble its roulette
+  lost), and the light sank with the history's length, the emitters' view and its reference alike (veach-mis's 0.109
+  stops darker at 1500 frames than at 64, 0.001 at 32 bit; the furnace's light +0.884 stops to +0.896), for 0.08 ms a
+  frame at 1440p in Bistro at night. Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`) take
   it at their pixel (`EmitterIrradiance`) and add the base color times it to their direct light (Direct Light's debug
   view has it; blended and scattering fragments don't).
 - **The voxels** (`EmitterVoxelIrradiance`, in `GiDirectRadiance`): `SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT` (4) resampled

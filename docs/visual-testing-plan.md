@@ -313,7 +313,9 @@ mean |log2| difference counts both. The checks and their measures on KosmicKrisp
   stops of light: the shadows missing).
 - `emitters`: the emitters' view against its reference (the CornellBox's lamps, 32 frames): 0.085 stops blurred over 24
   pixels, +0.002 of light; the same light, spread differently. Both views dim alike over longer runs (128 to 512 frames,
-  0.0287 to 0.0268 of linear luminance in the lower half): to look into.
+  0.0287 to 0.0268 of linear luminance in the lower half): found 2026-11-23, the history's half floats (a frame's small
+  step up rounded away at 1/256 a frame, a rare large step down kept; the histories that average that long are 32 bit
+  since, see `Renderer`'s screen images).
 - `upscaling`: native temporal upscaling against none (SheenChair, in the quick tier's assets, which CI fetches; it was
   DamagedHelmet, which isn't): 0.48% of the pixels past 16 levels (edges and fine detail), 0.005 stops blurred, -0.004
   of light, on KosmicKrisp and lavapipe alike.
