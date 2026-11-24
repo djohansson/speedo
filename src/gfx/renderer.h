@@ -76,6 +76,9 @@ struct FrameInputs
 	uint32_t giResolution = gi::kDefaultResolution;
 	// whether the surface cache refines the probes' light (see GiData::cacheRayCount)
 	bool giSurfaceCache = true;
+	// and the rays a voxel traces an update while its cache warms up, where more than the cache's own (see
+	// gi::kDefaultCacheWarmRayCount)
+	uint32_t giCacheWarmRayCount = gi::kDefaultCacheWarmRayCount;
 	// whether the main pass's opaque fragments take the near field's rays near other surfaces (see GiData::nearReach),
 	// where the indirect lighting's rays trace the BVHs, and how near what they meet is a contact (GiData::nearContact)
 	bool giNearField = true;

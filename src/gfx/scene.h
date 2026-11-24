@@ -173,6 +173,9 @@ public:
 		// whether the surface cache refines the probes' light (FrameInputs::giSurfaceCache; View > Rendering Features > Indirect Lighting... > Surface
 		// Cache; on by default, SPEEDO_GI_CACHE=0 to start without it)
 		std::atomic<bool> giSurfaceCache = true;
+		// and the rays a voxel traces an update while its cache warms up (FrameInputs::giCacheWarmRayCount; View > Rendering
+		// Features > Indirect Lighting... > Warm-Up Rays, SPEEDO_GI_CACHE_WARM_RAYS to start with another): 4 by default
+		std::atomic<uint32_t> giCacheWarmRayCount = gi::kDefaultCacheWarmRayCount;
 		// whether the shading takes the near field's rays near other surfaces (FrameInputs::giNearField; View > Rendering
 		// Features > Indirect Lighting... > Near Field; on by default, SPEEDO_GI_NEAR=0 to start without it)
 		std::atomic<bool> giNearField = true;

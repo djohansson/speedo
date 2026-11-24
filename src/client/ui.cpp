@@ -362,6 +362,20 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 	apply(settings.indirectLighting, kDefaults.indirectLighting, "SPEEDO_GI", unless("0"));
 	apply(settings.traceTriangles, kDefaults.traceTriangles, "SPEEDO_GI_TRACE", unless("voxels"));
 	apply(settings.giSurfaceCache, kDefaults.giSurfaceCache, "SPEEDO_GI_CACHE", unless("0"));
+	// (and the rays a voxel traces an update while its cache warms up, SPEEDO_GI_CACHE_WARM_RAYS: 1 to
+	// gi::kMaxCacheWarmRayCount, 4 by default; the menu offers gi::kCacheWarmRayCounts)
+	apply(
+		settings.giCacheWarmRayCount,
+		kDefaults.giCacheWarmRayCount,
+		"SPEEDO_GI_CACHE_WARM_RAYS",
+		[](const char* value) -> std::optional<uint32_t>
+		{
+			char* end = nullptr;
+			auto count = std::strtoul(value, &end, 10);
+			if (end == value || *end != '\0' || count == 0)
+				return std::nullopt;
+			return static_cast<uint32_t>(std::min<unsigned long>(count, gfx::gi::kMaxCacheWarmRayCount));
+		});
 	apply(settings.giNearField, kDefaults.giNearField, "SPEEDO_GI_NEAR", unless("0"));
 	apply(settings.giNearTemporal, kDefaults.giNearTemporal, "SPEEDO_GI_NEAR_TEMPORAL", unless("0"));
 	apply(settings.giNearContact, kDefaults.giNearContact, "SPEEDO_GI_NEAR_CONTACT", number(0.0F, gfx::gi::kMaxNearContact));
@@ -975,6 +989,8 @@ void WindowedApplication::InternalCopyScene()
 		text += " SPEEDO_GI_TRACE=voxels";
 	if (!settings.giSurfaceCache.load(std::memory_order_relaxed))
 		text += " SPEEDO_GI_CACHE=0";
+	if (uint32_t rays = settings.giCacheWarmRayCount.load(std::memory_order_relaxed); rays != gfx::gi::kDefaultCacheWarmRayCount)
+		text += std::format(" SPEEDO_GI_CACHE_WARM_RAYS={}", rays);
 	if (!settings.giNearField.load(std::memory_order_relaxed))
 		text += " SPEEDO_GI_NEAR=0";
 	if (!settings.giNearTemporal.load(std::memory_order_relaxed))
@@ -2078,6 +2094,28 @@ void WindowedApplication::PrepareDraw()
 				"accumulated over time and filtered along the surface: light through narrow openings resolves at the voxels' "
 				"size rather than the probes' spacing. On by default (SPEEDO_GI_CACHE=0 to start without it); its memory grows "
 				"with the resolution (0.3 GB at 384 in Sponza).");
+			{
+				// the rays a voxel traces an update while its cache warms up (see gi::kDefaultCacheWarmRayCount)
+				uint32_t rays = App().GetScene().GetSettings().giCacheWarmRayCount.load(std::memory_order_relaxed);
+				auto label = [](uint32_t count)
+				{ return std::format("{}{}", count, count == gfx::gi::kDefaultCacheWarmRayCount ? " (default)" : ""); };
+				BeginDisabled(!surfaceCache);
+				if (BeginCombo("Warm-Up Rays", label(rays).c_str()))
+				{
+					for (auto count : gfx::gi::kCacheWarmRayCounts)
+						if (Selectable(label(count).c_str(), rays == count))
+							App().GetScene().GetSettings().giCacheWarmRayCount.store(count, std::memory_order_relaxed);
+					EndCombo();
+				}
+				EndDisabled();
+				SetItemTooltip(
+					"The rays each voxel of the surface cache traces a frame for the first seconds after the scene loads or a "
+					"light is switched, while its light settles (SPEEDO_GI_CACHE_WARM_RAYS to start with another, 1 to %u). "
+					"More settle smoother: with 16 the first seconds are a quarter to nearly half less blotched. They cost "
+					"while they last: the indirect lighting takes 1 to 3 ms a frame more in a small interior with 16, 12 "
+					"more in Sponza and 33 more in Bistro (11 with 8). Takes effect the next time the light settles.",
+					gfx::gi::kMaxCacheWarmRayCount);
+			}
 			// (the near field's rays trace the triangles: with the voxels' rays it doesn't run, see Renderer's myGiNearOn)
 			bool traced = App().GetScene().GetSettings().traceTriangles.load(std::memory_order_relaxed);
 			bool nearField = App().GetScene().GetSettings().giNearField.load(std::memory_order_relaxed);

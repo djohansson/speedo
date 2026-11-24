@@ -44,6 +44,16 @@ inline constexpr float kMaxNearContact = 8.0F;
 // call: 1.3 to 3.2 ms less a frame at the benchmark poses than 2's quarter (Sponza 19.90 to 18.62, Bistro 37.06
 // to 33.86, San Miguel 43.79 to 40.92), coarser at thin features' contacts
 inline constexpr uint32_t kDefaultNearStride = 4;
+// the rays a voxel of the surface cache traces an update while its cache warms up (its first updates after it starts
+// over: a load, a light switched; see GiData::cacheRayCount, FrameInputs::giCacheWarmRayCount; View > Rendering
+// Features > Indirect Lighting... > Warm-Up Rays, SPEEDO_GI_CACHE_WARM_RAYS), by default, the counts the menu offers,
+// and at most. 4 by default (the user's call, 2026-11-24): with 16 the first seconds are 25 to 45% less blotched (the
+// glTF research set's veach-bidir's left wall smooth at 2 seconds rather than at 6 to 10), and while they last the
+// indirect lighting takes 0.8 to 3.4 ms a frame more in that set's interiors at 1440p, 12 more in Sponza and 33 more
+// in Bistro (14.1 to 47.1; 25.3 with 8)
+inline constexpr uint32_t kDefaultCacheWarmRayCount = 4;
+inline constexpr std::array<uint32_t, 3> kCacheWarmRayCounts{4, 8, 16};
+inline constexpr uint32_t kMaxCacheWarmRayCount = 64;
 
 // a level's voxels per axis, of a volume of size voxels: rounded up, so that it covers all of it (as GiLevelVoxels)
 [[nodiscard]] inline glm::uvec3 LevelVoxels(const glm::uvec3& size, uint32_t level)

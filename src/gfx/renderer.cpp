@@ -5801,17 +5801,20 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// ray, so more rays made a start no smoother. the glTF research set's veach-bidir's left wall, lit by the spot its
 		// floor lamp makes on the ceiling, which few rays meet, was streaked for most of a minute; the user's report,
 		// 2026-11-23, "bright splotches")
-		uint32_t windowRayCount = myGiTimeBased && clock.updatesSinceCacheReset < kGiCacheWarmFrameCount ? std::max(myGiCacheRayCount, 4U) : myGiCacheRayCount;
+		// (the warm up's rays: FrameInputs::giCacheWarmRayCount, 4 unless the user asks for more)
+		uint32_t warmRayCount = std::max(myGiCacheRayCount, std::clamp(frame.giCacheWarmRayCount, 1U, gi::kMaxCacheWarmRayCount));
+		uint32_t windowRayCount = myGiTimeBased && clock.updatesSinceCacheReset < kGiCacheWarmFrameCount ? warmRayCount : myGiCacheRayCount;
 		if (clock.updated)
 			clock.raysSinceCacheReset = clock.updatesSinceCacheReset == 0 ? 0 : std::min(clock.raysSinceCacheReset + windowRayCount, 1U << 30);
 		uint32_t cacheSampleCount = myGiTimeBased ? std::clamp(clock.raysSinceCacheReset / 2, std::min(32U, myGiCacheSampleCount), myGiCacheSampleCount)
 												  : myGiCacheSampleCount;
-		// and 4 rays a voxel (at least) while the light settles, its first kGiCacheWarmFrameCount updates: what it averages
+		// and 4 rays a voxel (at least, or as many as the user asks for: View > Rendering Features > Indirect Lighting... >
+		// Warm-Up Rays) while the light settles, its first kGiCacheWarmFrameCount updates: what it averages
 		// then is still moving, and the window being in samples, 4 a frame also forget it in a quarter of the frames (Sponza
 		// within 10% of settled after 240 frames rather than 460, within 5% after 920 rather than 1460: 4 rays throughout
 		// cost 4.8 ms of its 34 a frame, and were noisier, 0.011 against 0.007). while they last Bistro's frame takes 80 ms
 		// rather than 65, San Miguel's 94 rather than 88, Sponza's 36 rather than 31 (see IsLightingWarmingUp)
-		uint32_t cacheRayCount = myGiTimeBased && clock.updatesSinceCacheReset < kGiCacheWarmFrameCount ? std::max(myGiCacheRayCount, 4U) : myGiCacheRayCount;
+		uint32_t cacheRayCount = myGiTimeBased && clock.updatesSinceCacheReset < kGiCacheWarmFrameCount ? warmRayCount : myGiCacheRayCount;
 		// the surface cache (FrameInputs::giSurfaceCache), dropped when the lights change (their light is in it)
 		clip.cacheRayCount = frame.giSurfaceCache ? cacheRayCount : 0U;
 		// following lights that change gradually (see myGiLightsGradual) as where something moves

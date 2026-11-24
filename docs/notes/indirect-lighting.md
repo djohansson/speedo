@@ -1144,7 +1144,15 @@ the sphere, stepped at the voxels, at the user's pose `0.1488,-1.1952,0.7514,12.
 probes' rays are traced, into a running mean of at
 most `SPEEDO_GI_CACHE_SAMPLES` (4096 since 2026-11-19, 1024 before; 32 where something moves), and at most half the frames since it started over
 (at least 32; `SPEEDO_GI_TIME_BASED=0` without), tracing 4 rays a voxel for its first 256 frames
-(`kGiCacheWarmFrameCount`, then `SPEEDO_GI_CACHE_RAYS`): its first frames' samples, read while the probes and the
+(`kGiCacheWarmFrameCount`, then `SPEEDO_GI_CACHE_RAYS`; the 4 are the user's to raise since 2026-11-24, View >
+Rendering Features > Indirect Lighting... > Warm-Up Rays, `SPEEDO_GI_CACHE_WARM_RAYS`, `FrameInputs::giCacheWarmRayCount`:
+with 16 the first seconds are 25 to 45% less blotched, the glTF research set's veach-bidir's left wall smooth at 2
+seconds rather than at 6 to 10, for 0.8 to 3.4 ms a frame more of the GI pass in that set's interiors while they last,
+12 more in Sponza and 33 more in Bistro; 4 by default, the user's call. The count is the clip's data's, not the
+kernel's specialization constant: tried, the resolve's kernels specialized for 1, 4, 8 and 16 rays by a field of the
+constant above the layer groups, the GI pass was the same to the noise, Bistro's 3.93 ms against 3.92 settled and
+15.0 against 14.9 cold, veach-bidir's 5.1 against 5.0 with 16, a voxel's count being its own by then (none where it
+is idle or settled, 4 where it is young); `temp/research-issues/warm-rays-with-specialization.patch`): its first frames' samples, read while the probes and the
 bounce build up and overshoot, then fall out sooner (Sponza from a cold start within 10% of settled after 280 frames
 rather than 840, 460 with one ray; 4 rays throughout, 240 but 4.8 ms a frame and noisier;
 the tail, a mean of a light still settling, fades as 1 over the frames either way: Sponza's still changed 2% 2000 frames

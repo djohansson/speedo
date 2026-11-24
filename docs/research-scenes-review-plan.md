@@ -151,13 +151,7 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
 
 ## Open for the user
 
-- **How many rays a voxel traces while its cache warms up** (2026-11-24, step 6; the numbers under Progress). 4 now,
-  for its first 256 updates. With 16 veach-bidir's left wall is smooth at 2 seconds where it is blotched until 6 to
-  10, and the first seconds of every scene are 25 to 45% less blotched; while they last (4 seconds after a load or a
-  light switched) the GI pass takes 1.4 to 3.4 ms a frame more in the research scenes, 12 more in Sponza (9.0 to
-  21.3) and 33 more in Bistro (14.1 to 47.1). 8 costs and gives about half of that. The rays aimed at what is bright
-  instead (step 6 as planned) would need the lit voxels kept in a list each cache ray samples with a shadow ray: a
-  larger change, with the list's light a voxel's rather than the hit's own.
+Nothing now.
 
 ## Progress
 
@@ -554,3 +548,17 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
   again each update), each cache ray with a shadow ray to one of them, and the rays' far hits without their lights'
   light: the light of a voxel's point for the hit's own, which the anchored cache moved away from (Sponza's curtains).
   The user's call which ("Open for the user").
+- 2026-11-24, **the warm up's rays, the user's to set** (the user: "Make it an option in the Indirect Light UI panel.
+  Set it to 4 by default", then "Use specialization constants for it if possible"). View > Rendering Features >
+  Indirect Lighting... > Warm-Up Rays (4, 8 or 16; `SPEEDO_GI_CACHE_WARM_RAYS`, 1 to 64, a scene variable: Copy Scene
+  writes it where it isn't 4), `Scene::Settings::giCacheWarmRayCount`; 4 by default, as it was
+  (`temp/review/research-issues/s12-indirect-lighting-panel.png`). veach-bidir's GI pass over its first 96 updates
+  at 1440p: 3.7 ms with 4, 4.1 with 8, 5.0 with 16. The specialization constant: possible (the one the layout has,
+  a field of it above the layer groups, the resolve's kernels specialized for 1, 4, 8 and 16 rays and the generic
+  one for the rest) and measured to give nothing, the GI pass the same to the noise with the specialized kernel and
+  with the generic one (Bistro 3.93 and 3.92 ms settled, 15.0 and 14.9 cold; veach-bidir with 16 rays 5.1 and 5.0):
+  a voxel's count is its own by the time its rays' loop runs (none where it is idle or settled this update, 4 where
+  its entry is young), so the loop is no shorter for a constant. It would cost 8 more compute pipelines to make at startup (the resolve's two kernels,
+  four counts each), and on D3D12, which has no specialization constants, every entry point that reads
+  the constant compiled again for each value (the main pass's fragment shader among them). Not kept:
+  `temp/research-issues/warm-rays-with-specialization.patch` has it as measured. visualtest 8 of 8, the quick tier 142 of 142.
