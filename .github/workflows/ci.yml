@@ -123,8 +123,8 @@ jobs:
       # source, slang's version and the configuration, so a kept one is never wrong): the first client's compile skipped
       # where the shaders are unchanged, in part where they changed (the SPIR-V's 83 s on 4 of a desktop's cores,
       # 2026-11-24; the DXIL's 158 s on its 32). A job's own (github.job: the formats and variants differ), saved where the
-      # sources changed (the key) and the job passed. Nothing evicts its entries, so one past 1 GB (a full set is 249 MB of
-      # SPIR-V, 95 of DXIL) starts over
+      # sources changed (the key) and the job passed, pruned to 1 GB after the checks, the least recently used first (the
+      # client dates what it uses; a full set is 249 MB of SPIR-V, 95 of DXIL)
       - name: Cache shaders
         if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
         uses: actions/cache@v6
@@ -132,13 +132,6 @@ jobs:
           path: build/${{ env.TRIPLET }}-profile/shader-cache
           key: shader-cache-${{ github.job }}-${{ hashFiles('src/gfx/**', 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**') }}
           restore-keys: shader-cache-${{ github.job }}-
-
-      - name: Bound the shader cache
-        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
-        run: |
-          $dir = "build/$env:TRIPLET-profile/shader-cache"
-          $mb = [int]((Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
-          if ($mb -gt 1024) { Remove-Item -Recurse -Force $dir; Write-Host "shader cache: $mb MB, past 1024: started over" } else { Write-Host "shader cache: $mb MB" }
 
       # the client itself, headless and validated on lavapipe, as on Linux
       - name: Visual checks (lavapipe)
@@ -149,6 +142,10 @@ jobs:
           SPEEDO_GRAPHICS_API: vulkan # lavapipe is a Vulkan driver (the client's default is the platform's fastest api)
           SPEEDO_GPU_HANG_TIMEOUT: '300'
         run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
+
+      # the least recently used past 1 GB (see scripts/prune-shader-cache.ps1) before the cache is kept
+      - name: Prune the shader cache
+        run: ./scripts/prune-shader-cache.ps1 -Path "build/$env:TRIPLET-profile/shader-cache" -MaxSizeGB 1
 
       # the packages this platform installs (the three configurations share them), which the prune job keeps
       - name: Keep list
@@ -265,13 +262,6 @@ jobs:
           key: shader-cache-${{ github.job }}-${{ hashFiles('src/gfx/**', 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**') }}
           restore-keys: shader-cache-${{ github.job }}-
 
-      - name: Bound the shader cache
-        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
-        run: |
-          $dir = "build/$env:TRIPLET-profile/shader-cache"
-          $mb = [int]((Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
-          if ($mb -gt 1024) { Remove-Item -Recurse -Force $dir; Write-Host "shader cache: $mb MB, past 1024: started over" } else { Write-Host "shader cache: $mb MB" }
-
       # the client itself, headless and validated on lavapipe: the frames against the renderer's own references
       # (docs/visual-testing-plan.md, step 3), their times measured before a budget is set (the user's call, 2026-11-11)
       - name: Visual checks (lavapipe)
@@ -282,6 +272,10 @@ jobs:
           SPEEDO_GRAPHICS_API: vulkan # lavapipe is a Vulkan driver (the client's default is the platform's fastest api)
           SPEEDO_GPU_HANG_TIMEOUT: '300'
         run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
+
+      # the least recently used past 1 GB (see scripts/prune-shader-cache.ps1) before the cache is kept
+      - name: Prune the shader cache
+        run: ./scripts/prune-shader-cache.ps1 -Path "build/$env:TRIPLET-profile/shader-cache" -MaxSizeGB 1
 
       - name: Keep list
         if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
@@ -365,13 +359,6 @@ jobs:
           key: shader-cache-${{ github.job }}-${{ hashFiles('src/gfx/**', 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**') }}
           restore-keys: shader-cache-${{ github.job }}-
 
-      - name: Bound the shader cache
-        if: ${{ !cancelled() && steps.assets.outcome == 'success' }}
-        run: |
-          $dir = "build/$env:TRIPLET-profile/shader-cache"
-          $mb = [int]((Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
-          if ($mb -gt 1024) { Remove-Item -Recurse -Force $dir; Write-Host "shader cache: $mb MB, past 1024: started over" } else { Write-Host "shader cache: $mb MB" }
-
       - name: Visual checks (D3D12 on WARP)
         id: warp
         if: ${{ !cancelled() && steps.assets.outcome == 'success' }}
@@ -385,6 +372,10 @@ jobs:
           $env:SPEEDO_D3D12_WARP = & scripts/fetch-warp.ps1
           if ($LASTEXITCODE -ne 0 -or -not $env:SPEEDO_D3D12_WARP) { Write-Error 'no WARP'; exit 1 }
           ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest-warp" -TimeoutSeconds 1800 -Only traced-shadows, shadow-atlas, emitters, ray-queries
+
+      # the least recently used past 1 GB (see scripts/prune-shader-cache.ps1) before the cache is kept
+      - name: Prune the shader cache
+        run: ./scripts/prune-shader-cache.ps1 -Path "build/$env:TRIPLET-profile/shader-cache" -MaxSizeGB 1
 
       - name: Upload logs
         if: ${{ failure() || cancelled() || steps.warp.outcome == 'failure' }}
@@ -479,13 +470,6 @@ jobs:
           key: shader-cache-${{ github.job }}-${{ hashFiles('src/gfx/**', 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**') }}
           restore-keys: shader-cache-${{ github.job }}-
 
-      - name: Bound the shader cache
-        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
-        run: |
-          $dir = "build/$env:TRIPLET-profile/shader-cache"
-          $mb = [int]((Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
-          if ($mb -gt 1024) { Remove-Item -Recurse -Force $dir; Write-Host "shader cache: $mb MB, past 1024: started over" } else { Write-Host "shader cache: $mb MB" }
-
       # the client itself, headless (SPEEDO_HEADLESS: no display, no surface or swapchain) and validated on lavapipe: the
       # frames against the renderer's own references (docs/visual-testing-plan.md, step 3), their times measured before a
       # budget is set (the user's call, 2026-11-11; see "CI" in docs/notes/build.md for what it costs)
@@ -497,6 +481,10 @@ jobs:
           SPEEDO_GRAPHICS_API: vulkan # lavapipe is a Vulkan driver (the client's default is the platform's fastest api)
           SPEEDO_GPU_HANG_TIMEOUT: '300'
         run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
+
+      # the least recently used past 1 GB (see scripts/prune-shader-cache.ps1) before the cache is kept
+      - name: Prune the shader cache
+        run: ./scripts/prune-shader-cache.ps1 -Path "build/$env:TRIPLET-profile/shader-cache" -MaxSizeGB 1
 
       - name: Keep list
         if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}

@@ -89,7 +89,13 @@ worker processes (`shadercompileworker`, beside the client: the shader compiler 
   definitions, the levels; not the entry point list, so adding an entry point keeps the others), written beside and
   renamed into place (another process never reads half of one). Shared by every profile of the build (step 4); the
   profile's whole-layout cache (`core::file::LoadAsset`) stays in front of it, and an install's precompiled sets in
-  front of that.
+  front of that. Nothing in the client removes an entry: every shader edit adds those it changed (a developer's build
+  held 17.6 GB in 12,060 files after six days, 2026-11-24). The client dates an entry, and a keys record and its list,
+  when it takes one (`MarkUsed`: the file systems' access times aren't kept, or lazily; NTFS's here moved for none of a
+  day's reads), so a file's date is its last use, and `scripts/prune-shader-cache.ps1` removes what went unused for
+  `-MaxAgeDays` (14) and then the least recently used past `-MaxSizeGB` (2), with what a killed client left (its
+  temporary files, its workers' job directories: 48 of them in that cache). CI's kept cache is pruned so too, to 1 GB
+  (docs/notes/build.md, "CI").
 - **Round two, the code** (`Action::kCode`): the jobs the cache doesn't hold, divided between the workers by what each
   took the last time (`costs-<format>` in the cache; else by its source's size), longest first to the least loaded; a
   worker makes a front end (a second one, with the constant a link-time one, for DXIL's specialized jobs) and links

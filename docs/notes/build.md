@@ -835,7 +835,8 @@ environment nothing. Every client compiles every pipeline again on Windows: mesa
 (26.3's meson.build: "Shader Cache does not currently work on Windows"), lavapipe has no pipeline binaries (the
 profile's `pipeline.cache` is used, and keeps no compiled code), so the 14 clients' 35 to 40 s each can't be kept;
 Linux's lavapipe keeps them in `~/.cache/mesa_shader_cache` from client to client. What is kept: the shader cache between
-runs (`actions/cache`, a job's own, keyed by `src/gfx` and the ports; started over past 1 GB), which skips the first
+runs (`actions/cache`, a job's own, keyed by `src/gfx` and the ports; pruned to 1 GB after the checks, the least
+recently used first: `scripts/prune-shader-cache.ps1`, docs/shader-compile-plan.md, "The cache"), which skips the first
 client's compile, 83 s of the SPIR-V on those 4 processors (231 s for traced-shadows cold, 118 s warm) and 158 s of the
 DXIL on 32 (249 MB and 95 MB; both ray query variants), and the WARP checks moved to their own job, in parallel (the
 user's choice, 2026-11-24, of: also the lavapipe checks split in two jobs, or a longer timeout). B2 for the shader cache

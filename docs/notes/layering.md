@@ -370,7 +370,9 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   4.3 s of front ends and keys with every entry point's code in the cache; now any variant once compiled, in any profile
   of the build, takes 0.00 s (bathroom2, 1 frame: a swap back 6.3 s a run before, 2.6 s after). A record is kept only
   if no file it read was written since the round started (an edit during the compile), and one whose file list differs
-  from the last round's misses once.
+  from the last round's misses once. Nothing in the client removes the cache's files; each is dated when it is used
+  (2026-11-24), and `scripts/prune-shader-cache.ps1` removes the least recently used (docs/shader-compile-plan.md, "The
+  cache": a developer's held 17.6 GB after six days).
   SPIR-V's binaries are byte identical to the one compile's; DXIL's aren't (see the plan). And the window's scene reloads
   its shaders when their sources change (`Scene::WatchShaders`, `SPEEDO_SHADER_RELOAD`): compiled on the executor, then
   between frames the layouts' shader modules replaced and the pipelines made again (`Pipeline::ReplaceShaders`),
