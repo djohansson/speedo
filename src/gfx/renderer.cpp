@@ -2715,11 +2715,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheFilterPassCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(passes, nullptr, 10)), 1U, 4U);
 	if (const char* sigma = std::getenv("SPEEDO_GI_CACHE_SIGMA"); sigma != nullptr && *sigma != '\0')
 		myGiCacheSigma = std::max(std::strtof(sigma, nullptr), 0.0F);
-	// the world cache (docs/world-cache-plan.md): on with SPEEDO_GI_WORLD=1 (off by default since its step 5, 2026-11-20:
-	// 1.3 to 3.4 ms a frame at 1080p for steadier walks), the clipmap's light where its cells don't cover a surface, its
+	// the world cache (docs/world-cache-plan.md): on where the frame says (FrameInputs::giWorldGrid: View > Rendering
+	// Features > Indirect Lighting... > Light Store, SPEEDO_GI_WORLD=1; off by default since its step 5, 2026-11-20: 1.3
+	// to 3.4 ms a frame at 1080p for steadier walks), the clipmap's light where its cells don't cover a surface, its
 	// cells (a power of two, SPEEDO_GI_WORLD_CELLS, rounded down) and levels (SPEEDO_GI_WORLD_LEVELS)
-	if (const char* world = std::getenv("SPEEDO_GI_WORLD"); world != nullptr)
-		myGiWorldOn = std::string_view(world) == "1";
 	if (const char* cells = std::getenv("SPEEDO_GI_WORLD_CELLS"); cells != nullptr && *cells != '\0')
 		myGiWorldCellCount = std::bit_floor(std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(cells, nullptr, 10)), 1024U, 1U << 24));
 	if (const char* levels = std::getenv("SPEEDO_GI_WORLD_LEVELS"); levels != nullptr && *levels != '\0')
@@ -3003,12 +3002,15 @@ Renderer::~Renderer()
 			auto frames = static_cast<double>(std::max(myGiWorldFrameCount, 1U));
 			std::println(
 				"indirect lighting, world cache: {:.1f} MB ({} cells, {} slots, {} levels), a frame {:.0f} samples into {:.0f} cells' slots (at most {}), "
-				"{:.1f} cells made and {:.1f} taken back, {:.2f} samples' levels without a cell",
+				"{:.1f} cells made and {:.1f} taken back, {:.2f} samples' levels without a cell, {:.2f} without a slot and {:.2f} past a cell's {} (a cell "
+				"takes samples every {} frames at the end)",
 				static_cast<double>(bytes(myGiWorldBuffer)) / kMiB, myGiWorldCellCount, myGiWorldSlotCount, myGiWorldLevelCount,
 				static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_SAMPLES]) / frames, static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_SLOTS]) / frames,
 				myGiWorldMostSlots, static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_CELLS_MADE]) / frames,
 				static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_CELLS_TAKEN]) / frames,
-				static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_NO_CELL]) / frames);
+				static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_NO_CELL]) / frames,
+				static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_NO_SLOT]) / frames,
+				static_cast<double>(myGiWorldCounterSums[GI_WORLD_COUNTER_SLOT_FULL]) / frames, GI_WORLD_SLOT_SAMPLE_COUNT, myGiWorldStride);
 			if (myGiWorldSweepFrameCount >= GI_WORLD_OCCUPANCY_SWEEP_COUNT)
 			{
 				uint32_t held = std::accumulate(myGiWorldHeld.begin(), myGiWorldHeld.end(), 0U);
@@ -3985,14 +3987,34 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myGiCacheBlocksCounted = std::accumulate(myGiClipCacheBlockCounts.begin(), myGiClipCacheBlockCounts.end(), 0U);
 		if (!staleStatistics)
 			myGiCacheActiveBlocksCounted = statistics[GI_STATISTIC_CACHE_ACTIVE_BLOCKS];
-		// the world cache's counters (GI World Fold's copy of them): what its capacities couldn't hold fails hard
+		// the world cache's counters (GI World Fold's copy of them). what a frame adds is a budget (see GiWorldAdd): where
+		// a frame's cells take more than seven eighths of the slots, the cells take turns, every other update, then every
+		// fourth (GiData::worldStride), and every update again once they take less than three eighths (half of what
+		// brings the turns: twice as many then fit); a change is held for the frames whose counters are still of the
+		// stride before, and a frame that added nothing (a settled cache traces every other one) says nothing. it failed
+		// hard on a frame that ran out, which a cold cache did (every block traced, the review plan's step 5: Sponza
+		// stopped three seconds after its load) and veach-bidir's view, most of whose cells are in it (415 thousand cells a
+		// frame for 262 thousand slots), and 16 rays a voxel filled a coarse cell's sums
 		if (myGiWorldSlotCount != 0)
 		{
 			const uint32_t* world = &statistics[GI_STATISTIC_WORLD_FIRST];
-			ENSUREF(world[GI_WORLD_COUNTER_NO_SLOT] == 0, "{} of the world cache's samples found no slot: more than its {} slots' cells a frame",
-					world[GI_WORLD_COUNTER_NO_SLOT], myGiWorldSlotCount);
-			ENSUREF(world[GI_WORLD_COUNTER_SLOT_FULL] == 0, "{} of the world cache's samples went to a cell that had {} a frame already",
-					world[GI_WORLD_COUNTER_SLOT_FULL], GI_WORLD_SLOT_SAMPLE_COUNT);
+			constexpr uint32_t kGiWorldStrideMost = 64;
+			constexpr uint32_t kGiWorldStrideHoldFrameCount = 8;
+			uint32_t taken = world[GI_WORLD_COUNTER_SLOTS];
+			if (myGiWorldStrideHoldFrameCount > 0)
+				myGiWorldStrideHoldFrameCount--;
+			else if (world[GI_WORLD_COUNTER_SAMPLES] == 0)
+				;
+			else if (taken > myGiWorldSlotCount / 8 * 7 && myGiWorldStride < kGiWorldStrideMost)
+			{
+				myGiWorldStride *= 2;
+				myGiWorldStrideHoldFrameCount = kGiWorldStrideHoldFrameCount;
+			}
+			else if (taken < myGiWorldSlotCount / 8 * 3 && myGiWorldStride > 1)
+			{
+				myGiWorldStride /= 2;
+				myGiWorldStrideHoldFrameCount = kGiWorldStrideHoldFrameCount;
+			}
 			if (myCollectTimings && world[GI_WORLD_COUNTER_SAMPLES] != 0)
 			{
 				for (uint32_t counterIt = 0; counterIt < GI_WORLD_COUNTER_COUNT; counterIt++)
@@ -4069,6 +4091,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	// specialized at all (SPEEDO_SHADER_TIERS=0: none is). the fragments' pipelines by their draws' variants (a pipeline
 	// asked for is drawn with once it exists, the generic one meanwhile: a debug view switched on draws at once)
 	bool specializes = mySpecializationConstants && frame.specialization.has_value();
+	// (the world cache on or off, as the frame says: its storage is made and given up as that changes, see InternalPlanGi)
+	myGiWorldOn = frame.giWorldGrid;
 	bool worldOff = !(myGiWorldOn && frame.giSurfaceCache);
 	myShadingSkipped = specializes && worldOff && frame.pushConstants.debugView == DEBUG_VIEW_NONE ? kShadingSkipped : uint16_t{0};
 	auto shadingSpecialization = [&](size_t material)
@@ -5579,8 +5603,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	// its counters, its cells and a frame's slots of sums, made when it is turned on and with each clipmap (another model,
 	// another resolution), and zeroed then and when the lights change at once (its light is theirs; where they change
 	// gradually its cells follow them as the cache's entries do, by the window, GiData::worldWindow). a slot a cell a
-	// frame at most, and a quarter of the cells touched in a frame at most (Sponza's corridor took 90 thousand of a million in its busiest frame) (what the frame takes more fails hard: GI World Fold's
-	// counters, GI_WORLD_COUNTER_NO_SLOT)
+	// frame at most, and a quarter of the cells touched in a frame at most (Sponza's corridor took 90 thousand of a million in its busiest frame): a budget, which the
+	// cells take turns to keep within where a frame's take most of it (myGiWorldStride, from GI World Fold's counters)
 	{
 		bool worldOn = myGiWorldOn && frame.giSurfaceCache;
 		myGiWorldInit = false;
@@ -5600,7 +5624,12 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			myGiWorldInit = true;
 		// (counted from its zeroing: its cells' stamps, and its window's time limit, as the cache's)
 		if (myGiWorldInit)
+		{
 			myGiWorldFrame = 0;
+			// (and its cells' turns start over, the counters of before it left alone: two runs then take the same)
+			myGiWorldStride = 1;
+			myGiWorldStrideHoldFrameCount = 8;
+		}
 		if (worldOn)
 			myGiWorldFrame++;
 	}
@@ -5819,10 +5848,12 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.worldLevelCount = myGiWorldLevelCount;
 		clip.worldCellSide = myGiClipmap.clips.front().data.volumeOrigin[3];
 		{
-			uint32_t window = myGiTimeBased ? std::clamp(myGiWorldFrame / 2, std::min(32U, myGiCacheSampleCount), myGiCacheSampleCount) : myGiCacheSampleCount;
+			// (in updates: half the frames since it was zeroed, at least 8, at most as many as an entry's samples)
+			uint32_t window = myGiTimeBased ? std::clamp(myGiWorldFrame / 2, std::min(8U, myGiCacheSampleCount), myGiCacheSampleCount) : myGiCacheSampleCount;
 			clip.worldWindow = myGiLightsFollowFrames > 0 ? std::min(window, myGiLightsFollowSampleCount) : window;
 		}
 		clip.worldFrame = myGiWorldFrame;
+		clip.worldStride = myGiWorldStride;
 		uint32_t clipFirst = clip.probeFirst;
 		clip.probeFirst = clock.probeHalf * probeTotal + clipFirst;
 		clip.probePreviousFirst = (1 - clock.probeHalf) * probeTotal + clipFirst;

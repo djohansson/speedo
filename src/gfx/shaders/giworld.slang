@@ -254,8 +254,23 @@ uint GiWorldFind(int3 place, uint level, uint bucket, bool insert)
 // rays, from over the whole scene, made cells of the finest level everywhere: in Sponza's corridor 609 cells made and
 // 6131 taken back a frame, still, with a million): from position (on the surface its rays start from), facing normal,
 // along direction, its radiance and what it stands for (estimate, as the entry's faces take it: radiance times the
-// face's basis times 4 times estimate). random: a number of the ray's own
-void GiWorldAdd(float3 position, float3 normal, float3 direction, float3 radiance, float estimate, uint random, uint firstLevel)
+// face's basis times 4 times estimate). random: a number of the ray's own. rays: how many its voxel adds this update.
+// turn: its clip's updates' count (GiData::frameStamp).
+//
+// what a frame may add is a budget, not a capacity to fail on (as the table's cells are): a cell's sums fit
+// GI_WORLD_SLOT_SAMPLE_COUNT samples a frame, and the frame's slots a quarter of the cells. a cell of a level above the
+// voxel's takes the samples of about 4 voxels a level, so one 4 levels up took 256 times the voxel's rays: with 16 rays
+// a voxel (the cache's warm up's, where the user asks for them) that was the sums' 4096, and the frame stopped
+// ("went to a cell that had 4096 a frame already"). where that would be more than kGiWorldCellSampleCount, the level
+// takes a share of the samples at random, as many: its mean is of fewer, the same mean. and where the frames take
+// most of the slots (the glTF research set's veach-bidir, most of its cells in view at every level: "found no slot"),
+// a cell takes a clip's samples every GiData::worldStride-th of the clip's updates, by its place: every sample of its
+// turn's update, none between (by the clip's updates, not the frames: a settled clip updates every other frame, and by
+// the frames half the cells' turns never came). a frame that runs out of either all the same leaves the samples past
+// it out, counted (GI_WORLD_COUNTER_NO_SLOT, GI_WORLD_COUNTER_SLOT_FULL), which the next frames' stride takes care of
+static const float kGiWorldCellSampleCount = 1024.0;
+
+void GiWorldAdd(float3 position, float3 normal, float3 direction, float3 radiance, float estimate, uint random, uint firstLevel, uint rays, uint turn)
 {
 	uint frameIndex = gPushConstants.frameIndex;
 	if (Skipped(SHADER_TYPES_LAYERS_WORLD) || gGi[frameIndex][0].worldOn == 0u)
@@ -295,10 +310,19 @@ void GiWorldAdd(float3 position, float3 normal, float3 direction, float3 radianc
 	}
 	uint frame = gGi[frameIndex][0].worldFrame;
 	uint slotCount = gGi[frameIndex][0].worldSlotCount;
+	uint stride = max(gGi[frameIndex][0].worldStride, 1u);
 	// (coarse first: a cell new to the table begins from its parent's light, GiWorldSeed)
 	for (uint levelIt = gGi[frameIndex][0].worldLevelCount - 1u; levelIt + 1u > firstLevel; levelIt--)
 	{
 		int3 place = GiWorldCellOf(position, levelIt);
+		// (the cell's turn, and the level's share of the samples: see above)
+		if (stride > 1u &&
+			(GiWorldMix(uint(place.x) * 73856093u ^ uint(place.y) * 19349663u ^ uint(place.z) * 83492791u ^ ((levelIt << 8) | bucket) * 0x9E3779B9u) + turn) % stride != 0u)
+			continue;
+		float expected = float(max(rays, 1u)) * float(1u << (2u * (levelIt - firstLevel)));
+		if (expected > kGiWorldCellSampleCount &&
+			float(GiWorldMix(random ^ (levelIt * 0x85EBCA6Bu + 0x68E31DA4u)) & 0xFFFFFFu) / 16777216.0 * expected >= kGiWorldCellSampleCount)
+			continue;
 		float3 where = GiWorldWhereIn(position, levelIt);
 		uint cell = GiWorldFind(place, levelIt, bucket, true);
 		if (cell == ~0u)
@@ -402,7 +426,13 @@ void ComputeGiWorldFold(uint3 dispatchId: SV_DispatchThreadID)
 		float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT];
 		GiWorldLoadFaces(cell, faces);
 		uint count = gGi[frameIndex][0].worldOn != 0u ? gGiWorld[GiWorldCellWord(cell, kGiWorldCount)] : 0u;
-		uint window = max(gGi[frameIndex][0].worldWindow, 1u);
+		// its window is as many updates' samples as GiData::worldWindow says, of as many samples as this one brought: a
+		// time, as the surface cache's entries' is since its window went by their rays (2026-11-24). in samples whatever
+		// a cell takes a frame, a cell of a coarse level, which takes a few hundred, was the mean of its last frame or
+		// two for most of a minute (the window half the frames since it started: 300 samples ten seconds in), and a fine
+		// one's, while a voxel traces the warm up's 4 rays, of its last eighth: the grid rougher than the clipmap, and
+		// slower to settle (the user's report, 2026-11-24)
+		uint window = max(gGi[frameIndex][0].worldWindow, 1u) * sampleCount;
 		uint total = min(count + sampleCount, window);
 		float share = min(float(sampleCount) / float(max(total, 1u)), 1.0);
 		float exposure = gPushConstants.exposure > 0.0 && !isinf(gPushConstants.exposure) ? gPushConstants.exposure : 1.0;
@@ -453,6 +483,12 @@ static const float kGiWorldStaleReach = 192.0;
 // mean's square) over the samples it stands for. by its light times 2 over the root of its samples, a cell that caught a
 // rare bright sample (the sun's band) stood apart from its neighbours as an edge, and kept it: bright spots on Sponza's
 // vault and walls, blue ones in the floor's band
+// (not the surface cache's test, GiData::cacheSigma deviations of the noise of 64 samples at most, tried 2026-11-24 for
+// cells as smooth as its entries: it takes neighbours a sample's own deviation apart, and the cells have none of the
+// cache's filter's other tests of what is between two voxels. Sponza's arcade's floor and vaults took the courtyard's
+// sky, its settled frame 9.15 of 255 from the clipmap's for 1.32; 7.14 with the noise following the passes; 4.05 in
+// two passes that don't read each other's results of earlier frames, as these three do of the cells a frame didn't add
+// to. see docs/world-cache-plan.md)
 static const float kGiWorldEdgeSigma = 2.0;
 
 // a cell's samples' variance of the light along its bucket's face (see kGiWorldMoment)
@@ -599,10 +635,6 @@ float3 GiWorldIrradiance(float3 position, float3 normal, float distance)
 	return -1.0;
 }
 
-// the share of the distance from the eye a lookup's cell is (step 2 of the plan): a twentieth, as the clips' voxels are
-// about where each lights (the finest clip's voxel lights up to about 20 of them from the eye)
-static const float kGiWorldLookupShare = 1.0 / 20.0;
-
 // how far a lookup's point and its cells' centers are lifted off the surface for GiWorldReach, in the clip's voxels: a
 // surface's own voxel is up to 2 in front of it (its center 0.5 to 1.5, see GiVoxelPlane), and a march along the surface
 // within those ran into it everywhere
@@ -742,11 +774,44 @@ float GiWorldLevelFaces(float3 position, float3 normal, uint bucket, uint level,
 }
 
 // the world cache's light about a point of a surface facing normal (its faces, as an entry's), for the shading: at the
-// level whose cell is kGiWorldLookupShare of the distance from the eye, blended with the next by the fraction (no level
-// is taken at once: nothing snaps), each level's light by how much of the point it covers (GiWorldLevelFaces).
+// level whose cells are the clipmap's voxels' size there (GiWorldClipLevel), blended with the next by the fraction (no
+// level is taken at once: nothing snaps), each level's light by how much of the point it covers (GiWorldLevelFaces).
+// by the distance from the eye until 2026-11-24 (the level whose cell is a twentieth of it, step 2 of the plan): cells 2
+// to 4 times the clipmap's voxels ahead of the eye, where a clip reaches furthest, and coarser yet past the last
+// clip's, which holds the whole scene at one size. a cell holds every surface of its bucket in its footprint: the wall
+// beside living-room's shutters (the glTF research set) took the shutters' light half a metre along, a white patch
+// over the far window's corner (the user's report, 2026-11-24: "a pretty big white splotch"), its reveals came out in
+// teeth, Sponza's arcade's floor took the sky's band's, and the grid began brighter than it settled (a coarse cell's
+// samples are of wherever the cache traces: everywhere while it is cold, then what is in view). the settled frames
+// 1.32, 2.06 and 4.95 of 255 from the clipmap's in Sponza, the kitchen and living-room; 0.93, 1.59 and 2.33 at a
+// fortieth; 0.90, 1.35 and 1.57 by the clips' levels (no coarser than those and a fortieth: the same). what it costs:
+// a cell the size of a voxel holds a voxel's samples, without the cache's filter over 7 voxels each way (see
+// kGiWorldEdgeSigma): the first seconds are blotchier (see docs/world-cache-plan.md)
 // confidence: how much of the point the two cover, 0 to 1; false where they cover none (the clipmap's light the rest).
 // (what a level leaves filled from the next coarser, and so on, as the clipmap's clips fill what the finer ones leave:
 // Sponza's corridor blotchier, 1.47 and 3.58 of 255 rather than 1.41 and 3.51, see world-cache-plan.md)
+// the level whose cells are the size of the clipmap's voxels at a point (the finest level's are the finest clip's, each
+// twice the one below, as the clips'): each clip's level by its weight of what the finer ones leave, as the clipmap's
+// lookups take the clips (GiSampleAt; the weights are of boxes about the clips' centers, so no snap moves them)
+float GiWorldClipLevel(float3 position)
+{
+	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
+	float remaining = 1.0;
+	float level = 0.0;
+	uint last = 0u;
+	for (uint clipIt = 0; clipIt < clipCount && remaining > 0.0; clipIt++)
+	{
+		GiClipView clip = GiClipViewAt(clipIt);
+		last = clip.level;
+		float weight = GiClipWeight(clip, position);
+		if (weight <= 0.0)
+			continue;
+		level += remaining * weight * float(clip.level);
+		remaining -= remaining * weight;
+	}
+	return level + remaining * float(last);
+}
+
 bool GiWorldFaces(float3 position, float3 normal, out float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT], out float confidence)
 {
 	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
@@ -755,15 +820,13 @@ bool GiWorldFaces(float3 position, float3 normal, out float3 faces[SHADER_TYPES_
 	uint frameIndex = gPushConstants.frameIndex;
 	if (Skipped(SHADER_TYPES_LAYERS_WORLD) || gGi[frameIndex][0].worldOn == 0u)
 		return false;
-	float side = gGi[frameIndex][0].worldCellSide;
 	uint levelCount = gGi[frameIndex][0].worldLevelCount;
-	float distance = length(position - gViewData[frameIndex][0].eyePosition.xyz);
-	float level = clamp(log2(max(distance * kGiWorldLookupShare, side) / side), 0.0, float(levelCount - 1u));
+	float level = min(GiWorldClipLevel(position), float(levelCount - 1u));
 	uint bucket = GiWorldBucket(normal);
 	uint lower = uint(floor(level));
 	float upperShare = level - float(lower);
 	// the cells' reach is marched in the finest clip holding the point (its voxels about the cells' size, see
-	// kGiWorldLookupShare), from the point lifted off its surface (kGiWorldReachLift)
+	// GiWorldClipLevel), from the point lifted off its surface (kGiWorldReachLift)
 	GiClipView clip = GiClipViewAt(GiFinestClipHolding(position, gGi[frameIndex][0].clipCount - 1u));
 	float lift = kGiWorldReachLift * clip.volumeOrigin.w;
 	float3 lifted = position + normal * lift;

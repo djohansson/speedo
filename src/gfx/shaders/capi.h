@@ -1765,7 +1765,8 @@ struct GiData
 	// the world cache (docs/world-cache-plan.md; SPEEDO_GI_WORLD: 0 none, the clipmap's light alone), the same in every
 	// clip: whether it is on, its table's cells (a power of two) and the frame's slots of sums (gGiWorld: its counters,
 	// then the cells, then the slots, see GiWorldCellFirst), its levels, its finest cell's side (world units: each level's
-	// twice the one below's), the most samples a cell's mean is of, and the frame it is (the cells' stamps)
+	// twice the one below's), the most updates' samples a cell's mean is of (see ComputeGiWorldFold), and the frame it
+	// is (the cells' stamps)
 	alignas(4) UINT1(worldOn);
 	alignas(4) UINT1(worldCellCount);
 	alignas(4) UINT1(worldSlotCount);
@@ -1773,6 +1774,13 @@ struct GiData
 	alignas(4) FLOAT1(worldCellSide);
 	alignas(4) UINT1(worldWindow);
 	alignas(4) UINT1(worldFrame);
+	// and every how many of a clip's updates a cell takes its samples (1: every one; by its place, see GiWorldAdd): the
+	// frame's slots are a budget, a quarter of the cells, and where the frames take most of them the cells take turns
+	// (Renderer, from the counters: GI_WORLD_COUNTER_SLOTS)
+	alignas(4) UINT1(worldStride);
+	alignas(4) UINT1(worldPadding0); // std430's tail, to the struct's 16 byte alignment, explicit (see the top of the file)
+	alignas(4) UINT1(worldPadding1);
+	alignas(4) UINT1(worldPadding2);
 };
 
 struct PushConstants

@@ -79,6 +79,9 @@ struct FrameInputs
 	// and the rays a voxel traces an update while its cache warms up, where more than the cache's own (see
 	// gi::kDefaultCacheWarmRayCount)
 	uint32_t giCacheWarmRayCount = gi::kDefaultCacheWarmRayCount;
+	// whether the surfaces' lookups take the surface cache's light from the world cache's cells (docs/world-cache-plan.md)
+	// rather than the clipmap's voxels: its cells, slots and passes only while it is on
+	bool giWorldGrid = false;
 	// whether the main pass's opaque fragments take the near field's rays near other surfaces (see GiData::nearReach),
 	// where the indirect lighting's rays trace the BVHs, and how near what they meet is a contact (GiData::nearContact)
 	bool giNearField = true;
@@ -841,6 +844,10 @@ private:
 	uint32_t myGiWorldLevelCount = 5;
 	bool myGiWorldInit = false;
 	uint32_t myGiWorldFrame = 0;
+	// every how many frames a cell takes samples (GiData::worldStride: a power of two), and the frames until it may change
+	// again (those whose counters are still of the stride before)
+	uint32_t myGiWorldStride = 1;
+	uint32_t myGiWorldStrideHoldFrameCount = 0;
 	FrameGraph::PassId myGiWorldClearPass;
 	FrameGraph::PassId myGiWorldFoldPass;
 	std::array<uint64_t, GI_WORLD_COUNTER_COUNT> myGiWorldCounterSums{};

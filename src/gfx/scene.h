@@ -176,6 +176,10 @@ public:
 		// and the rays a voxel traces an update while its cache warms up (FrameInputs::giCacheWarmRayCount; View > Rendering
 		// Features > Indirect Lighting... > Warm-Up Rays, SPEEDO_GI_CACHE_WARM_RAYS to start with another): 4 by default
 		std::atomic<uint32_t> giCacheWarmRayCount = gi::kDefaultCacheWarmRayCount;
+		// and where the surfaces' lookups take that light from (FrameInputs::giWorldGrid; View > Rendering Features > Indirect
+		// Lighting... > Light Store, SPEEDO_GI_WORLD=1 to start with the grid): the clipmap's voxels, the default, or the
+		// world cache's cells (docs/world-cache-plan.md), whose storage is only held while they are chosen
+		std::atomic<bool> giWorldGrid = false;
 		// whether the shading takes the near field's rays near other surfaces (FrameInputs::giNearField; View > Rendering
 		// Features > Indirect Lighting... > Near Field; on by default, SPEEDO_GI_NEAR=0 to start without it)
 		std::atomic<bool> giNearField = true;

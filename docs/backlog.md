@@ -101,12 +101,14 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
   view moves it is still a frame's ray, grain the upscaler doesn't take out (seen at twice the size in a slow turn
   around spaceship's dome): the history read where what is behind the glass was the frame before (the pre-pass's
   motion there), a dozen frames of it, would be the first part of that design.
-- **The world cache stops at a cold start** (found 2026-11-24, `SPEEDO_GI_WORLD=1` in Sponza; off by default): "458954
-  of the world cache's samples found no slot: more than its 262144 slots' cells a frame", its capacity's hard stop.
-  Likely the cold phase (not checked against the commit before it): a cold cache traces and filters every block for its
-  first 96 updates since the review plan's step 5 (2e05ce10), and every such voxel's rays add to the world's cells,
-  where a quarter of the cells a frame were the most a settled view touched. cornell-box runs. The samples of the blocks
-  no lookup read left out, or the slots sized for the cold phase. docs/world-cache-plan.md.
+- **The world grid's first seconds and its walk** (2026-11-24; View > Rendering Features > Indirect Lighting... > Light
+  Store, off by default): its lookups' cells are the clipmap's voxels' size now, and settled it is within 0.9 to 1.6 of
+  255 of the clipmap's in Sponza and three research scenes, but a cell is filtered far less than a cache entry, so
+  its first seconds are blotchier (veach-bidir 2.56 of 255 from settled at frame 60 where the clipmap is 1.10) and the
+  corridor walk's moving frames no nearer the settled ones than the clipmap's. The surface cache's edge test in the
+  cells' filter leaks (Sponza's arcade took the courtyard's sky): it needs the cache's filter's other tests first
+  (what is between two cells, the planes), and passes that don't read each other's earlier results.
+  docs/world-cache-plan.md, 2026-11-24.
 - **Volumetric effects**: clouds and fog banks (the user's wish, 2026-11-20). Their light in the air from the clipmap's
   volumes (the probes' light and the cache's, trilinear in hardware), which is why the world cache leaves the air to
   them (docs/world-cache-plan.md, step 4); clouds mostly the sun's and the sky's (docs/notes/sky.md).

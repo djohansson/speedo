@@ -3869,6 +3869,7 @@ struct Scene::Impl
 				.giResolution = mySettings.giResolution.load(std::memory_order_relaxed),
 				.giSurfaceCache = mySettings.giSurfaceCache.load(std::memory_order_relaxed),
 				.giCacheWarmRayCount = mySettings.giCacheWarmRayCount.load(std::memory_order_relaxed),
+				.giWorldGrid = mySettings.giWorldGrid.load(std::memory_order_relaxed),
 				.giNearField = mySettings.giNearField.load(std::memory_order_relaxed),
 				.giNearContact = mySettings.giNearContact.load(std::memory_order_relaxed),
 				.giNearStride = mySettings.giNearStride.load(std::memory_order_relaxed),

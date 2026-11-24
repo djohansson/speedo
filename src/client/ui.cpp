@@ -362,6 +362,8 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 	apply(settings.indirectLighting, kDefaults.indirectLighting, "SPEEDO_GI", unless("0"));
 	apply(settings.traceTriangles, kDefaults.traceTriangles, "SPEEDO_GI_TRACE", unless("voxels"));
 	apply(settings.giSurfaceCache, kDefaults.giSurfaceCache, "SPEEDO_GI_CACHE", unless("0"));
+	// (and where the lookups take its light from: SPEEDO_GI_WORLD=1, the world cache's cells; the clipmap's voxels else)
+	apply(settings.giWorldGrid, kDefaults.giWorldGrid, "SPEEDO_GI_WORLD", [](const char* value) { return std::optional<bool>(std::string_view(value) == "1"); });
 	// (and the rays a voxel traces an update while its cache warms up, SPEEDO_GI_CACHE_WARM_RAYS: 1 to
 	// gi::kMaxCacheWarmRayCount, 4 by default; the menu offers gi::kCacheWarmRayCounts)
 	apply(
@@ -989,6 +991,8 @@ void WindowedApplication::InternalCopyScene()
 		text += " SPEEDO_GI_TRACE=voxels";
 	if (!settings.giSurfaceCache.load(std::memory_order_relaxed))
 		text += " SPEEDO_GI_CACHE=0";
+	if (settings.giWorldGrid.load(std::memory_order_relaxed))
+		text += " SPEEDO_GI_WORLD=1";
 	if (uint32_t rays = settings.giCacheWarmRayCount.load(std::memory_order_relaxed); rays != gfx::gi::kDefaultCacheWarmRayCount)
 		text += std::format(" SPEEDO_GI_CACHE_WARM_RAYS={}", rays);
 	if (!settings.giNearField.load(std::memory_order_relaxed))
@@ -2094,6 +2098,31 @@ void WindowedApplication::PrepareDraw()
 				"accumulated over time and filtered along the surface: light through narrow openings resolves at the voxels' "
 				"size rather than the probes' spacing. On by default (SPEEDO_GI_CACHE=0 to start without it); its memory grows "
 				"with the resolution (0.3 GB at 384 in Sponza).");
+			{
+				// where the surfaces' lookups take the surface cache's light from (see Scene::Settings::giWorldGrid)
+				static constexpr std::array kLightStores{
+					std::tuple{"Clipmap (default)", false, "The clipmap's voxels: a level of them around the eye for each distance, each level its own light."},
+					std::tuple{"World Grid", true, "Cells anchored in the world at several sizes (the world cache), which the surface cache's rays fill: the same light "
+													"whatever level of the clipmap a place is in, steadier while walking. Experimental: 176 MB more, and 1.3 to 3.4 "
+													"ms a frame more at 1080p."}};
+				bool grid = App().GetScene().GetSettings().giWorldGrid.load(std::memory_order_relaxed);
+				BeginDisabled(!surfaceCache);
+				if (BeginCombo("Light Store", std::get<0>(kLightStores[grid ? 1 : 0])))
+				{
+					for (auto [label, value, tooltip] : kLightStores)
+					{
+						if (Selectable(label, grid == value))
+							App().GetScene().GetSettings().giWorldGrid.store(value, std::memory_order_relaxed);
+						SetItemTooltip("%s", tooltip);
+					}
+					EndCombo();
+				}
+				EndDisabled();
+				SetItemTooltip(
+					"Where the surfaces take the surface cache's light from (SPEEDO_GI_WORLD=1 to start with the grid). The grid's "
+					"cells are only held while it is chosen. The clipmap's stay in use under it: their rays fill the grid, and "
+					"they light what moves, the air, what a traced ray meets and what the grid has no cell for yet.");
+			}
 			{
 				// the rays a voxel traces an update while its cache warms up (see gi::kDefaultCacheWarmRayCount)
 				uint32_t rays = App().GetScene().GetSettings().giCacheWarmRayCount.load(std::memory_order_relaxed);

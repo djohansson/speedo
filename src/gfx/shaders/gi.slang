@@ -3626,7 +3626,7 @@ bool GiCacheAnchor(GiData gi, float3 voxelCenter, float3 facing, float open, int
 // square's (GiCacheSample) by the reciprocal of its samples, at most cacheSampleCount (32 in a block something moving
 // went through this frame). a ray that meets a surface's back within a voxel and a half started inside something: not
 // a sample
-void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, bool fresh, float3 center, float3 normal, bool surface, bool active)
+void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, bool fresh, float3 center, float3 normal, bool surface, bool active, bool looked)
 {
 	uint index = GiCacheEntryIndex(page, at);
 	GiCacheEntry entry = GiCacheEmpty();
@@ -3779,6 +3779,16 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 		float insideRays = float(entry.inside) / float(kGiCacheInsideScale);
 		float entryRays = float(entry.count) + insideRays;
 		bool toWorld = entryRays >= float(kGiWorldFromRayCount) && insideRays <= kGiInsideShare * entryRays;
+		// (looked: whether a lookup read the voxel's block or one around it. one traced as read without that, as every
+		// block of a cold cache is for its first updates, GiData::cacheEverywhere, adds as an unread one does: a ray every
+		// kGiCacheIdleFrameCount updates, staggered by its place. every voxel's rays every update touched more cells in
+		// a frame than the world has slots for, a quarter of its cells: Sponza stopped three seconds after its load, "458954
+		// of the world cache's samples found no slot", since the cold phase, 2026-11-23)
+		if (active && !looked)
+		{
+			uint turn = uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u;
+			toWorld = toWorld && (turn + gi.frameStamp) % kGiCacheIdleFrameCount == 0u;
+		}
 		for (uint rayIt = 0; rayIt < rayCount; rayIt++)
 		{
 			float3 direction = GiCacheDirection(world, entry.sequence++, normal);
@@ -3786,6 +3796,15 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			// its side's density: half the rays over the sphere added little to the faces the shading reads, and their mean
 			// was as noisy as of half as many
 			float estimate = GiCacheEstimate(direction, normal);
+			// (the way the surface the ray starts on faces, for the world cache, GiWorldAdd: its cells are kept by that, and
+			// a ray that starts on a surface facing another way than its voxel's, kGiAnchorFacing, isn't added to them. a
+			// voxel that stands for one face and whose anchors land on the next, past its edge (see below), added that face's
+			// light under its own facing, where the other voxels along the edge added theirs: living-room's far window's
+			// jamb, the glTF research set's, in light and dark notches a cell long once the lookups' cells were the voxels'
+			// size, 2026-11-24. added under the facing of where they start instead, the notches went and the kitchen's
+			// settled frame was 2.16 of 255 from the clipmap's for 1.35: those rays are drawn for the voxel's facing, few
+			// of them the way the other face looks, each weighing much. the face has voxels of its own, whose rays are)
+			float3 startNormal = normal;
 			if (anchored)
 			{
 				bool insideSurface;
@@ -3809,6 +3828,8 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 				// stands on the surface): the classroom's ceiling beside its lamps came out in lighter bands. no sample
 				// at all from past the edge is as clean there, and further from the set's references (0.2522 blurred
 				// stops over its 28 scenes for 0.2516; 0.2541 before)
+				if (dot(surfaceNormal, surfaceNormal) > 0.5)
+					startNormal = surfaceNormal;
 				if (dot(surfaceNormal, normal) < kGiAnchorFacing && anchorPlaneKept &&
 					dot(origin - voxelCenter, normal) < anchorOwnPlane * gi.volumeOrigin.w)
 				{
@@ -3900,8 +3921,11 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			if (any(isnan(radiance)) || any(isinf(radiance)))
 				continue;
 			// (and the world cache's, where it is on, from the point the ray starts at, see GiWorldAdd)
-			if (toWorld)
-				GiWorldAdd(origin, normal, direction, radiance, estimate, (uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u) + entry.sequence * 0x27d4eb2fu, gi.level);
+			if (toWorld && (looked || !active || rayIt == 0u) && dot(startNormal, normal) >= kGiAnchorFacing)
+				GiWorldAdd(
+					origin, startNormal, direction, radiance, estimate,
+					(uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u) + entry.sequence * 0x27d4eb2fu, gi.level,
+					looked || !active ? rayCount : 1u, gi.frameStamp);
 			float basis[SHADER_TYPES_GI_IRRADIANCE_COUNT];
 			GiIrradianceBasis(direction, basis);
 			entry.count = min(entry.count + 1u, cap);
@@ -4801,13 +4825,15 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	GroupMemoryBarrierWithGroupSync();
 	if (gi.cacheRayCount != 0u && groupIndex == 0u)
 	{
-		bool read = gi.cacheEverywhere != 0u;
-		bool lately = read;
+		// (looked: a lookup read it or a block around it; read: or every block is traced as read, GiData::cacheEverywhere)
+		bool looked = false;
+		bool lately = gi.cacheEverywhere != 0u;
 		for (uint aroundIt = 0; aroundIt < 27u; aroundIt++)
 		{
-			read = read || (gGiSharedCacheSeen[aroundIt] & 1u) != 0u;
+			looked = looked || (gGiSharedCacheSeen[aroundIt] & 1u) != 0u;
 			lately = lately || (gGiSharedCacheSeen[aroundIt] & 2u) != 0u;
 		}
+		bool read = looked || gi.cacheEverywhere != 0u;
 		// anchored (GiCacheAnchored), every block that holds a surface's voxels has its page, read or not (and keeps it:
 		// Renderer sets no cacheKeepFrameCount): what no lookup reads traces a ray now and then (kGiCacheIdleFrameCount) and
 		// is what the rays that meet it take its bounced light from. with pages for what was read alone, that light was
@@ -4839,7 +4865,8 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 		gGiFlags[flagIndex] = (gGiFlags[flagIndex] & ~SHADER_TYPES_GI_FLAG_CACHE_ACTIVE) | (record != 0u ? SHADER_TYPES_GI_FLAG_CACHE_ACTIVE : 0u);
 		gGiSharedCachePage = cachePage;
 		gGiSharedCacheFresh = fresh ? 1u : 0u;
-		gGiSharedCacheActive = read ? 1u : 0u;
+		// (1: a lookup read it; 2: traced as read without one, see GiCacheUpdate's looked)
+		gGiSharedCacheActive = looked ? 1u : (read ? 2u : 0u);
 		uint movingAround = 0u;
 		for (uint aroundIt = 0; aroundIt < 27u; aroundIt++)
 			movingAround |= gGiSharedMovingAround[aroundIt];
@@ -4847,6 +4874,7 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	}
 	GroupMemoryBarrierWithGroupSync();
 	bool active = gi.cacheRayCount != 0u && gGiSharedCacheActive != 0u;
+	bool looked = gGiSharedCacheActive == 1u;
 	uint page = gi.cacheRayCount != 0u ? gGiSharedCachePage : 0u;
 	// which voxels the probes are resolved into (GiData::probes; the loop below is most of this pass's time, and of the
 	// probes' cost). where the surface cache's entries are the light at the surface (GiCacheAnchored), only where they
@@ -4907,7 +4935,7 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 			if ((gGiCacheBlocks[word] & kGiCacheWanted) == 0u)
 				InterlockedOr(gGiCacheBlocks[word], kGiCacheWanted);
 			if (page != 0u)
-				GiCacheUpdate(gi, at, size, blockIndex, page, gGiSharedCacheFresh != 0u, center, GiVoxelNormal(voxel.normal), true, active);
+				GiCacheUpdate(gi, at, size, blockIndex, page, gGiSharedCacheFresh != 0u, center, GiVoxelNormal(voxel.normal), true, active, looked);
 			return;
 		}
 		if (page != 0u)
@@ -5191,7 +5219,7 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	if (page != 0u)
 	{
 		if (cacheEntry)
-			GiCacheUpdate(gi, at, size, blockIndex, page, gGiSharedCacheFresh != 0u, center, GiCacheAnchored(gi) ? GiVoxelNormal(voxel.normal) : away, occupied, active);
+			GiCacheUpdate(gi, at, size, blockIndex, page, gGiSharedCacheFresh != 0u, center, GiCacheAnchored(gi) ? GiVoxelNormal(voxel.normal) : away, occupied, active, looked);
 		else
 			GiCacheClear(GiCacheEntryIndex(page, at));
 	}
