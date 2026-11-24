@@ -802,9 +802,10 @@ their files from the quick tier's fetch. What it found on the way:
   get-pip on Python 3.15, zlib and DirectX-Headers missing from the port's Windows dependencies, mesa's generators run
   with python's `-I`, clang-cl lacking MSVC's lower-case interlocked intrinsics (`0002`, offered upstream by the user),
   and the driver's manifest written as invalid json (the mesa port section above).
-- **To do (the user's ask, 2026-11-13)**: build the tsan and sanitize presets in CI as well, and run the macOS job's
-  client on Metal too (`SPEEDO_GRAPHICS_API=metal`: every build has it since the backends plan's step 9, which replaced
-  the metal preset), and give them launch configurations in VS Code (`setup.ps1`'s `$VSCodeLaunchConfiguration`, beside
+- **To do (the user's ask, 2026-11-13)**: build the tsan and sanitize presets in CI as well (the macOS job's client on
+  Metal, the same ask, runs since 2026-11-24: "The client on Metal" below), and give them and Metal
+  (`SPEEDO_GRAPHICS_API=metal`: every build has it since the backends plan's step 9, which replaced the metal preset)
+  launch configurations in VS Code (`setup.ps1`'s `$VSCodeLaunchConfiguration`, beside
   the profile, debug and release ones: Metal's a profile client with the variable set); and in CI run the visual
   checks (`visualtest.ps1`, on lavapipe as the profile build's) on the sanitizer builds too, so that what asan, ubsan
   and tsan report about the client's frames is caught as soon as it is pushed.
@@ -819,6 +820,8 @@ and later: `kDxcOptions` in gfx/shadercompiler.h; the repro in docs/warp-repro).
 0.05 stops under the reference, not looked into yet) and upscaling (582 s of the 20 minutes the rest took on this
 machine's 32 cores), not blocking (`continue-on-error`, its logs uploaded where it fails) until its times on a 4-core
 runner are known; then decide what it runs and whether it blocks.
+
+**The client on Metal** (the user's ask, 2026-11-24, of the to do above): the macOS job's last checks, after the lavapipe ones, on the runner's own gpu, not blocking (`continue-on-error`, its logs uploaded where it fails) until a few runs have passed. Whether hosted CI could run Metal at all was the question: the runner is a virtual machine on Apple's Virtualization framework, GitHub's docs say Metal Performance Shaders don't work on its standard arm64 runners, and nothing here had tried. A probe answered it first (branch `ci-metal-probe`, b450022a, a workflow of its own, run 45437536132): the `xcode-27` runner is an "Apple Virtual Machine 1", "Apple M1 (Virtual)", 3 cores and 7 GB, its gpu "Apple Paravirtual device" (Metal forwarded to the host's), which reports the Apple1 to Apple5, Mac2 and Common1 to 3 families only (not Apple7, which the backend's limits take, nor Metal3), argument buffers of tier 2 (96 samplers), read-write textures of tier 2, BC textures, no ray tracing, no function pointers and no counter sets (so no gpu timestamps), 4.8 GB of recommended working set and 3.5 GB buffers; the M4 Pro reports Apple1 to Apple9, Metal3 and Metal4, ray tracing and the timestamp set. The backend runs on it anyway: `rhitest src/tools metal`, validated (`MTL_DEBUG_LAYER=1`), passes its 13 checks in 7 s, and `visualtest.ps1 -Validate` on Metal passes 7 of 7 in about 6 minutes (traced-shadows 78 s with the shader compile, shadow-atlas 32, emitters 50, upscaling 49, furnace 67, the two research checks 44 and 17; ray-queries skipped) against the lavapipe checks' 35, within 0.001 stops of the M4 Pro's measures. So the step runs both (rhitest first, the visual checks whatever it did; the step fails where either does), with `SPEEDO_GRAPHICS_API=metal`, Metal's api validation and `SPEEDO_GPU_HANG_TIMEOUT=300` as the probe did; the ray query check is skipped on Metal unless `SPEEDO_RAY_QUERY=1` (its ray tracing restarts the gpu on macOS 27; this device has none). Its shaders share the job's shader cache with the lavapipe checks' (the MSL beside the SPIR-V). The probe found what `visualtest.ps1` did on Metal: it set and printed KosmicKrisp's driver, which a Metal client never loads, and skipped the ray query check as KosmicKrisp's (fixed in 09666dcc). And rhitest's Metal checks run alone, not against Vulkan's on lavapipe: there the environment's transmittance table differs in 98 of its 48249 channels by over a quarter stop (14 stops at most) and its multiple scattering table in 54 of 1722 (7.5 at most), on the M4 Pro's Metal as on the runner's (76 and 54 channels): Metal against lavapipe, not the virtual gpu. Locally rhitest compares Metal against KosmicKrisp, on the same gpu, where they agree. Not looked into yet. Its own check run, `Metal (macOS arm64)`, and badge (`Metal · paravirtual`, below).
 
 **The Windows job's two hours** (2026-11-24): on 55b59280 it ran out in the lavapipe checks, six of eight done in 113
 minutes where 5e25adcf's runner took 41 for all eight, and the WARP checks after them never ran. Two causes: the checks
@@ -849,20 +852,19 @@ failing where one failed or was cancelled, passing where all completed otherwise
 own badge shows a whole workflow: a badge per platform that way takes a workflow per platform, and the prune job, which
 needs all three, a `workflow_run` trigger matching their runs. The platforms' badges take the jobs' names (`macOS arm64`,
 `Windows x64`, `Linux x64`: renaming a job breaks its badge). No job tests one backend alone, so a backend on a platform
-is a check run of its own (`Vulkan (macOS arm64)`, `Vulkan (Windows x64)`, `Vulkan (Linux x64)`, `D3D12 (Windows x64)`),
+is a check run of its own (`Vulkan (macOS arm64)`, `Metal (macOS arm64)`, `Vulkan (Windows x64)`, `Vulkan (Linux x64)`, `D3D12 (Windows x64)`),
 made through the checks api (`checks: write`) by two small jobs: the first makes them in progress as the run starts (a
 job that needs others has no check run until it runs, and the badges would say "no check runs" for most of a run's two
 hours), the last finishes them from the platform jobs' outputs, the visual checks steps' outcomes: Vulkan's on lavapipe,
-D3D12's on WARP in its Windows job (which passes where they fail: not blocking yet). One passes where its checks did;
+D3D12's on WARP in its Windows job and Metal's in the macOS job (which pass where they fail: not blocking yet). One passes where its checks did;
 one whose checks failed or never ran (a step before them failed) fails; one cancelled by a newer push is cancelled. They
-only report: Vulkan's failing fails its platform's job already, and D3D12's on WARP stays non-blocking, though a failure
+only report: Vulkan's failing fails its platform's job already, and D3D12's on WARP and Metal's stay non-blocking, though a failure
 shows on its badge and among the commit's checks (a red cross where the workflow passed). README.md lays them out as a
 table (the user's choice, 2026-11-24, of a table, a nested list or a line each): a row per platform, its badge (its job:
 builds, asset checks, Vulkan's visual checks) and its backends' beside it, each labeled with the cpu driver CI runs it
-on (`Vulkan · lavapipe`, `D3D12 · WARP`: no gpu is tested there). Until that day's second change one `Vulkan` check run
+on (`Vulkan · lavapipe`, `D3D12 · WARP`: no gpu is tested there), or the gpu (`Metal · paravirtual`, the runner's: see "The client on Metal" above). Until that day's second change one `Vulkan` check run
 stood for the three platforms, which read as a fourth platform beside them (the user: "a bit confusing"). Not in a pull
-request's run: a fork's token can't write checks, and the run's commit is the merge's. Metal has no badge until CI runs
-it (the to do above). The options weighed: GitHub's badge alone, workflows split per platform, these, or json written by CI for
+request's run: a fork's token can't write checks, and the run's commit is the merge's. Metal's since 2026-11-24. The options weighed: GitHub's badge alone, workflows split per platform, these, or json written by CI for
 shields.io's endpoint badge (to a gist, a branch or the cache's bucket: the last result, never pending, and steps as
 well, at the cost of a writer's secret).
 

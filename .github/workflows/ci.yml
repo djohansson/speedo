@@ -2,7 +2,8 @@
 # -Client (the importers, images, environments, the lens check) on the profile build, and the client itself, headless and
 # validated on lavapipe, mesa's cpu Vulkan driver, in scripts/visualtest.ps1's checks (the user's asks: Linux and Windows
 # from 2026-11-10, macOS from 2026-11-13; the client's full sets stay too heavy for a hosted runner's software Vulkan, the
-# user's call of 2026-11-06), and on Windows on D3D12 too, on WARP (2026-11-15, not blocking yet). macOS, Windows and
+# user's call of 2026-11-06), on Windows on D3D12 too, on WARP (2026-11-15, not blocking yet), and on macOS on Metal too,
+# on the runner's paravirtual gpu (2026-11-24, not blocking yet). macOS, Windows and
 # Linux, which the shared vcpkg binary cache (docs/notes/build.md) holds packages for: setup restores them, LLVM too, rather
 # than build them on a hosted runner. A job per platform builds the three configurations in turn: their packages are the
 # same (each holds its debug and release builds), and a job per configuration would restore them, about 2 GB, three times.
@@ -53,6 +54,7 @@ jobs:
     # the backends' outcomes, for the backend checks job
     outputs:
       vulkan: ${{ steps.visual.outcome }}
+      metal: ${{ steps.metal.outcome }}
     defaults:
       run:
         shell: pwsh
@@ -124,9 +126,10 @@ jobs:
       # where the shaders are unchanged, in part where they changed (the SPIR-V's 83 s on 4 of a desktop's cores,
       # 2026-11-24; the DXIL's 158 s on its 32). A job's own (github.job: the formats and variants differ), saved where the
       # sources changed (the key) and the job passed, pruned to 1 GB after the checks, the least recently used first (the
-      # client dates what it uses; a full set is 249 MB of SPIR-V, 95 of DXIL)
+      # client dates what it uses; a full set is 249 MB of SPIR-V, 95 of DXIL). macOS's holds the SPIR-V and the MSL, for
+      # the lavapipe checks and the Metal checks
       - name: Cache shaders
-        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.profile.outcome == 'success' }}
         uses: actions/cache@v6
         with:
           path: build/${{ env.TRIPLET }}-profile/shader-cache
@@ -142,6 +145,29 @@ jobs:
           SPEEDO_GRAPHICS_API: vulkan # lavapipe is a Vulkan driver (the client's default is the platform's fastest api)
           SPEEDO_GPU_HANG_TIMEOUT: '300'
         run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
+
+      # the client on Metal, on the runner's gpu: Apple's paravirtual one, which runs the backend although it is no Apple7
+      # (Apple5's and Mac2's families, no ray tracing, no timestamps: the probe of 2026-11-24, "CI" in docs/notes/build.md).
+      # rhitest's Metal checks, then the visual checks, both with Metal's api validation; visualtest.ps1 skips the ray query
+      # check on Metal (SPEEDO_RAY_QUERY unset) and takes no Vulkan driver for it (the VK_DRIVER_FILES above is lavapipe's).
+      # rhitest's Metal checks alone: against Vulkan's on lavapipe two of its environment's tables differ on any Metal gpu
+      # (the M4 Pro's too), not looked into yet. Not blocking until a few runs have passed: its check run shows it
+      - name: Metal checks
+        id: metal
+        if: ${{ !cancelled() && steps.profile.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+          SPEEDO_GRAPHICS_API: metal
+          SPEEDO_GPU_HANG_TIMEOUT: '300'
+          MTL_DEBUG_LAYER: '1'
+        run: |
+          & "build/$env:TRIPLET-profile/rhitest" src/tools metal
+          $rhitest = $LASTEXITCODE
+          ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest-metal"
+          $visual = $LASTEXITCODE
+          if ($rhitest -ne 0) { Write-Host "rhitest failed (exit $rhitest)" }
+          if ($rhitest -ne 0 -or $visual -ne 0) { exit 1 }
 
       # the least recently used past 1 GB (see scripts/prune-shader-cache.ps1) before the cache is kept
       - name: Prune the shader cache
@@ -159,9 +185,10 @@ jobs:
           path: ${{ runner.temp }}/abis-macos.txt
           retention-days: 1
 
-      # also when the job was cancelled (its timeout too: the logs of the checks that ran)
+      # also when the job was cancelled (its timeout too: the logs of the checks that ran), and where the Metal checks
+      # failed (the job passes then)
       - name: Upload logs
-        if: ${{ failure() || cancelled() }}
+        if: ${{ failure() || cancelled() || steps.metal.outcome == 'failure' }}
         uses: actions/upload-artifact@v7
         with:
           name: logs-macos
@@ -169,6 +196,7 @@ jobs:
             temp/vcpkg/buildtrees/*/*.log
             ${{ runner.temp }}/assettest/logs
             ${{ runner.temp }}/visualtest
+            ${{ runner.temp }}/visualtest-metal
           if-no-files-found: ignore
 
   windows:
@@ -511,12 +539,12 @@ jobs:
   # the rhi backends' check runs, a platform's each ("Vulkan (macOS arm64)", "D3D12 (Windows x64)"), which README.md's
   # badges show beside their platform's (the user's asks, 2026-11-24). A badge takes a check run by its name, and no job
   # tests one backend alone: every platform job's visual checks test Vulkan, on lavapipe, beside its build and asset
-  # checks, and the D3D12 job passes where its checks on WARP fail (they don't block yet, its step's continue-on-error).
-  # So each is a check run of its own, through the checks api: started as the run starts (a job that needs others has no
-  # check run until it runs: the badges would say "no check runs" for most of a run's two hours), finished from the
-  # platform jobs' outcomes once they are done. Not in a pull request's run (a fork's token can't write them, and its
-  # commit is the merge's, not the branch's). Metal has none: CI doesn't run it yet (the to do in "CI" in
-  # docs/notes/build.md). The names are the finish's too, and README.md's
+  # checks, the macOS job passes where its Metal checks fail, and the D3D12 job where its checks on WARP do (neither
+  # blocks yet, their steps' continue-on-error). So each is a check run of its own, through the checks api: started as
+  # the run starts (a job that needs others has no check run until it runs: the badges would say "no check runs" for most
+  # of a run's two hours), finished from the platform jobs' outcomes once they are done. Not in a pull request's run (a
+  # fork's token can't write them, and its commit is the merge's, not the branch's). The names are the finish's too, and
+  # README.md's
   backend-checks-start:
     name: Start backend checks
     if: ${{ github.event_name != 'pull_request' }}
@@ -536,7 +564,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ids = [ordered]@{}
-          foreach ($name in 'Vulkan (macOS arm64)', 'Vulkan (Windows x64)', 'Vulkan (Linux x64)', 'D3D12 (Windows x64)')
+          foreach ($name in 'Vulkan (macOS arm64)', 'Metal (macOS arm64)', 'Vulkan (Windows x64)', 'Vulkan (Linux x64)', 'D3D12 (Windows x64)')
           {
             $id = gh api "repos/$env:GITHUB_REPOSITORY/check-runs" -f "name=$name" -f "head_sha=$env:GITHUB_SHA" -f status=in_progress --jq .id
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -547,8 +575,8 @@ jobs:
 
   # each passes where its platform's checks passed: one that failed, or didn't run (skipped: a step before them failed),
   # fails; one cancelled (by a newer push) is cancelled. It only reports: Vulkan's failing fails its platform's job
-  # already, and D3D12's on WARP doesn't block, though its badge and the commit's checks show it. Should the start have
-  # failed, the check runs are made here, finished
+  # already, and Metal's and D3D12's on WARP don't block, though their badges and the commit's checks show them. Should
+  # the start have failed, the check runs are made here, finished
   backend-checks:
     name: Finish backend checks
     needs: [backend-checks-start, macos, windows, windows-d3d12, linux]
@@ -574,6 +602,7 @@ jobs:
           $lavapipe = 'The visual checks on lavapipe'
           $checks = @(
             @{ Name = 'Vulkan (macOS arm64)'; Job = 'macos'; Output = 'vulkan'; Checks = $lavapipe },
+            @{ Name = 'Metal (macOS arm64)'; Job = 'macos'; Output = 'metal'; Checks = 'rhitest and the visual checks on the runner''s paravirtual gpu, but ray-queries (not blocking yet)' },
             @{ Name = 'Vulkan (Windows x64)'; Job = 'windows'; Output = 'vulkan'; Checks = $lavapipe },
             @{ Name = 'Vulkan (Linux x64)'; Job = 'linux'; Output = 'vulkan'; Checks = $lavapipe },
             @{ Name = 'D3D12 (Windows x64)'; Job = 'windows-d3d12'; Output = 'd3d12'; Checks = 'The visual checks on WARP, but furnace and upscaling (not blocking yet)' })
