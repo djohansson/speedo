@@ -2063,6 +2063,20 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
       lookup's place made ramps of the steps under a dither (the user: new artifacts). What is left of blocks is where
       the 8 hold fewer than four voxels of the surface at all (behind the kitchen's toaster, around living-room's
       arches): docs/research-scenes-review-plan.md.
+    - **The air's voxels' faces, each from the surfaces that face its way** (2026-11-24; `ComputeGiCacheFilter`'s air
+      voxels, `kGiSpreadFacedLeast`). An air voxel beside surfaces takes their light in the filter's last pass, by how
+      far out along each one's open side it is; every face took all of them, and a surface's entry's faces the ways
+      its surface doesn't face are of few rays, gathered at another place. The air in front of a wall with a toaster
+      against it held both in every face, and the wall's lookups, which read that air with the wall's own voxels, drew
+      the difference in squares; where a moulding owns every voxel of the wall beside it (a band a voxel or two wide
+      along living-room's arches) the lookup had none of its own, kept the moulding's by the facing rule's exception,
+      and drew a row of teeth lit by the window (the user's reports, 2026-11-23). Each face is from the surfaces that
+      face its way where any does (by the cosine; the rest as before), and the lookups leave the other surfaces'
+      voxels out always: the exception is gone, the air's voxels being the surface's own light there. No cost (GI
+      Sides cheaper, Bistro's 0.73 to 0.64 ms: a voxel left out by its facing needs no ray). Tried before it, in a
+      copy of the shaders: the surface's own voxels among the 27 around, by a tent 1.5 voxels wide (the kitchen's
+      squares mostly gone, the arches' teeth not: there are none to take), and the left out share alone filled from
+      them (little).
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows

@@ -4276,7 +4276,21 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 			GiCacheStoreTap(target, self);
 		if (!last || !GiCacheAnchored(gi) || (gGiVoxels[gi.voxelFirst + GiVoxelIndex(at, size)].albedo >> 24) != 0u)
 			return;
+		// each face from the surfaces among them that face its way, by how much (the rest from all of them, as every
+		// face was): a surface's entry's rays leave its own side, so its faces the other ways are of few rays and of
+		// another place's light, and an air voxel beside two surfaces held in every face a mix of both. the wall behind
+		// the glTF research set's kitchen's toaster and beside living-room's arched windows' mouldings read, from the
+		// air in front of it, the toaster's and the mouldings' light with its own: squares of the voxels' size, and a
+		// row of teeth along each arch (the user's reports, 2026-11-23). a lookup leaves the other surfaces' own voxels
+		// out (GiSidesMaskFacing), and the air's are what it has of its own surface's light where that has few
 		float confidence = 0.0;
+		float3 faced[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+		float facedWeights[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+		for (uint facedIt = 0; facedIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; facedIt++)
+		{
+			faced[facedIt] = 0.0;
+			facedWeights[facedIt] = 0.0;
+		}
 		for (int z = -1; z <= 1; z++)
 			for (int y = -1; y <= 1; y++)
 				for (int x = -1; x <= 1; x++)
@@ -4293,12 +4307,20 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 						continue;
 					float weight = along / dot(float3(offset), float3(offset));
 					for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+					{
 						filtered[faceIt] += weight * tap.faces[faceIt];
+						float facing = weight * max(dot(tap.normal, GiFacingAxis(faceIt)), 0.0);
+						faced[faceIt] += facing * tap.faces[faceIt];
+						facedWeights[faceIt] += facing;
+					}
 					confidence += weight * tap.confidence;
 					weights += weight;
 				}
 		if (weights <= 0.0)
 			return;
+		for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+			if (facedWeights[faceIt] > kGiSpreadFacedLeast * weights)
+				filtered[faceIt] = faced[faceIt] * (weights / facedWeights[faceIt]);
 		self.confidence = confidence / weights;
 		spread = true;
 	}
@@ -5210,6 +5232,9 @@ GiSample GiSampleClipAt(GiClipView gi, float3 coordinate)
 // the cosine of the angle from a lookup's surface's normal past which a voxel's surface doesn't face its way (see
 // GiSidesMask)
 static const float kGiFacingCosine = 0.1;
+// the least share of the surfaces around an air voxel, by their weights, that is to face a face's way for the face to
+// be theirs alone (see ComputeGiCacheFilter's air voxels)
+static const float kGiSpreadFacedLeast = 1e-3;
 // how far back from a voxel's center the way a side never drawn that wrote it faces, in voxels, a lookup's point is
 // taken to be in front of that side's surface (GiFarSides)
 static const float kGiBehindReach = 0.5;
@@ -5413,13 +5438,15 @@ uint GiSidesMaskFacing(GiClipView clip, float3 position, float3 normal)
 	uint mask = kGiSidesComputed | ((clip.level & 3u) << 27u) | ((1u << 27u) - 1u);
 	float3 coordinate = (position + normal * (0.5 * clip.volumeOrigin.w) - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
 	int3 base = int3(floor(clamp(coordinate, 0.5, float3(size) - 0.5) - 0.5));
-	// (only where one of the 8 holds a surface that does face the point's way, the point's own: where none does, among
-	// a cornice's mouldings, the others are all the lookup has of surfaces, and without them the air's light alone, the
-	// probes', which leaks. what is left out isn't filled from the voxels beyond the 8 either: nothing has tested what
-	// those hold, and living-room's ceiling took a bright line along its cornice from them, the scene 0.06 stops brighter
-	// and further from its reference, 0.305 to 0.363)
+	// (whether one of the 8 holds the point's own surface or not, since the air's voxels hold each face from the
+	// surfaces that face its way, ComputeGiCacheFilter: the point's own surface's light, where its own voxels are
+	// another surface's. until then only where one did: where none does, beside a moulding or behind what stands
+	// against a wall, the others were all the lookup had of surfaces, and it took their light: living-room's arches'
+	// teeth. what is left out isn't filled from the voxels beyond the 8 at the lookup: nothing has tested what those
+	// hold, and living-room's ceiling took a bright line along its cornice from them, the scene 0.06 stops brighter
+	// and further from its reference, 0.305 to 0.363; nor from the surface's own voxels among the 27 around, tried
+	// 2026-11-24: 9 to 27 voxels read by hand where 8 are, and no better than this)
 	uint acrossBits = 0u;
-	bool own = false;
 	if (facings)
 		for (uint cornerIt = 0; cornerIt < 8u; cornerIt++)
 		{
@@ -5427,15 +5454,9 @@ uint GiSidesMaskFacing(GiClipView clip, float3 position, float3 normal)
 			if (!GiInside(at, size))
 				continue;
 			GiVoxel held = gGiVoxels[clip.voxelFirst + GiVoxelIndex(uint3(at), size)];
-			if ((held.albedo >> 24) == 0u)
-				continue;
-			if (dot(GiVoxelNormal(held.normal), normal) < kGiFacingCosine)
+			if ((held.albedo >> 24) != 0u && dot(GiVoxelNormal(held.normal), normal) < kGiFacingCosine)
 				acrossBits |= 1u << cornerIt;
-			else
-				own = true;
 		}
-	if (!own)
-		acrossBits = 0u;
 	if (!marked && acrossBits == 0u)
 		return 0u;
 	bool left = false;

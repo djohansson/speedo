@@ -416,3 +416,40 @@ Nothing now.
   lookup that still starts from the 8 around the point, so the light still steps from cell to cell where few are kept.
   Not in the repository. Next, the user's to choose: the whole lookup from the surface's own voxels where it has
   any, smoothing on the screen, or step 6.
+- 2026-11-24, **the blocks where a surface has no voxel of its own** (the kitchen's wall behind its toaster,
+  living-room's arches; the user: "try 1 next", and to think of alternatives before smoothing on the screen), all in
+  the copy of the shaders first.
+  - *The whole lookup from the surface's own voxels among the 27* (option 1, `temp/research-issues/s2/own.pl`: a tent 1.5
+    voxels wide, continuous from cell to cell, the own voxels tested for sight where one around is marked apart):
+    the kitchen's squares mostly gone, with a dark bar or two of its own; living-room's teeth as they were. Painted by
+    path (`ownfetch-living-room-path.png`, `ownall-living-room-arch-zoom.png`), the teeth are a band a voxel or two
+    wide beside each arch's moulding where the 27 hold no voxel of the wall at all: every voxel there is the
+    moulding's, and the lookup, having none of its own among its 8, kept the moulding's (the facing rule's own
+    exception), lit by the window. Not a seam between two lookups either: the same with the own lookup at every pixel.
+  - *At the source instead* (the alternative that came of it, `s2/own2.pl`'s 1024): an air voxel takes its light from
+    the surfaces around whose open side it is on, every face from all of them; a surface's entry's rays leave its own
+    side, so the air beside a wall and a toaster held a mix of both in every face, which the wall's lookups read with
+    the wall's own. Each face is now from the surfaces among them that face its way (`ComputeGiCacheFilter`,
+    `kGiSpreadFacedLeast`), so the air in front of a wall holds the wall's light along the wall's normal whatever
+    stands against it; and a lookup leaves the other surfaces' voxels out of its 8 whether one of the 8 is its own
+    surface's or not (`GiSidesMaskFacing`), since the air's are its own surface's light where that has none.
+    The kitchen's wall is smooth at half a second and at two; living-room's arches keep a few soft notches where they
+    had rows of teeth, its panels' frames and shutters are cleaner; the classroom's window walls too
+    (`temp/review/research-issues/s7-<scene>-<place>.png`: before and after at frame 30, before and after at frame
+    120; `s7-<scene>-indirect.png`, `s7-<scene>-lit.png`). Better than the own lookup, and than both together
+    (`combo3-*.png`: off, this, this with the own lookup), for 8 voxels read where that reads up to 27.
+    The regression poses at 900 frames within 0.7 of 255 of the commit before (the bathroom 0.68, living-room 0.58,
+    the kitchen 0.47, Sponza's columns 0.33, bathroom2's niche 0.30 and mirror 0.28, salle_de_bain's shelves 0.26;
+    living-room's cornice without its bright line). The cost: none (Bistro's frame 22.47 ms against 22.51 at 1440p
+    balanced, the classroom's 7.80 against 7.91: GI Sides is cheaper, 0.73 to 0.64 and 0.47 to 0.35, a voxel left out
+    by its facing needing no ray; the filter's pass within its noise).
+  - Thought of and not built: smoothing the indirect light on the screen (hides steps in the view, not in what a
+    mirror shows, and blurs the contacts the near field draws; kept for what is left, if it shows); the near field's
+    rays standing in where a lookup is incomplete (the rays that meet nothing fall back on the same lookup); the
+    coarser level's light for the left out share (tried in step 3: its own blocks, and a leak); the world cache's
+    cells, which are per surface (docs/world-cache-plan.md, off for its cost).
+  Left: the arches' soft notches (an air voxel with no surface facing the wall's way among its 26 keeps the mix), and
+  cornell-box's front face's faint teeth. Against the references at 1500 frames, about the same: 3 scenes nearer, 5
+  further, none by more than 0.006 blurred stops (the classroom 0.263 to 0.269, classroom2 0.333 to 0.337, veach-ajar
+  0.201 to 0.205; the bathroom 0.229 to 0.226), the mean 0.2536 to 0.2540: what it mends is the blocks, which that
+  measure blurs. visualtest 8 of 8, the quick tier 142 of 142.
