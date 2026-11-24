@@ -843,7 +843,7 @@ recently used first: `scripts/prune-shader-cache.ps1`, docs/shader-compile-plan.
 client's compile, 83 s of the SPIR-V on those 4 processors (231 s for traced-shadows cold, 118 s warm) and 158 s of the
 DXIL on 32 (249 MB and 95 MB; both ray query variants), and the WARP checks moved to their own job, in parallel (the
 user's choice, 2026-11-24, of: also the lavapipe checks split in two jobs, or a longer timeout). B2 for the shader cache
-(the user's offer) waits for a need: the actions cache holds it, at 5.7 of its 10 GB before.
+(the user's offer) waits for a need: the actions cache holds it, at 5.7 of its 10 GB before. The longer timeout came the same day (the user's call): the four platform jobs' limit is 240 minutes, not 120 (a hosted job may run 360). On 96da8af4 (run 45452915745) the Windows job still ran out at 120 in its lavapipe checks, and the macOS job's took 65 minutes (35 two days before), the Metal checks after them 8.
 
 **The badges** (the user's ask, 2026-11-24): README.md shows the workflow's own badge (the whole run), one per platform
 and one per rhi backend tested on each, these shields.io's check runs badge (`github/check-runs/<owner>/<repo>/master?nameFilter=`),

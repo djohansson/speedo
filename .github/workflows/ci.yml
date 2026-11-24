@@ -48,7 +48,9 @@ jobs:
     # GitHub's Xcode 27 image: macOS 27 on Apple silicon, whose SDK's major version is the deployment target the cache's
     # packages are keyed by (macos-latest and macos-26 are macOS 26: every package would be built)
     runs-on: xcode-27
-    timeout-minutes: 120
+    # (the platform jobs' limit: four hours since 2026-11-24, the user's call, when the Windows job ran out of two in its
+    # lavapipe checks again; see "The Windows job's two hours" in docs/notes/build.md)
+    timeout-minutes: 240
     env:
       TRIPLET: arm64-osx-clang
     # the backends' outcomes, for the backend checks job
@@ -205,7 +207,7 @@ jobs:
     # requires, and its CMake is new enough; it has no winget, which setup only needs to install what is missing). The
     # packages' hashes don't track the toolset or SDK versions (docs/notes/build.md), so it restores those built with VS 2022
     runs-on: windows-2025-vs2026
-    timeout-minutes: 120
+    timeout-minutes: 240
     env:
       TRIPLET: x64-windows-clang
     outputs:
@@ -338,7 +340,7 @@ jobs:
   windows-d3d12:
     name: Windows x64 (D3D12 on WARP)
     runs-on: windows-2025-vs2026
-    timeout-minutes: 120
+    timeout-minutes: 240
     env:
       TRIPLET: x64-windows-clang
     outputs:
@@ -420,7 +422,7 @@ jobs:
     # GitHub's Ubuntu 26.04 image, by its own label: the cache's Linux packages are keyed by the C library's version
     # (GLIBC_VERSION, 2.43 there), and ubuntu-latest moves from 24.04 (2.39) to 26.04 over November and December 2026
     runs-on: ubuntu-26.04
-    timeout-minutes: 120
+    timeout-minutes: 240
     env:
       TRIPLET: x64-linux-clang
     outputs:
