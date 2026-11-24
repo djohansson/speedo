@@ -213,7 +213,7 @@ void ComputeGlassHistory(uint3 dispatchThreadId : SV_DispatchThreadID)
 	gRWTextures[SHADER_TYPES_GLASS_HISTORY_RW_TEXTURE][pixel] = gTextures[SHADER_TYPES_GLASS_LIGHT_TEXTURE].Load(int3(pixel, 0));
 }
 
-// whether a fragment traces its refraction (View > Rendering Features > Ray Traced Refractions, where the device has ray queries; see
+// whether a fragment traces its refraction (View > Rendering Features > Ray Traced Refractions; see
 // TransmittedLight), and along which direction: a ray of its lobe (TransmittedLobeRay; sample: dispersion's color), into a
 // volume (thickness), or through a thin wall (the screen space lookup's place is the surface's own, behind it)
 bool TransmittedTraced(

@@ -15,7 +15,7 @@ namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 
 // diagnostic: what the device's ray queries do (SPEEDO_RAY_QUERY_WATCH set to anything but 0, where the device has them), for a crash report
 // to tell after the gpu hung (KosmicKrisp's ray queries beside other processes' gpu work restarted the gpu, see
-// CLAUDE.md). the shaders, compiled with BVH_RAY_QUERY_WATCH, count the queries begun and ended in gRayQueryWatch and
+// CLAUDE.md). the shaders, compiled with HARDWARE_RAY_QUERY_WATCH, count the queries begun and ended in gRayQueryWatch and
 // record each in a slot while it is in flight (see RAY_QUERY_WATCH_BEGUN); the renderer gives each compute dispatch a
 // breadcrumb of its own within its pass's, so that a report also tells which kernel was in flight
 bool RayQueryWatchOn();

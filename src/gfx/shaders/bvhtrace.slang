@@ -1,11 +1,11 @@
 // the model's triangles traced (BvhTraceInstances and what calls it: BvhTraceScene, BvhTraceGlass, BvhTraceSceneOrGlass):
-// by the device's ray queries where it has them (BVH_RAY_QUERY) and through gfx's BVHs (bvh.slang's traversal) where it
+// by the device's ray queries where it has them (HARDWARE_RAY_QUERY) and through gfx's BVHs (bvh.slang's traversal) where it
 // hasn't. a part of shaders.slang, which includes it after bvh.slang (which the tools' kernels include alone, without
 // the scene's bindings: src/tools/bvhkernels.slang)
 
-#if BVH_RAY_QUERY
+#if HARDWARE_RAY_QUERY
 // a ray query's geometry (see gfx/accelerationstructures.h): its entry in gBvhTriangles (its flags, its first index, and
-// its instance or first corner, see BVH_RAY_QUERY_MASK_STATIC), by its instance's custom index (its first geometry) and its
+// its instance or first corner, see BVH_TRACE_MASK_STATIC), by its instance's custom index (its first geometry) and its
 // index in its structure
 uint4 BvhRayQueryGeometry(uint customIndex, uint geometry)
 {
@@ -15,7 +15,7 @@ uint4 BvhRayQueryGeometry(uint customIndex, uint geometry)
 // whether a top level instance is of what moves (what moves, the glass that moves: its corners as the frame placed them)
 bool BvhRayQueryMoving(uint instance)
 {
-	return instance == BVH_RAY_QUERY_INSTANCE_MOVING || instance == BVH_RAY_QUERY_INSTANCE_MOVING_GLASS;
+	return instance == BVH_TRACE_INSTANCE_MOVING || instance == BVH_TRACE_INSTANCE_MOVING_GLASS;
 }
 
 // a ray query's triangle's corners in world space: what doesn't move's vertices placed by its instance, what moves' as the
@@ -34,7 +34,7 @@ void BvhRayQueryCorners(uint instance, uint4 geometry, uint primitive, out float
 	}
 }
 
-#if BVH_RAY_QUERY_WATCH
+#if HARDWARE_RAY_QUERY_WATCH
 // diagnostic (see RAY_QUERY_WATCH_BEGUN): whether the watch records here, in compute shaders only (a fragment shader's
 // storage writes, even on a path never taken, turn its early depth test off, see GiMarch's cap)
 bool RayQueryWatchHere()
@@ -103,7 +103,7 @@ void RayQueryWatchEnd(uint slot, uint candidates)
 #endif
 #endif
 
-// the model's triangles traced, by the device's ray queries where it has them (BVH_RAY_QUERY: gBvhScene[frame]) and
+// the model's triangles traced, by the device's ray queries where it has them (HARDWARE_RAY_QUERY: gBvhScene[frame]) and
 // through gfx's BVHs where it hasn't (BvhTraverse, BvhTraverse2): one interface, BvhTraceInstances and what calls it
 // below, so that what traces compiles and works with either, slower through the BVHs. the BVHs hold the glass among
 // the rest, flagged (BVH_TRIANGLE_FLAG_GLASS, see BvhMasked), where the ray queries' is a structure of its own; a hit on
@@ -114,14 +114,14 @@ void RayQueryWatchEnd(uint slot, uint candidates)
 BvhHit BvhTraceScene<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, bool moving, Filter filter)
 {
 	return BvhTraceInstances(
-		origin, direction, tmax, anyHit, moving ? (BVH_RAY_QUERY_MASK_STATIC | BVH_RAY_QUERY_MASK_MOVING) : BVH_RAY_QUERY_MASK_STATIC, filter);
+		origin, direction, tmax, anyHit, moving ? (BVH_TRACE_MASK_STATIC | BVH_TRACE_MASK_MOVING) : BVH_TRACE_MASK_STATIC, filter);
 }
 
 // the nearest transmissive triangle (that moves or not) a ray meets before tmax, which only the paths through the glass
-// query (see GlassPath; BVH_RAY_QUERY_MASK_GLASS)
+// query (see GlassPath; BVH_TRACE_MASK_GLASS)
 BvhHit BvhTraceGlass(float3 origin, float3 direction, float tmax)
 {
-	return BvhTraceInstances(origin, direction, tmax, false, BVH_RAY_QUERY_MASK_GLASS, BvhOpaque());
+	return BvhTraceInstances(origin, direction, tmax, false, BVH_TRACE_MASK_GLASS, BvhOpaque());
 }
 
 // the nearest of BvhTraceScene's (what moves too) and BvhTraceGlass's in one query, and whether it is glass: the paths
@@ -131,8 +131,8 @@ BvhHit BvhTraceSceneOrGlass<Filter : IBvhFilter>(float3 origin, float3 direction
 {
 	uint instance;
 	BvhHit hit = BvhTraceInstances(
-		origin, direction, tmax, false, BVH_RAY_QUERY_MASK_STATIC | BVH_RAY_QUERY_MASK_MOVING | BVH_RAY_QUERY_MASK_GLASS, filter, instance);
-	glass = instance == BVH_RAY_QUERY_INSTANCE_GLASS || instance == BVH_RAY_QUERY_INSTANCE_MOVING_GLASS;
+		origin, direction, tmax, false, BVH_TRACE_MASK_STATIC | BVH_TRACE_MASK_MOVING | BVH_TRACE_MASK_GLASS, filter, instance);
+	glass = instance == BVH_TRACE_INSTANCE_GLASS || instance == BVH_TRACE_INSTANCE_MOVING_GLASS;
 	return hit;
 }
 
@@ -143,9 +143,9 @@ BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, f
 	return BvhTraceInstances(origin, direction, tmax, anyHit, mask, filter, instance);
 }
 
-#if !BVH_RAY_QUERY
+#if !HARDWARE_RAY_QUERY
 // a ray's filter through the BVHs, which hold the glass among the rest (BVH_TRIANGLE_FLAG_GLASS, see gfx/bvh.h): a
-// glass triangle stops the rays of BVH_RAY_QUERY_MASK_GLASS alone (whole: its alpha mask isn't tested, as the ray
+// glass triangle stops the rays of BVH_TRACE_MASK_GLASS alone (whole: its alpha mask isn't tested, as the ray
 // queries' glass structure has it), any other those its BVH's mask bit is in (opaque), where the ray's own filter
 // accepts it
 struct BvhMasked<Filter : IBvhFilter> : IBvhFilter
@@ -163,35 +163,35 @@ struct BvhMasked<Filter : IBvhFilter> : IBvhFilter
 }
 
 // and the top level instance it met (~0u where nothing; as the ray queries' structures name them: 0 what doesn't move,
-// BVH_RAY_QUERY_INSTANCE_MOVING what moves, BVH_RAY_QUERY_INSTANCE_GLASS and _MOVING_GLASS the glass), through the BVHs:
+// BVH_TRACE_INSTANCE_MOVING what moves, BVH_TRACE_INSTANCE_GLASS and _MOVING_GLASS the glass), through the BVHs:
 // the static one, then the moving one where the model has one (TRACED_MOVING_BVH) for what is nearer, the glass in each
-// for the rays of BVH_RAY_QUERY_MASK_GLASS (so the nearest of the scene and the glass is one traversal of each)
+// for the rays of BVH_TRACE_MASK_GLASS (so the nearest of the scene and the glass is one traversal of each)
 BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, uint mask, Filter filter, out uint instance)
 {
 	instance = ~0u;
 	BvhHit hit = BvhNothing(tmax);
 	BvhMasked<Filter> masked;
 	masked.filter = filter;
-	masked.glass = (mask & BVH_RAY_QUERY_MASK_GLASS) != 0u;
-	if ((mask & (BVH_RAY_QUERY_MASK_STATIC | BVH_RAY_QUERY_MASK_GLASS)) != 0u)
+	masked.glass = (mask & BVH_TRACE_MASK_GLASS) != 0u;
+	if ((mask & (BVH_TRACE_MASK_STATIC | BVH_TRACE_MASK_GLASS)) != 0u)
 	{
-		masked.opaque = (mask & BVH_RAY_QUERY_MASK_STATIC) != 0u;
+		masked.opaque = (mask & BVH_TRACE_MASK_STATIC) != 0u;
 		hit = BvhTraverse(gBvhNodes, gBvhTriangles, origin, direction, tmax, anyHit, masked);
 		if (BvhHitSomething(hit))
-			instance = (hit.flags & BVH_TRIANGLE_FLAG_GLASS) != 0u ? BVH_RAY_QUERY_INSTANCE_GLASS : 0u;
+			instance = (hit.flags & BVH_TRIANGLE_FLAG_GLASS) != 0u ? BVH_TRACE_INSTANCE_GLASS : 0u;
 	}
-	if ((mask & (BVH_RAY_QUERY_MASK_MOVING | BVH_RAY_QUERY_MASK_GLASS)) != 0u && (gPushConstants.traced & TRACED_MOVING_BVH) != 0u &&
+	if ((mask & (BVH_TRACE_MASK_MOVING | BVH_TRACE_MASK_GLASS)) != 0u && (gPushConstants.traced & TRACED_MOVING_BVH) != 0u &&
 		!(anyHit && BvhHitSomething(hit)))
 	{
 		uint frameIndex = gPushConstants.frameIndex;
-		masked.opaque = (mask & BVH_RAY_QUERY_MASK_MOVING) != 0u;
+		masked.opaque = (mask & BVH_TRACE_MASK_MOVING) != 0u;
 		BvhHit movingHit = BvhTraverse2(gBvhMovingNodes[frameIndex], gBvhMovingTriangles[frameIndex], origin, direction, hit.t, anyHit, masked);
 		bool capped = hit.capped || movingHit.capped;
 		if (BvhHitSomething(movingHit))
 		{
 			hit = movingHit;
 			hit.moves = true;
-			instance = (hit.flags & BVH_TRIANGLE_FLAG_GLASS) != 0u ? BVH_RAY_QUERY_INSTANCE_MOVING_GLASS : BVH_RAY_QUERY_INSTANCE_MOVING;
+			instance = (hit.flags & BVH_TRIANGLE_FLAG_GLASS) != 0u ? BVH_TRACE_INSTANCE_MOVING_GLASS : BVH_TRACE_INSTANCE_MOVING;
 		}
 		hit.capped = capped;
 	}
@@ -202,8 +202,8 @@ BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, f
 BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, uint mask, Filter filter, out uint instance)
 {
 	instance = ~0u;
-	bool moving = (mask & BVH_RAY_QUERY_MASK_MOVING) != 0u;
-#if BVH_RAY_QUERY_WATCH
+	bool moving = (mask & BVH_TRACE_MASK_MOVING) != 0u;
+#if HARDWARE_RAY_QUERY_WATCH
 	uint watch = RayQueryWatchBegin(origin, direction, tmax, anyHit, moving);
 	uint candidates = 0u;
 #endif
@@ -214,13 +214,13 @@ BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, f
 	ray.TMax = tmax;
 	RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
 	query.TraceRayInline(gBvhScene[gPushConstants.frameIndex], anyHit ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE, mask, ray);
-#if BVH_RAY_QUERY_WATCH
+#if HARDWARE_RAY_QUERY_WATCH
 	RayQueryWatchStage(watch, RAY_QUERY_WATCH_STAGE_TRACED, 0u);
 #endif
 	// the candidates are the alpha masked triangles (their geometry isn't opaque): hit where the filter accepts them
 	while (query.Proceed())
 	{
-#if BVH_RAY_QUERY_WATCH
+#if HARDWARE_RAY_QUERY_WATCH
 		if ((candidates++ & 15u) == 0u)
 			RayQueryWatchStage(watch, RAY_QUERY_WATCH_STAGE_CANDIDATES, candidates);
 #endif
@@ -228,7 +228,7 @@ BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, f
 		if (filter.Accept(geometry.x, geometry.y + query.CandidatePrimitiveIndex() * 3u, query.CandidateTriangleBarycentrics()))
 			query.CommitNonOpaqueTriangleHit();
 	}
-#if BVH_RAY_QUERY_WATCH
+#if HARDWARE_RAY_QUERY_WATCH
 	RayQueryWatchEnd(watch, candidates);
 #endif
 	if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
@@ -254,7 +254,7 @@ BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, f
 	return hit;
 }
 
-#if BVH_RAY_QUERY_WATCH
+#if HARDWARE_RAY_QUERY_WATCH
 // diagnostic (SPEEDO_RAY_QUERY_REPLAY, see gfx/rayquerywatch.h): rays a crash report's watch had in flight, traced again as
 // they were (a thread per ray along x, per repetition along y), the watch counting them, and those that hit something
 // (so that the queries' results are used). gRayQueryReplay: the count, then per ray its origin and tmax, then its direction

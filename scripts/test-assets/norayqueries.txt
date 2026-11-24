@@ -1,5 +1,5 @@
 # without ray queries: each client run labelled here (as its log is named, client-<label>.log) also runs with
-# SPEEDO_RAY_QUERY=0 (as <label>-norayqueries), the shaders' BVHs tracing the rays (BVH_RAY_QUERY 0: macOS by default,
+# SPEEDO_RAY_QUERY=0 (as <label>-norayqueries), the shaders' BVHs tracing the rays (HARDWARE_RAY_QUERY 0: macOS by default,
 # devices without ray queries), among whatever scripts/assettest.ps1 -Client is given: the quick tier's that are here,
 # the full sets' all of them. so that the shaders' other variant compiles and draws before every commit (see CLAUDE.md)
 # glass, its caustics and traced refractions

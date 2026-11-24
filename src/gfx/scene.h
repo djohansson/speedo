@@ -88,9 +88,10 @@ public:
 		std::atomic<bool> tracedShadows = true;
 		// and at every pixel rather than where the atlas isn't sure (SPEEDO_TRACED_SHADOWS=all, for comparisons)
 		std::atomic<bool> tracedShadowsEverywhere = false;
-		// whether the smooth surfaces' reflections and the transmissive ones' refractions are traced, where the device has
-		// ray queries (FrameInputs::tracedReflections and tracedRefractions; View > Rendering Features > Ray Traced Reflections and Ray Traced
-		// Refractions, SPEEDO_TRACED_REFLECTIONS=0 and SPEEDO_TRACED_REFRACTIONS=0 to start without)
+		// whether the smooth surfaces' reflections and the transmissive ones' refractions are traced, through the device's
+		// ray queries or, where it has none, gfx's BVHs (FrameInputs::tracedReflections and tracedRefractions; View >
+		// Rendering Features > Ray Traced Reflections and Ray Traced Refractions, SPEEDO_TRACED_REFLECTIONS=0 and
+		// SPEEDO_TRACED_REFRACTIONS=0 to start without)
 		std::atomic<bool> tracedReflections = true;
 		// (the refractions: 1, 0, or -1 for the device's, on with ray queries and off through the BVHs, for their cost
 		// there; Scene::GetTracedRefractions)
@@ -113,7 +114,7 @@ public:
 		// references' Cycles refracts as solids (on where a model comes with the set's conditions: the user's call,
 		// 2026-11-22)
 		std::atomic<bool> solidTransmission = false;
-		// whether the transmissive surfaces refract the lights' light into caustics, where the device has ray queries
+		// whether the transmissive surfaces refract the lights' light into caustics, traced as the refractions are
 		// (FrameInputs::caustics; View > Rendering Features > Caustics, SPEEDO_CAUSTICS=0 to start without: they tint it as it goes straight through)
 		// (1, 0, or -1 for the device's: on with ray queries, off through the BVHs; Scene::GetCaustics)
 		std::atomic<int32_t> caustics = -1;

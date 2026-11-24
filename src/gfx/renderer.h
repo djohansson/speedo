@@ -101,7 +101,7 @@ struct FrameInputs
 	bool tracedShadows = true;
 	bool tracedShadowsEverywhere = false;
 	// whether the smooth surfaces' reflections and the transmissive ones' refractions are traced (PushConstants::traced, see
-	// traced.slang), where the shaders have the device's ray queries and the model its acceleration structures
+	// traced.slang), where the model has what its rays trace (the device's ray queries' structures, or gfx's BVHs)
 	bool tracedReflections = true;
 	bool tracedRefractions = true;
 	// the glossy reflections' ray budget: a ray every n-th pixel each way, 1, 2 or 4 (TRACED_STRIDE_SHIFT)
@@ -113,8 +113,8 @@ struct FrameInputs
 	uint32_t glassSurfaceCount = SHADER_TYPES_CAUSTIC_SURFACE_COUNT;
 	// whether transmission without a volume is a solid (TRACED_SOLID_TRANSMISSION, see Scene::Settings::solidTransmission)
 	bool solidTransmission = false;
-	// whether the transmissive surfaces refract the lights' light into caustics (see ComputeCaustics), where the shaders have
-	// the device's ray queries and the model its structures, else they tint it as it goes straight through
+	// whether the transmissive surfaces refract the lights' light into caustics (see ComputeCaustics), where the model has
+	// what its rays trace (the ray queries' structures, or the BVHs), else they tint it as it goes straight through
 	bool caustics = true;
 	// the first view's exposure (ViewData::exposure), which the emitters' caustics' cells take the unit of their sums from
 	// when they are emptied (see EmitterData::causticUnit)

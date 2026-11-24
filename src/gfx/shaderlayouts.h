@@ -20,7 +20,7 @@ struct ShaderLayout
 [[nodiscard]] ShaderLayout ImGuiShaderLayout(const std::filesystem::path& shaderPath);
 
 // the scene's (scene.cpp): the pre-pass, the main layout, the flares' and the environment filter's, with the device's ray
-// queries (BVH_RAY_QUERY) or without, and with the ray query watch (a diagnostic, which an install doesn't have)
+// queries (HARDWARE_RAY_QUERY) or without, and with the ray query watch (a diagnostic, which an install doesn't have)
 [[nodiscard]] std::vector<ShaderLayout> SceneShaderLayouts(const std::filesystem::path& shaderPath, bool rayQuery, bool rayQueryWatch);
 
 } // namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE

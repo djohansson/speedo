@@ -185,17 +185,17 @@ AccelerationStructures::AccelerationStructures(Device& device, std::string_view 
 		// what doesn't move, what moves as the frame index's structure has it, the glass, and the glass that moves as the frame
 		// index's structure has it (the shaders tell them apart by their index)
 		std::array<AccelerationStructureInstance, kInstanceCount> instances{};
-		instances[0].customIndexAndMask = BVH_RAY_QUERY_MASK_STATIC << 24U;
+		instances[0].customIndexAndMask = BVH_TRACE_MASK_STATIC << 24U;
 		instances[0].structureAddress = myStatic ? myStatic->GetDeviceAddress() : 0;
-		static_assert(BVH_RAY_QUERY_INSTANCE_MOVING == 1 && BVH_RAY_QUERY_INSTANCE_GLASS == 2 && BVH_RAY_QUERY_INSTANCE_MOVING_GLASS == 3);
-		instances[1].customIndexAndMask = staticGeometryCount | (BVH_RAY_QUERY_MASK_MOVING << 24U);
+		static_assert(BVH_TRACE_INSTANCE_MOVING == 1 && BVH_TRACE_INSTANCE_GLASS == 2 && BVH_TRACE_INSTANCE_MOVING_GLASS == 3);
+		instances[1].customIndexAndMask = staticGeometryCount | (BVH_TRACE_MASK_MOVING << 24U);
 		instances[1].structureAddress = moves ? myMoving.back().GetDeviceAddress() : 0;
 		auto glassFirst = staticGeometryCount + static_cast<uint32_t>(myInputs.movingGeometries.size());
-		instances[2].customIndexAndMask = glassFirst | (BVH_RAY_QUERY_MASK_GLASS << 24U);
+		instances[2].customIndexAndMask = glassFirst | (BVH_TRACE_MASK_GLASS << 24U);
 		instances[2].structureAddress = myGlass ? myGlass->GetDeviceAddress() : 0;
 		auto movingGlassFirst = glassFirst + static_cast<uint32_t>(myInputs.glassGeometries.size());
 		ENSUREF(movingGlassFirst < kCustomIndexCount, "{}: more geometries than a ray query instance's custom index holds ({})", name, kCustomIndexCount);
-		instances[3].customIndexAndMask = movingGlassFirst | (BVH_RAY_QUERY_MASK_GLASS << 24U);
+		instances[3].customIndexAndMask = movingGlassFirst | (BVH_TRACE_MASK_GLASS << 24U);
 		instances[3].structureAddress = glassMoves ? myMovingGlass.back().GetDeviceAddress() : 0;
 		auto& instanceBuffer = myInstances.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("{} (instances {})", name, frameIt)),

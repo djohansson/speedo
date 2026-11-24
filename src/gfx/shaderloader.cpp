@@ -590,7 +590,7 @@ std::string ShaderLoader::SlangConfiguration::ToString() const
 	for (const auto& [name, stage] : entryPoints)
 		entryPointsString.append(std::format("[{}, {}]", name, static_cast<SlangStageIntegral>(stage)));
 
-	// the definitions select code (BVH_RAY_QUERY), so a cached compile is only another's with the same ones
+	// the definitions select code (HARDWARE_RAY_QUERY), so a cached compile is only another's with the same ones
 	std::string definitionsString;
 	for (const auto& [name, value] : preprocessorDefinitions)
 		definitionsString.append(std::format("[{}={}]", name, value));

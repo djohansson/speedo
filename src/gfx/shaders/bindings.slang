@@ -295,12 +295,12 @@ struct ModelInstancesSet
 	StructuredBuffer<LensData> gLensData[SHADER_TYPES_FRAME_COUNT];
 	// and its ghosts (see LensGhost), LensData::ghostCount of them, per frame index
 	StructuredBuffer<LensGhost> gLensGhosts[SHADER_TYPES_FRAME_COUNT];
-#if BVH_RAY_QUERY
+#if HARDWARE_RAY_QUERY
 	// where the device's ray queries trace instead (see gfx/accelerationstructures.h), its top level structure per frame index:
 	// what doesn't move (gBvhTriangles' triangles) and what moves (gBvhMovingTriangles[frame]'s), see BvhTraceScene. last, as
 	// the watch's, so that the other bindings are the same with ray queries and without
 	RaytracingAccelerationStructure gBvhScene[SHADER_TYPES_FRAME_COUNT];
-#if BVH_RAY_QUERY_WATCH
+#if HARDWARE_RAY_QUERY_WATCH
 	// diagnostic: what the ray queries do, host visible (see RAY_QUERY_WATCH_BEGUN)
 	RWStructuredBuffer<uint> gRayQueryWatch;
 	// diagnostic: the rays replayed (see ComputeRayQueryReplay): their count in the first's x, then two a ray
@@ -366,9 +366,9 @@ ParameterBlock<ModelInstancesSet> gSetModelInstances;
 #define gAerialPerspectiveData gSetModelInstances.gAerialPerspectiveData
 #define gLensData gSetModelInstances.gLensData
 #define gLensGhosts gSetModelInstances.gLensGhosts
-#if BVH_RAY_QUERY
+#if HARDWARE_RAY_QUERY
 #define gBvhScene gSetModelInstances.gBvhScene
-#if BVH_RAY_QUERY_WATCH
+#if HARDWARE_RAY_QUERY_WATCH
 #define gRayQueryWatch gSetModelInstances.gRayQueryWatch
 #define gRayQueryReplay gSetModelInstances.gRayQueryReplay
 #endif

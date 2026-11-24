@@ -71,7 +71,7 @@ struct Triangle
 // what the device's ray queries trace of what doesn't move instead (DeviceLimits::rayQuery, see
 // gfx/accelerationstructures.h): no copy of its triangles, but the model's own indices and vertices, a geometry per
 // triangle list and instance of those Triangles takes, placed by the instance's transform (alpha masked ones aren't
-// opaque: the shaders test them); and per geometry what the shaders read of a hit (BVH_RAY_QUERY_GEOMETRY_*)
+// opaque: the shaders test them); and per geometry what the shaders read of a hit (HARDWARE_RAY_QUERY_GEOMETRY_*)
 struct RayQueryGeometry
 {
 	uint32_t flags = 0; // BVH_TRIANGLE_FLAG_* and the material
@@ -85,7 +85,7 @@ struct RayQueryGeometry
 [[nodiscard]] std::vector<RayQueryGeometry> RayQueryGeometries(const ModelDesc& desc, std::optional<size_t> untraced = std::nullopt);
 // and of its transmissive surfaces that don't move (not blended), which the caustics' photons, the traced refractions and
 // reflections go through (see GlassPath): a structure of their own, which the other rays don't query
-// (BVH_RAY_QUERY_MASK_GLASS)
+// (BVH_TRACE_MASK_GLASS)
 [[nodiscard]] std::vector<RayQueryGeometry> RayQueryGlassGeometries(const ModelDesc& desc);
 
 // the same in the moving BVH's layout (tinybvh's BVH_GPU, see Moving; BVH2_NODE_FLOAT4_COUNT and

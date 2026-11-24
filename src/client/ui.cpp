@@ -372,8 +372,8 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 		kDefaults.tracedShadowsEverywhere,
 		"SPEEDO_TRACED_SHADOWS",
 		[](const char* value) { return std::optional<bool>(std::string_view(value) == "all"); });
-	// the traced reflections and refractions, where the device has ray queries (SPEEDO_TRACED_REFLECTIONS=0 and
-	// SPEEDO_TRACED_REFRACTIONS=0 without)
+	// the traced reflections (SPEEDO_TRACED_REFLECTIONS=0 without) and refractions (SPEEDO_TRACED_REFRACTIONS=0 or 1;
+	// unset, the device's: on with ray queries)
 	apply(settings.tracedReflections, kDefaults.tracedReflections, "SPEEDO_TRACED_REFLECTIONS", unless("0"));
 	apply(settings.tracedRefractions, kDefaults.tracedRefractions, "SPEEDO_TRACED_REFRACTIONS", onOrOff);
 	// the glossy reflections' ray budget (SPEEDO_REFLECTION_STRIDE=1, 2 or 4: a ray every n-th pixel each way; unset, the

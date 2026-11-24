@@ -206,7 +206,7 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   alone, and the menu shows the panorama's intensity, rotation, backdrop and dominant lights instead, so that the sky's
   are never in two places) and Rendering Features > Indirect Lighting... (its rays, resolution, surface cache and near
   field). `SPEEDO_SHOW_CAMERAS=1`, `SPEEDO_SHOW_SKY=1` and `SPEEDO_SHOW_INDIRECT_LIGHTING=1` open them at startup, for
-  screenshots. A checkbox of what can't run now (the traced features without ray queries, the traced shadows and the
+  screenshots (`SPEEDO_SHOW_RAY_TRACING=1` for Rendering Features > Ray Tracing..., the traced features' options, see rendering.md). A checkbox of what can't run now (the traced shadows and the
   caustics without shadows, the near field with the voxels' rays, the light shafts and fog without the aerial
   perspective, a real lens's glare, blur and grain with the pinhole) is greyed out and unchecked, its setting kept
   (`SmallCheckbox` with `available`: greyed out but checked read as on). Checkboxes are a line of text tall

@@ -86,7 +86,7 @@ void ShadowBasis(float3 n, out float3 t, out float3 b)
 // masks cut out as the main pass's are), and the distance to it (or -1 if nothing is)
 float ShadowOccluder(float3 origin, float3 direction, float tmax, bool moving)
 {
-#if BVH_RAY_QUERY
+#if HARDWARE_RAY_QUERY
 	BvhHit hit = BvhTraceScene(origin, direction, tmax, true, moving, GiAlphaMask());
 	return BvhHitSomething(hit) ? hit.t : -1.0;
 #else

@@ -1,7 +1,7 @@
 // the traced reflections and refractions (PushConstants::traced, TRACED_*; View > Rendering Features > Ray Traced Reflections and
-// Refractions): where the device has ray queries (BVH_RAY_QUERY), the radiance along a smooth surface's reflection
+// Refractions; through the device's ray queries or gfx's BVHs, see bvhtrace.slang): the radiance along a smooth surface's reflection
 // (TracedReflection, see Shade) and the light through a transmissive one (see TransmittedLight), traced
-// through the model's acceleration structures (gBvhScene[frame], BvhTraceScene) and shaded where the ray meets something
+// through the model's structures (BvhTraceScene) and shaded where the ray meets something
 // (TracedHitRadiance), the environment where it meets nothing. a fragment's (Main's blended surfaces, the transmissive
 // ones, the forward path) sharp: a ray along the reflection's dominant direction (or the refracted ray), all of the
 // reflection below kTracedRoughnessFull, faded into the glossy one the probes and the environment give (or the

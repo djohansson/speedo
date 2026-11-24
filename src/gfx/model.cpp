@@ -1446,7 +1446,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 	if (rayQueries)
 	{
 		// what the device's ray queries' structures are built of instead (see AccelerationStructures): the model's indices
-		// and vertices, and per geometry its transform and its entry in the shaders' table (BVH_RAY_QUERY_GEOMETRY_*): what
+		// and vertices, and per geometry its transform and its entry in the shaders' table (HARDWARE_RAY_QUERY_GEOMETRY_*): what
 		// doesn't move's, what moves' (their entries were missing, so a ray meeting what moves read past the table: its
 		// material none, and past its first geometry the wrong corners), then the glass's, then the glass's that moves
 		auto geometries = bvh::RayQueryGeometries(desc, untracedMaterial);

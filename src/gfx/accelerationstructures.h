@@ -15,12 +15,12 @@
 namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE
 {
 
-// what the device's ray queries trace of a model (DeviceLimits::rayQuery, BVH_RAY_QUERY in the shaders), in place of its
+// what the device's ray queries trace of a model (DeviceLimits::rayQuery, HARDWARE_RAY_QUERY in the shaders), in place of its
 // BVHs (see gfx/bvh.h): a bottom level structure of what doesn't move, built once of the model's own indices and
 // vertices, a geometry per triangle list and instance placed by the instance's transform (bvh::RayQueryGeometries); one
 // of what moves per frame index, refit each frame to where it was placed (bvh::Moving::WriteRayQueryCorners); and a top
-// level structure per frame index of their instances (what doesn't move, BVH_RAY_QUERY_MASK_STATIC, then what does,
-// BVH_RAY_QUERY_MASK_MOVING, then the transmissive surfaces that don't move, BVH_RAY_QUERY_MASK_GLASS, built once as what
+// level structure per frame index of their instances (what doesn't move, BVH_TRACE_MASK_STATIC, then what does,
+// BVH_TRACE_MASK_MOVING, then the transmissive surfaces that don't move, BVH_TRACE_MASK_GLASS, built once as what
 // doesn't move is, and those that move, refit each frame as what moves is, under the same mask: which only the paths
 // through the glass query, see GlassPath; an instance of nothing is inactive), which the shaders bind as gBvhScene[frame].
 // the alpha masked geometries aren't opaque: their hits are candidates the shaders test. an instance's first geometry
@@ -78,7 +78,7 @@ public:
 	[[nodiscard]] std::shared_ptr<void> RecordCompaction(CommandBufferHandle cmd);
 
 	[[nodiscard]] const AccelerationStructure& GetTopLevel(uint32_t frameIndex) const noexcept { return myTopLevels[frameIndex]; }
-	// whether there is a structure of transmissive surfaces (BVH_RAY_QUERY_MASK_GLASS), that move or not
+	// whether there is a structure of transmissive surfaces (BVH_TRACE_MASK_GLASS), that move or not
 	[[nodiscard]] bool HasGlass() const noexcept { return myGlass.has_value() || !myMovingGlass.empty(); }
 
 private:

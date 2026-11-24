@@ -160,7 +160,7 @@ struct ModelBuffers
 	std::vector<Buffer> morphWeights; // per frame, host visible: ModelDesc::morphWeights' count of weights, if any
 	// the indirect lighting's ray tracing structure over what doesn't move (see gfx/bvh.h), if there is any (where the
 	// device's ray queries trace instead, see AccelerationStructures: no nodes, the geometries' table in bvhTriangles,
-	// BVH_RAY_QUERY_GEOMETRY_*, and their transforms in bvhTransforms)
+	// HARDWARE_RAY_QUERY_GEOMETRY_*, and their transforms in bvhTransforms)
 	Buffer bvhNodes;
 	Buffer bvhTriangles;
 	Buffer bvhTransforms;

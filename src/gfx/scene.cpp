@@ -429,12 +429,12 @@ std::vector<ShaderLayout> SceneShaderLayouts(const std::filesystem::path& shader
 {
 	auto shaderSourceFile = shaderPath / "shaders.slang";
 
-	// the device's ray queries where it has them (BVH_RAY_QUERY, see AccelerationStructures), else gfx's BVHs traversed
+	// the device's ray queries where it has them (HARDWARE_RAY_QUERY, see AccelerationStructures), else gfx's BVHs traversed
 	auto definitions = ShaderLoader::SlangConfiguration{}.preprocessorDefinitions;
 	if (rayQuery)
-		definitions.emplace_back("BVH_RAY_QUERY", "1");
+		definitions.emplace_back("HARDWARE_RAY_QUERY", "1");
 	if (rayQuery && rayQueryWatch)
-		definitions.emplace_back("BVH_RAY_QUERY_WATCH", "1");
+		definitions.emplace_back("HARDWARE_RAY_QUERY_WATCH", "1");
 
 	// the main layout's entry points (the renderer's passes)
 	ShaderLoader::SlangConfiguration mainConfiguration{

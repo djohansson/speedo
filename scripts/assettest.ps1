@@ -852,7 +852,7 @@ if ($Client)
 	}
 
 	# without ray queries: the runs scripts/test-assets/norayqueries.txt names (by label) again with SPEEDO_RAY_QUERY=0, the
-	# shaders' BVHs tracing the rays (BVH_RAY_QUERY 0, as on macOS by default and on devices without ray queries), so that
+	# shaders' BVHs tracing the rays (HARDWARE_RAY_QUERY 0, as on macOS by default and on devices without ray queries), so that
 	# the shaders' other variant compiles and draws before every commit: on 2026-11-23 a shader change used what only the
 	# ray queries' variant defines, and the tier, every client of it with ray queries on Windows, passed (the visual checks'
 	# ray-queries reference caught it). not where the clients don't take ray queries anyway (macOS without

@@ -218,7 +218,7 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 		// the lookup's faces as far as it is trusted, the near field's diffuse light beyond
 		environmentRadiance = lerp(environmentRadiance * seen, lerp(indirect, GiEvaluate(gi, reflected), giTrust), rough);
 	}
-	// where the device has ray queries (View > Rendering Features > Ray Traced Reflections): what the reflection meets, traced, where the
+	// with the traced reflections (View > Rendering Features > Ray Traced Reflections): what the reflection meets, traced, where the
 	// specular takes enough of it to show. the visibility buffer's (compute): glossy, a ray of the lobe whose sample the
 	// Reflection passes filter and add to the main color by the weight stored here, its share left out of this
 	// (TracedGlossyDirection: the Reflection Trace pass traces it); only in the views that show the reflection. the sample is stored as a share of what the

@@ -60,7 +60,7 @@ $targetArgs = switch ($Target)
 }
 $layouts = @(
 	@{ Name = 'main'; File = 'shaders.slang'; Defines = @() }
-	@{ Name = 'main-rq'; File = 'shaders.slang'; Defines = @('-D', 'BVH_RAY_QUERY=1') }
+	@{ Name = 'main-rq'; File = 'shaders.slang'; Defines = @('-D', 'HARDWARE_RAY_QUERY=1') }
 	@{ Name = 'flare'; File = 'flare.slang'; Defines = @() }
 	@{ Name = 'environment'; File = 'environment.slang'; Defines = @() }
 	@{ Name = 'imgui'; File = 'imgui.slang'; Defines = @() }

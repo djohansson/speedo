@@ -965,7 +965,7 @@ the arcades and onto the curtains). The quick tier passes with it, profile and d
 
 **Hardware ray queries** (where the device has `VK_KHR_ray_query` and its acceleration structures, `DeviceLimits::rayQuery`,
 decided in rhi: `WantsRayQueries` enables the extensions and chains their features; `SPEEDO_RAY_QUERY=0` keeps the BVHs, as
-an upstream KosmicKrisp does, having neither; on macOS they are opt in, `SPEEDO_RAY_QUERY=1`, see below): the main layout is compiled with `BVH_RAY_QUERY` (the scene's
+an upstream KosmicKrisp does, having neither; on macOS they are opt in, `SPEEDO_RAY_QUERY=1`, see below): the main layout is compiled with `HARDWARE_RAY_QUERY` (the scene's
 preprocessor definitions, which are part of the shader cache's key: they weren't at first, and a profile that had compiled
 one way handed those shaders to the other, ray queries with no structure bound, which traced no shadow at all), and every ray the BVHs answered (`GiTraceTriangles` and `ShadowOccluder`:
 the indirect lighting's, the traced shadows', the emitters' and the near field's) is a ray query (`BvhTraceScene` in
@@ -980,7 +980,7 @@ those that don't move built once and those that move refit each frame (a second 
 corners after what moves' in the frame index's buffer; placed wherever the traced reflections, refractions or caustics
 are on too, `Scene`'s `myMovingPlaced`), which only the paths through the glass query (see "Shadows"; IridescentDishWithOlives'
 cover, 3584 triangles, 0.2 MB a frame). The instances' masks tell them apart
-(`BVH_RAY_QUERY_MASK_*`: the static voxels' kept light queries what doesn't move alone). The alpha masked geometries
+(`BVH_TRACE_MASK_*`: the static voxels' kept light queries what doesn't move alone). The alpha masked geometries
 aren't opaque: their hits are the query's candidates, which `GiAlphaMask` accepts or not (`CommitNonOpaqueTriangleHit`). A
 hit's flags and first index come from its geometry's entry in `gBvhTriangles` (a uint4 a geometry: the flags, the first
 index, the instance or, of what moves, the first corner, and the instance its vertices' normals are placed by,
@@ -1050,7 +1050,7 @@ in flight for 10 s at frame 20 by its breadcrumbs (KosmicKrisp has buffer marker
 The driver's synchronization shows no race that contention would expose (a producer barrier of every stage, the
 acceleration structures' included, where each encoder ends; every pipeline barrier over dispatches, blits and the
 builds; every structure in a heap of the device's residency set), and its Metal code keeps `intersection_query`'s rules.
-`SPEEDO_RAY_QUERY_WATCH=1` (`gfx/rayquerywatch.h`, the shaders' `BVH_RAY_QUERY_WATCH`) watches the queries of compute
+`SPEEDO_RAY_QUERY_WATCH=1` (`gfx/rayquerywatch.h`, the shaders' `HARDWARE_RAY_QUERY_WATCH`) watches the queries of compute
 shaders: counted as they begin and end in a host visible buffer, each recorded in a slot while in flight (its ray, its
 dispatch's clip and step, how far it got), which a crash report reads (`rhi::SetCrashReportSection`), and each compute
 dispatch a breadcrumb of its own (by its entry point's index). Written with atomics, it survives the restart: in the next

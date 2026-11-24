@@ -715,7 +715,7 @@ struct GiAlphaMask : IBvhFilter
 // early depth test off, see GiMarch) is counted (GI_STATISTIC_CAPPED_BVH_RAYS)
 BvhHit GiTraceTriangles(GiData gi, float3 origin, float3 direction, float tmax, bool anyHit, bool moving, bool count)
 {
-#if BVH_RAY_QUERY
+#if HARDWARE_RAY_QUERY
 	return BvhTraceScene(origin, direction, tmax, anyHit, moving && gi.bvhMoving != 0u, GiAlphaMask());
 #else
 	BvhHit hit = BvhTraverse(gBvhNodes, gBvhTriangles, origin, direction, tmax, anyHit, GiAlphaMask());

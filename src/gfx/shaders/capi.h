@@ -954,7 +954,7 @@ struct EmitterData
 	alignas(4) UINT1(newCandidateCount);
 	// the emitters' caustics (see ComputeEmitterCaustics): the photons traced from them each frame toward the glass
 	// (SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT; 0 where there are none: no solid glass, View > Rendering Features > Caustics
-	// off, no ray queries), and a sphere about the glass (xyz its center, w its radius) they are aimed at. while they are
+	// off), and a sphere about the glass (xyz its center, w its radius) they are aimed at. while they are
 	// traced, the emitters' shadow rays stop at solid glass that gathers light (see EmitterGatheredByGlass), whose light arrives as theirs
 	alignas(4) UINT1(causticPhotonCount);
 	alignas(16) FLOAT4(glass); // (at 80 bytes: no padding before it, whatever the layout's rules)
@@ -1421,31 +1421,36 @@ struct CullView
 // its first index)
 #define BVH2_NODE_FLOAT4_COUNT 4u
 #define BVH2_TRIANGLE_FLOAT4_COUNT 3u
-// where the device's ray queries trace instead (BVH_RAY_QUERY, see gfx/accelerationstructures.h), gBvhTriangles holds a
+// where the device's ray queries trace instead (HARDWARE_RAY_QUERY, see gfx/accelerationstructures.h), gBvhTriangles holds a
 // geometry a float4 (as uint4 bits): its flags, its first index, its instance (what doesn't move: its vertices placed by
 // gModelInstances') or its first corner in gBvhMovingTriangles[frame] (what moves: its corners as placed, a float4 a
 // corner), and the gModelInstances one its vertices' normals are placed by (what moves rigidly's too; ~0 where skinned or
 // morphed: its triangles' own), what doesn't move's geometries first, then what moves', then the glass's that doesn't
 // move, then the glass's that does (its corners after what moves' in the same buffers). the top level structure's
 // instances: what doesn't move, then what does, then the transmissive surfaces that don't move and those that do, which
-// only the paths through the glass query (see GlassPath; whose custom index is its first geometry in the table)
-#define BVH_RAY_QUERY_MASK_STATIC 1u
-#define BVH_RAY_QUERY_MASK_MOVING 2u
-#define BVH_RAY_QUERY_MASK_GLASS 4u
-#define BVH_RAY_QUERY_INSTANCE_MOVING 1u
-#define BVH_RAY_QUERY_INSTANCE_GLASS 2u
-#define BVH_RAY_QUERY_INSTANCE_MOVING_GLASS 3u
-// whether the shaders' rays query the device's structures (gfx::Scene compiles them with it where DeviceLimits::rayQuery)
-#ifndef BVH_RAY_QUERY
-#define BVH_RAY_QUERY 0
+// only the paths through the glass query (see GlassPath; whose custom index is its first geometry in the table).
+// BVH_TRACE_MASK_*: which of them a ray may meet, and BVH_TRACE_INSTANCE_*: which it met (0 what doesn't move), through
+// the ray queries or the BVHs alike (BvhTraceInstances in bvhtrace.slang: the BVHs hold the glass among the rest,
+// flagged, see BVH_TRIANGLE_FLAG_GLASS)
+#define BVH_TRACE_MASK_STATIC 1u
+#define BVH_TRACE_MASK_MOVING 2u
+#define BVH_TRACE_MASK_GLASS 4u
+#define BVH_TRACE_INSTANCE_MOVING 1u
+#define BVH_TRACE_INSTANCE_GLASS 2u
+#define BVH_TRACE_INSTANCE_MOVING_GLASS 3u
+// whether the shaders' rays query the device's structures rather than traverse gfx's BVHs (gfx::Scene compiles them with
+// it where DeviceLimits::rayQuery): how a ray is traced, in bvhtrace.slang, never whether a feature is there (it was
+// BVH_RAY_QUERY until 2026-11-24, when it also compiled the traced features out)
+#ifndef HARDWARE_RAY_QUERY
+#define HARDWARE_RAY_QUERY 0
 #endif
-// diagnostic (BVH_RAY_QUERY_WATCH, SPEEDO_RAY_QUERY_WATCH=1, see gfx/rayquerywatch.h): what the ray queries of compute
+// diagnostic (HARDWARE_RAY_QUERY_WATCH, SPEEDO_RAY_QUERY_WATCH=1, see gfx/rayquerywatch.h): what the ray queries of compute
 // shaders do, in gRayQueryWatch (host visible), for a crash report to tell after the gpu hung. the queries begun and ended,
 // the most candidates one took, the queries begun while their slot was taken, then a slot per query in flight: a query
 // claims the slot its ticket (the count begun before it) names if that is free, and frees it once it ends, so that a slot
 // still claimed after a hang is a query that never ended. written with atomics, which reach memory as they happen
-#ifndef BVH_RAY_QUERY_WATCH
-#define BVH_RAY_QUERY_WATCH 0
+#ifndef HARDWARE_RAY_QUERY_WATCH
+#define HARDWARE_RAY_QUERY_WATCH 0
 #endif
 #define RAY_QUERY_WATCH_BEGUN 0u
 #define RAY_QUERY_WATCH_ENDED 1u
@@ -1465,7 +1470,7 @@ struct CullView
 // alpha masked: a ray passes where its material's texture alpha is below its cutoff (see GiAlphaMask)
 #define BVH_TRIANGLE_FLAG_ALPHA_MASKED 2u
 // glass: of a transmissive surface, in the BVHs among the rest (gfx/bvh.h; the ray queries' is a structure of its own):
-// the rays through glass alone meet it (BVH_RAY_QUERY_MASK_GLASS, see BvhMasked), every other ray passes (GiAlphaMask)
+// the rays through glass alone meet it (BVH_TRACE_MASK_GLASS, see BvhMasked), every other ray passes (GiAlphaMask)
 #define BVH_TRIANGLE_FLAG_GLASS 4u
 // the flags' bits from here up: its material's index in gMaterialData
 #define BVH_TRIANGLE_MATERIAL_SHIFT 8u
