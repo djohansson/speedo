@@ -809,8 +809,8 @@ their files from the quick tier's fetch. What it found on the way:
   checks (`visualtest.ps1`, on lavapipe as the profile build's) on the sanitizer builds too, so that what asan, ubsan
   and tsan report about the client's frames is caught as soon as it is pushed.
 
-**The client on D3D12, on WARP** (2026-11-15, the backends plan's D3D12 step 7): the Windows job runs the visual checks
-a second time on D3D12, on WARP, Microsoft's cpu driver, from its NuGet package (`scripts/fetch-warp.ps1`, its version
+**The client on D3D12, on WARP** (2026-11-15, the backends plan's D3D12 step 7): a Windows job of its own since
+2026-11-24 (before, the Windows job's last step) runs the visual checks on D3D12, on WARP, Microsoft's cpu driver, from its NuGet package (`scripts/fetch-warp.ps1`, its version
 and sha256 pinned, its path in `SPEEDO_D3D12_WARP`; testing only by its license, so never in a package: the install
 takes the client's imports alone, which it isn't), ray queries on. Not the runner's own WARP: Windows' 10.0.26100
 compiles each shader at its first dispatch on one core (about 6 minutes of every client's start here) and crashes with
@@ -819,6 +819,27 @@ and later: `kDxcOptions` in gfx/shadercompiler.h; the repro in docs/warp-repro).
 0.05 stops under the reference, not looked into yet) and upscaling (582 s of the 20 minutes the rest took on this
 machine's 32 cores), not blocking (`continue-on-error`, its logs uploaded where it fails) until its times on a 4-core
 runner are known; then decide what it runs and whether it blocks.
+
+**The Windows job's two hours** (2026-11-24): on 55b59280 it ran out in the lavapipe checks, six of eight done in 113
+minutes where 5e25adcf's runner took 41 for all eight, and the WARP checks after them never ran. Two causes: the checks
+took 1.5 times as long on Linux too, whose runner was no slower (its asset checks 112 s and 106 s): the GI's changes
+between them, likely (the reflections' and the emitters' tracing, the voxels' faces); and that Windows runner was 1.5 times slower
+at plain cpu work (asset checks 105 s and 158 s) and slower still at the checks (each 3 to 5 times its earlier time). The
+emitters check's reference client exited with 3 (`abort`) there, its log lost with the job (logs are uploaded on a
+cancel too since). What a lavapipe client's time is, measured on 4 of a desktop's logical processors
+(`ProcessorAffinity`, `SPEEDO_EXECUTOR_THREAD_COUNT=4`, `LP_NUM_THREADS=4`; ShadowScene's shadow-atlas reference,
+`SPEEDO_RUN_TIMINGS=1`): the 91 compute pipelines 8 to 9 s, the model's install about 23 s (10 of it the ray query
+structures, which compile mesa's build shaders: 15.7 s without ray queries; the graphics pipelines requested ahead
+compile meanwhile), the rest of the graphics pipelines and 8 frames 25 to 30 s; the validation layer about 4 s, the
+environment nothing. Every client compiles every pipeline again on Windows: mesa's disk cache isn't implemented there
+(26.3's meson.build: "Shader Cache does not currently work on Windows"), lavapipe has no pipeline binaries (the
+profile's `pipeline.cache` is used, and keeps no compiled code), so the 14 clients' 35 to 40 s each can't be kept;
+Linux's lavapipe keeps them in `~/.cache/mesa_shader_cache` from client to client. What is kept: the shader cache between
+runs (`actions/cache`, a job's own, keyed by `src/gfx` and the ports; started over past 1 GB), which skips the first
+client's compile, 83 s of the SPIR-V on those 4 processors (231 s for traced-shadows cold, 118 s warm) and 158 s of the
+DXIL on 32 (249 MB and 95 MB; both ray query variants), and the WARP checks moved to their own job, in parallel (the
+user's choice, 2026-11-24, of: also the lavapipe checks split in two jobs, or a longer timeout). B2 for the shader cache
+(the user's offer) waits for a need: the actions cache holds it, at 5.7 of its 10 GB before.
 
 **The badges** (the user's ask, 2026-11-24): README.md shows the workflow's own badge (the whole run), one per platform
 and one per rhi backend tested, all shields.io's check runs badge (`github/check-runs/<owner>/<repo>/master?nameFilter=`),
@@ -830,7 +851,8 @@ needs all three, a `workflow_run` trigger matching their runs. The platforms' ba
 their own, made through the checks api (`checks: write`) by two small jobs: the first makes `Vulkan` and `D3D12` in
 progress as the run starts (a job that needs others has no check run until it runs, and the badges would say "no check
 runs" for most of a run's two hours), the last finishes them from the platform jobs' outputs, the visual checks steps'
-outcomes: Vulkan's on lavapipe on all three, D3D12's on WARP on Windows. A backend passes where every platform that tests
+outcomes: Vulkan's on lavapipe on all three, D3D12's on WARP in its Windows job (which passes where they fail: not
+blocking yet). A backend passes where every platform that tests
 it passed; one whose checks failed or never ran (a step before them failed) fails it; one cancelled by a newer push cancels
 it. They only report: Vulkan's failing fails its platform's job already, and D3D12's on WARP stays non-blocking, though a
 failure shows on its badge and among the commit's checks (a red cross where the workflow passed). Not in a pull request's

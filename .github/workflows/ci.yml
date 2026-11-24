@@ -6,6 +6,7 @@
 # Linux, which the shared vcpkg binary cache (docs/notes/build.md) holds packages for: setup restores them, LLVM too, rather
 # than build them on a hosted runner. A job per platform builds the three configurations in turn: their packages are the
 # same (each holds its debug and release builds), and a job per configuration would restore them, about 2 GB, three times.
+# D3D12 on WARP is a second Windows job, the profile build's alone, beside the first (it ran over the first's two hours).
 #
 # The cache is written too where the repository holds a B2 application key (the user's ask, 2026-11-08): the secrets
 # B2_APPLICATION_KEY_ID and B2_APPLICATION_KEY, a key for the bucket, read, write and delete. Never in a pull request's
@@ -118,6 +119,27 @@ jobs:
           Write-Host "driver: $driver"
           "VK_DRIVER_FILES=$driver" >> $env:GITHUB_ENV
 
+      # the shader cache kept between runs (build/<preset>/shader-cache: each entry point's code, named by a hash of its
+      # source, slang's version and the configuration, so a kept one is never wrong): the first client's compile skipped
+      # where the shaders are unchanged, in part where they changed (the SPIR-V's 83 s on 4 of a desktop's cores,
+      # 2026-11-24; the DXIL's 158 s on its 32). A job's own (github.job: the formats and variants differ), saved where the
+      # sources changed (the key) and the job passed. Nothing evicts its entries, so one past 1 GB (a full set is 249 MB of
+      # SPIR-V, 95 of DXIL) starts over
+      - name: Cache shaders
+        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
+        uses: actions/cache@v6
+        with:
+          path: build/${{ env.TRIPLET }}-profile/shader-cache
+          key: shader-cache-${{ github.job }}-${{ hashFiles('src/gfx/**', 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**') }}
+          restore-keys: shader-cache-${{ github.job }}-
+
+      - name: Bound the shader cache
+        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
+        run: |
+          $dir = "build/$env:TRIPLET-profile/shader-cache"
+          $mb = [int]((Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
+          if ($mb -gt 1024) { Remove-Item -Recurse -Force $dir; Write-Host "shader cache: $mb MB, past 1024: started over" } else { Write-Host "shader cache: $mb MB" }
+
       # the client itself, headless and validated on lavapipe, as on Linux
       - name: Visual checks (lavapipe)
         id: visual
@@ -140,8 +162,9 @@ jobs:
           path: ${{ runner.temp }}/abis-macos.txt
           retention-days: 1
 
+      # also when the job was cancelled (its timeout too: the logs of the checks that ran)
       - name: Upload logs
-        if: failure()
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: logs-macos
@@ -162,7 +185,6 @@ jobs:
       TRIPLET: x64-windows-clang
     outputs:
       vulkan: ${{ steps.visual.outcome }}
-      d3d12: ${{ steps.warp.outcome }}
     defaults:
       run:
         shell: pwsh
@@ -234,6 +256,22 @@ jobs:
           }
           "VK_DRIVER_FILES=$driver" >> $env:GITHUB_ENV
 
+      # as macOS's
+      - name: Cache shaders
+        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
+        uses: actions/cache@v6
+        with:
+          path: build/${{ env.TRIPLET }}-profile/shader-cache
+          key: shader-cache-${{ github.job }}-${{ hashFiles('src/gfx/**', 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**') }}
+          restore-keys: shader-cache-${{ github.job }}-
+
+      - name: Bound the shader cache
+        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
+        run: |
+          $dir = "build/$env:TRIPLET-profile/shader-cache"
+          $mb = [int]((Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
+          if ($mb -gt 1024) { Remove-Item -Recurse -Force $dir; Write-Host "shader cache: $mb MB, past 1024: started over" } else { Write-Host "shader cache: $mb MB" }
+
       # the client itself, headless and validated on lavapipe: the frames against the renderer's own references
       # (docs/visual-testing-plan.md, step 3), their times measured before a budget is set (the user's call, 2026-11-11)
       - name: Visual checks (lavapipe)
@@ -244,25 +282,6 @@ jobs:
           SPEEDO_GRAPHICS_API: vulkan # lavapipe is a Vulkan driver (the client's default is the platform's fastest api)
           SPEEDO_GPU_HANG_TIMEOUT: '300'
         run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
-
-      # the client on D3D12, on WARP, Microsoft's cpu driver, its NuGet package's (scripts/fetch-warp.ps1: newer than
-      # the runner's own, which spends minutes of each client's start compiling shaders on one core and crashes with ray
-      # queries; see "WARP from Microsoft's NuGet package" in docs/backends-plan.md), ray queries on. furnace left out
-      # (WARP's light is 0.05 stops under its reference, the gpus' within it: not looked into yet) and upscaling (582 s
-      # of the 20 minutes the rest took on 32 cores). not blocking until its times on the runner are known
-      - name: Visual checks (D3D12 on WARP)
-        id: warp
-        if: ${{ !cancelled() && steps.profile.outcome == 'success' }}
-        continue-on-error: true
-        env:
-          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
-          SPEEDO_GRAPHICS_API: d3d12
-          SPEEDO_RAY_QUERY: '1'
-          SPEEDO_GPU_HANG_TIMEOUT: '1800'
-        run: |
-          $env:SPEEDO_D3D12_WARP = & scripts/fetch-warp.ps1
-          if ($LASTEXITCODE -ne 0 -or -not $env:SPEEDO_D3D12_WARP) { Write-Error 'no WARP'; exit 1 }
-          ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest-warp" -TimeoutSeconds 1800 -Only traced-shadows, shadow-atlas, emitters, ray-queries
 
       - name: Keep list
         if: ${{ github.event_name == 'push' && env.SPEEDO_BINARY_CACHE_WRITE != '' }}
@@ -276,7 +295,7 @@ jobs:
           retention-days: 1
 
       - name: Upload logs
-        if: ${{ failure() || steps.warp.outcome == 'failure' }}
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: logs-windows
@@ -284,6 +303,96 @@ jobs:
             temp/vcpkg/buildtrees/*/*.log
             ${{ runner.temp }}/assettest/logs
             ${{ runner.temp }}/visualtest
+          if-no-files-found: ignore
+
+  # the client on D3D12, on WARP, Microsoft's cpu driver, its NuGet package's (scripts/fetch-warp.ps1: newer than the
+  # runner's own, which spends minutes of each client's start compiling shaders on one core and crashes with ray queries;
+  # see "WARP from Microsoft's NuGet package" in docs/backends-plan.md), ray queries on. furnace left out (WARP's light is
+  # 0.05 stops under its reference, the gpus' within it: not looked into yet) and upscaling (582 s of the 20 minutes the
+  # rest took on 32 cores). not blocking until its times on the runner are known. A job of its own beside Windows' (the
+  # user's call, 2026-11-24): after the lavapipe checks it took 21 minutes more of that job (2026-11-23), whose two hours
+  # ran out before it on a slow runner (2026-11-24); here it costs another runner's setup (the packages restored again,
+  # about 2 GB) and the profile build, from FASTBuild's cache
+  windows-d3d12:
+    name: Windows x64 (D3D12 on WARP)
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 120
+    env:
+      TRIPLET: x64-windows-clang
+    outputs:
+      d3d12: ${{ steps.warp.outcome }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache test assets
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/test-assets
+          key: test-assets-${{ hashFiles('resources/test-asset-manifests/**', 'scripts/fetch-test-assets.ps1') }}
+          restore-keys: test-assets-
+
+      - name: Setup
+        id: setup
+        run: ./setup.ps1
+
+      - name: Build profile
+        id: profile
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          cmake --preset "$env:TRIPLET-profile"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "build/$env:TRIPLET-profile"
+
+      # what the asset checks fetch elsewhere (the cache's, unless the manifests changed)
+      - name: Fetch test assets
+        id: assets
+        if: ${{ !cancelled() && steps.profile.outcome == 'success' }}
+        env:
+          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+        run: |
+          $null = & scripts/fetch-test-assets.ps1 -Minimal
+          exit $LASTEXITCODE
+
+      # as macOS's
+      - name: Cache shaders
+        if: ${{ !cancelled() && steps.assets.outcome == 'success' }}
+        uses: actions/cache@v6
+        with:
+          path: build/${{ env.TRIPLET }}-profile/shader-cache
+          key: shader-cache-${{ github.job }}-${{ hashFiles('src/gfx/**', 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**') }}
+          restore-keys: shader-cache-${{ github.job }}-
+
+      - name: Bound the shader cache
+        if: ${{ !cancelled() && steps.assets.outcome == 'success' }}
+        run: |
+          $dir = "build/$env:TRIPLET-profile/shader-cache"
+          $mb = [int]((Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
+          if ($mb -gt 1024) { Remove-Item -Recurse -Force $dir; Write-Host "shader cache: $mb MB, past 1024: started over" } else { Write-Host "shader cache: $mb MB" }
+
+      - name: Visual checks (D3D12 on WARP)
+        id: warp
+        if: ${{ !cancelled() && steps.assets.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+          SPEEDO_GRAPHICS_API: d3d12
+          SPEEDO_RAY_QUERY: '1'
+          SPEEDO_GPU_HANG_TIMEOUT: '1800'
+        run: |
+          $env:SPEEDO_D3D12_WARP = & scripts/fetch-warp.ps1
+          if ($LASTEXITCODE -ne 0 -or -not $env:SPEEDO_D3D12_WARP) { Write-Error 'no WARP'; exit 1 }
+          ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest-warp" -TimeoutSeconds 1800 -Only traced-shadows, shadow-atlas, emitters, ray-queries
+
+      - name: Upload logs
+        if: ${{ failure() || cancelled() || steps.warp.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-windows-d3d12
+          path: |
+            temp/vcpkg/buildtrees/*/*.log
             ${{ runner.temp }}/visualtest-warp
           if-no-files-found: ignore
 
@@ -361,6 +470,22 @@ jobs:
           Write-Host "driver: $driver"
           "VK_DRIVER_FILES=$driver" >> $env:GITHUB_ENV
 
+      # as macOS's
+      - name: Cache shaders
+        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
+        uses: actions/cache@v6
+        with:
+          path: build/${{ env.TRIPLET }}-profile/shader-cache
+          key: shader-cache-${{ github.job }}-${{ hashFiles('src/gfx/**', 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**') }}
+          restore-keys: shader-cache-${{ github.job }}-
+
+      - name: Bound the shader cache
+        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
+        run: |
+          $dir = "build/$env:TRIPLET-profile/shader-cache"
+          $mb = [int]((Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
+          if ($mb -gt 1024) { Remove-Item -Recurse -Force $dir; Write-Host "shader cache: $mb MB, past 1024: started over" } else { Write-Host "shader cache: $mb MB" }
+
       # the client itself, headless (SPEEDO_HEADLESS: no display, no surface or swapchain) and validated on lavapipe: the
       # frames against the renderer's own references (docs/visual-testing-plan.md, step 3), their times measured before a
       # budget is set (the user's call, 2026-11-11; see "CI" in docs/notes/build.md for what it costs)
@@ -385,7 +510,7 @@ jobs:
           retention-days: 1
 
       - name: Upload logs
-        if: failure()
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: logs-linux
@@ -396,8 +521,9 @@ jobs:
           if-no-files-found: ignore
 
   # the rhi backends' check runs, "Vulkan" and "D3D12", which README.md's badges show (the user's ask, 2026-11-24). A badge
-  # takes a check run by its name, and no job tests one backend: every platform job's visual checks test Vulkan, on
-  # lavapipe, and Windows' D3D12 too, on WARP. So each backend is a check run of its own, through the checks api: started
+  # takes a check run by its name, and no job tests one backend alone: every platform job's visual checks test Vulkan, on
+  # lavapipe, and the D3D12 job passes where its checks on WARP fail (they don't block yet, its step's
+  # continue-on-error). So each backend is a check run of its own, through the checks api: started
   # as the run starts (a job that needs others has no check run until it runs: the badges would say "no check runs" for
   # most of a run's two hours), finished from the platform jobs' outcomes once they are done. Not in a pull request's run
   # (a fork's token can't write them, and its commit is the merge's, not the branch's). Metal has none: CI doesn't run it
@@ -431,11 +557,11 @@ jobs:
 
   # a backend passes where every platform that tests it passed those checks: one that failed, or didn't run them (skipped:
   # a step before them failed), fails it; one cancelled (by a newer push) cancels it. It only reports: Vulkan's failing
-  # fails its platform's job already, and D3D12's on WARP doesn't block (its step's continue-on-error), though its badge
-  # and the commit's checks show it. Should the start have failed, the check runs are made here, finished
+  # fails its platform's job already, and D3D12's on WARP doesn't block, though its badge and the commit's checks show it.
+  # Should the start have failed, the check runs are made here, finished
   backend-checks:
     name: Finish backend checks
-    needs: [backend-checks-start, macos, windows, linux]
+    needs: [backend-checks-start, macos, windows, windows-d3d12, linux]
     if: ${{ always() && github.event_name != 'pull_request' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -454,7 +580,7 @@ jobs:
           $needs = $env:NEEDS | ConvertFrom-Json
           $backends = @(
             @{ Name = 'Vulkan'; Checks = 'The visual checks on lavapipe'; Platforms = @(@('macOS arm64', 'macos'), @('Windows x64', 'windows'), @('Linux x64', 'linux')) },
-            @{ Name = 'D3D12'; Checks = 'The visual checks on WARP, but furnace and upscaling (not blocking yet)'; Platforms = @(, @('Windows x64', 'windows')) })
+            @{ Name = 'D3D12'; Checks = 'The visual checks on WARP, but furnace and upscaling (not blocking yet)'; Platforms = @(, @('Windows x64', 'windows-d3d12')) })
           foreach ($backend in $backends)
           {
             $key = $backend.Name.ToLowerInvariant()
