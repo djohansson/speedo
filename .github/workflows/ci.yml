@@ -38,6 +38,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# the platform jobs' names are their badges' in README.md (shields.io's check runs badge, which takes a check run by its
+# name): rename one there too
 jobs:
   macos:
     name: macOS arm64
@@ -47,6 +49,9 @@ jobs:
     timeout-minutes: 120
     env:
       TRIPLET: arm64-osx-clang
+    # the backends' outcomes, for the backend checks job
+    outputs:
+      vulkan: ${{ steps.visual.outcome }}
     defaults:
       run:
         shell: pwsh
@@ -115,6 +120,7 @@ jobs:
 
       # the client itself, headless and validated on lavapipe, as on Linux
       - name: Visual checks (lavapipe)
+        id: visual
         if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
@@ -154,6 +160,9 @@ jobs:
     timeout-minutes: 120
     env:
       TRIPLET: x64-windows-clang
+    outputs:
+      vulkan: ${{ steps.visual.outcome }}
+      d3d12: ${{ steps.warp.outcome }}
     defaults:
       run:
         shell: pwsh
@@ -228,6 +237,7 @@ jobs:
       # the client itself, headless and validated on lavapipe: the frames against the renderer's own references
       # (docs/visual-testing-plan.md, step 3), their times measured before a budget is set (the user's call, 2026-11-11)
       - name: Visual checks (lavapipe)
+        id: visual
         if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
@@ -285,6 +295,8 @@ jobs:
     timeout-minutes: 120
     env:
       TRIPLET: x64-linux-clang
+    outputs:
+      vulkan: ${{ steps.visual.outcome }}
     defaults:
       run:
         shell: pwsh
@@ -353,6 +365,7 @@ jobs:
       # frames against the renderer's own references (docs/visual-testing-plan.md, step 3), their times measured before a
       # budget is set (the user's call, 2026-11-11; see "CI" in docs/notes/build.md for what it costs)
       - name: Visual checks (lavapipe)
+        id: visual
         if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
@@ -381,6 +394,93 @@ jobs:
             ${{ runner.temp }}/assettest/logs
             ${{ runner.temp }}/visualtest
           if-no-files-found: ignore
+
+  # the rhi backends' check runs, "Vulkan" and "D3D12", which README.md's badges show (the user's ask, 2026-11-24). A badge
+  # takes a check run by its name, and no job tests one backend: every platform job's visual checks test Vulkan, on
+  # lavapipe, and Windows' D3D12 too, on WARP. So each backend is a check run of its own, through the checks api: started
+  # as the run starts (a job that needs others has no check run until it runs: the badges would say "no check runs" for
+  # most of a run's two hours), finished from the platform jobs' outcomes once they are done. Not in a pull request's run
+  # (a fork's token can't write them, and its commit is the merge's, not the branch's). Metal has none: CI doesn't run it
+  # yet (the to do in "CI" in docs/notes/build.md)
+  backend-checks-start:
+    name: Start backend checks
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      checks: write
+    outputs:
+      vulkan: ${{ steps.start.outputs.vulkan }}
+      d3d12: ${{ steps.start.outputs.d3d12 }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Start
+        id: start
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          foreach ($backend in 'Vulkan', 'D3D12')
+          {
+            $id = gh api "repos/$env:GITHUB_REPOSITORY/check-runs" -f "name=$backend" -f "head_sha=$env:GITHUB_SHA" -f status=in_progress --jq .id
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Write-Host "$backend`: check run $id"
+            "$($backend.ToLowerInvariant())=$id" >> $env:GITHUB_OUTPUT
+          }
+
+  # a backend passes where every platform that tests it passed those checks: one that failed, or didn't run them (skipped:
+  # a step before them failed), fails it; one cancelled (by a newer push) cancels it. It only reports: Vulkan's failing
+  # fails its platform's job already, and D3D12's on WARP doesn't block (its step's continue-on-error), though its badge
+  # and the commit's checks show it. Should the start have failed, the check runs are made here, finished
+  backend-checks:
+    name: Finish backend checks
+    needs: [backend-checks-start, macos, windows, linux]
+    if: ${{ always() && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      checks: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Finish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $needs = $env:NEEDS | ConvertFrom-Json
+          $backends = @(
+            @{ Name = 'Vulkan'; Checks = 'The visual checks on lavapipe'; Platforms = @(@('macOS arm64', 'macos'), @('Windows x64', 'windows'), @('Linux x64', 'linux')) },
+            @{ Name = 'D3D12'; Checks = 'The visual checks on WARP, but furnace and upscaling (not blocking yet)'; Platforms = @(, @('Windows x64', 'windows')) })
+          foreach ($backend in $backends)
+          {
+            $key = $backend.Name.ToLowerInvariant()
+            $lines = @()
+            $outcomes = @(foreach ($platform in $backend.Platforms)
+            {
+              $job = $needs.($platform[1])
+              $outcome = $job.outputs.$key
+              if (-not $outcome) { $outcome = $job.result } # cancelled before its outputs
+              $lines += "- $($platform[0]): $outcome"
+              $outcome
+            })
+            $conclusion =
+              if ($outcomes -contains 'failure') { 'failure' }
+              elseif ($outcomes -contains 'cancelled') { 'cancelled' }
+              elseif (@($outcomes | Where-Object { $_ -ne 'success' }).Count -eq 0) { 'success' }
+              else { 'failure' }
+            $summary = "$($backend.Checks):`n`n$($lines -join "`n")`n`n[The run]($env:RUN_URL)"
+            $fields = @('-f', 'status=completed', '-f', "conclusion=$conclusion", '-f', "output[title]=$($backend.Name): $conclusion", '-f', "output[summary]=$summary")
+            $id = $needs.'backend-checks-start'.outputs.$key
+            if ($id) { gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/check-runs/$id" @fields --silent }
+            else { gh api "repos/$env:GITHUB_REPOSITORY/check-runs" -f "name=$($backend.Name)" -f "head_sha=$env:GITHUB_SHA" @fields --silent }
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Write-Host "$($backend.Name): $conclusion"
+            $lines | ForEach-Object { Write-Host "  $_" }
+          }
 
   # the shared cache's archives that no platform installs any more (scripts/prune-binary-cache.ps1), after a push to master
   # whose jobs all passed: by the three platforms' lists, sparing what was uploaded in the last week (a maintainer's packages

@@ -820,6 +820,25 @@ and later: `kDxcOptions` in gfx/shadercompiler.h; the repro in docs/warp-repro).
 machine's 32 cores), not blocking (`continue-on-error`, its logs uploaded where it fails) until its times on a 4-core
 runner are known; then decide what it runs and whether it blocks.
 
+**The badges** (the user's ask, 2026-11-24): README.md shows the workflow's own badge (the whole run), one per platform
+and one per rhi backend tested, all shields.io's check runs badge (`github/check-runs/<owner>/<repo>/master?nameFilter=`),
+which takes the check runs of master's newest commit by their exact name (GitHub's `check_name`): pending while one runs,
+failing where one failed or was cancelled, passing where all completed otherwise (skipped and neutral included). GitHub's
+own badge shows a whole workflow: a badge per platform that way takes a workflow per platform, and the prune job, which
+needs all three, a `workflow_run` trigger matching their runs. The platforms' badges take the jobs' names (`macOS arm64`,
+`Windows x64`, `Linux x64`: renaming a job breaks its badge). No job tests one backend, so the backends are check runs of
+their own, made through the checks api (`checks: write`) by two small jobs: the first makes `Vulkan` and `D3D12` in
+progress as the run starts (a job that needs others has no check run until it runs, and the badges would say "no check
+runs" for most of a run's two hours), the last finishes them from the platform jobs' outputs, the visual checks steps'
+outcomes: Vulkan's on lavapipe on all three, D3D12's on WARP on Windows. A backend passes where every platform that tests
+it passed; one whose checks failed or never ran (a step before them failed) fails it; one cancelled by a newer push cancels
+it. They only report: Vulkan's failing fails its platform's job already, and D3D12's on WARP stays non-blocking, though a
+failure shows on its badge and among the commit's checks (a red cross where the workflow passed). Not in a pull request's
+run: a fork's token can't write checks, and the run's commit is the merge's. Metal has no badge until CI runs it (the to do
+above). The options weighed: GitHub's badge alone, workflows split per platform, these, or json written by CI for
+shields.io's endpoint badge (to a gist, a branch or the cache's bucket: the last result, never pending, and steps as
+well, at the cost of a writer's secret).
+
 ## Releases
 
 The client runs from a checkout or from an install (the user's ask, 2026-11-07: releases on GitHub, packaged for each
