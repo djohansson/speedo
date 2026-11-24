@@ -263,6 +263,7 @@ The renderer's, but for `SPEEDO_CULLING`, which is View > Rendering Features > C
 | `SPEEDO_SHOW_CAMERAS` | Exactly `1` on. Default: off. | Opens View > Cameras... at startup. |
 | `SPEEDO_SHOW_SKY` | Exactly `1` on. Default: off. | Opens View > Environment > Physical Sky...'s window at startup (without switching to the sky). |
 | `SPEEDO_SHOW_INDIRECT_LIGHTING` | Exactly `1` on. Default: off. | Opens View > Rendering Features > Indirect Lighting... at startup. |
+| `SPEEDO_SHOW_RAY_TRACING` | Exactly `1` on. Default: off. | Opens View > Rendering Features > Ray Tracing... at startup. |
 | `SPEEDO_SHOW_STATISTICS` | Exactly `1` on. Default: off. | Opens View > Statistics... at startup (debug and profile builds). |
 | `SPEEDO_OPEN_MENUS` | Menu labels separated by `/`, the parents too (e.g. `View/Presentation`). Default: none. | Holds those menus open, for screenshots of them. |
 
