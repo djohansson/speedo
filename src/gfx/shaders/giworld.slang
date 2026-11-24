@@ -258,7 +258,7 @@ uint GiWorldFind(int3 place, uint level, uint bucket, bool insert)
 void GiWorldAdd(float3 position, float3 normal, float3 direction, float3 radiance, float estimate, uint random, uint firstLevel)
 {
 	uint frameIndex = gPushConstants.frameIndex;
-	if (gGi[frameIndex][0].worldOn == 0u)
+	if (Skipped(SHADER_TYPES_LAYERS_WORLD) || gGi[frameIndex][0].worldOn == 0u)
 		return;
 	float exposure = gPushConstants.exposure > 0.0 && !isinf(gPushConstants.exposure) ? gPushConstants.exposure : 1.0;
 	float scale = exposure * kGiWorldFixedScale;
@@ -574,7 +574,7 @@ void ComputeGiWorldFilter(uint3 dispatchId: SV_DispatchThreadID)
 float3 GiWorldIrradiance(float3 position, float3 normal, float distance)
 {
 	uint frameIndex = gPushConstants.frameIndex;
-	if (gGi[frameIndex][0].worldOn == 0u)
+	if (Skipped(SHADER_TYPES_LAYERS_WORLD) || gGi[frameIndex][0].worldOn == 0u)
 		return -1.0;
 	float side = gGi[frameIndex][0].worldCellSide;
 	uint levelCount = gGi[frameIndex][0].worldLevelCount;
@@ -753,7 +753,7 @@ bool GiWorldFaces(float3 position, float3 normal, out float3 faces[SHADER_TYPES_
 		faces[faceIt] = 0.0;
 	confidence = 0.0;
 	uint frameIndex = gPushConstants.frameIndex;
-	if (gGi[frameIndex][0].worldOn == 0u)
+	if (Skipped(SHADER_TYPES_LAYERS_WORLD) || gGi[frameIndex][0].worldOn == 0u)
 		return false;
 	float side = gGi[frameIndex][0].worldCellSide;
 	uint levelCount = gGi[frameIndex][0].worldLevelCount;

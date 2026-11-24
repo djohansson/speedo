@@ -1057,6 +1057,20 @@ struct TextureView
 // visibility buffer's kernel traced)
 #define SHADER_TYPES_LAYERS_EXTENDED 1u
 #define SHADER_TYPES_LAYERS_GLASS 2u
+// and what a frame as it is set leaves unused, which the kernels and pipelines that carry its code are specialized
+// without where the format has specialization constants (rhi::DeviceLimits::specializationConstants; Skipped): the
+// code is there, never run, and costs by its size. the world cache's lookups, where it is off (GiWorldFaces: the main
+// pass's shading and the indirect lighting's resolve); the debug views, where none is shown (DebugView: the main pass's
+// shading); and the emissive surfaces as lights, where none lights the scene (EmittersLight: the resolve). hard wired
+// in copies of the shaders, at 2560x1440 balanced: without the world cache's, Bistro's frame 21.69 to
+// 21.41 ms (Main Visibility 1.37 to 1.19, GI 3.36 to 3.31) and Sponza's 7.46 to 7.25; without the debug views', 21.29
+// (Main Visibility 1.21, Main Transmissive 5.82 to 5.67) and 7.29; without the emitters', Sponza's GI 2.27 to 2.16.
+// not worth a group, the same way: the voxels' walk where the rays trace the triangles (the frames the same, Bistro's
+// Reflection Trace 0.18 ms slower for it), what moves where nothing does (0.08 ms of Bistro's frame, none of
+// Sponza's), the emitters' caustics (none)
+#define SHADER_TYPES_LAYERS_WORLD 4u
+#define SHADER_TYPES_LAYERS_DEBUG 8u
+#define SHADER_TYPES_LAYERS_EMITTERS 16u
 
 #define MATERIAL_FLAG_TEXTURE 1u // baseColorView: an srgb color (and alpha), multiplied in, and alpha tested against alphaCutoff
 #define MATERIAL_FLAG_ALPHA_TEXTURE 2u // alphaView: a mask in r, tested against alphaCutoff

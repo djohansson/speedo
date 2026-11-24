@@ -28,7 +28,7 @@ static const float kEmitterFireflyFrameCount = 8.0;
 // whether emissive surfaces light the scene this frame (else the indirect lighting's rays take their emission)
 bool EmittersLight()
 {
-	return gEmitterData[gPushConstants.frameIndex][0].count > 0u;
+	return !Skipped(SHADER_TYPES_LAYERS_EMITTERS) && gEmitterData[gPushConstants.frameIndex][0].count > 0u;
 }
 
 // whether the emitters' caustics are traced this frame (see ComputeEmitterCaustics)

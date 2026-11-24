@@ -234,6 +234,7 @@ The renderer's, but for `SPEEDO_CULLING`, which is View > Rendering Features > C
 | `SPEEDO_SHADOW_OCCLUSION_CULLING` | Exactly `1` on. Default: off. | Occlusion culls the shadow views too (they hide little, and the pyramid costs 0.5 to 1 ms). |
 | `SPEEDO_VISIBILITY_BUFFER` | `0` off. Default: on. | Shades opaque surfaces from the pre-pass's visibility buffer rather than drawing them again. |
 | `SPEEDO_SHADER_TIERS` | `0` off. Default: on. | Draws materials without extended layers (clearcoat, sheen, transmission, ...) with pipelines that skip them; off draws every material with the generic ones, for comparisons. |
+| `SPEEDO_SHADER_STATE_TIERS` | `0` off. Default: on, where the graphics api has specialization constants (not D3D12). | The main pass's shading and the indirect lighting's resolve run pipelines without what the frame leaves unused (the world cache's lookups where it is off, the debug views where none is shown, the emissive surfaces as lights where none lights the scene); off runs the generic ones, for comparisons (as `SPEEDO_SHADER_TIERS=0` does, which turns every tier off). |
 | `SPEEDO_BVH_BUILD` | `fast`, or anything else for spatial splits. Default: spatial splits. | How the static BVHs are built: with spatial splits (tinybvh's SBVH: rays visit fewer nodes), or binned SAH alone. Each is cached apart. |
 
 ## The window and presentation

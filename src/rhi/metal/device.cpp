@@ -127,6 +127,7 @@ DeviceLimits Device<kMetal>::GetLimits() const
 		.timestampPeriod = 1.0F,
 		.drawIndirectCount = false,
 		.drawIndirectCountEmulated = false,
+		.specializationConstants = true,
 		.rayQuery = device::RayQueries(myDevice),
 		.accelerationStructureScratchAlignment = kScratchAlignment};
 }

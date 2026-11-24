@@ -864,6 +864,9 @@ std::pair<int, std::string> ConfigureRequest(
 	{
 		spAddPreprocessorDefine(slangRequest, "SHADER_TARGET_NO_POINT_SIZE", "1");
 		spAddPreprocessorDefine(slangRequest, "SHADER_TARGET_CLIP_Y_UP", "1");
+		// (and no specialization constants: each value of the shaders' is code of its own, CompileSpecializations, so
+		// the shaders read it there for the material's layer groups alone, see bindings.slang's Skipped)
+		spAddPreprocessorDefine(slangRequest, "SHADER_TARGET_NO_SPECIALIZATION_CONSTANTS", "1");
 	}
 	if (specialization)
 		spAddPreprocessorDefine(slangRequest, kSpecializationDefinition, std::format("{}u", *specialization).c_str());

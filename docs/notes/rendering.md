@@ -348,6 +348,42 @@ by a mutex and a condition variable (`PipelineMapSync`): a null handle is a pipe
 `BindPipelineAuto` waits for. Each phase's draws are sorted by pipeline variant (opaque ones depth test, blended ones are
 order independent), so pipelines switch once per variant.
 
+The same constant's next bits are what a frame as it is set leaves unused (2026-11-24, the user's ask: where
+specialization constants make a difference): `SHADER_TYPES_LAYERS_WORLD`, the world cache's lookups where it is off
+(`GiWorldFaces`), `SHADER_TYPES_LAYERS_DEBUG`, the debug views where none is shown (`DebugView`), and
+`SHADER_TYPES_LAYERS_EMITTERS`, the emissive surfaces as lights where none lights the scene (`EmittersLight`), read
+through `Skipped()` in `bindings.slang`. The main pass's shading (its fragments' pipelines by their draws' variants, and
+the visibility buffer's kernel) is specialized without the first two where the world cache is off and no debug view is
+shown, else without neither (`Renderer::myShadingSkipped`); the indirect lighting's traced resolve's kernel without the
+world cache's and the emitters' (`myResolveSkipped`). The compute variants are all made ahead
+(`Renderer::ComputePipelineVariants`: 2 more of the shading's kernel, 3 of the resolve's), so that none is made in the
+middle of a frame; the fragments' are asked for as any tier's, the generic one drawing meanwhile, so a debug view
+switched on draws at once. Measured first with each switch hard wired in a copy of the shaders
+(`temp/research-issues/specvariants.ps1`: what compiling it away gives at most), at 2560x1440 balanced, the gpu's
+frame and passes over 2500 frames, two rounds interleaved, a second untouched copy within 0.03 ms of the first:
+
+| hard wired | Bistro's frame, 21.69 ms | Sponza's, 7.46 ms |
+|---|---|---|
+| no debug view | -0.39 (Main Visibility 1.37 to 1.21, Main Transmissive 5.82 to 5.67) | -0.17 (Main Visibility 0.97 to 0.82) |
+| the world cache off | -0.28 (Main Visibility 1.19, GI 3.36 to 3.31) | -0.21 (Main Visibility 0.82, GI 2.27 to 2.23) |
+| no emitters lighting | (it has them) | -0.13 (GI 2.16) |
+| the rays trace the triangles | +0.07 (GI 3.30, and Reflection Trace 6.25 to 6.43) | -0.04 (GI 2.21) |
+| nothing moves | -0.08 (Main Transmissive 5.77, GI 3.33) | none |
+| no emitter caustics | none | |
+
+The first three are the groups; the others aren't worth their variants (and the triangles' made the Reflection Trace
+kernel slower, twice over). As built, against `SPEEDO_SHADER_STATE_TIERS=0` (the generic ones, to compare): Bistro's
+frame 21.64 to 21.17 ms (Main Visibility 1.36 to 1.16, Main Transmissive 5.80 to 5.64, GI 3.37 to 3.28), Sponza's 7.46
+to 7.12 (Main Visibility 0.96 to 0.76, GI 2.28 to 2.15); the pictures the same to the runs' own noise (two runs of one
+setting differ by 0.02 to 0.29 of 255 at frame 300, the two settings by 0.10 to 0.29), with a debug view and with the
+world cache on too. Not on D3D12 (`rhi::DeviceLimits::specializationConstants`): DXIL has no specialization constants,
+each value is code compiled ahead for every entry point that reads the constant (`CompileSpecializations`), and these
+groups are read by many of them (the kernels of the indirect lighting, the emitters and the shading); the shaders are compiled there with `SHADER_TARGET_NO_SPECIALIZATION_CONSTANTS`, under
+which `Skipped()` is false and reads nothing, so its compiles and its frames are as they were. To look at again if
+HLSL gets them, or the shader compiler takes the values per entry point. Tried the same day for a count rather than a
+switch, the surface cache's rays a voxel (the resolve's kernels specialized for 1, 4, 8 and 16): nothing, the loop's
+count being each voxel's own (docs/notes/indirect-lighting.md).
+
 ## Views: uploaded per frame
 
 `Views` (`gfx/views.h`) keeps a camera per view, which the input, resizes, the grid, framing and the scene's cameras

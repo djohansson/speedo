@@ -46,6 +46,7 @@ DeviceLimits Device<kVk>::GetLimits() const
 		// mesa's kk_cmd_draw.c (main, 44fd0fde, 2026-10-19): a compute kernel per call zeroes the commands past the
 		// count, then all maxDrawCount are drawn. revisit once it builds Metal indirect command buffers on the gpu
 		.drawIndirectCountEmulated = info.deviceProperties12Ex.driverID == VK_DRIVER_ID_MESA_KOSMICKRISP,
+		.specializationConstants = true,
 		.rayQuery = WantsRayQueries(GetPhysicalDevice()) && info.deviceFeatures12Ex.bufferDeviceAddress == VK_TRUE && rayQuery != nullptr &&
 					rayQuery->rayQuery == VK_TRUE && accelerationStructure != nullptr && accelerationStructure->accelerationStructure == VK_TRUE,
 		.accelerationStructureScratchAlignment = info.accelerationStructureProperties.minAccelerationStructureScratchOffsetAlignment};

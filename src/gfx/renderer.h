@@ -219,9 +219,11 @@ public:
 	~Renderer();
 
 	// the compute pipelines its passes dispatch, of the main layout's entryPointCount compute entry points: each at
-	// specialization 0, and those with others (the visibility buffer's tiers, the Reflection Trace pass's glassless one),
-	// made ahead of the first frames (see Scene::Prepare, Pipeline::RequestComputePipelines)
-	[[nodiscard]] static std::vector<rhi::ComputePipelineVariant> ComputePipelineVariants(uint32_t entryPointCount);
+	// specialization 0, and those with others (the visibility buffer's tiers, the Reflection Trace pass's glassless one,
+	// and where the device has specialization constants, rhi::DeviceLimits::specializationConstants, the shading's and
+	// the resolve's without what a frame as it is set leaves unused: see myShadingSkipped), made ahead of the first frames
+	// (see Scene::Prepare, Pipeline::RequestComputePipelines)
+	[[nodiscard]] static std::vector<rhi::ComputePipelineVariant> ComputePipelineVariants(uint32_t entryPointCount, bool specializationConstants);
 
 	// (re)creates the transients for the extent frames are rendered at, and outputExtent, the output's, which they are
 	// upscaled to (the same without upscaling, see FrameInputs::upscaling; the gpu must be done with the previous ones), and
@@ -363,6 +365,15 @@ private:
 	// Reflection Trace pass's kernel (SHADER_TYPES_LAYERS_GLASS where the model has no glass)
 	uint16_t myVisibilitySpecialization = 0;
 	uint16_t myVisibilityNoGlass = 0;
+	// what the frame as it is set leaves unused, which its pipelines and kernels are specialized without (SHADER_TYPES_
+	// LAYERS_WORLD and after it), where the device has specialization constants (mySpecializationConstants) and the
+	// materials' pipelines are specialized at all (FrameInputs::specialization): the main pass's shading's (its fragments'
+	// pipelines and the visibility buffer's kernel: the world cache and the debug views, where the one is off and none of
+	// the others is shown, else neither) and the indirect lighting's resolve's (the world cache, and the emissive
+	// surfaces as lights where none lights the scene)
+	bool mySpecializationConstants = false;
+	uint16_t myShadingSkipped = 0;
+	uint16_t myResolveSkipped = 0;
 	// the traced shadows' (see SHADER_TYPES_SHADOW_RAW_TEXTURE): the rays' visibility and blockers' distances, the
 	// visibility filtered along rows, and along columns (what the main pass takes); each a channel per traced light
 	FrameGraph::ImageId myShadowRaw;

@@ -435,7 +435,7 @@ float4 MainColor(VertexOutput input, bool isFrontFace, uint2 pixel, uint viewId)
 	gFragmentGiSides = (gPushConstants.prepassImages & PREPASS_IMAGE_GI_SIDES) != 0u;
 	gFragmentEmitters = (gPushConstants.prepassImages & PREPASS_IMAGE_EMITTERS) != 0u;
 	// the traced shadows' views: the first traced light's, as filtered or as traced
-	uint debugView = gPushConstants.debugView;
+	uint debugView = DebugView();
 	if (debugView == DEBUG_VIEW_TRACED_SHADOW || debugView == DEBUG_VIEW_TRACED_SHADOW_RAW ||
 		debugView == DEBUG_VIEW_TRACED_SHADOW_REFERENCE)
 	{

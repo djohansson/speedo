@@ -3152,7 +3152,9 @@ struct Scene::Impl
 		// the main layout bound last, as InternalFinishInitialization left it
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
 		std::ranges::move(
-			pipeline.RequestComputePipelines(Renderer::ComputePipelineVariants(pipeline.GetComputeEntryPointCount())), std::back_inserter(tasks));
+			pipeline.RequestComputePipelines(
+				Renderer::ComputePipelineVariants(pipeline.GetComputeEntryPointCount(), pipeline.GetDevice().GetLimits().specializationConstants)),
+			std::back_inserter(tasks));
 
 		std::vector<core::TaskHandle> handles;
 		for (auto& task : tasks)

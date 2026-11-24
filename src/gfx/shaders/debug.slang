@@ -4,7 +4,7 @@
 // the frame's debug view (DEBUG_VIEW_NONE: the light)
 uint DebugView()
 {
-	return gPushConstants.debugView;
+	return Skipped(SHADER_TYPES_LAYERS_DEBUG) ? DEBUG_VIEW_NONE : gPushConstants.debugView;
 }
 
 // whether a debug view shows values rather than light: ComputeMain shows them as they are (clamped, then the srgb curve:

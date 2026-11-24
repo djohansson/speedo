@@ -214,7 +214,11 @@ constexpr uint32_t kCullViewCount = SHADER_TYPES_VIEW_COUNT + SHADER_TYPES_SHADO
 
 } // namespace renderer
 
-std::vector<ComputePipelineVariant> Renderer::ComputePipelineVariants(uint32_t entryPointCount)
+// what the main pass's shading is specialized without where the frame is set as it is by default (see
+// Renderer::myShadingSkipped): the world cache's lookups and the debug views
+constexpr uint16_t kShadingSkipped = SHADER_TYPES_LAYERS_WORLD | SHADER_TYPES_LAYERS_DEBUG;
+
+std::vector<ComputePipelineVariant> Renderer::ComputePipelineVariants(uint32_t entryPointCount, bool specializationConstants)
 {
 	using namespace renderer;
 
@@ -223,6 +227,16 @@ std::vector<ComputePipelineVariant> Renderer::ComputePipelineVariants(uint32_t e
 		variants.push_back(ComputePipelineVariant{.entryPoint = static_cast<uint16_t>(entryPointIt)});
 	variants.push_back(ComputePipelineVariant{.entryPoint = kMainVisibilityEntryPoint, .specialization = SHADER_TYPES_LAYERS_EXTENDED});
 	variants.push_back(ComputePipelineVariant{.entryPoint = kReflectionTraceEntryPoint, .specialization = SHADER_TYPES_LAYERS_GLASS});
+	// and without what a frame as it is set leaves unused (myShadingSkipped, myResolveSkipped): every value a frame
+	// may dispatch, so that none is made in the middle of one
+	if (specializationConstants)
+	{
+		for (uint16_t layers : {uint16_t{0}, uint16_t{SHADER_TYPES_LAYERS_EXTENDED}})
+			variants.push_back(
+				ComputePipelineVariant{.entryPoint = kMainVisibilityEntryPoint, .specialization = static_cast<uint16_t>(layers | kShadingSkipped)});
+		for (uint16_t skipped : {SHADER_TYPES_LAYERS_WORLD, SHADER_TYPES_LAYERS_EMITTERS, SHADER_TYPES_LAYERS_WORLD | SHADER_TYPES_LAYERS_EMITTERS})
+			variants.push_back(ComputePipelineVariant{.entryPoint = kGiResolveTracedEntryPoint, .specialization = skipped});
+	}
 	return variants;
 }
 
@@ -1201,14 +1215,16 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// rays through them, blended into the probes, and the probes resolved per voxel, which the main pass shades with.
 	// each kernel's dispatches in a pass read what the one before wrote: barriers between them
 	// a gi kernel over count threads, in rows (see GiThread)
-	auto giKernel = [kernel](CommandBufferHandle cmd, uint8_t entryPoint, uint64_t count, uint32_t clip, uint32_t step = 0, uint32_t jobBase = 0)
+	auto giKernel = [kernel](
+						CommandBufferHandle cmd, uint8_t entryPoint, uint64_t count, uint32_t clip, uint32_t step = 0, uint32_t jobBase = 0,
+						uint16_t specialization = 0)
 	{
 		constexpr uint64_t kRow = SHADER_TYPES_GI_ROW;
 		auto rows = (count + kRow - 1) / kRow;
 		ENSUREF(rows <= 65535, "the indirect lighting's {} threads are more than a dispatch takes", count);
 		kernel(
 			cmd,
-			ComputePipelineVariant{.entryPoint = entryPoint},
+			ComputePipelineVariant{.entryPoint = entryPoint, .specialization = specialization},
 			static_cast<uint32_t>(std::min(count, kRow)),
 			static_cast<uint32_t>(std::max<uint64_t>(rows, 1)),
 			jobBase,
@@ -1472,9 +1488,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			}
 			if (!Skipped("GI Resolve"))
 			{
+				// (the traced one without what the frame leaves unused, see myResolveSkipped)
 				uint8_t resolve = myGiTraceBvh ? kGiResolveTracedEntryPoint : kGiResolveEntryPoint;
+				uint16_t skipped = myGiTraceBvh ? myResolveSkipped : uint16_t{0};
 				clips([&](uint32_t clip, const gi::Layout& layout)
-					  { giKernel(cmd, resolve, static_cast<uint64_t>(layout.flagCount) * SHADER_TYPES_GI_GROUP_SIZE, clip); });
+					  { giKernel(cmd, resolve, static_cast<uint64_t>(layout.flagCount) * SHADER_TYPES_GI_GROUP_SIZE, clip, 0, 0, skipped); });
 			}
 			// the surface cache's light filtered, a pass at a time (its noise first, see ComputeGiCacheFilter), and blended
 			// into what the resolve wrote, where it is on
@@ -1968,7 +1986,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{
 			bindKernel(
 				context.cmd,
-				ComputePipelineVariant{.entryPoint = kMainVisibilityEntryPoint, .specialization = specialization},
+				ComputePipelineVariant{.entryPoint = kMainVisibilityEntryPoint, .specialization = static_cast<uint16_t>(specialization | myShadingSkipped)},
 				0, 0, 0, 0, 0, prepassImages(), list);
 			CommandEncoder(context.cmd)
 				.DispatchIndirect(context.graph.GetBuffer(myVisibilityTiles), 3 * (list - VISIBILITY_TILES_SPECIALIZED) * sizeof(uint32_t));
@@ -2012,7 +2030,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				auto extent = myGraph.GetExtent();
 				kernel(
 					context.cmd,
-					ComputePipelineVariant{.entryPoint = kMainVisibilityEntryPoint, .specialization = myVisibilitySpecialization},
+					ComputePipelineVariant{
+						.entryPoint = kMainVisibilityEntryPoint, .specialization = static_cast<uint16_t>(myVisibilitySpecialization | myShadingSkipped)},
 					extent.width, extent.height, 0, 0, 0, 0, 0, prepassImages());
 			});
 
@@ -2676,6 +2695,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	const char* gpuCulling = std::getenv("SPEEDO_GPU_CULLING");
 	myGpuCulling = myDrawStreams.front().indirect && (gpuCulling == nullptr || std::string_view(gpuCulling) != "0");
 	myCountEmulated = !limits.drawIndirectCount || limits.drawIndirectCountEmulated;
+	// (SPEEDO_SHADER_STATE_TIERS=0: its pipelines and kernels aren't specialized without what the frame leaves unused, to
+	// compare; see myShadingSkipped)
+	const char* stateTiers = std::getenv("SPEEDO_SHADER_STATE_TIERS");
+	mySpecializationConstants = limits.specializationConstants && (stateTiers == nullptr || std::string_view(stateTiers) != "0");
 	myGiMaxVolumeSide = limits.maxImageDimension3d;
 	// the indirect lighting, when FrameInputs::indirectLighting says (View > Rendering Features > Indirect Lighting, on by default, SPEEDO_GI=0
 	// to start without it), at FrameInputs::giResolution voxels along the scene's longest axis (View > Rendering Features > Indirect Lighting... > Resolution,
@@ -4041,9 +4064,20 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		for (size_t materialIt = 0; materialIt < materials.size(); materialIt++)
 			myTwoPhases |= !materials[materialIt].blend && frame.transmissive(materialIt);
 	}
+	// what the frame as it is set leaves unused, which the main pass's shading is specialized without (see
+	// myShadingSkipped): where the device's shaders have specialization constants and the materials' pipelines are
+	// specialized at all (SPEEDO_SHADER_TIERS=0: none is). the fragments' pipelines by their draws' variants (a pipeline
+	// asked for is drawn with once it exists, the generic one meanwhile: a debug view switched on draws at once)
+	bool specializes = mySpecializationConstants && frame.specialization.has_value();
+	bool worldOff = !(myGiWorldOn && frame.giSurfaceCache);
+	myShadingSkipped = specializes && worldOff && frame.pushConstants.debugView == DEBUG_VIEW_NONE ? kShadingSkipped : uint16_t{0};
+	auto shadingSpecialization = [&](size_t material)
+	{ return static_cast<uint16_t>((frame.specialization ? (*frame.specialization)(material) : uint16_t{0}) | myShadingSkipped); };
 	for (auto phase : {MainPassPhase::kOpaque, MainPassPhase::kTransmissive})
 		myDrawLists[std::to_underlying(phase)] = frame.model != nullptr
-			? BuildDrawList(*frame.model, phase, myTwoPhases, frame.transmissive, frame.specialization)
+			? BuildDrawList(
+				  *frame.model, phase, myTwoPhases, frame.transmissive,
+				  frame.specialization ? std::optional<core::std_extra::function_ref<uint16_t(size_t)>>(shadingSpecialization) : std::nullopt)
 			: DrawList{};
 	// the first phase's opaque draws shade what the pre-pass drew (the blended ones depth test as before, and the
 	// transmissive phase's draws aren't in the pre-pass: the opaque scene behind them must be drawn)
@@ -4193,6 +4227,10 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		bool hasBvh = frame.model != nullptr && frame.model->HasBvh();
 		uint32_t emitterCount = frame.emissiveLights && hasBvh ? frame.model->GetEmitterCount() : 0;
 		myEmittersOn = emitterCount > 0;
+		// (and the resolve's kernel without the world cache's lookups where it is off, and without the emissive surfaces
+		// as lights where none lights the scene: see myResolveSkipped)
+		myResolveSkipped = static_cast<uint16_t>(
+			specializes ? (worldOff ? SHADER_TYPES_LAYERS_WORLD : 0U) | (myEmittersOn ? 0U : SHADER_TYPES_LAYERS_EMITTERS) : 0U);
 		for (auto pass : {myEmitterSamplePass, myEmitterShadePass, myEmitterXPass, myEmitterYPass, myEmitterTemporalPass})
 			myGraph.SetEnabled(pass, myEmittersOn);
 		myGraph.SetEnabled(myEmitterNewPass, myEmittersOn && myEmitterNewSampleCount > 1);

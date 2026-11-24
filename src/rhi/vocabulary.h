@@ -489,6 +489,12 @@ struct DeviceLimits
 	// the count is emulated, at a cost per call and per slot of its maxDrawCount rather than per draw made (KosmicKrisp:
 	// Metal has no draw count indirect, see CLAUDE.md, "The gpu's culling")
 	bool drawIndirectCountEmulated = false;
+	// the shaders' specialization constant takes any value at a pipeline's creation (Vulkan's specialization constants,
+	// Metal's function constants). without (D3D12: DXIL has none), each value is code compiled ahead for every entry
+	// point that reads the constant, and only the values a layout's configuration names exist (rhi::ShaderSet::
+	// specializations): what specializes by more than those is left generic there. revisit if HLSL gets them, or the
+	// shader compiler names the values per entry point
+	bool specializationConstants = false;
 	// ray queries against acceleration structures (VK_KHR_ray_query, see AccelerationStructure), where the device has them
 	// and SPEEDO_RAY_QUERY isn't 0 (on macOS, where it is 1: opt in, see rhi::vk RayQueriesEnabled)
 	bool rayQuery = false;

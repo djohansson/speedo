@@ -28,6 +28,18 @@ static const uint kSkippedLayers = SHADER_SPECIALIZATION_CONSTANT_0;
 const uint kSkippedLayers = 0;
 #endif
 
+// whether this pipeline is specialized without what a frame as it is set leaves unused (SHADER_TYPES_LAYERS_WORLD and
+// after it): never where the format has no specialization constants (SHADER_TARGET_NO_SPECIALIZATION_CONSTANTS: DXIL,
+// where every entry point that read the constant here would be compiled again for each of its values)
+bool Skipped(uint group)
+{
+#if defined(SHADER_TARGET_NO_SPECIALIZATION_CONSTANTS)
+	return false;
+#else
+	return (kSkippedLayers & group) != 0u;
+#endif
+}
+
 // whether a material's layer can be drawn by this pipeline
 bool Layer(MaterialData material, uint flag)
 {
