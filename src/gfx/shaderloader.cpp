@@ -172,11 +172,21 @@ static std::expected<std::vector<shadercompiler::Response>, std::string> RunWork
 	return results;
 }
 
+// a cache file dated now where it is used, not only where it is written: the date says when it was last used, by which
+// scripts/prune-shader-cache.ps1 removes the least recently used (a read leaves no trace: the file systems' access times
+// aren't kept or are kept lazily, and NTFS's here moved for none of a day's reads, 2026-11-24). CI's kept cache too
+static void MarkUsed(const std::filesystem::path& path)
+{
+	std::error_code error;
+	std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now(), error);
+}
+
 // an entry point's compiled code in the cache, by its key (and its specialization's value), or none
 static std::optional<rhi::ShaderBinary> ReadCached(const std::filesystem::path& path)
 {
 	if (!std::filesystem::exists(path))
 		return std::nullopt;
+	MarkUsed(path);
 	auto mapped = core::file::Map(path);
 	if (!mapped || mapped->size() == 0)
 		return std::nullopt;
@@ -341,6 +351,8 @@ static std::optional<KeysRecord> ReadKeysRecord(const std::filesystem::path& cac
 	// (its name says these files had these contents: the same list, or a collision)
 	if (record.dependencies != dependencies || record.keys.size() != entryCount || record.shaderSet.shaders.size() != entryCount)
 		return std::nullopt;
+	MarkUsed(cacheRoot / std::format("keys-{}.deps", identity));
+	MarkUsed(cacheRoot / std::format("{}.bin", *name));
 	return record;
 }
 
