@@ -679,11 +679,14 @@ bool GiTracesBvh(GiData gi)
 
 // the BVH's alpha masked triangles cut out as the main pass's alpha test does (FragmentShadow): the base color's alpha or
 // the mask's red below the material's cutoff, at the hit's texcoords (BVH_ALPHA_LEVEL), so that light passes through
-// foliage's gaps (the voxels hold such a triangle whole)
+// foliage's gaps (the voxels hold such a triangle whole). and the BVHs' glass passed (BVH_TRIANGLE_FLAG_GLASS: the
+// transmissive surfaces are in them for the rays through glass, see BvhMasked; these rays never stopped at them)
 struct GiAlphaMask : IBvhFilter
 {
 	bool Accept(uint flags, uint firstIndex, float2 barycentrics)
 	{
+		if ((flags & BVH_TRIANGLE_FLAG_GLASS) != 0u)
+			return false;
 		if ((flags & BVH_TRIANGLE_FLAG_ALPHA_MASKED) == 0u)
 			return true;
 		MaterialData material = gMaterialData[flags >> BVH_TRIANGLE_MATERIAL_SHIFT];

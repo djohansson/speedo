@@ -152,15 +152,20 @@ std::vector<Triangle> Triangles(
 		if (submesh.moves || submesh.topology != rhi::PrimitiveTopology::kTriangleList || (untraced && std::cmp_equal(submesh.material, *untraced)))
 			continue;
 		const ModelMaterial* material = submesh.material >= 0 ? &desc.materials[static_cast<size_t>(submesh.material)] : nullptr;
-		if (material != nullptr && (material->blend || material->transmission > 0.0F))
+		if (material != nullptr && material->blend)
 			continue;
+		// the transmissive ones as glass (BVH_TRIANGLE_FLAG_GLASS: whole, as the ray queries' glass structure holds them,
+		// their alpha mask not tested), which only the rays through glass meet
 		uint32_t flags = detail::TriangleFlags(submesh, material);
+		if (material != nullptr && material->transmission > 0.0F)
+			flags = (flags & ~BVH_TRIANGLE_FLAG_ALPHA_MASKED) | BVH_TRIANGLE_FLAG_GLASS;
 		for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
 		{
 			const glm::mat4& transform = desc.instances[submesh.firstInstance + instanceIt];
 			for (uint32_t indexIt = 0; indexIt + 2 < submesh.indexCount; indexIt += 3)
 			{
-				Triangle& triangle = triangles.emplace_back(Triangle{.flags = flags, .firstIndex = submesh.firstIndex + indexIt});
+				Triangle& triangle = triangles.emplace_back(
+					Triangle{.flags = flags, .firstIndex = submesh.firstIndex + indexIt, .instance = submesh.firstInstance + instanceIt});
 				for (uint32_t cornerIt = 0; cornerIt < 3; cornerIt++)
 				{
 					const auto& position = vertices[indices[submesh.firstIndex + indexIt + cornerIt]].position;
@@ -231,7 +236,11 @@ Data Build(std::span<const Triangle> triangles, core::TaskExecutor& executor)
 		auto primitive = std::bit_cast<uint32_t>(last.w);
 		ENSURE(primitive < data.triangleCount);
 		const auto& p = triangles[primitive].corners;
-		last.x = detail::FacingSign(data.triangles[triangleIt + 2], glm::cross(p[1] - p[0], p[2] - p[0]));
+		// (the facing in the lowest bit, 1 for a negative sign, and the instance, 1 more than it, above: see BvhFinish)
+		bool negative = detail::FacingSign(data.triangles[triangleIt + 2], glm::cross(p[1] - p[0], p[2] - p[0])) < 0.0F;
+		uint32_t instance = triangles[primitive].instance;
+		ENSUREF(instance == ~0U || instance < (1U << 30U), "a BVH triangle holds instances below {}, not {}", 1U << 30U, instance);
+		last.x = std::bit_cast<float>(((instance + 1U) << 1U) | (negative ? 1U : 0U));
 		last.y = std::bit_cast<float>(triangles[primitive].flags);
 		last.z = std::bit_cast<float>(triangles[primitive].firstIndex);
 	}
@@ -285,9 +294,12 @@ Moving::Moving(
 			continue;
 		const ModelMaterial* material = submesh.material >= 0 ? &desc.materials[static_cast<size_t>(submesh.material)] : nullptr;
 		bool transmissive = material != nullptr && !material->blend && material->transmission > 0.0F;
-		if ((material != nullptr && material->blend) || transmissive != glass)
+		// (with a tree, the BVH the shaders traverse, the glass that moves is in it too, flagged: see Triangles)
+		if ((material != nullptr && material->blend) || (transmissive != glass && !(impl.buildsTree && transmissive)))
 			continue;
-		uint32_t flags = detail::TriangleFlags(submesh, material) & (glass ? ~BVH_TRIANGLE_FLAG_ALPHA_MASKED : ~0U);
+		uint32_t flags = detail::TriangleFlags(submesh, material);
+		if (transmissive)
+			flags = (flags & ~BVH_TRIANGLE_FLAG_ALPHA_MASKED) | (impl.buildsTree ? BVH_TRIANGLE_FLAG_GLASS : 0U);
 		uint32_t jointBase = submesh.skin >= 0 ? desc.animation.skins[static_cast<size_t>(submesh.skin)].jointBase : SHADER_TYPES_NOT_SKINNED;
 		for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
 		{
@@ -525,7 +537,7 @@ std::string Version()
 {
 	// bump the tag when Build changes what it makes
 	return std::format(
-		"tinybvh-{}.{}.{}-{}|bvh-v4{}",
+		"tinybvh-{}.{}.{}-{}|bvh-v5{}",
 		TINY_BVH_VERSION_MAJOR,
 		TINY_BVH_VERSION_MINOR,
 		TINY_BVH_VERSION_SUB,

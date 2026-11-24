@@ -2163,7 +2163,7 @@ void WindowedApplication::PrepareDraw()
 	// the ray traced features' options (View > Rendering Features > Ray Tracing...; the user's ask, 2026-11-24): each
 	// feature, and its ray budget where it has one. every one traces through the device's ray queries where it has them and
 	// through gfx's BVHs where it hasn't (a Mac by default), more slowly: the budgets' defaults go by which (the settings'
-	// "the device's"). through the BVHs the refractions and the caustics are greyed out for now: the BVHs hold no glass
+	// "the device's"). through the BVHs the refractions and the caustics are off by default, for what their rays cost
 	static bool gShowRayTracing = []
 	{
 		const char* show = std::getenv("SPEEDO_SHOW_RAY_TRACING");
@@ -2181,7 +2181,7 @@ void WindowedApplication::PrepareDraw()
 			PushItemWidth(GetFontSize() * 12.0F);
 			auto& settings = App().GetScene().GetSettings();
 			bool rayQueries = App().GetScene().HasRayQueries();
-			constexpr const char* kBvhGlass = "Off by default through the BVHs, which hold no glass yet: a ray passes the glass it would meet.";
+			constexpr const char* kBvhGlass = "Off by default through the BVHs, for its cost there: a glass of water with the refractions and the caustics on took 240 ms a frame at 720p (M4 Pro).";
 			TextDisabled("%s", rayQueries ? "Rays: the device's ray queries." : "Rays: through the BVHs (this device has no ray queries), on smaller budgets.");
 
 			SeparatorText("Reflections");

@@ -92,8 +92,8 @@ public:
 		// ray queries (FrameInputs::tracedReflections and tracedRefractions; View > Rendering Features > Ray Traced Reflections and Ray Traced
 		// Refractions, SPEEDO_TRACED_REFLECTIONS=0 and SPEEDO_TRACED_REFRACTIONS=0 to start without)
 		std::atomic<bool> tracedReflections = true;
-		// (the refractions: 1, 0, or -1 for the device's, on with ray queries and off through the BVHs, which hold no glass
-		// yet; Scene::GetTracedRefractions)
+		// (the refractions: 1, 0, or -1 for the device's, on with ray queries and off through the BVHs, for their cost
+		// there; Scene::GetTracedRefractions)
 		std::atomic<int32_t> tracedRefractions = -1;
 		// how many transmissive surfaces a refraction's path and a caustic's photon go through at most, 1 to 8
 		// (FrameInputs::glassSurfaceCount; View > Ray Tracing..., SPEEDO_GLASS_SURFACE_COUNT), or 0 for the device's: 8
@@ -465,7 +465,7 @@ public:
 	// whether the installed environment is the sky (which the time of day moves the sun of, see Settings::timeOfDay)
 	[[nodiscard]] bool IsSkyInstalled() const noexcept;
 	// whether the shaders trace through the device's ray queries (DeviceLimits::rayQuery) rather than gfx's BVHs: what the
-	// traced refractions and the caustics need so far (the BVHs hold no glass yet), and what the ray budgets' defaults go by
+	// ray budgets' and the traced features' defaults go by
 	[[nodiscard]] bool HasRayQueries() const noexcept;
 	// the glossy reflections' stride in effect (Settings::reflectionStride, or the device's where that is 0: 1 with ray
 	// queries, 4 through the BVHs)

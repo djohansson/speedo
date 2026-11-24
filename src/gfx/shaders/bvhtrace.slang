@@ -105,8 +105,9 @@ void RayQueryWatchEnd(uint slot, uint candidates)
 
 // the model's triangles traced, by the device's ray queries where it has them (BVH_RAY_QUERY: gBvhScene[frame]) and
 // through gfx's BVHs where it hasn't (BvhTraverse, BvhTraverse2): one interface, BvhTraceInstances and what calls it
-// below, so that what traces compiles and works with either, slower through the BVHs. the BVHs hold no glass yet (their
-// rays of BVH_RAY_QUERY_MASK_GLASS meet nothing) and name no instance (BvhHit::modelInstance)
+// below, so that what traces compiles and works with either, slower through the BVHs. the BVHs hold the glass among
+// the rest, flagged (BVH_TRIANGLE_FLAG_GLASS, see BvhMasked), where the ray queries' is a structure of its own; a hit on
+// what doesn't move names its instance either way (BvhHit::modelInstance), a moving BVH's none
 
 // the nearest triangle a ray from origin along direction meets before tmax (or with anyHit any), of those filter accepts:
 // what doesn't move, and with moving what moves too. a ray query's is never capped; a BVH's may be (BvhHit::capped)
@@ -143,29 +144,54 @@ BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, f
 }
 
 #if !BVH_RAY_QUERY
+// a ray's filter through the BVHs, which hold the glass among the rest (BVH_TRIANGLE_FLAG_GLASS, see gfx/bvh.h): a
+// glass triangle stops the rays of BVH_RAY_QUERY_MASK_GLASS alone (whole: its alpha mask isn't tested, as the ray
+// queries' glass structure has it), any other those its BVH's mask bit is in (opaque), where the ray's own filter
+// accepts it
+struct BvhMasked<Filter : IBvhFilter> : IBvhFilter
+{
+	Filter filter;
+	bool glass;
+	bool opaque;
+
+	bool Accept(uint flags, uint firstIndex, float2 barycentrics)
+	{
+		if ((flags & BVH_TRIANGLE_FLAG_GLASS) != 0u)
+			return glass;
+		return opaque && filter.Accept(flags, firstIndex, barycentrics);
+	}
+}
+
 // and the top level instance it met (~0u where nothing; as the ray queries' structures name them: 0 what doesn't move,
-// BVH_RAY_QUERY_INSTANCE_MOVING what moves), through the BVHs: the static one, then the moving one where the model has
-// one (TRACED_MOVING_BVH) for what is nearer; no glass
+// BVH_RAY_QUERY_INSTANCE_MOVING what moves, BVH_RAY_QUERY_INSTANCE_GLASS and _MOVING_GLASS the glass), through the BVHs:
+// the static one, then the moving one where the model has one (TRACED_MOVING_BVH) for what is nearer, the glass in each
+// for the rays of BVH_RAY_QUERY_MASK_GLASS (so the nearest of the scene and the glass is one traversal of each)
 BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, uint mask, Filter filter, out uint instance)
 {
 	instance = ~0u;
 	BvhHit hit = BvhNothing(tmax);
-	if ((mask & BVH_RAY_QUERY_MASK_STATIC) != 0u)
+	BvhMasked<Filter> masked;
+	masked.filter = filter;
+	masked.glass = (mask & BVH_RAY_QUERY_MASK_GLASS) != 0u;
+	if ((mask & (BVH_RAY_QUERY_MASK_STATIC | BVH_RAY_QUERY_MASK_GLASS)) != 0u)
 	{
-		hit = BvhTraverse(gBvhNodes, gBvhTriangles, origin, direction, tmax, anyHit, filter);
+		masked.opaque = (mask & BVH_RAY_QUERY_MASK_STATIC) != 0u;
+		hit = BvhTraverse(gBvhNodes, gBvhTriangles, origin, direction, tmax, anyHit, masked);
 		if (BvhHitSomething(hit))
-			instance = 0u;
+			instance = (hit.flags & BVH_TRIANGLE_FLAG_GLASS) != 0u ? BVH_RAY_QUERY_INSTANCE_GLASS : 0u;
 	}
-	if ((mask & BVH_RAY_QUERY_MASK_MOVING) != 0u && (gPushConstants.traced & TRACED_MOVING_BVH) != 0u && !(anyHit && BvhHitSomething(hit)))
+	if ((mask & (BVH_RAY_QUERY_MASK_MOVING | BVH_RAY_QUERY_MASK_GLASS)) != 0u && (gPushConstants.traced & TRACED_MOVING_BVH) != 0u &&
+		!(anyHit && BvhHitSomething(hit)))
 	{
 		uint frameIndex = gPushConstants.frameIndex;
-		BvhHit movingHit = BvhTraverse2(gBvhMovingNodes[frameIndex], gBvhMovingTriangles[frameIndex], origin, direction, hit.t, anyHit, filter);
+		masked.opaque = (mask & BVH_RAY_QUERY_MASK_MOVING) != 0u;
+		BvhHit movingHit = BvhTraverse2(gBvhMovingNodes[frameIndex], gBvhMovingTriangles[frameIndex], origin, direction, hit.t, anyHit, masked);
 		bool capped = hit.capped || movingHit.capped;
 		if (BvhHitSomething(movingHit))
 		{
 			hit = movingHit;
 			hit.moves = true;
-			instance = BVH_RAY_QUERY_INSTANCE_MOVING;
+			instance = (hit.flags & BVH_TRIANGLE_FLAG_GLASS) != 0u ? BVH_RAY_QUERY_INSTANCE_MOVING_GLASS : BVH_RAY_QUERY_INSTANCE_MOVING;
 		}
 		hit.capped = capped;
 	}

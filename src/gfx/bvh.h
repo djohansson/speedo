@@ -49,10 +49,14 @@ struct Triangle
 	std::array<glm::vec3, 3> corners{};
 	uint32_t flags = 0;
 	uint32_t firstIndex = 0;
+	// the model instance that placed it (gModelInstances'), by which a hit's vertex normals are placed; ~0 for none
+	uint32_t instance = ~0U;
 };
 
-// what of a model the BVH holds, what the voxels hold of its static draws (see ComputeGiVoxelize): its triangle lists'
-// triangles that don't move and aren't blended or transmissive, at each of their instances; not those of untraced, a
+// what of a model the BVH holds: its triangle lists' triangles that don't move and aren't blended, at each of their
+// instances: what the voxels hold of its static draws (see ComputeGiVoxelize), and its transmissive surfaces, flagged as
+// glass (BVH_TRIANGLE_FLAG_GLASS), which the rays through glass alone meet (see BvhTraceInstances in bvhtrace.slang:
+// where the device's ray queries trace instead, the glass is a structure of its own); not those of untraced, a
 // material drawn alone (the ground plane's horizon, see ModelGround: triangles a million times the model's size, which
 // made every ray of KosmicKrisp's structures ten times as dear)
 [[nodiscard]] std::vector<Triangle> Triangles(
@@ -94,9 +98,9 @@ struct RayQueryGeometry
 // tree is built once, where they are first placed), in tinybvh's binary GPU layout (BVH_GPU: copied from the refit tree,
 // where encoding a CWBVH again took BrainStem's 61000 triangles 3 ms a frame). one BVH rather than one per submesh: a ray
 // then traverses it once, where with a BVH each BrainStem's dozens of overlapping parts each took one. the shaders read
-// it from a frame's buffers (gBvhMovingNodes, gBvhMovingTriangles). glass: of the transmissive surfaces that move (not
-// blended) instead, for the device's ray queries alone (no tree: the glass is in no BVH), as RayQueryGlassGeometries'
-// that don't move
+// it from a frame's buffers (gBvhMovingNodes, gBvhMovingTriangles). with a tree it holds the transmissive surfaces that
+// move too (not blended), flagged as glass (BVH_TRIANGLE_FLAG_GLASS, as Triangles'). glass: of those alone instead, for
+// the device's ray queries (no tree: their glass is a structure of its own), as RayQueryGlassGeometries' that don't move
 class Moving
 {
 public:

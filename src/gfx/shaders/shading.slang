@@ -256,7 +256,10 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 				coatReflected = ClearcoatReflected(surface, view, coatStrength);
 			bool coatShown = debugView == DEBUG_VIEW_NONE || debugView == DEBUG_VIEW_INDIRECT || debugView == DEBUG_VIEW_TRACED_REFLECTIONS;
 			float coatShare = coatShown && surface.clearcoat > 0.0 ? TracedGlossyShare(surface.clearcoatRoughness, coatStrength) : 0.0;
-			bool coat = surface.clearcoatRoughness > kTracedRoughnessFull && coatShare * coatStrength > tracedShare * strength;
+			// (on a ray budget, ReflectionStride, a smooth coat takes the pixel's ray too where it outweighs the base: its
+			// own sharp ray, whose light goes straight to the main color every pixel, isn't recorded then, see below, and
+			// through the Reflection passes a mirror's ray sharpens over the frames)
+			bool coat = (surface.clearcoatRoughness > kTracedRoughnessFull || ReflectionStride() > 1u) && coatShare * coatStrength > tracedShare * strength;
 			float share = coat ? coatShare : tracedShare;
 			if (share > 0.0)
 			{

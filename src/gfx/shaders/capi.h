@@ -1464,6 +1464,9 @@ struct CullView
 #define BVH_TRIANGLE_FLAG_DOUBLE_SIDED 1u
 // alpha masked: a ray passes where its material's texture alpha is below its cutoff (see GiAlphaMask)
 #define BVH_TRIANGLE_FLAG_ALPHA_MASKED 2u
+// glass: of a transmissive surface, in the BVHs among the rest (gfx/bvh.h; the ray queries' is a structure of its own):
+// the rays through glass alone meet it (BVH_RAY_QUERY_MASK_GLASS, see BvhMasked), every other ray passes (GiAlphaMask)
+#define BVH_TRIANGLE_FLAG_GLASS 4u
 // the flags' bits from here up: its material's index in gMaterialData
 #define BVH_TRIANGLE_MATERIAL_SHIFT 8u
 // the mip level a masked triangle's alpha is read at (incoherent rays: a level below the finest, for the cache)

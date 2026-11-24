@@ -739,8 +739,8 @@ float3 TracedNearLight(GiData gi, float3 position, float3 normal, float bias, fl
 // moving: whether what it met moves (BvhHit::moves).
 //
 // without ray queries (a Mac by default) the BVHs are traversed instead (see BvhTraceInstances): a hit is shaded as a
-// ray query's but by the triangle's own normal (a BVH's hit names no instance to place its vertices' by), nothing of
-// glass is met (the BVHs hold none yet), and a traversal that hit its step cap isn't known (valid false)
+// ray query's (what moves by its triangle's own normal: the moving BVH's hit names no instance), and a traversal that
+// hit its step cap isn't known (valid false)
 //
 // a transmissive surface gives its reflection of what is around it, as a hit's specular is taken (TracedIndirect: the
 // environment as much as the probes see of it; not its own traced reflections), and the light through it (TracedPath, as

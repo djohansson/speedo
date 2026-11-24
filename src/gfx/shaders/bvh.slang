@@ -34,11 +34,12 @@ struct BvhHit
 	bool frontFace;
 	bool capped; // stopped at BVH_MAX_STEP_COUNT: the nearest of what it met by then
 	bool moves; // of what moves (BvhTraceInstances: the moving structure's, or the moving BVH's), as the frame placed it
-	// of the ray queries' (BvhTraceScene) hits on what doesn't move, the gModelInstances one its vertices are placed by;
-	// ~0 for what moves (its corners are the frame's, see BvhRayQueryCorners) and the BVHs' hits
+	// of a hit on what doesn't move (a ray query's, or the static BVH's, see BvhFinish), the gModelInstances one its
+	// vertices are placed by; ~0 for what moves (its corners are the frame's, see BvhRayQueryCorners) and where a BVH's
+	// triangle names none
 	uint modelInstance;
-	// and the one its vertices' normals are placed by: modelInstance, or what moves rigidly's (following a node); ~0 where
-	// skinned or morphed (its triangle's own normal) and for the BVHs' hits
+	// and the one its vertices' normals are placed by: modelInstance, or with ray queries what moves rigidly's (following
+	// a node); ~0 where skinned or morphed (its triangle's own normal) and for the moving BVH's hits
 	uint normalInstance;
 };
 
@@ -92,10 +93,14 @@ BvhHit BvhFinish(BvhHit hit, StructuredBuffer<float4> triangles, uint triangle, 
 	hit.flags = asuint(last.y);
 	hit.firstIndex = asuint(last.z);
 	// the transform's third row is the normal divided by its largest component, whose sign gfx/bvh.h keeps in the last
-	// float4's x
+	// float4's x: its lowest bit (1: negative), under the instance that placed the triangle, 1 more than it (0: none),
+	// by which a hit's vertices and their normals are placed
+	uint placed = asuint(last.x);
 	float facing = dot(t2.xyz, direction);
 	hit.normal = normalize(t2.xyz) * (facing > 0.0 ? -1.0 : 1.0);
-	hit.frontFace = facing * last.x < 0.0;
+	hit.frontFace = facing * ((placed & 1u) != 0u ? -1.0 : 1.0) < 0.0;
+	hit.modelInstance = (placed >> 1u) - 1u;
+	hit.normalInstance = hit.modelInstance;
 	return hit;
 }
 
