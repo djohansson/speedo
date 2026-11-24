@@ -30,6 +30,7 @@ __include types;
 #include "uiblur.slang"
 #include "cull.slang"
 #include "bvh.slang"
+#include "bvhtrace.slang"
 #include "gi.slang"
 #include "tracedshadows.slang"
 #include "traced.slang"
