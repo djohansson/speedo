@@ -151,7 +151,13 @@ columns, the bathroom scene's bench, Bistro, CornellBox), and by the user's eye;
 
 ## Open for the user
 
-Nothing now.
+- **How many rays a voxel traces while its cache warms up** (2026-11-24, step 6; the numbers under Progress). 4 now,
+  for its first 256 updates. With 16 veach-bidir's left wall is smooth at 2 seconds where it is blotched until 6 to
+  10, and the first seconds of every scene are 25 to 45% less blotched; while they last (4 seconds after a load or a
+  light switched) the GI pass takes 1.4 to 3.4 ms a frame more in the research scenes, 12 more in Sponza (9.0 to
+  21.3) and 33 more in Bistro (14.1 to 47.1). 8 costs and gives about half of that. The rays aimed at what is bright
+  instead (step 6 as planned) would need the lit voxels kept in a list each cache ray samples with a shadow ray: a
+  larger change, with the list's light a voxel's rather than the hit's own.
 
 ## Progress
 
@@ -528,3 +534,23 @@ Nothing now.
   hundred rays, which the mirror shows as the walls in view do. More rays while it is cold cost what they are:
   Bistro's GI pass 14.1 ms a frame over its first 96 updates with 4, 25.3 with 8, 47.1 with 16. Left to step 6
   proper (the rays aimed at what is bright), which is what would make a voxel's first rays count.
+- 2026-11-24, **step 6 proper, looked into** (reports 5, 7, 10, 11: the first seconds). How blotched a frame is against
+  its settled one (`temp/research-issues/blobs.ps1`, hundredths of a stop, the whole frame at 1920x1080) at 1, 2, 4, 6
+  and 10 seconds: veach-bidir 2.17, 1.52, 1.14, 0.94, 0.81; veach-ajar 2.74, 1.52, 0.81, 0.57, 0.42; the kitchen 5.41,
+  3.57, 2.35, 1.87, 1.52. With 16 rays a voxel (`SPEEDO_GI_CACHE_RAYS=16`: the warm up's 4 are 16 then, and the 1
+  after it): veach-bidir 1.46, 0.94, 0.62, 0.67, 0.64; veach-ajar 2.01, 1.10, 0.60, 0.45, 0.38; the kitchen 4.62, 2.87,
+  1.74, 1.46, 1.32, and veach-bidir's left wall, its blotches the report's, is smooth at 2 seconds
+  (`temp/review/research-issues/s11-veach-bidir-warmup.png`: 4 and 16 rays at 1, 2 and 4 seconds;
+  `s11-kitchen-warmup.png`, `s11-bathroom-mirror-warmup.png`). So the first seconds are the entries' sample counts,
+  as the window's change of the night before said, and what lights that wall is no small spot: the lamp's light on
+  the ceiling and the wall above it, a large patch (not measured: how much of what the wall faces). The GI pass over a cache's first 96 updates at
+  1440p, with the warm up's 4 rays and with 16: veach-bidir 3.6 and 5.0 ms, the kitchen 3.3 and 5.9, the bathroom 3.1
+  and 6.1, living-room 4.1 and 7.5, the classroom 1.1 and 1.9, Sponza's columns 9.0 and 21.3, Bistro 14.1 and 47.1
+  (25.3 with 8). A count by the cache's size wouldn't tell those apart (the cache is 92 MB in veach-bidir, 111 in
+  Bistro, 151 in Sponza: a ray costs four times as much in Bistro), and one by the pass's measured time would make
+  two runs differ. Not built: the rays aimed. A voxel's entry has no picture of what is bright around it to aim by
+  but its own six faces, each half the sphere (no more than a doubling); the probes keep irradiance, not radiance; the
+  way that would work is the lit voxels sampled in a list (a few thousand of the last clip's, by their power, drawn
+  again each update), each cache ray with a shadow ray to one of them, and the rays' far hits without their lights'
+  light: the light of a voxel's point for the hit's own, which the anchored cache moved away from (Sponza's curtains).
+  The user's call which ("Open for the user").
