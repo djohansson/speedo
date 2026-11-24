@@ -494,3 +494,25 @@ Nothing now.
   0.272 to 0.261, the kitchen 0.234 to 0.226. The regression poses at 900 frames within 0.85 of 255 (the bathroom
   0.84, salle_de_bain's shelves 0.73, Bistro 0.71) but the classroom's 2.0 (its 0.5 m voxels hold the lamps'
   edges). No cost: Bistro's GI pass 3.91 ms either way at 1440p balanced, interleaved. visualtest 8 of 8, the quick tier 140 of 140.
+- 2026-11-24, **spaceship's specks around its display** (report 9's follow-up; the user: "go ahead"). With each
+  feature off in turn: the specks are the traced refraction's (clean with `SPEEDO_TRACED_REFRACTIONS=0`), its ray of
+  the dome's glass's lobe (roughness 0.1; the research scenes plan's step 6, a day old): the display is a bar of
+  emission 20, and a pixel beside its image takes it in the frames its ray meets it, which the upscaler doesn't
+  average out. The reference's dome shows the bar in a glow: the rays are right, and too few.
+  - *Tried in the copy of the shaders, and dropped*: the sharp ray, and where what it met is on the screen the
+    transmission texture there at the mip as wide as the lobe (`temp/research-issues/s2/screen.pl`). No noise, and a
+    red haze over the dome (a mip mixes the bar with what is far behind it), doubled edges where the screen hides a
+    hit and it is shaded sharp, the bar in blocks (the texture is compressed by its brightness).
+  - *Kept*: while the view is still and nothing changes, a rough surface's refraction's light is the mean of up to
+    128 frames' rays at the pixel, shared with the pixels two each way, the lobe without its outermost 3%
+    (`GlassLight`, `kTransmittedLobeShare`; the transmissive phase's second color attachment and the Glass History
+    pass; docs/notes/rendering.md). `temp/review/research-issues/s10-spaceship-display.png`: before, and after at
+    2.5 and 10 seconds; `s10-lamp-bulb.png`: lamp's frosted bulb's rim, before and after. On the way: a pixel's own
+    mean alone left a lattice of dim dots around the glow; with the neighbours' and the whole lobe, faint smudges; with
+    99% of the lobe a ragged rim.
+  - *Found with it*: with reflections off, a rough refraction's ray was the same every frame (the frames its sequence
+    goes by were the glossy reflections'), a stipple over the whole dome; counted while either is traced.
+  The glass scenes against their references as before (spaceship 0.197 to 0.194 blurred stops, lamp 0.185, bathroom2
+  0.171, classroom2 0.332, glass-of-water 0.739). The cost at 1440p balanced: the Glass History pass 0.02 ms; Main
+  Transmissive 2.25 to 2.27 ms in spaceship, 3.60 to 3.71 in bmw-m6, 4.03 to 4.20 in cornell-caustic, 11.89 to 12.14
+  in glass-of-water. Left: while the view moves the lobe's grain is as it was (docs/backlog.md, rough glass). visualtest 8 of 8, the quick tier 140 of 140 (vulkan and d3d12, validated).

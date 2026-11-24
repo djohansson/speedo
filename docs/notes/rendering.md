@@ -7,7 +7,7 @@ A note of CLAUDE.md (its index names each): the frame graph, the camera, upscali
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
 stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving, GI Seen and GI before Main with indirect lighting, after the Prepass, whose depth GI Seen reads), OIT clear, Shadows, Shadow Transmittance (with transmissive materials; Caustics Clear and Caustics where it redraws views and the device has ray queries), Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter New, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility Clear, Main Visibility Classify and Main Visibility (the visibility buffer), Reflection Trace, Reflection X and Y and Reflection Temporal (the traced glossy reflections), Main,
-Transmission and Transmission Mips, Main Transmissive, Depth Save, Aerial Perspective (the sky's air, see "The sky"), Exposure Clear, ComputeMain (or, with temporal upscaling or a lens, Composite,
+Transmission and Transmission Mips, Main Transmissive, Glass History, Depth Save, Aerial Perspective (the sky's air, see "The sky"), Exposure Clear, ComputeMain (or, with temporal upscaling or a lens, Composite,
 the Upscale passes, Lens (the camera's lens, see "The physical camera") and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
 Where a scene's frames go is a `gfx::RenderOutput` (`gfx/renderoutput.h`), which the scene and its renderer are given
@@ -1390,6 +1390,31 @@ transmission texture's mips wouldn't blur it much (`roughness * saturate(2 ior -
 well, along a ray of the surface's lobe (`TransmittedLobeRay`, since 2026-11-23, the research scenes plan's step 6: the
 view refracted about a microfacet normal of its GGX lobe, by the normals visible from the view, another each frame and
 pixel, which the temporal upscaler averages; a thin wall's out again through its other face as parallel to this one).
+The upscaler's average is enough where most of a pixel's rays meet the same thing, and not where few of them meet
+something far brighter: the glTF research set's spaceship's display, a bar of emission 20 behind its
+dome's glass (roughness 0.1), drew red single pixel specks around itself for good, each a frame's ray of the lobe's
+skirt (the user's report, 2026-11-23; with refractions untraced the display is clean). So while nothing but the view
+may have changed what the glass shows and the view is still (`TRACED_GLASS_STILL`: the model doesn't move, the lights
+neither changed nor are followed, the frame is drawn with the last one's switches), a rough surface's refraction's
+light is the mean of the frames' (`GlassLight`, at most `kGlassFrameCount`, 128; from roughness 0.02 to all of it at
+0.06): the last frame's mean at the pixel with this frame's ray, written beside the color in the transmissive phase's
+second color attachment (the depth test keeps the nearest fragment's; its draws' blend is `kTransmissiveBlend`) and
+copied by the Glass History pass for the next frame to read. The rays' light alone, not the fragment's color, so that
+what the glass reflects and its edges stay the upscaler's to resolve. What is shown is that mean with the means the
+pixels around kept, two each way by a tent and by their frames (not kept: it would spread further every frame): a
+pixel's own 128 rays left a lattice of dim dots further out, where one ray in a hundred meets the bar (the rays'
+sequence is the same in every pixel but for where it starts). And the lobe's rays are of its inner 97%
+(`kTransmittedLobeShare`): with the whole lobe faint smudges were left up to a hundred pixels from the bar, the rays of
+GGX's skirt, too rare for the frames kept here to make a glow of; with 99% the glow's rim is ragged. Tried first, in a
+copy of the shaders: the sharp ray, and where what it met is on the screen the transmission texture there at the mip
+as wide as the lobe (no noise at all, and wrong: the mips mix what is near with what is far, a red haze over the dome
+from the bar, and the hits the screen hides, shaded sharp, drew doubled edges). The cost: the Glass History pass 0.02 ms
+at 1440p balanced, Main Transmissive 2.25 to 2.27 ms in spaceship, 11.89 to 12.14 in glass-of-water, 4.03 to 4.20 in
+cornell-caustic; the research set's glass scenes at the same distance from their references (spaceship 0.197 to 0.194
+blurred stops). While the view moves it is a frame's ray as before, the lobe's grain with it: the history taken where
+what is behind the glass was is the next step (docs/backlog.md). The frames the rays' sequence goes by
+(`TracedFrame`) were counted with the glossy reflections alone: with reflections off a rough refraction's ray was the
+same every frame, a grain standing still; counted while either is traced now.
 The sharp refraction drew what is behind rough glass sharp in its share (a quarter of the light at 0.32): lamp's frosted
 bulb showed its emitter's edge in grainy notches along its rim, where the reference's is a glow; the lobe's ray draws it
 smooth, and the research set measures the same (lamp 0.191 blurred stops, bathroom2 0.199). Three rays a pixel were a

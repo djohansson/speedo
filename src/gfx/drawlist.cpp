@@ -101,7 +101,7 @@ DrawList BuildDrawList(
 	};
 	for (const auto& submesh : desc.submeshes)
 		if (!blended(submesh) && phaseOf(submesh) == phase)
-			add(submesh, kOpaqueBlend, 0);
+			add(submesh, phase == MainPassPhase::kTransmissive ? kTransmissiveBlend : kOpaqueBlend, 0);
 	byVariant(0);
 	auto opaqueCount = list.items.size();
 	if (!twoPhases || phase == MainPassPhase::kTransmissive)

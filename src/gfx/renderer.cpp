@@ -138,6 +138,8 @@ constexpr uint8_t kEmitterCausticsEntryPoint = 76;
 constexpr uint8_t kEmitterCausticCellsEntryPoint = 77;
 // and the cells' light at the frame's pixels (ComputeEmitterCausticLight)
 constexpr uint8_t kEmitterCausticLightEntryPoint = 78;
+// the rough glass's light kept for the next frame (see ComputeGlassHistory)
+constexpr uint8_t kGlassHistoryEntryPoint = 79;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
@@ -375,6 +377,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		 .aspect = ImageAspect::kDepth | ImageAspect::kStencil});
 	// the opaque scene with mips, which transmissive materials refract (SHADER_TYPES_TRANSMISSION_TEXTURE)
 	myTransmission = myGraph.CreateImage({.name = "Transmission", .format = Format::kR16G16B16A16Sfloat, .mipChain = true});
+	// the rough glass's light, which the transmissive phase's fragments write beside the color, and the last frame's,
+	// which they average theirs with while nothing changes (see GlassLight)
+	myGlassLight = myGraph.CreateImage({.name = "Glass Light", .format = Format::kR16G16B16A16Sfloat});
+	myGlassHistory = myGraph.CreateImage({.name = "Glass History", .format = Format::kR16G16B16A16Sfloat, .persistent = true});
 	// the light scattering materials diffuse into their volume, and the material (+ 1, 0 is none) in alpha, which the
 	// main pass blurs over their surfaces (SHADER_TYPES_SCATTER_TEXTURE), and their depth (SHADER_TYPES_SCATTER_DEPTH_TEXTURE)
 	myScatter = myGraph.CreateImage({.name = "Scatter", .format = Format::kR16G16B16A16Sfloat});
@@ -1153,12 +1159,18 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.Use(mySkyEyeView, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.ColorAttachment(myColor, load, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
+				// (the transmissive phase's rough glass's light: none where no fragment keeps any)
+				if (phase == MainPassPhase::kTransmissive)
+					builder.ColorAttachment(myGlassLight, LoadOp::kClear, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 				builder.DepthAttachment(myDepth, LoadOp::kLoad);
 				useOitLists(builder, PipelineStage::kFragmentShader, kOitAccess);
 				builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myShadowTransmittance, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				if (phase == MainPassPhase::kTransmissive)
+				{
 					builder.Use(myTransmission, ResourceUse::Sampled(PipelineStage::kFragmentShader));
+					builder.Use(myGlassHistory, ResourceUse::Sampled(PipelineStage::kFragmentShader));
+				}
 				builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myShadowMask, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				for (auto image : myGiNearHistory)
@@ -2120,6 +2132,21 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this](FrameGraph::PassContext& context)
 		{ context.graph.GetImage(myTransmission).GenerateMips(context.cmd, ImageLayout::kShaderReadOnly); });
 	myTransmissivePhase = mainPass(MainPassPhase::kTransmissive);
+	// the rough glass's light the transmissive phase wrote, kept for the next frame's fragments to average theirs with
+	// (see ComputeGlassHistory)
+	myGlassHistoryPass = myGraph.AddPass(
+		"Glass History",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myGlassLight, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myGlassHistory, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.SideEffects();
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			auto extent = myGraph.GetExtent();
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kGlassHistoryEntryPoint}, extent.width, extent.height);
+		});
 
 	// the frame's depth of what doesn't move, for the next to reproject (see ComputeDepthSave)
 	myDepthSavePass = myGraph.AddPass(
@@ -3199,6 +3226,21 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myTransmission), .layout = ImageLayout::kShaderReadOnly},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 		SHADER_TYPES_TRANSMISSION_TEXTURE);
+	pipeline.SetDescriptorData(
+		"gTextures",
+		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myGlassHistory), .layout = ImageLayout::kShaderReadOnly},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+		SHADER_TYPES_GLASS_HISTORY_TEXTURE);
+	pipeline.SetDescriptorData(
+		"gTextures",
+		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myGlassLight), .layout = ImageLayout::kShaderReadOnly},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+		SHADER_TYPES_GLASS_LIGHT_TEXTURE);
+	pipeline.SetDescriptorData(
+		"gRWTextures",
+		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myGlassHistory), .layout = ImageLayout::kGeneral},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+		SHADER_TYPES_GLASS_HISTORY_RW_TEXTURE);
 	for (uint32_t volumeIt = 0; volumeIt < myAerialPerspectiveImages.size(); volumeIt++)
 	{
 		ImageBinding binding{.sampler = {}, .imageView = *myAerialPerspectiveImages[volumeIt].view, .layout = ImageLayout::kGeneral};
@@ -3713,6 +3755,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	myGiNearHistoryValid = false;
 	myEmitterHistoryValid = false;
 	myReflectionHistoryValid = false;
+	myGlassHistoryValid = false;
 	// the emitters' reservoirs at this size (see ComputeEmitterShade): per traced pixel a uint4, in three parts: the frame's
 	// before their spatial reuse, and after it the frame's and the last frame's; and two more, the frame's points as Emitter
 	// Shade found them reaching their pixels (kEmitterPointsPart: where, and their light), which the untraced specular
@@ -3807,6 +3850,7 @@ void Renderer::RestartSequences()
 	myGiNearHistoryValid = false;
 	myEmitterHistoryValid = false;
 	myReflectionHistoryValid = false;
+	myGlassHistoryValid = false;
 	myAerialPerspectiveHistoryValid = false;
 }
 
@@ -4322,11 +4366,34 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 			// as the near field's still history (see GiData::nearStillBlend), but for what moves, which the reflections
 			// leave out where they meet it (see ReflectionPackDistance): ChronographWatch's seconds hand moves
 			bool settled = !myGiLightsChanged && myGiLightsFollowFrames == 0;
-			frame.pushConstants.traced |= (myReflectionHistoryValid ? TRACED_REFLECTION_HISTORY : 0U) |
-										  (settled ? TRACED_SETTLED : 0U) | (myReflectionFrame << TRACED_FRAME_SHIFT);
-			myReflectionFrame = (myReflectionFrame + 1) & ((1U << (32U - TRACED_FRAME_SHIFT)) - 1U);
+			frame.pushConstants.traced |= (myReflectionHistoryValid ? TRACED_REFLECTION_HISTORY : 0U) | (settled ? TRACED_SETTLED : 0U);
 		}
 		myReflectionHistoryValid = reflections;
+	}
+	// the frames the traced rays' sampling goes by (TracedFrame: the glossy reflections' rays and their history's parity,
+	// and the rough refractions' rays of their lobes): counted while either is traced. counted with the reflections
+	// alone, a rough refraction's ray was the same every frame without them, a pixel's grain standing still
+	if ((frame.pushConstants.traced & (TRACED_REFRACTIONS | (myVisibilityBuffer ? TRACED_REFLECTIONS : 0U))) != 0U)
+	{
+		frame.pushConstants.traced |= myReflectionFrame << TRACED_FRAME_SHIFT;
+		myReflectionFrame = (myReflectionFrame + 1) & ((1U << (32U - TRACED_FRAME_SHIFT)) - 1U);
+	}
+	// the rough glass's history (see GlassLight): averaged with while it holds the last frame's (the passes ran, the graph
+	// kept it) and nothing but the view may have changed what the glass shows: the model doesn't move, the lights neither
+	// changed nor are being followed (as the near field's still history, see GiData::nearStillBlend), and the frame is
+	// drawn as the last one was (the debug view, what is traced and lit by what: a switch thrown would otherwise fade in
+	// over the history's frames, as what this leaves out does)
+	{
+		uint64_t key = (uint64_t{frame.pushConstants.debugView} << 32) |
+					   (frame.pushConstants.traced & (TRACED_REFLECTIONS | TRACED_REFRACTIONS | TRACED_SOLID_TRANSMISSION)) |
+					   (frame.indirectLighting ? 1U << 8 : 0U) | (frame.caustics ? 1U << 9 : 0U) | (frame.emissiveLights ? 1U << 10 : 0U) |
+					   (frame.shadows ? 1U << 11 : 0U) | (frame.giSurfaceCache ? 1U << 12 : 0U) | (frame.giNearField ? 1U << 13 : 0U);
+		bool still = myTwoPhases && myGlassHistoryValid && myGraph.IsPersistentValid(myGlassHistory) && key == myGlassHistoryKey &&
+					 frame.model != nullptr && !frame.model->Moves() && !myGiLightsChanged && myGiLightsFollowFrames == 0;
+		if (still)
+			frame.pushConstants.traced |= TRACED_GLASS_STILL;
+		myGlassHistoryValid = myTwoPhases;
+		myGlassHistoryKey = key;
 	}
 	InternalPlanShadowCache(frame);
 	myGraph.SetEnabled(myShadowPass, shadowsDrawn && std::ranges::contains(myShadowViewKept, uint8_t{0}));
@@ -4466,6 +4533,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myTransmissionPass, myTwoPhases);
 	myGraph.SetEnabled(myTransmissionMipsPass, myTwoPhases);
 	myGraph.SetEnabled(myTransmissivePhase, myTwoPhases);
+	myGraph.SetEnabled(myGlassHistoryPass, myTwoPhases);
 
 	myGraph.Bind(myOutput, myRenderOutput.GetTarget(frame.outputIndex), 0);
 	myGraph.Bind(myExposureHistogram, *frame.exposureHistogram);
@@ -5935,7 +6003,7 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 
 	// the variant most of its draws bind (the main list's opaque ones shade over the pre-pass's depth)
 	const GraphicsPipelineVariant variant{
-		.blend = prepass ? kPrepassBlend : kOpaqueBlend,
+		.blend = prepass ? kPrepassBlend : (listId == ListId::kMainTransmissive ? kTransmissiveBlend : kOpaqueBlend),
 		.fragmentShader = prepass ? kPrepassFragmentShader : uint8_t{0},
 		.depthTest = !prepass && listId == ListId::kMain ? DepthTest::kEqual : DepthTest::kNearer};
 	// the pre-pass skips the blended draws (the main list's, left as they are in myPrepassList)

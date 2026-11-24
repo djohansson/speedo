@@ -31,6 +31,9 @@ constexpr uint32_t kDepthAttachment = 1;
 // they go in the per pixel lists of the order independent transparency, see OitNode), so they needn't be sorted
 constexpr std::array kOpaqueBlend{rhi::BlendMode::kOpaque, rhi::BlendMode::kNone, rhi::BlendMode::kNone, rhi::BlendMode::kNone};
 constexpr std::array kTransparentBlend{rhi::BlendMode::kNone, rhi::BlendMode::kNone, rhi::BlendMode::kNone, rhi::BlendMode::kNone};
+// the main pass's transmissive phase's draws write its second color attachment too: the rough glass's light (see
+// SHADER_TYPES_GLASS_LIGHT_TEXTURE)
+constexpr std::array kTransmissiveBlend{rhi::BlendMode::kOpaque, rhi::BlendMode::kOpaque, rhi::BlendMode::kNone, rhi::BlendMode::kNone};
 constexpr uint8_t kTransparentFragmentShader = 1;
 // the shadow pass's fragments: depth only, cut out by alpha masks (FragmentShadow, the layout's third fragment entry
 // point). with no color attachments, a kOpaque first blend mode is what makes the pipeline write depth

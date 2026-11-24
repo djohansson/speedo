@@ -475,6 +475,14 @@ private:
 	FrameGraph::PassId myTransmissionPass;
 	FrameGraph::PassId myTransmissionMipsPass;
 	FrameGraph::PassId myTransmissivePhase;
+	// the rough glass's light (SHADER_TYPES_GLASS_LIGHT_TEXTURE: the transmissive phase's second color attachment) and
+	// its history, kept from frame to frame (the Glass History pass's copy of it); whether the history holds the last
+	// frame's (the passes ran), and what that frame was drawn with (see TRACED_GLASS_STILL)
+	FrameGraph::ImageId myGlassLight;
+	FrameGraph::ImageId myGlassHistory;
+	FrameGraph::PassId myGlassHistoryPass;
+	bool myGlassHistoryValid = false;
+	uint64_t myGlassHistoryKey = 0;
 	FrameGraph::PassId myShadowPass;
 	FrameGraph::PassId myShadowTransmittancePass;
 	FrameGraph::PassId myCausticsClearPass;

@@ -109,6 +109,13 @@ extern "C"
 // Transmission pass writes (ComputeTransmissionCopy) before the mips are made
 #define SHADER_TYPES_TRANSMISSION_TEXTURE 13u
 #define SHADER_TYPES_TRANSMISSION_RW_TEXTURE 60u
+// the gTextures slots of the rough glass's light: what the transmissive phase's fragments took of their traced
+// refraction's rays this frame (the phase's second color attachment: the light, the mean of as many frames as its
+// alpha says, 0 where no fragment keeps any, see GlassLight), and that of the last frame, which they average theirs
+// with while nothing changes (the Glass History pass's copy of it, ComputeGlassHistory, through its gRWTextures slot)
+#define SHADER_TYPES_GLASS_HISTORY_TEXTURE 93u
+#define SHADER_TYPES_GLASS_LIGHT_TEXTURE 94u
+#define SHADER_TYPES_GLASS_HISTORY_RW_TEXTURE 82u
 // the gTextures slot of the environment's panorama prefiltered for sheen (see EnvironmentData)
 #define SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE 14u
 // the ui's frosted panels (the menu bar, menus and popups, as macOS's: see UiBlurRect and the UI Blur passes): the
@@ -1840,6 +1847,10 @@ struct PushConstants
 // (see TransmissionSolid; Scene::Settings::solidTransmission). in this word whatever the ray queries: the screen space
 // lookup's direction takes it too
 #define TRACED_SOLID_TRANSMISSION 16u
+// the rough glass's history holds the last frame's light, and nothing but the view may have changed what the glass
+// shows since (the model doesn't move, the lights neither changed nor are being followed): where the view is still too,
+// a rough transmissive fragment's traced refraction is averaged over the frames (see GlassLight)
+#define TRACED_GLASS_STILL 32u
 #define TRACED_FRAME_SHIFT 8u
 // the visibility buffer's first word's top bit: the draw record's material has an extended layer (see FragmentPrepass; the record
 // is the bits below)

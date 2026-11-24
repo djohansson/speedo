@@ -78,12 +78,6 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
   the kitchen's indirect light 175 of 255 off for seconds, where 0, 4, 16 and 64 are alike): the lead of a fast mean
   of 2 samples bounced on, most likely. The variable's range says 0 to 1024; either the lead needs a floor on the
   fast count or the range does.
-- **spaceship's speckles around its display, through the dome** (the user's report, 2026-11-23, after the review plan's
-  steps 1 and 2, which they confirmed by eye): seen close through the dome's glass (roughness 0.1), red single-pixel
-  specks scattered around the edges of the bright emissive display inside it (strength 20) and white ones on the dark
-  parts beside it; the ground's specks are gone. Not looked into: likely the traced refraction's ray of the rough
-  surface's lobe (the research scenes plan's step 6, `TransmittedLobeRay`), a pixel's ray meeting the display in some
-  frames and not others beside its edge. docs/research-scenes-review-plan.md.
 - **The traced hits' light sample out of the transmissive fragment shader** (2026-11-23, the review plan's step 1): a
   refraction's hit the screen hides takes a light sample (`TracedEmitterHidden`), and the rule that tells glass that
   gathers light from glass that doesn't made that shader slower by its size alone, whatever it traced: cornell-caustic's
@@ -102,7 +96,11 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
   filtered and accumulated by Reflection passes of its own, as the visibility buffer's glossy reflections are, with the
   traced share then as far as theirs (tried without the filter: bathroom2's jar's sides went orange). Judge by lamp's
   bulb, bathroom2's jar and the glass sample models (TransmissionRoughnessTest). docs/research-scenes-plan.md, C2 and
-  step 6; docs/notes/rendering.md, "Traced reflections and refractions".
+  step 6; docs/notes/rendering.md, "Traced reflections and refractions". Since 2026-11-24 a still view's rough
+  refraction is the mean of up to 128 frames' rays (`GlassLight`: spaceship's specks around its display); while the
+  view moves it is still a frame's ray, grain the upscaler doesn't take out (seen at twice the size in a slow turn
+  around spaceship's dome): the history read where what is behind the glass was the frame before (the pre-pass's
+  motion there), a dozen frames of it, would be the first part of that design.
 - **Volumetric effects**: clouds and fog banks (the user's wish, 2026-11-20). Their light in the air from the clipmap's
   volumes (the probes' light and the cache's, trilinear in hardware), which is why the world cache leaves the air to
   them (docs/world-cache-plan.md, step 4); clouds mostly the sun's and the sky's (docs/notes/sky.md).

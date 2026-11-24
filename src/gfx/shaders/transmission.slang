@@ -99,6 +99,8 @@ float TransmittedTracedShare(float roughness, float ior)
 // cost Main Transmissive 0.45 ms a frame more in lamp at 1440p, 0.25 in bathroom2, 0.14 in Bistro at night; the traced
 // share as far as the glossy reflections' (all to 0.45, none from 0.6) drew bathroom2's jar's edges orange, the counter
 // below seen through the bottle's sides, where the reference's show the wall behind as the mips do
+static const float kTransmittedLobeShare = 0.97;
+
 float3 TransmittedLobeRay(float3 normal, float3 view, float roughness, float ior, bool solid, uint sample)
 {
 	float3 sharp = TransmittedRay(normal, view, ior);
@@ -109,7 +111,10 @@ float3 TransmittedLobeRay(float3 normal, float3 view, float roughness, float ior
 	float3 tangent = normalize(abs(normal.z) < 0.999 ? cross(float3(0.0, 0.0, 1.0), normal) : cross(float3(1.0, 0.0, 0.0), normal));
 	float3 bitangent = cross(normal, tangent);
 	float3 local = normalize(float3(dot(view, tangent), dot(view, bitangent), max(dot(view, normal), 1e-4)));
-	float3 h = TracedVisibleNormal(local, alpha, TracedRandom(gFragmentPixel, TracedFrame() * 3u + sample));
+	// (the lobe without its outermost normals, kTransmittedLobeShare of it: see GlassLight)
+	float2 u = TracedRandom(gFragmentPixel, TracedFrame() * 3u + sample);
+	u.x *= kTransmittedLobeShare;
+	float3 h = TracedVisibleNormal(local, alpha, u);
 	float3 microfacet = normalize(h.x * tangent + h.y * bitangent + h.z * normal);
 	float3 into = refract(-view, microfacet, 1.0 / max(ior, 1e-4));
 	if (dot(into, into) == 0.0 || dot(into, normal) >= 0.0)
@@ -120,6 +125,96 @@ float3 TransmittedLobeRay(float3 normal, float3 view, float roughness, float ior
 	float3 through = refract(into, normal, ior);
 	return dot(through, through) == 0.0 ? -view : normalize(through);
 #endif
+}
+
+// the rough glass's light: a rough transmissive surface's traced refraction is one ray of its lobe a pixel a frame
+// (TransmittedLobeRay), which the temporal upscaler was left to average: enough for a frosted bulb around its emitter,
+// most of whose rays meet it, and not where few of a pixel's rays meet something far brighter than the rest: the glTF
+// research set's spaceship's display, a bar of emission 20 behind its dome's glass (roughness 0.1), drew red single
+// pixel specks around itself for good, the lobe's rare rays that meet it, each a frame's (the user's report,
+// 2026-11-23). while nothing but the view may have changed what the glass shows and the view is still
+// (TRACED_GLASS_STILL, EmitterViewStill) the fragment's rays' light is the mean of the frames', at most
+// kGlassFrameCount of them: the last frame's mean at its pixel (SHADER_TYPES_GLASS_HISTORY_TEXTURE, its alpha the
+// frames it is of) with this frame's, written beside the color (gFragmentGlass, the transmissive phase's second
+// attachment, which the depth test keeps the nearest fragment's of) for the Glass History pass to keep. the rays'
+// light alone, not the fragment's color: what the glass reflects and its edges are the upscaler's still, which
+// resolves them finer than a mean at the pixel would. from kGlassRoughnessNone to kGlassRoughnessFull: a smooth
+// surface's ray is the same every frame, and what it shows is the upscaler's to resolve too. where the view moves
+// or anything changes, a frame's rays as before
+static const float kGlassFrameCount = 128.0;
+static const float kGlassRoughnessNone = 0.02;
+static const float kGlassRoughnessFull = 0.06;
+static const int kGlassReach = 2;
+// what the fragment being shaded keeps of its rays' light for the next frame: the mean, and in alpha the frames it is
+// of (0: none), see GlassLight
+static float4 gFragmentGlass = float4(0.0, 0.0, 0.0, 0.0);
+
+// traced: TracedFragmentRays' light, whose refraction rays' (one, or one a color with dispersion, each its own color's)
+// are replaced by their mean over the frames
+void GlassLight(float roughness, bool dispersion, inout float4 traced[kTracedFragmentRayCount])
+{
+	float share = smoothstep(kGlassRoughnessNone, kGlassRoughnessFull, roughness);
+	float4 red = traced[kTracedFragmentRefraction];
+	float4 green = traced[kTracedFragmentRefraction + (dispersion ? 1u : 0u)];
+	float4 blue = traced[kTracedFragmentRefraction + (dispersion ? 2u : 0u)];
+	if (share <= 0.0 || min(red.a, min(green.a, blue.a)) <= 0.0)
+		return;
+	float3 light = float3(red.r, green.g, blue.b);
+	float count = 1.0;
+	ViewData view = gViewData[gPushConstants.frameIndex][gShadingViewId];
+	if ((gPushConstants.traced & TRACED_GLASS_STILL) != 0u && view.previousEyePosition.w > 1.5)
+	{
+		float4 kept = gTextures[SHADER_TYPES_GLASS_HISTORY_TEXTURE].Load(int3(int2(gFragmentPixel), 0));
+		if (kept.a >= 1.0)
+		{
+			count = min(kept.a, kGlassFrameCount - 1.0) + 1.0;
+			light = lerp(kept.rgb, light, 1.0 / count);
+		}
+	}
+	gFragmentGlass = float4(light, count);
+	// and what is shown is that mean with the means the pixels around it kept (kGlassReach each way, by a tent and by
+	// the frames each is of), which the fragment doesn't keep: a pixel's own mean of kGlassFrameCount rays is smooth
+	// where a tenth of its rays meet what is bright, and further out, where one in a hundred does, the spaceship's
+	// display had a lattice of dim red dots around its glow (the rays' sequence, a frame's place in it by the pixel:
+	// TracedRandom), 20 / 128 against a ground of 0.02. kept, the neighbours' share would spread a pixel further every
+	// frame
+	if (count > 1.0)
+	{
+		float3 sum = light * count * float((kGlassReach + 1) * (kGlassReach + 1));
+		float weights = count * float((kGlassReach + 1) * (kGlassReach + 1));
+		for (int y = -kGlassReach; y <= kGlassReach; y++)
+			for (int x = -kGlassReach; x <= kGlassReach; x++)
+			{
+				if (x == 0 && y == 0)
+					continue;
+				float4 beside = gTextures[SHADER_TYPES_GLASS_HISTORY_TEXTURE].Load(int3(int2(gFragmentPixel) + int2(x, y), 0));
+				float weight = beside.a * float((kGlassReach + 1 - abs(x)) * (kGlassReach + 1 - abs(y)));
+				sum += weight * beside.rgb;
+				weights += weight;
+			}
+		light = sum / weights;
+	}
+	float3 shown = lerp(float3(red.r, green.g, blue.b), light, share);
+	if (dispersion)
+	{
+		traced[kTracedFragmentRefraction].r = shown.r;
+		traced[kTracedFragmentRefraction + 1u].g = shown.g;
+		traced[kTracedFragmentRefraction + 2u].b = shown.b;
+	}
+	else
+		traced[kTracedFragmentRefraction].rgb = shown;
+}
+
+// the Glass History pass: the rough glass's light the transmissive phase's fragments wrote this frame, kept for the
+// next frame's (see GlassLight)
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void ComputeGlassHistory(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+	int2 pixel = int2(dispatchThreadId.xy);
+	if (pixel.x >= int(gPushConstants.framebufferWidth) || pixel.y >= int(gPushConstants.framebufferHeight))
+		return;
+	gRWTextures[SHADER_TYPES_GLASS_HISTORY_RW_TEXTURE][pixel] = gTextures[SHADER_TYPES_GLASS_LIGHT_TEXTURE].Load(int3(pixel, 0));
 }
 
 // whether a fragment traces its refraction (View > Rendering Features > Ray Traced Refractions, where the device has ray queries; see

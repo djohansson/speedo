@@ -5,6 +5,9 @@
 struct FragmentOutput
 {
 	float4 color : SV_Target;
+	// the main pass's transmissive phase's second attachment: the rough glass's light (see GlassLight; the opaque phase
+	// has none, and what is written there goes nowhere)
+	float4 glass : SV_Target1;
 };
 
 // a cut out fragment's end, where there are fragments: the visibility buffer's shading, in compute, only shades what the
@@ -337,6 +340,9 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 		TracedFragmentRays(
 			v.position, geometryNormal, directions, tracing, TransmissionSolid(transmissionThickness), material.attenuationColor.rgb,
 			material.transmission.z, traced);
+		// a rough surface's refraction's rays' light, averaged over the frames while nothing changes (GlassLight)
+		if (transmission > 0.0)
+			GlassLight(surface.roughness, dispersion, traced);
 	}
 #endif
 	// the light through the surface (KHR_materials_transmission), the dielectric's
@@ -479,6 +485,7 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	// reactive mask; the rest only tells alpha 0, nothing drawn, from the rest)
 	if (gShadingTransmissive)
 		output.color.a += TransmissiveMotionReactivity(input);
+	output.glass = gFragmentGlass;
 	return output;
 }
 
