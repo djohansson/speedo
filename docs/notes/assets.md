@@ -262,7 +262,14 @@ variables (the process's, the pose's), File > Open..., Open Recent and the brows
 variable set empty counting as unset (PowerShell's `Start-Process` hands a child the variables its script cleared as
 empty ones: visualtest.ps1's research checks, run after the checks that set `SPEEDO_AUTOLOAD_ENVIRONMENT` and the
 exposure, took the sky and auto exposure, cornell-box +1.19 stops off its reference, until the lookups skipped empty
-variables, 2026-11-23). A camera
+variables, 2026-11-23). They are the model's alone: the next model opened (File > Open..., Open Recent, the browser;
+not an environment or an image) has what they set put back first (`UndoModelConditions`, in its load before the model's:
+each setting they set that still holds their value to what it held before, its default where the autoload or a pasted
+pose set it, Copy Scene's text of the model naming its conditions' values too; their environment, where it is still
+shown, to the one before or the physical sky: what the user changed since stays). Kept, the black uniform
+environment, the manual exposure and PBR Neutral stayed: Sponza opened after veach-bidir was black, its frame 0.16 of
+255, 86 with this (the user's report, 2026-11-24: "if the previous scene has an environment embedded ... the physical
+sky is not enabled and everything turns black"; `ConditionsRecord`, recorded by `ApplyPoseSettings`). A camera
 node whose transform is a reflection (pbrt's `Scale -1 1 1`; the set's bmw-m6) is rendered mirrored across, as Blender
 and pbrt render it (`SceneCamera::mirrored`, `VIEW_FLAG_MIRRORED`: the Sharpen pass, which writes the output, reads each
 pixel from across its view); bmw-m6 was 1.56 stops off its reference for that alone, 0.39 now. A sun disk drawn into the sky's panorama (`environment::AddSun`, 4x4

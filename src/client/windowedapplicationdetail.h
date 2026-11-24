@@ -215,6 +215,12 @@ struct ModelConditions
 // were applied at startup (SPEEDO_AUTO_EXPOSURE, say). the autoload and a pasted pose take them under their own variables
 // instead (see WindowedApplication::PrepareDraw). call from a load (see gLoads).
 void ApplyModelConditions(const ModelConditions& conditions, std::atomic_uint8_t& progress);
+// puts back what the installed model's conditions set, as another model is opened (File > Open..., Open Recent, the file
+// browser): the settings they set that still hold their values (to what they held before, or their defaults where the
+// autoload or a pasted pose set them) and their environment where it is still shown (to the one before, or the physical
+// sky), so that a research scene's black environment and manual exposure don't stay with the next model. call from a
+// load (see gLoads), before the model's.
+void UndoModelConditions(std::atomic_uint8_t& progress);
 
 // loads a model standing on ground (see ModelGround), or with choice kAsk where it has material variants, offers them to
 // lay out (see VariantChoice); with conditions, the model's (see ReadModelConditions: those beside it applied, and no

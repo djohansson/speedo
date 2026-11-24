@@ -4,6 +4,7 @@
 #include <core/file.h>
 #include <core/math.h>
 #include <core/runtimings.h>
+#include <core/std_extra.h>
 #include <core/utils.h>
 #include <gfx/graphicsapi.h>
 #include <gfx/lens.h>
@@ -217,19 +218,47 @@ constexpr float kMaxFogVisibility = 1000.0F;
 constexpr float kMinFogHeight = 1.0F;
 constexpr float kMaxFogHeight = 5000.0F;
 
+// what a model's conditions set of the settings (see windowedapplication::ModelConditions), kept so that opening another
+// model puts it back (see windowedapplication::UndoModelConditions): per setting the conditions name and the lookup
+// took from them (the same value: a pose Copy Scene wrote of the model names its conditions' values too), a call that
+// stores what the setting held before, or its default (toDefaults: at startup and for a pasted pose, where what was
+// before is no scene's), where it still holds what the conditions set (not where the user has changed it since)
+struct ConditionsRecord
+{
+	const windowedapplication::ModelConditions* conditions = nullptr;
+	bool toDefaults = false;
+	std::vector<core::std_extra::move_only_function<void()>> restores;
+};
+
 // the settings a pose names (see InternalCopyScene), as View sets them, from the variables that reproduce them, at startup
 // from the environment and from a pose pasted (Paste Scene): lookup(name) is a variable's value, or null where it isn't
-// set, which leaves its setting as it is, or where resetMissing (a pose names only what isn't the default) sets the default
+// set, which leaves its setting as it is, or where resetMissing (a pose names only what isn't the default) sets the default.
+// record: what a model's conditions set, kept to put back (see ConditionsRecord)
 template <typename Lookup>
-void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool resetMissing)
+void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool resetMissing, ConditionsRecord* record = nullptr)
 {
 	static const gfx::Scene::Settings kDefaults;
-	auto apply = [&lookup, resetMissing](auto& setting, const auto& fallback, const char* name, auto parse)
+	auto apply = [&lookup, resetMissing, record](auto& setting, const auto& fallback, const char* name, auto parse)
 	{
 		if (const char* value = lookup(name); value != nullptr && *value != '\0')
 		{
 			if (auto parsed = parse(value))
+			{
+				if (record != nullptr && record->conditions != nullptr)
+					if (const char* conditioned = record->conditions->Get(name); conditioned != nullptr && std::string_view(conditioned) == value)
+					{
+						using Value = decltype(setting.load());
+						Value before = record->toDefaults ? fallback.load(std::memory_order_relaxed) : setting.load(std::memory_order_relaxed);
+						auto set = static_cast<Value>(*parsed);
+						record->restores.emplace_back(
+							[&setting, before, set]
+							{
+								if (setting.load(std::memory_order_relaxed) == set)
+									setting.store(before, std::memory_order_relaxed);
+							});
+					}
 				setting.store(*parsed, std::memory_order_relaxed);
+			}
 			else
 				std::println(stderr, "{}={}: not understood", name, value);
 		}
@@ -698,6 +727,46 @@ void LoadAutoModel(RHI& rhi, const AutoModelLoad& load, std::atomic_uint8_t& pro
 namespace windowedapplication
 {
 
+// what the installed model's conditions set (see ui::ConditionsRecord), and the environment they loaded (as the scene
+// keeps its path, see Scene::GetEnvironmentPath) with the one before it (empty: the physical sky), until another model is
+// opened (UndoModelConditions). a research scene's conditions (a black environment, a manual exposure, PBR Neutral, solid
+// transmission) stayed with whatever was opened after it: Sponza opened after veach-bidir was black (the user's report,
+// 2026-11-24: "if the previous scene has an environment embedded ... the physical sky is not enabled and everything
+// turns black")
+struct ConditionsUndo
+{
+	std::vector<core::std_extra::move_only_function<void()>> restores;
+	std::optional<std::string> environmentSet;
+	std::string environmentBefore;
+};
+static std::mutex gConditionsUndoMutex;
+static ConditionsUndo gConditionsUndo; // guarded by gConditionsUndoMutex
+
+// keeps what a model's conditions set, in place of what an earlier one's did
+static void KeepModelConditions(ConditionsUndo undo)
+{
+	std::scoped_lock lock(gConditionsUndoMutex);
+	gConditionsUndo = std::move(undo);
+}
+
+void UndoModelConditions(std::atomic_uint8_t& progress)
+{
+	ConditionsUndo undo = [] { std::scoped_lock lock(gConditionsUndoMutex); return std::exchange(gConditionsUndo, {}); }();
+	// (last first: a setting two variables set, as the exposure's mode, goes back to what it held before the first)
+	for (auto& restore : undo.restores | std::views::reverse)
+		restore();
+	bool environment = undo.environmentSet && App().GetScene().GetEnvironmentPath().Read().Get() == *undo.environmentSet;
+	if (!undo.restores.empty() || environment)
+		std::println(
+			"the last model's conditions put back: {} settings{}", undo.restores.size(),
+			environment ? std::format(", the environment ({})", undo.environmentBefore.empty() ? "the physical sky" : undo.environmentBefore) : "");
+	if (environment)
+	{
+		App().GetScene().LoadEnvironment(undo.environmentBefore.empty() ? std::nullopt : std::optional(undo.environmentBefore), progress);
+		progress = 0;
+	}
+}
+
 void ApplyModelConditions(const ModelConditions& conditions, std::atomic_uint8_t& progress)
 {
 	std::string list;
@@ -710,9 +779,29 @@ void ApplyModelConditions(const ModelConditions& conditions, std::atomic_uint8_t
 		const char* value = std::getenv(name);
 		return value != nullptr && *value != '\0' ? nullptr : conditions.Get(name);
 	};
-	ui::ApplyPoseSettings(App().GetScene().GetSettings(), lookup, false);
+	ui::ConditionsRecord record{.conditions = &conditions};
+	ui::ApplyPoseSettings(App().GetScene().GetSettings(), lookup, false, &record);
+	ConditionsUndo undo{.restores = std::move(record.restores)};
 	if (const char* environment = lookup("SPEEDO_AUTOLOAD_ENVIRONMENT"))
+	{
+		undo.environmentBefore = App().GetScene().GetEnvironmentPath().Read().Get();
+		undo.environmentSet = std::string(environment);
 		App().GetScene().LoadEnvironment(std::string(environment), progress);
+	}
+	KeepModelConditions(std::move(undo));
+}
+
+// what the autoload's or a pasted pose's model's conditions set (see ui::ConditionsRecord: put back to the defaults, and
+// the environment to the physical sky, as another model is opened), where it comes with them; environment: the
+// environment it loads, environmentNamed what named it (the conditions' own where it is the same)
+static void KeepPoseConditions(
+	ui::ConditionsRecord& record, const std::optional<ModelConditions>& conditions, const std::optional<std::string>& environment, const char* environmentNamed)
+{
+	ConditionsUndo undo{.restores = std::move(record.restores)};
+	if (const char* conditioned = conditions ? conditions->Get("SPEEDO_AUTOLOAD_ENVIRONMENT") : nullptr;
+		conditioned != nullptr && environment && environmentNamed != nullptr && std::string_view(conditioned) == environmentNamed)
+		undo.environmentSet = *environment;
+	KeepModelConditions(std::move(undo));
 }
 
 // the unit chosen for the model about to be installed (see ChooseSceneUnit), until it is: outer none, no choice; inner
@@ -2530,7 +2619,9 @@ void WindowedApplication::PrepareDraw()
 		if (const char* giDebug = std::getenv("SPEEDO_GI_DEBUG"); giDebug != nullptr && *giDebug != '\0')
 			if (auto index = static_cast<uint32_t>(std::strtoul(giDebug, nullptr, 10)); index > 0 && DEBUG_VIEW_GI_FIRST + index - 1 < DEBUG_VIEW_GI_END)
 				App().GetScene().GetSettings().debugView.store(DEBUG_VIEW_GI_FIRST + index - 1, std::memory_order_relaxed);
-		ui::ApplyPoseSettings(App().GetScene().GetSettings(), autoLookup, false);
+		// (what the model's conditions set kept, to put back as another model is opened: see UndoModelConditions)
+		ui::ConditionsRecord autoRecord{.conditions = autoConditions ? &*autoConditions : nullptr, .toDefaults = true};
+		ui::ApplyPoseSettings(App().GetScene().GetSettings(), autoLookup, false, &autoRecord);
 		gAutoLens = ui::ApplyCameraVariables([](const char* name) -> const char* { return std::getenv(name); }, false);
 		// the unit SPEEDO_UNITS or SPEEDO_METERS_PER_UNIT names is the autoloaded model's (see ChooseSceneUnit: set and
 		// remembered for its file as it installs)
@@ -2546,6 +2637,7 @@ void WindowedApplication::PrepareDraw()
 		std::optional<std::string> environmentPath;
 		if (const char* autoLoadEnvironment = autoLookup("SPEEDO_AUTOLOAD_ENVIRONMENT"); autoLoadEnvironment != nullptr && *autoLoadEnvironment != '\0')
 			environmentPath = ui::EnvironmentSource(autoLoadEnvironment, resourcePath);
+		windowedapplication::KeepPoseConditions(autoRecord, autoConditions, environmentPath, autoLookup("SPEEDO_AUTOLOAD_ENVIRONMENT"));
 		gAutoLoads.emplace_back(gLoads.Enqueue(
 			environmentPath.value_or("Physical sky"),
 			[&rhi, environmentPath](std::atomic_uint8_t& progress) { App().GetScene().LoadEnvironment(environmentPath, progress); }));
@@ -2686,7 +2778,9 @@ void WindowedApplication::PrepareDraw()
 					return value;
 				return poseConditions ? poseConditions->Get(name) : nullptr;
 			};
-			ui::ApplyPoseSettings(scene.GetSettings(), poseLookup, true);
+			// (what its model's conditions set kept, to put back as another model is opened: see UndoModelConditions)
+			ui::ConditionsRecord poseRecord{.conditions = poseConditions ? &*poseConditions : nullptr, .toDefaults = true};
+			ui::ApplyPoseSettings(scene.GetSettings(), poseLookup, true, &poseRecord);
 			gAutoLens = ui::ApplyCameraVariables([&pose](const char* name) { return pose->Get(name); }, true);
 			gAutoCameraAfterModel = false;
 			gAutoModel.reset();
@@ -2745,6 +2839,8 @@ void WindowedApplication::PrepareDraw()
 			std::string environment;
 			if (const char* named = poseLookup("SPEEDO_AUTOLOAD_ENVIRONMENT"))
 				environment = ui::EnvironmentSource(named, resourcePath);
+			windowedapplication::KeepPoseConditions(
+				poseRecord, poseConditions, environment.empty() ? std::nullopt : std::optional(environment), poseLookup("SPEEDO_AUTOLOAD_ENVIRONMENT"));
 			if (environment != scene.GetEnvironmentPath().Read().Get())
 			{
 				auto path = environment.empty() ? std::nullopt : std::optional<std::string>(environment);

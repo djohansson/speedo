@@ -319,16 +319,34 @@ void WindowedApplication::InternalOpen(const windowedapplication::RecentFile& fi
 	using namespace windowedapplication;
 
 	auto& rhi = GetRHI();
+	// a model opened (a folder's or an archive's too, not an environment or an image) puts back what the last one's
+	// conditions set before it loads, its own applied after (see UndoModelConditions)
+	bool model = file.paths.size() > 1;
+	if (file.paths.size() == 1)
+	{
+		std::filesystem::path path(file.paths.front());
+		auto extension = path.extension().string();
+		std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		std::error_code error;
+		model = std::filesystem::is_directory(path, error) || extension == ".zip" || mesh::IsModelFile(path);
+	}
 	if (file.paths.size() == 1)
 		(void)gLoads.Enqueue(
 			file.paths.front(),
-			[&rhi, path = file.paths.front(), ground = file.ground](std::atomic_uint8_t& progress)
-			{ LoadAndInstallFile(rhi, path, progress, LoadChoice::kAsk, ground); });
+			[&rhi, path = file.paths.front(), ground = file.ground, model](std::atomic_uint8_t& progress)
+			{
+				if (model)
+					UndoModelConditions(progress);
+				LoadAndInstallFile(rhi, path, progress, LoadChoice::kAsk, ground);
+			});
 	else if (file.paths.size() > 1)
 		(void)gLoads.Enqueue(
 			std::format("{} models", file.paths.size()),
 			[paths = file.paths, arrangement = file.arrangement, ground = file.ground](std::atomic_uint8_t& progress)
-			{ App().GetScene().LoadModels(paths, progress, {}, arrangement, ground); });
+			{
+				UndoModelConditions(progress);
+				App().GetScene().LoadModels(paths, progress, {}, arrangement, ground);
+			});
 	AddRecentFile(file);
 }
 
