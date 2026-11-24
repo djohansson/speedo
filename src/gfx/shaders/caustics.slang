@@ -84,7 +84,6 @@ void CausticSplat(uint frameIndex, ShadowData source, float3 position, float3 no
 	}
 }
 
-#if BVH_RAY_QUERY
 // a ray's way through the transmissive surfaces that don't move (BvhTraceGlass, the ray queries' structure of them): the
 // caustics' photons' (ComputeCaustics) and the traced refractions' and reflections' (TracedPath). where it is and
 // goes, what it carries of its light, and whether it is inside a volume
@@ -331,7 +330,6 @@ bool GlassPathStep(inout GlassPath path, BvhHit glass, uint frameIndex, bool alo
 {
 	return GlassPathStep(path, GlassSurfaceAt(path.origin, path.direction, glass, frameIndex), frameIndex, alongPath);
 }
-#endif
 
 // the caustics' photons of the shadow view PushConstants::shadowView, of its tile of the shadow transmittance: from each of
 // SHADER_TYPES_CAUSTIC_PHOTONS_PER_AXIS squared points of each texel where a transmissive surface is (its alpha the nearest
@@ -347,7 +345,6 @@ bool GlassPathStep(inout GlassPath path, BvhHit glass, uint frameIndex, bool alo
 [numthreads(8, 8, 1)]
 void ComputeCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-#if BVH_RAY_QUERY
 	uint frameIndex = gPushConstants.frameIndex;
 	ShadowData view = gShadowViews[frameIndex][gPushConstants.shadowView];
 	uint2 imageSize;
@@ -382,7 +379,7 @@ void ComputeCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 	path.attenuationColor = 1.0;
 	path.attenuationDistance = 0.0;
 	bool passed = false; // through a transmissive surface
-	for (uint surfaceIt = 0; surfaceIt < SHADER_TYPES_CAUSTIC_SURFACE_COUNT; surfaceIt++)
+	for (uint surfaceIt = 0; surfaceIt < GlassSurfaceCount(); surfaceIt++)
 	{
 		bool glass;
 		BvhHit hit = BvhTraceSceneOrGlass(path.origin, path.direction, 1e30, GiAlphaMask(), glass);
@@ -402,7 +399,6 @@ void ComputeCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 		if (!GlassPathStep(path, hit, frameIndex, false))
 			return;
 	}
-#endif
 }
 
 // a shadow view's caustics, from its photons (gCausticPhotons) into its tile of the shadow transmittance's rgb (its alpha,

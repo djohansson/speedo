@@ -104,9 +104,6 @@ static const float kTransmittedLobeShare = 0.97;
 float3 TransmittedLobeRay(float3 normal, float3 view, float roughness, float ior, bool solid, uint sample)
 {
 	float3 sharp = TransmittedRay(normal, view, ior);
-#if !BVH_RAY_QUERY
-	return solid ? sharp : -view; // (nothing is traced: see TransmittedTraced)
-#else
 	float alpha = max(roughness * roughness, 1e-3);
 	float3 tangent = normalize(abs(normal.z) < 0.999 ? cross(float3(0.0, 0.0, 1.0), normal) : cross(float3(1.0, 0.0, 0.0), normal));
 	float3 bitangent = cross(normal, tangent);
@@ -124,7 +121,6 @@ float3 TransmittedLobeRay(float3 normal, float3 view, float roughness, float ior
 		return into;
 	float3 through = refract(into, normal, ior);
 	return dot(through, through) == 0.0 ? -view : normalize(through);
-#endif
 }
 
 // the rough glass's light: a rough transmissive surface's traced refraction is one ray of its lobe a pixel a frame

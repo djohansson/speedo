@@ -78,6 +78,33 @@ struct MaterialLayers
 	bool volumeScatter = false;
 };
 
+// the glossy reflections' stride in effect (see Scene::Settings::reflectionStride): the setting's (1, 2 or 4), or with 0
+// the device's, every pixel with ray queries and every 4th each way through the BVHs, whose rays cost many times theirs
+// (Bistro at night at 1440p balanced, M4 Pro: 64 ms a frame at every pixel)
+[[nodiscard]] static uint32_t ReflectionStrideOf(uint32_t setting, bool rayQueries)
+{
+	constexpr uint32_t kBvhReflectionStride = 4;
+	if (setting == 0)
+		return rayQueries ? 1 : kBvhReflectionStride;
+	return std::bit_floor(std::clamp<uint32_t>(setting, 1, 4));
+}
+
+// whether a ray traced feature whose default goes by the device is on (Scene::Settings::fragmentReflections,
+// tracedRefractions, caustics): the setting's (1 or 0), or with -1 the device's, on with ray queries and off through the
+// BVHs, where it can still be turned on
+[[nodiscard]] static bool RayTracedOn(int32_t setting, bool rayQueries)
+{
+	return setting < 0 ? rayQueries : setting != 0;
+}
+
+// how many transmissive surfaces a path goes through at most (see Scene::Settings::glassSurfaceCount): the setting's, or
+// with 0 the device's, all the shaders take with ray queries and half of them through the BVHs
+[[nodiscard]] static uint32_t GlassSurfaceCountOf(uint32_t setting, bool rayQueries)
+{
+	if (setting == 0)
+		return rayQueries ? SHADER_TYPES_CAUSTIC_SURFACE_COUNT : SHADER_TYPES_CAUSTIC_SURFACE_COUNT / 2;
+	return std::clamp<uint32_t>(setting, 1, SHADER_TYPES_CAUSTIC_SURFACE_COUNT);
+}
 
 [[nodiscard]] static MaterialLayers LayersOf(const ModelDesc& desc, size_t materialIndex)
 {
@@ -3758,17 +3785,17 @@ struct Scene::Impl
 				from = {.animation = state.previous, .time = static_cast<float>(state.previousTime)};
 				weight = static_cast<float>(state.fade / AnimationState::kCrossfade);
 			}
-			// the moving BVH only where rays trace it: the indirect lighting's, or the traced shadows', the emitters', or (with the
-			// device's ray queries, whose structures hold the glass that moves too) the traced reflections', refractions' and the
-			// caustics' photons'
-			bool rayQueries = myModel->GetAccelerationStructures() != nullptr;
+			// the moving BVH only where rays trace it: the indirect lighting's, the traced shadows', the emitters', the traced
+			// reflections' and refractions', or the caustics' photons' (through the device's ray queries, whose structures hold
+			// the glass that moves too, or the BVHs: see BvhTraceInstances)
+			bool rayQueries = myRHI.GetPrimaryDevice().GetLimits().rayQuery;
 			myMovingPlaced =
 				(mySettings.indirectLighting.load(std::memory_order_relaxed) && mySettings.traceTriangles.load(std::memory_order_relaxed)) ||
 				(mySettings.shadows.load(std::memory_order_relaxed) && mySettings.tracedShadows.load(std::memory_order_relaxed)) ||
 				(mySettings.emissiveLights.load(std::memory_order_relaxed) && myModel->GetEmitterCount() > 0) ||
-				(rayQueries &&
-				 (mySettings.tracedReflections.load(std::memory_order_relaxed) || mySettings.tracedRefractions.load(std::memory_order_relaxed) ||
-				  (mySettings.shadows.load(std::memory_order_relaxed) && mySettings.caustics.load(std::memory_order_relaxed))));
+				mySettings.tracedReflections.load(std::memory_order_relaxed) ||
+				RayTracedOn(mySettings.tracedRefractions.load(std::memory_order_relaxed), rayQueries) ||
+				(mySettings.shadows.load(std::memory_order_relaxed) && RayTracedOn(mySettings.caustics.load(std::memory_order_relaxed), rayQueries));
 			myModel->Animate(frameIndex, pose, from, weight, myMovingPlaced);
 			ApplyPointerValues(myRHI, graphics, *myModel);
 			// the pose decides all that moves (the nodes, skins and morph weights, and the animated materials, lights and
@@ -3881,9 +3908,12 @@ struct Scene::Impl
 				.tracedShadows = mySettings.tracedShadows.load(std::memory_order_relaxed),
 				.tracedShadowsEverywhere = mySettings.tracedShadowsEverywhere.load(std::memory_order_relaxed),
 				.tracedReflections = mySettings.tracedReflections.load(std::memory_order_relaxed),
-				.tracedRefractions = mySettings.tracedRefractions.load(std::memory_order_relaxed),
+				.tracedRefractions = RayTracedOn(mySettings.tracedRefractions.load(std::memory_order_relaxed), myRHI.GetPrimaryDevice().GetLimits().rayQuery),
+				.reflectionStride = ReflectionStrideOf(mySettings.reflectionStride.load(std::memory_order_relaxed), myRHI.GetPrimaryDevice().GetLimits().rayQuery),
+				.fragmentReflections = RayTracedOn(mySettings.fragmentReflections.load(std::memory_order_relaxed), myRHI.GetPrimaryDevice().GetLimits().rayQuery),
+				.glassSurfaceCount = GlassSurfaceCountOf(mySettings.glassSurfaceCount.load(std::memory_order_relaxed), myRHI.GetPrimaryDevice().GetLimits().rayQuery),
 				.solidTransmission = mySettings.solidTransmission.load(std::memory_order_relaxed),
-				.caustics = mySettings.caustics.load(std::memory_order_relaxed),
+				.caustics = RayTracedOn(mySettings.caustics.load(std::memory_order_relaxed), myRHI.GetPrimaryDevice().GetLimits().rayQuery),
 				.exposure = exposures[0],
 				.emissiveLights = mySettings.emissiveLights.load(std::memory_order_relaxed),
 				.aerialPerspective = mySettings.aerialPerspective.load(std::memory_order_relaxed) && mySkyInstalled.load(std::memory_order_relaxed) && !SkyReplaced(),
@@ -4062,6 +4092,23 @@ core::ConcurrentAccess<Scene::AnimationState>& Scene::GetAnimation() noexcept { 
 core::ConcurrentAccess<Scene::SceneState>& Scene::GetScenes() noexcept { return myImpl->myScenes; }
 bool Scene::IsSkyInstalled() const noexcept { return myImpl->mySkyInstalled.load(std::memory_order_relaxed); }
 bool Scene::HasRayQueries() const noexcept { return myImpl->myRHI.GetPrimaryDevice().GetLimits().rayQuery; }
+uint32_t Scene::GetReflectionStride() const noexcept
+{
+	return ReflectionStrideOf(myImpl->mySettings.reflectionStride.load(std::memory_order_relaxed), HasRayQueries());
+}
+bool Scene::GetFragmentReflections() const noexcept
+{
+	return RayTracedOn(myImpl->mySettings.fragmentReflections.load(std::memory_order_relaxed), HasRayQueries());
+}
+bool Scene::GetTracedRefractions() const noexcept
+{
+	return RayTracedOn(myImpl->mySettings.tracedRefractions.load(std::memory_order_relaxed), HasRayQueries());
+}
+bool Scene::GetCaustics() const noexcept { return RayTracedOn(myImpl->mySettings.caustics.load(std::memory_order_relaxed), HasRayQueries()); }
+uint32_t Scene::GetGlassSurfaceCount() const noexcept
+{
+	return GlassSurfaceCountOf(myImpl->mySettings.glassSurfaceCount.load(std::memory_order_relaxed), HasRayQueries());
+}
 core::ConcurrentAccess<std::string>& Scene::GetEnvironmentName() noexcept { return myImpl->myEnvironmentName; }
 core::ConcurrentAccess<std::string>& Scene::GetEnvironmentPath() noexcept { return myImpl->myEnvironmentPath; }
 core::ConcurrentAccess<std::vector<Scene::DominantLightInfo>>& Scene::GetEnvironmentLightInfo() noexcept { return myImpl->myEnvironmentLightInfo; }

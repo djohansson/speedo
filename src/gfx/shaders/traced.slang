@@ -155,6 +155,50 @@ uint TracedFrame()
 	return gPushConstants.traced >> TRACED_FRAME_SHIFT;
 }
 
+// how many transmissive surfaces a refraction's path, a caustic's photon and an emitter's ray through glass go through
+// at most (TRACED_GLASS_SURFACE_SHIFT; View > Ray Tracing..., Glass Surfaces): past them a path keeps what it would
+// have taken untraced, a photon is dropped. the most, SHADER_TYPES_CAUSTIC_SURFACE_COUNT, where the constants don't say
+uint GlassSurfaceCount()
+{
+	uint count = (gPushConstants.traced >> TRACED_GLASS_SURFACE_SHIFT) & 15u;
+	return count == 0u ? SHADER_TYPES_CAUSTIC_SURFACE_COUNT : min(count, SHADER_TYPES_CAUSTIC_SURFACE_COUNT);
+}
+
+// the glossy reflections' ray budget (TRACED_STRIDE_SHIFT; View > Ray Tracing...): a ray every stride-th pixel each way,
+// 1, 2 or 4. the traced pixel of each stride's square is another every frame (ReflectionOffset), so that a still view's
+// history holds a ray of every pixel in the end; the pixels between take the traced ones' around them
+// (ReflectionFilter), which their history trusts as far as their lobe blurs that much anyway (ComputeReflectionTemporal)
+uint ReflectionStride()
+{
+	return 1u << ((gPushConstants.traced >> TRACED_STRIDE_SHIFT) & 3u);
+}
+
+// the pixel of each stride's square traced this frame: in an order that puts a frame's far from the last's (a Bayer
+// matrix's)
+uint2 ReflectionOffset()
+{
+	static const uint kOrder4[16] = { 0u, 10u, 2u, 8u, 5u, 15u, 7u, 13u, 1u, 11u, 3u, 9u, 4u, 14u, 6u, 12u };
+	static const uint kOrder2[4] = { 0u, 3u, 1u, 2u };
+	uint stride = ReflectionStride();
+	if (stride == 4u)
+	{
+		uint index = kOrder4[TracedFrame() & 15u];
+		return uint2(index & 3u, index >> 2u);
+	}
+	if (stride == 2u)
+	{
+		uint index = kOrder2[TracedFrame() & 3u];
+		return uint2(index & 1u, index >> 1u);
+	}
+	return uint2(0u, 0u);
+}
+
+bool ReflectionTracedAt(int2 pixel)
+{
+	uint stride = ReflectionStride();
+	return stride == 1u || all((uint2(pixel) & (stride - 1u)) == ReflectionOffset());
+}
+
 // whether the shading here is the visibility buffer's (compute), whose reflections are glossy and left to the Reflection
 // passes, rather than a fragment's (sharp: see TracedFragmentRays)
 bool TracedGlossyHere()
@@ -205,7 +249,6 @@ void TracedCoatRecord(uint2 pixel, float3 direction, float roughness, float weig
 	}
 }
 
-#if BVH_RAY_QUERY
 // a ray cone (Akenine-Moller et al., "Texture Level of Detail Strategies for Real-Time Ray Tracing"): its width where it
 // starts and how fast it widens along the ray (radians), which picks the mip level its hit samples textures at: without,
 // a reflected texture's every texel shimmers as the camera moves
@@ -349,7 +392,7 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 	float3 radiance = emission;
 	gTracedHitEmission = emission;
 	gTracedHitPoint = position;
-	gTracedHitEmitter = hit.modelInstance != ~0u && any(emission > 0.0) && EmittersLight();
+	gTracedHitEmitter = !hit.moves && any(emission > 0.0) && EmittersLight();
 
 	// the lights: of the hit's cell of the finest clip whose box around the eye holds it (as the voxels are lit), else
 	// every one
@@ -389,7 +432,7 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 			continue;
 		float side = dot(hit.normal, toLight) >= 0.0 ? 1.0 : -1.0;
 		float reach = light.type == LIGHT_TYPE_DIRECTIONAL ? kTracedFar : distance(light.positionRange.xyz, position) - push;
-		if (BvhHitSomething(BvhTraceScene(position + hit.normal * side * push, toLight, reach, true, true, GiAlphaMask())))
+		if (ShadowOccluder(position + hit.normal * side * push, toLight, reach, true) >= 0.0)
 			continue;
 		float3 through = 1.0;
 		ShadowMapPlace place;
@@ -693,7 +736,11 @@ float3 TracedNearLight(GiData gi, float3 position, float3 normal, float bias, fl
 // inside something or looks where the triangle isn't drawn from, so what it would show isn't known here: the callers keep
 // what the shading would have taken without it. shaded, such a hit was black (from inside, every light's shadowed and the
 // probes see nothing): USDShaderBallForGltf's glass shell, its refraction leaving at its thickness inside the core.
-// moving: whether what it met moves (what moves' structure: no model instance).
+// moving: whether what it met moves (BvhHit::moves).
+//
+// without ray queries (a Mac by default) the BVHs are traversed instead (see BvhTraceInstances): a hit is shaded as a
+// ray query's but by the triangle's own normal (a BVH's hit names no instance to place its vertices' by), nothing of
+// glass is met (the BVHs hold none yet), and a traversal that hit its step cap isn't known (valid false)
 //
 // a transmissive surface gives its reflection of what is around it, as a hit's specular is taken (TracedIndirect: the
 // environment as much as the probes see of it; not its own traced reflections), and the light through it (TracedPath, as
@@ -752,7 +799,7 @@ float3 TracedPath(
 		if (glass)
 		{
 			crossedGlass = true;
-			moving = moving || hit.modelInstance == ~0u;
+			moving = moving || hit.moves;
 			GlassSurface surface = GlassSurfaceAt(path.origin, path.direction, hit, frameIndex);
 			if (reflection && queryIt == 0u)
 			{
@@ -811,6 +858,13 @@ float3 TracedShade(
 {
 	valid = true;
 	moving = false;
+	// (a BVH's traversal that ran into its step cap: what the ray would have met isn't known)
+	if (hit.capped)
+	{
+		t = kTracedMissDistance;
+		valid = false;
+		return 0.0;
+	}
 	if (!BvhHitSomething(hit))
 	{
 		t = kTracedMissDistance;
@@ -821,7 +875,7 @@ float3 TracedShade(
 		return EnvironmentRadiance(gEnvironment[0], direction, roughness) * fogTransmittance + fogLight;
 	}
 	t = hit.t;
-	moving = hit.modelInstance == ~0u;
+	moving = hit.moves;
 	if (!fromGlass && !hit.frontFace && (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) == 0u)
 	{
 		valid = false;
@@ -1042,7 +1096,7 @@ void TracedFragmentRays(
 			bool moving;
 			float3 radiance = TracedPath(
 				path, cone, refraction ? push : 0.0, 0.0,
-				refraction ? SHADER_TYPES_CAUSTIC_SURFACE_COUNT : 1u + kTracedReflectionGlassSurfaceCount, !refraction, t, valid, moving);
+				refraction ? GlassSurfaceCount() : 1u + kTracedReflectionGlassSurfaceCount, !refraction, t, valid, moving);
 			// through the air between the surface and what the ray met, as if that lay along the eye's ray that much
 			// farther (AerialPerspectiveBetween); a miss has the fog toward the sky (TracedShade)
 			if (valid && t < kTracedMissDistance)
@@ -1057,7 +1111,6 @@ void TracedFragmentRays(
 		}
 	}
 }
-#endif
 
 // the visibility buffer's reflections, traced (the Reflection Trace pass, after Main Visibility, whose shading records
 // their rays: see TracedReflectionRecord, TracedCoatRecord), from each pixel's point (its depth) off its geometry (the
@@ -1072,10 +1125,13 @@ void TracedFragmentRays(
 [numthreads(8, 8, 1)]
 void ComputeReflectionTrace(uint3 dispatchThreadId: SV_DispatchThreadID)
 {
-#if BVH_RAY_QUERY
 	uint2 extent;
 	gRWTextures[SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE].GetDimensions(extent.x, extent.y);
-	int2 pixel = int2(dispatchThreadId.xy);
+	// a thread per traced pixel: on a budget (ReflectionStride) the frame's pixel of each stride's square, so that the
+	// threads that trace fill their groups (a thread per pixel, most of them idle, cost Bistro at night 15 ms at a 16th
+	// of the rays where every pixel's cost 64); the filter fills the pixels between. the coat's sharp ray, whose light
+	// goes straight to the main color, is recorded at every pixel's stride alone (see Shade)
+	int2 pixel = int2(dispatchThreadId.xy) * int(ReflectionStride()) + int2(ReflectionOffset());
 	if (any(pixel >= int2(extent)))
 		return;
 	float4 weight = gTextures[SHADER_TYPES_REFLECTION_WEIGHT_TEXTURE].Load(int3(pixel, 0));
@@ -1166,7 +1222,6 @@ void ComputeReflectionTrace(uint3 dispatchThreadId: SV_DispatchThreadID)
 			gRWTextures[SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE][pixel] = sample;
 		}
 	}
-#endif
 }
 
 // the blur a glossy reflection's lobe makes at a pixel, in pixels: its width where the rays meet something (the hit
@@ -1186,8 +1241,31 @@ float4 ReflectionFilter(int2 pixel, int2 step, uint source)
 	Texture2D weights = gTextures[SHADER_TYPES_REFLECTION_WEIGHT_TEXTURE];
 	Texture2D input = gTextures[source];
 	float roughness = weights.Load(int3(pixel, 0)).a;
+	if (roughness < 0.0)
+		return kReflectionUnknown;
+	// on a budget (ReflectionStride) the input holds a sample every stride-th pixel along the pass's way, at the frame's
+	// offset (the rows' pass: in the traced rows alone, the others left to the columns' pass, which finds the rows' results
+	// in them); a pixel between takes those around it, as far as the stride at least, by the hit distance of the nearest
+	int stride = int(ReflectionStride());
+	int2 traced = int2(ReflectionOffset());
+	bool rows = step.x != 0;
+	if (rows && (pixel.y & (stride - 1)) != traced.y)
+		return kReflectionUnknown;
+	int along = rows ? traced.x : traced.y;
+	bool sampled = ((rows ? pixel.x : pixel.y) & (stride - 1)) == along;
 	float4 own = input.Load(int3(pixel, 0));
-	if (roughness < 0.0 || ReflectionUnknown(own.a))
+	if (!sampled)
+	{
+		own = kReflectionUnknown;
+		for (int away = 1; away < stride && ReflectionUnknown(own.a); away++)
+			for (int side = -1; side <= 1 && ReflectionUnknown(own.a); side += 2)
+			{
+				int2 at = pixel + step * (away * side);
+				if ((((rows ? at.x : at.y)) & (stride - 1)) == along && all(at >= 0))
+					own = input.Load(int3(at, 0));
+			}
+	}
+	if (ReflectionUnknown(own.a))
 		return kReflectionUnknown;
 	roughness = ReflectionRoughness(roughness);
 	ViewData view;
@@ -1195,8 +1273,10 @@ float4 ReflectionFilter(int2 pixel, int2 step, uint source)
 	if (!ViewAt(pixel, view) || !ShadowSurfaceAt(pixel, view, center))
 		return kReflectionUnknown;
 	float radius = ReflectionBlurPixels(roughness, ReflectionDistance(own.a), center.metersPerPixel);
-	if (radius < 0.5)
+	if (sampled && radius < 0.5)
 		return own;
+	if (!sampled)
+		radius = max(radius, float(stride));
 	int reach = int(ceil(radius));
 	float sigma = max(0.5 * radius, 0.5);
 	float2 low = view.viewport.xy;
@@ -1208,7 +1288,7 @@ float4 ReflectionFilter(int2 pixel, int2 step, uint source)
 	for (int offset = -reach; offset <= reach; offset++)
 	{
 		int2 at = pixel + step * offset;
-		if (any(float2(at) < low) || any(float2(at) >= high))
+		if (any(float2(at) < low) || any(float2(at) >= high) || ((rows ? at.x : at.y) & (stride - 1)) != along)
 			continue;
 		float4 value = input.Load(int3(at, 0));
 		float tapRoughness = weights.Load(int3(at, 0)).a;
@@ -1229,7 +1309,9 @@ float4 ReflectionFilter(int2 pixel, int2 step, uint source)
 		moving += ReflectionMoving(value.a) ? w : 0.0;
 		sum += w;
 	}
-	return sum > 0.0 ? float4(total / sum, ReflectionPackDistance(hitDistance / sum, moving > 1e-3 * sum)) : own;
+	if (sum > 0.0)
+		return float4(total / sum, ReflectionPackDistance(hitDistance / sum, moving > 1e-3 * sum));
+	return sampled ? own : kReflectionUnknown;
 }
 
 [shader("compute")]
@@ -1423,8 +1505,12 @@ void ComputeReflectionTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 			float4 kept = total / weights;
 			kept.rgb = lerp(kept.rgb, clamp(kept.rgb, low, high), clamping);
 			float frames = lerp(kReflectionFramesStill, lerp(kReflectionFramesSharp, kReflectionFramesRough, smoothstep(0.05, 0.5, roughness)), clamping);
-			count = min(max(held / weights, 1.0) + 1.0, frames);
-			result = lerp(kept, now, 1.0 / count);
+			// on a budget (ReflectionStride), a pixel not traced this frame holds the traced ones' around it
+			// (ReflectionFilter): a sample as far as its lobe blurs over the stride anyway, and nothing new to a mirror,
+			// which keeps what its own rays found
+			float sample = ReflectionTracedAt(pixel) ? 1.0 : saturate(ReflectionBlurPixels(roughness, hitDistance, surface.metersPerPixel) / float(ReflectionStride()));
+			count = min(max(held / weights, 1.0) + sample, frames);
+			result = lerp(kept, now, sample / count);
 		}
 	}
 	history[pixel] = result;

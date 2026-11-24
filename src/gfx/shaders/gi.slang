@@ -5400,11 +5400,7 @@ bool GiApexSees(GiClipView gi, uint index, GiVoxel voxel, int3 at, float3 point)
 	float distance = length(way);
 	if (distance <= 1e-5)
 		return true;
-#if BVH_RAY_QUERY
-	return !BvhHitSomething(BvhTraceScene(apex, way / distance, distance, true, true, GiAlphaMask()));
-#else
 	return !BvhHitSomething(GiTraceTriangles(GiClip(gi.clip), apex, way / distance, distance, true, true, false));
-#endif
 }
 
 // a pixel's lookups' sides (SHADER_TYPES_GI_SIDES_TEXTURE): per clip that lights its surface (the first two, by

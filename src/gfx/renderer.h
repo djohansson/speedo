@@ -104,6 +104,13 @@ struct FrameInputs
 	// traced.slang), where the shaders have the device's ray queries and the model its acceleration structures
 	bool tracedReflections = true;
 	bool tracedRefractions = true;
+	// the glossy reflections' ray budget: a ray every n-th pixel each way, 1, 2 or 4 (TRACED_STRIDE_SHIFT)
+	uint32_t reflectionStride = 1;
+	// whether the fragments' sharp reflections are traced too (TRACED_FRAGMENT_REFLECTIONS)
+	bool fragmentReflections = true;
+	// how many transmissive surfaces a refraction's path and a caustic's photon go through at most
+	// (TRACED_GLASS_SURFACE_SHIFT), 1 to SHADER_TYPES_CAUSTIC_SURFACE_COUNT
+	uint32_t glassSurfaceCount = SHADER_TYPES_CAUSTIC_SURFACE_COUNT;
 	// whether transmission without a volume is a solid (TRACED_SOLID_TRANSMISSION, see Scene::Settings::solidTransmission)
 	bool solidTransmission = false;
 	// whether the transmissive surfaces refract the lights' light into caustics (see ComputeCaustics), where the shaders have

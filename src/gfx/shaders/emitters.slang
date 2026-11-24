@@ -431,7 +431,6 @@ static const float kEmitterShellReach = 0.25;
 // rule), it measured 3.9 to 3.95 each time. the hits' light sample out of the fragment shader would take it back
 // (docs/backlog.md). (EmitterGatheredByGlass, below the walk's state and step)
 
-#if BVH_RAY_QUERY
 // the rule's state along a ray from a surface toward an emitter's point
 struct EmitterGlassWalk
 {
@@ -485,19 +484,17 @@ bool EmitterGlassWalkStep(inout EmitterGlassWalk walk, BvhHit hit, float step, u
 	walk.first = false;
 	return false;
 }
-#endif
 
 // (the rule above)
 bool EmitterGatheredByGlass(float3 origin, float3 direction, float tmax)
 {
-#if BVH_RAY_QUERY
 	if (!EmitterCausticsTraced())
 		return false;
 	uint frameIndex = gPushConstants.frameIndex;
 	EmitterGlassWalk walk = EmitterGlassWalkStart();
 	float3 from = origin;
 	float left = tmax;
-	for (uint surfaceIt = 0; surfaceIt < SHADER_TYPES_CAUSTIC_SURFACE_COUNT; surfaceIt++)
+	for (uint surfaceIt = 0; surfaceIt < GlassSurfaceCount(); surfaceIt++)
 	{
 		BvhHit hit = BvhTraceGlass(from, direction, left);
 		if (!BvhHitSomething(hit))
@@ -512,9 +509,6 @@ bool EmitterGatheredByGlass(float3 origin, float3 direction, float tmax)
 			break;
 	}
 	return false;
-#else
-	return false;
-#endif
 }
 
 // the irradiance a finished reservoir's point gives a surface, shadowed: its ray through the BVHs (alpha masks cut out;
@@ -1556,7 +1550,6 @@ bool EmitterCausticInView(float3 position)
 [numthreads(64, 1, 1)]
 void ComputeEmitterCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-#if BVH_RAY_QUERY
 	uint frameIndex = gPushConstants.frameIndex;
 	EmitterData data = gEmitterData[frameIndex][0];
 	uint photon = dispatchThreadId.x;
@@ -1628,7 +1621,7 @@ void ComputeEmitterCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 	bool entryFlat = false;
 	float3 entryPosition = 0.0;
 	float entryReach = 0.0;
-	for (uint surfaceIt = 0; surfaceIt < SHADER_TYPES_CAUSTIC_SURFACE_COUNT; surfaceIt++)
+	for (uint surfaceIt = 0; surfaceIt < GlassSurfaceCount(); surfaceIt++)
 	{
 		bool glass;
 		BvhHit hit = BvhTraceSceneOrGlass(path.origin, path.direction, 1e30, GiAlphaMask(), glass);
@@ -1706,7 +1699,6 @@ void ComputeEmitterCaustics(uint3 dispatchThreadId : SV_DispatchThreadID)
 				entered = false;
 		}
 	}
-#endif
 }
 
 // the emitters' caustics' light at a pixel (the Emitter Caustic Light pass's, from the photons' cells): the irradiance

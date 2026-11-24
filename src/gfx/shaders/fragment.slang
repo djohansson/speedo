@@ -322,7 +322,6 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 	float4 traced[kTracedFragmentRayCount];
 	for (uint rayIt = 0; rayIt < kTracedFragmentRayCount; rayIt++)
 		traced[rayIt] = 0.0;
-#if BVH_RAY_QUERY
 	if (!TracedGlossyHere() && (TracedReflectionsOn() || TracedRefractionsOn()))
 	{
 		float3 directions[kTracedFragmentRayCount];
@@ -344,7 +343,6 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 		if (transmission > 0.0)
 			GlassLight(surface.roughness, dispersion, traced);
 	}
-#endif
 	// the light through the surface (KHR_materials_transmission), the dielectric's
 	if (transmission > 0.0)
 	{

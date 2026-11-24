@@ -135,7 +135,7 @@ void SharpReflections(Surface surface, float3 view, out float3 base, out float b
 	base = DominantDirection(reflectionNormal, reflect(-view, reflectionNormal), surface.roughness);
 	float coatStrength;
 	coat = ClearcoatReflected(surface, view, coatStrength);
-	bool traced = TracedReflectionsOn() && !TracedGlossyHere();
+	bool traced = TracedReflectionsOn() && !TracedGlossyHere() && (gPushConstants.traced & TRACED_FRAGMENT_REFLECTIONS) != 0u;
 	baseShare = traced ? TracedShare(surface.roughness, dot(EnvironmentSpecular(surface, view), float3(0.2126, 0.7152, 0.0722)) * surface.occlusion) : 0.0;
 	coatShare = traced && surface.clearcoat > 0.0 ? TracedShare(surface.clearcoatRoughness, coatStrength) : 0.0;
 }
@@ -233,7 +233,6 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 	float tracedShare = 0.0;
 	// and the clearcoat's share its glossy ray traces, where the coat takes the pixel's (0 else; see below)
 	float coatGlossyShare = 0.0;
-#if BVH_RAY_QUERY
 	if (TracedReflectionsOn())
 	{
 		float strength = dot(environmentSpecular, float3(0.2126, 0.7152, 0.0722)) * surface.occlusion;
@@ -296,7 +295,6 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 				tracedShare = 0.0;
 		}
 	}
-#endif
 	if (debugView == DEBUG_VIEW_TRACED_REFLECTIONS)
 		return tracedShare > 0.0 || coatGlossyShare > 0.0 ? (TracedGlossyHere() ? float3(0.0) : environmentRadiance) : float3(1.0, 0.0, 1.0);
 	if (debugView == DEBUG_VIEW_INDIRECT_SPECULAR)
@@ -332,7 +330,6 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 		float3 coatReflected = ClearcoatReflected(surface, view, coatStrength);
 		float3 coatRadiance = EnvironmentRadiance(environment, coatReflected, surface.clearcoatRoughness);
 		// traced as the base's reflection is (a car's paint: a smooth coat over a rougher base)
-#if BVH_RAY_QUERY
 		float coatTraced = TracedReflectionsOn() ? TracedShare(surface.clearcoatRoughness, coatStrength) : 0.0;
 		if (TracedGlossyHere())
 		{
@@ -341,14 +338,14 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 			// trace makes to the main color (ComputeReflectionTrace), in the views whose result has the coat's light
 			if (coatGlossyShare > 0.0)
 				coatRadiance *= 1.0 - coatGlossyShare;
-			else if (coatTraced > 0.0 && (debugView == DEBUG_VIEW_NONE || debugView == DEBUG_VIEW_INDIRECT))
+			// (not on a ray budget, ReflectionStride: its light goes straight to the main color, every pixel's own)
+			else if (coatTraced > 0.0 && ReflectionStride() == 1u && (debugView == DEBUG_VIEW_NONE || debugView == DEBUG_VIEW_INDIRECT))
 				TracedCoatRecord(gFragmentPixel, coatReflected, surface.clearcoatRoughness, coatTraced * coatStrength);
 		}
 		else if (tracedCoat.a > 0.0)
 		{
 			coatRadiance = lerp(coatRadiance, tracedCoat.rgb, coatTraced);
 		}
-#endif
 		result = result * (1.0 - coatFresnel) +
 				 surface.occlusion * surface.clearcoat * EnvironmentBrdfApprox(float3(0.04), 1.0, surface.clearcoatRoughness, coatNDotV) *
 					 coatRadiance;

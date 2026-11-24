@@ -33,6 +33,7 @@ struct BvhHit
 	float3 normal;
 	bool frontFace;
 	bool capped; // stopped at BVH_MAX_STEP_COUNT: the nearest of what it met by then
+	bool moves; // of what moves (BvhTraceInstances: the moving structure's, or the moving BVH's), as the frame placed it
 	// of the ray queries' (BvhTraceScene) hits on what doesn't move, the gModelInstances one its vertices are placed by;
 	// ~0 for what moves (its corners are the frame's, see BvhRayQueryCorners) and the BVHs' hits
 	uint modelInstance;
@@ -57,6 +58,7 @@ BvhHit BvhNothing(float tmax)
 	hit.normal = 0.0;
 	hit.frontFace = false;
 	hit.capped = false;
+	hit.moves = false;
 	hit.modelInstance = ~0u;
 	hit.normalInstance = ~0u;
 	return hit;

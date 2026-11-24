@@ -92,7 +92,21 @@ public:
 		// ray queries (FrameInputs::tracedReflections and tracedRefractions; View > Rendering Features > Ray Traced Reflections and Ray Traced
 		// Refractions, SPEEDO_TRACED_REFLECTIONS=0 and SPEEDO_TRACED_REFRACTIONS=0 to start without)
 		std::atomic<bool> tracedReflections = true;
-		std::atomic<bool> tracedRefractions = true;
+		// (the refractions: 1, 0, or -1 for the device's, on with ray queries and off through the BVHs, which hold no glass
+		// yet; Scene::GetTracedRefractions)
+		std::atomic<int32_t> tracedRefractions = -1;
+		// how many transmissive surfaces a refraction's path and a caustic's photon go through at most, 1 to 8
+		// (FrameInputs::glassSurfaceCount; View > Ray Tracing..., SPEEDO_GLASS_SURFACE_COUNT), or 0 for the device's: 8
+		// with ray queries, 4 through the BVHs (Scene::GetGlassSurfaceCount)
+		std::atomic<uint32_t> glassSurfaceCount = 0;
+		// the glossy reflections' ray budget: a ray every n-th pixel each way, 1, 2 or 4 (FrameInputs::reflectionStride;
+		// View > Ray Tracing..., SPEEDO_REFLECTION_STRIDE), or 0 for the device's: every pixel with ray queries, every 4th
+		// through the BVHs (Scene::GetReflectionStride)
+		std::atomic<uint32_t> reflectionStride = 0;
+		// whether the fragments' sharp reflections are traced too, a ray every pixel of the blended and transmissive
+		// surfaces (FrameInputs::fragmentReflections; View > Ray Tracing..., SPEEDO_FRAGMENT_REFLECTIONS=0 or 1): 1, 0, or
+		// -1 for the device's: on with ray queries, off through the BVHs (Bistro's windows at night: 19 ms a frame there)
+		std::atomic<int32_t> fragmentReflections = -1;
 		// whether transmission without KHR_materials_volume is a solid, refracting into it and out of it, rather than
 		// glTF's infinitely thin wall, which bends nothing (FrameInputs::solidTransmission; View > Rendering Features >
 		// Solid Transmission, SPEEDO_SOLID_TRANSMISSION=1): the glTF research set's dielectrics, pbrt's solids, which its
@@ -101,7 +115,8 @@ public:
 		std::atomic<bool> solidTransmission = false;
 		// whether the transmissive surfaces refract the lights' light into caustics, where the device has ray queries
 		// (FrameInputs::caustics; View > Rendering Features > Caustics, SPEEDO_CAUSTICS=0 to start without: they tint it as it goes straight through)
-		std::atomic<bool> caustics = true;
+		// (1, 0, or -1 for the device's: on with ray queries, off through the BVHs; Scene::GetCaustics)
+		std::atomic<int32_t> caustics = -1;
 		// whether emissive surfaces light the scene as lights do (FrameInputs::emissiveLights; View > Rendering Features > Emissive Lights,
 		// SPEEDO_EMISSIVE_LIGHTS=0 to start without: the indirect lighting's rays then take their emission as they meet them)
 		std::atomic<bool> emissiveLights = true;
@@ -449,9 +464,20 @@ public:
 	[[nodiscard]] core::ConcurrentAccess<SceneState>& GetScenes() noexcept;
 	// whether the installed environment is the sky (which the time of day moves the sun of, see Settings::timeOfDay)
 	[[nodiscard]] bool IsSkyInstalled() const noexcept;
-	// whether the shaders trace through the device's ray queries (DeviceLimits::rayQuery): what the traced reflections and
-	// refractions need (Settings::tracedReflections)
+	// whether the shaders trace through the device's ray queries (DeviceLimits::rayQuery) rather than gfx's BVHs: what the
+	// traced refractions and the caustics need so far (the BVHs hold no glass yet), and what the ray budgets' defaults go by
 	[[nodiscard]] bool HasRayQueries() const noexcept;
+	// the glossy reflections' stride in effect (Settings::reflectionStride, or the device's where that is 0: 1 with ray
+	// queries, 4 through the BVHs)
+	[[nodiscard]] uint32_t GetReflectionStride() const noexcept;
+	// and whether the fragments' sharp reflections are traced (Settings::fragmentReflections, or the device's where that
+	// is -1: with ray queries)
+	[[nodiscard]] bool GetFragmentReflections() const noexcept;
+	// the traced refractions and the caustics likewise (Settings::tracedRefractions and caustics)
+	[[nodiscard]] bool GetTracedRefractions() const noexcept;
+	[[nodiscard]] bool GetCaustics() const noexcept;
+	// and the glass surfaces a path goes through at most (Settings::glassSurfaceCount, or the device's where that is 0)
+	[[nodiscard]] uint32_t GetGlassSurfaceCount() const noexcept;
 	[[nodiscard]] core::ConcurrentAccess<std::string>& GetEnvironmentName() noexcept;
 	// and its file (empty for the sky), as it was loaded
 	[[nodiscard]] core::ConcurrentAccess<std::string>& GetEnvironmentPath() noexcept;

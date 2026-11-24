@@ -1873,7 +1873,21 @@ struct PushConstants
 // shows since (the model doesn't move, the lights neither changed nor are being followed): where the view is still too,
 // a rough transmissive fragment's traced refraction is averaged over the frames (see GlassLight)
 #define TRACED_GLASS_STILL 32u
-#define TRACED_FRAME_SHIFT 8u
+// the model has a moving BVH (gBvhMovingNodes), which the glossy reflections' rays traverse too where the device has no
+// ray queries (see TracedRadiance)
+#define TRACED_MOVING_BVH 64u
+// the glossy reflections' ray budget, two bits from TRACED_STRIDE_SHIFT: the log2 of their stride (0 to 2: a ray every
+// pixel, every 2nd each way or every 4th, the traced one of each square another every frame; see ReflectionStride,
+// Scene::Settings::reflectionStride)
+#define TRACED_STRIDE_SHIFT 7u
+// the fragments' sharp reflections are traced too (the blended and transmissive surfaces', every surface's without the
+// visibility buffer: see SharpReflections; Scene::Settings::fragmentReflections), a ray every pixel of them
+#define TRACED_FRAGMENT_REFLECTIONS 512u
+// how many transmissive surfaces a refraction's path and a caustic's photon go through at most, four bits from
+// TRACED_GLASS_SURFACE_SHIFT (1 to SHADER_TYPES_CAUSTIC_SURFACE_COUNT; 0, a kernel whose constants don't say, the most:
+// see GlassSurfaceCount, Scene::Settings::glassSurfaceCount)
+#define TRACED_GLASS_SURFACE_SHIFT 10u
+#define TRACED_FRAME_SHIFT 14u
 // the visibility buffer's first word's top bit: the draw record's material has an extended layer (see FragmentPrepass; the record
 // is the bits below)
 #define VISIBILITY_EXTENDED 0x80000000u

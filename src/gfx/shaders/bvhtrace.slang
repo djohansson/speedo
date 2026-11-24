@@ -1,6 +1,7 @@
-// the model's triangles traced by the device's ray queries (BVH_RAY_QUERY: BvhTraceInstances and what calls it,
-// BvhTraceScene, BvhTraceGlass, BvhTraceSceneOrGlass). a part of shaders.slang, which includes it after bvh.slang (which
-// the tools' kernels include alone, without the scene's bindings: src/tools/bvhkernels.slang)
+// the model's triangles traced (BvhTraceInstances and what calls it: BvhTraceScene, BvhTraceGlass, BvhTraceSceneOrGlass):
+// by the device's ray queries where it has them (BVH_RAY_QUERY) and through gfx's BVHs (bvh.slang's traversal) where it
+// hasn't. a part of shaders.slang, which includes it after bvh.slang (which the tools' kernels include alone, without
+// the scene's bindings: src/tools/bvhkernels.slang)
 
 #if BVH_RAY_QUERY
 // a ray query's geometry (see gfx/accelerationstructures.h): its entry in gBvhTriangles (its flags, its first index, and
@@ -100,10 +101,15 @@ void RayQueryWatchEnd(uint slot, uint candidates)
 	InterlockedExchange(gRayQueryWatch[slot], 0u, ignored);
 }
 #endif
+#endif
 
-// the nearest triangle a ray from origin along direction meets before tmax (or with anyHit any), of those filter accepts,
-// as the device's ray queries find it in gBvhScene[frame] (where they trace instead of BvhTraverse and BvhTraverse2): what
-// doesn't move, and with moving what moves too. what it says is as theirs (never capped)
+// the model's triangles traced, by the device's ray queries where it has them (BVH_RAY_QUERY: gBvhScene[frame]) and
+// through gfx's BVHs where it hasn't (BvhTraverse, BvhTraverse2): one interface, BvhTraceInstances and what calls it
+// below, so that what traces compiles and works with either, slower through the BVHs. the BVHs hold no glass yet (their
+// rays of BVH_RAY_QUERY_MASK_GLASS meet nothing) and name no instance (BvhHit::modelInstance)
+
+// the nearest triangle a ray from origin along direction meets before tmax (or with anyHit any), of those filter accepts:
+// what doesn't move, and with moving what moves too. a ray query's is never capped; a BVH's may be (BvhHit::capped)
 BvhHit BvhTraceScene<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, bool moving, Filter filter)
 {
 	return BvhTraceInstances(
@@ -136,6 +142,36 @@ BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, f
 	return BvhTraceInstances(origin, direction, tmax, anyHit, mask, filter, instance);
 }
 
+#if !BVH_RAY_QUERY
+// and the top level instance it met (~0u where nothing; as the ray queries' structures name them: 0 what doesn't move,
+// BVH_RAY_QUERY_INSTANCE_MOVING what moves), through the BVHs: the static one, then the moving one where the model has
+// one (TRACED_MOVING_BVH) for what is nearer; no glass
+BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, uint mask, Filter filter, out uint instance)
+{
+	instance = ~0u;
+	BvhHit hit = BvhNothing(tmax);
+	if ((mask & BVH_RAY_QUERY_MASK_STATIC) != 0u)
+	{
+		hit = BvhTraverse(gBvhNodes, gBvhTriangles, origin, direction, tmax, anyHit, filter);
+		if (BvhHitSomething(hit))
+			instance = 0u;
+	}
+	if ((mask & BVH_RAY_QUERY_MASK_MOVING) != 0u && (gPushConstants.traced & TRACED_MOVING_BVH) != 0u && !(anyHit && BvhHitSomething(hit)))
+	{
+		uint frameIndex = gPushConstants.frameIndex;
+		BvhHit movingHit = BvhTraverse2(gBvhMovingNodes[frameIndex], gBvhMovingTriangles[frameIndex], origin, direction, hit.t, anyHit, filter);
+		bool capped = hit.capped || movingHit.capped;
+		if (BvhHitSomething(movingHit))
+		{
+			hit = movingHit;
+			hit.moves = true;
+			instance = BVH_RAY_QUERY_INSTANCE_MOVING;
+		}
+		hit.capped = capped;
+	}
+	return hit;
+}
+#else
 // and the top level instance it met (~0u where nothing)
 BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, uint mask, Filter filter, out uint instance)
 {
@@ -182,7 +218,8 @@ BvhHit BvhTraceInstances<Filter : IBvhFilter>(float3 origin, float3 direction, f
 	hit.primitive = primitive;
 	hit.flags = geometry.x;
 	hit.firstIndex = geometry.y + primitive * 3u;
-	if (!BvhRayQueryMoving(instance))
+	hit.moves = BvhRayQueryMoving(instance);
+	if (!hit.moves)
 		hit.modelInstance = geometry.z;
 	hit.normalInstance = geometry.w;
 	float3 normal = normalize(cross(corners[1] - corners[0], corners[2] - corners[0]));

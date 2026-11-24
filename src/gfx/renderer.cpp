@@ -3798,10 +3798,10 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		// first use (Emitter Caustic Cells Clear)
 		// as many as hold the cells of a frame of this size: a third of its pixels (the finest cells 4 pixels each, the two
 		// coarser levels a quarter and a sixteenth as many) and half as many again for what is in the views behind what
-		// they show, in a table two thirds full at most (a power of two; one cell where no ray queries trace the photons).
+		// they show, in a table two thirds full at most (a power of two; whatever traces the photons, the ray queries or the BVHs).
 		// 67 MB at 3840x2160 balanced, 34 at 2560x1440
 		myEmitterCausticCellCount =
-			device.GetLimits().rayQuery ? std::bit_ceil(static_cast<uint32_t>(std::max<uint64_t>(renderer::PixelCount(extent) / 2, 1U << 16))) : 1U;
+			std::bit_ceil(static_cast<uint32_t>(std::max<uint64_t>(renderer::PixelCount(extent) / 2, 1U << 16)));
 		myEmitterCausticCellBuffer = Buffer(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc("Emitter Caustic Cells"),
 			uint64_t{myEmitterCausticCellCount} * SHADER_TYPES_EMITTER_CAUSTIC_CELL_WORD_COUNT * sizeof(uint32_t),
@@ -4284,7 +4284,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		// trace photons for nothing) and the device's ray queries trace it (see ComputeEmitterCaustics), aimed at the sphere
 		// about the transmissive phase's glass draws
 		myEmitterCausticsThisFrame = 0;
-		if (myEmittersOn && frame.caustics && myTwoPhases && frame.model->GetAccelerationStructures() != nullptr)
+		if (myEmittersOn && frame.caustics && myTwoPhases && frame.model->HasBvh())
 		{
 			const auto& materials = frame.model->GetDesc().materials;
 			bool solid = false;
@@ -4406,7 +4406,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	// have passed it untinted, IridescentDishWithOlives' dish under its lifting cover too). the views something moves in are
 	// drawn every frame (see InternalPlanShadowCache), and their light's photons traced with them
 	myCausticsThisFrame = !myShadowTransmittanceList.Empty() && frame.caustics && frame.model != nullptr &&
-						  frame.model->GetAccelerationStructures() != nullptr;
+						  frame.model->HasBvh();
 	if (myCausticsThisFrame)
 		frame.pushConstants.shadows |= SHADER_TYPES_SHADOWS_CAUSTICS;
 	frame.pushConstants.shadowView = SHADER_TYPES_NO_SHADOW;
@@ -4415,7 +4415,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	bool traceable = frame.model != nullptr && frame.model->HasBvh();
 	frame.pushConstants.traced = (traceable && frame.tracedReflections ? TRACED_REFLECTIONS : 0U) |
 								 (traceable && frame.tracedRefractions ? TRACED_REFRACTIONS : 0U) |
-								 (frame.solidTransmission ? TRACED_SOLID_TRANSMISSION : 0U);
+								 (frame.solidTransmission ? TRACED_SOLID_TRANSMISSION : 0U) |
+								 (traceable && frame.model->HasMovingBvh() ? TRACED_MOVING_BVH : 0U) |
+								 (frame.fragmentReflections ? TRACED_FRAGMENT_REFLECTIONS : 0U) |
+								 (std::clamp<uint32_t>(frame.glassSurfaceCount, 1, SHADER_TYPES_CAUSTIC_SURFACE_COUNT) << TRACED_GLASS_SURFACE_SHIFT) |
+								 ((frame.reflectionStride >= 4 ? 2U : (frame.reflectionStride >= 2 ? 1U : 0U)) << TRACED_STRIDE_SHIFT);
 	// the visibility buffer's are glossy (see ComputeReflectionTemporal): their passes, whether the last frame's history holds
 	// a frame (they ran, at this size), and the frames they have run (their rays' sampling, their history's parity)
 	if (myVisibilityBuffer)

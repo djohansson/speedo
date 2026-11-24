@@ -266,6 +266,8 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 			setting.store(fallback.load(std::memory_order_relaxed), std::memory_order_relaxed);
 	};
 	auto unless = [](std::string_view off) { return [off](const char* value) { return std::optional<bool>(std::string_view(value) != off); }; };
+	// a setting whose default goes by the device (-1: see gfx::Scene::Settings::tracedRefractions): 0 off, anything else on
+	auto onOrOff = [](const char* value) { return std::optional<int32_t>(std::string_view(value) == "0" ? 0 : 1); };
 	auto number = [](float low, float high)
 	{ return [low, high](const char* value) { return std::optional<float>(std::clamp(std::strtof(value, nullptr), low, high)); }; };
 	constexpr float kAny = std::numeric_limits<float>::max();
@@ -373,11 +375,42 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 	// the traced reflections and refractions, where the device has ray queries (SPEEDO_TRACED_REFLECTIONS=0 and
 	// SPEEDO_TRACED_REFRACTIONS=0 without)
 	apply(settings.tracedReflections, kDefaults.tracedReflections, "SPEEDO_TRACED_REFLECTIONS", unless("0"));
-	apply(settings.tracedRefractions, kDefaults.tracedRefractions, "SPEEDO_TRACED_REFRACTIONS", unless("0"));
+	apply(settings.tracedRefractions, kDefaults.tracedRefractions, "SPEEDO_TRACED_REFRACTIONS", onOrOff);
+	// the glossy reflections' ray budget (SPEEDO_REFLECTION_STRIDE=1, 2 or 4: a ray every n-th pixel each way; unset, the
+	// device's, see gfx::Scene::Settings::reflectionStride)
+	apply(
+		settings.reflectionStride,
+		kDefaults.reflectionStride,
+		"SPEEDO_REFLECTION_STRIDE",
+		[](const char* value)
+		{
+			std::string_view text(value);
+			return text == "1" || text == "2" || text == "4" ? std::optional<uint32_t>(static_cast<uint32_t>(text[0] - '0')) : std::nullopt;
+		});
+	// and whether the fragments' sharp reflections are traced too (SPEEDO_FRAGMENT_REFLECTIONS=0 or 1; unset, the device's)
+	apply(
+		settings.fragmentReflections,
+		kDefaults.fragmentReflections,
+		"SPEEDO_FRAGMENT_REFLECTIONS",
+		[](const char* value)
+		{
+			std::string_view text(value);
+			return text == "0" || text == "1" ? std::optional<int32_t>(text[0] - '0') : std::nullopt;
+		});
 	// transmission without a volume as a solid (SPEEDO_SOLID_TRANSMISSION=1, see gfx::Scene::Settings)
 	apply(settings.solidTransmission, kDefaults.solidTransmission, "SPEEDO_SOLID_TRANSMISSION", unless("0"));
-	// the caustics, where the device has ray queries (SPEEDO_CAUSTICS=0 without)
-	apply(settings.caustics, kDefaults.caustics, "SPEEDO_CAUSTICS", unless("0"));
+	// the caustics (SPEEDO_CAUSTICS=0 or 1; unset, the device's: on with ray queries)
+	apply(settings.caustics, kDefaults.caustics, "SPEEDO_CAUSTICS", onOrOff);
+	// and how many glass surfaces a refraction's path and a caustic's photon cross (SPEEDO_GLASS_SURFACE_COUNT=1 to 8)
+	apply(
+		settings.glassSurfaceCount,
+		kDefaults.glassSurfaceCount,
+		"SPEEDO_GLASS_SURFACE_COUNT",
+		[](const char* value)
+		{
+			std::string_view text(value);
+			return text.size() == 1 && text[0] >= '1' && text[0] <= '8' ? std::optional<uint32_t>(static_cast<uint32_t>(text[0] - '0')) : std::nullopt;
+		});
 	// SPEEDO_EMISSIVE_LIGHTS=0: emissive surfaces don't light the scene as lights (the indirect lighting's rays take their
 	// emission as they meet them)
 	apply(settings.emissiveLights, kDefaults.emissiveLights, "SPEEDO_EMISSIVE_LIGHTS", unless("0"));
@@ -1069,12 +1102,19 @@ void WindowedApplication::InternalCopyScene()
 		text += " SPEEDO_TRACED_SHADOWS=all";
 	if (!settings.tracedReflections.load(std::memory_order_relaxed))
 		text += " SPEEDO_TRACED_REFLECTIONS=0";
-	if (!settings.tracedRefractions.load(std::memory_order_relaxed))
-		text += " SPEEDO_TRACED_REFRACTIONS=0";
+	// (those whose default goes by the device, -1 or 0 for it: written where they were set, on or off)
+	if (auto stride = settings.reflectionStride.load(std::memory_order_relaxed); stride != 0)
+		text += std::format(" SPEEDO_REFLECTION_STRIDE={}", stride);
+	if (auto traced = settings.fragmentReflections.load(std::memory_order_relaxed); traced >= 0)
+		text += std::format(" SPEEDO_FRAGMENT_REFLECTIONS={}", traced);
+	if (auto traced = settings.tracedRefractions.load(std::memory_order_relaxed); traced >= 0)
+		text += std::format(" SPEEDO_TRACED_REFRACTIONS={}", traced);
 	if (settings.solidTransmission.load(std::memory_order_relaxed))
 		text += " SPEEDO_SOLID_TRANSMISSION=1";
-	if (!settings.caustics.load(std::memory_order_relaxed))
-		text += " SPEEDO_CAUSTICS=0";
+	if (auto traced = settings.caustics.load(std::memory_order_relaxed); traced >= 0)
+		text += std::format(" SPEEDO_CAUSTICS={}", traced);
+	if (auto count = settings.glassSurfaceCount.load(std::memory_order_relaxed); count != 0)
+		text += std::format(" SPEEDO_GLASS_SURFACE_COUNT={}", count);
 	text += settings.indirectLighting.load(std::memory_order_relaxed) ? " SPEEDO_GI=1" : " SPEEDO_GI=0";
 	if (!settings.traceTriangles.load(std::memory_order_relaxed))
 		text += " SPEEDO_GI_TRACE=voxels";
@@ -3687,24 +3727,19 @@ void WindowedApplication::PrepareDraw()
 						App().GetScene().GetSettings().tracedShadows.store(tracedShadows, std::memory_order_relaxed);
 					SetItemTooltip(
 						"The brightest lights' shadows (the directional ones, then up to 4 in all) traced through the model's BVH, soft by each light's size (View > Lights), rather than looked up in the shadow atlas.");
-					// the traced reflections and refractions need the device's ray queries
+					// the traced features: through the device's ray queries, or gfx's BVHs where it has none (their budgets and
+					// what is on by default then: View > Rendering Features > Ray Tracing...)
 					SeparatorText("Ray Traced");
-					bool rayQueries = App().GetScene().HasRayQueries();
-					constexpr const char* kNoRayQueries = "Needs a device with ray queries, which this one hasn't.";
 					bool tracedReflections = App().GetScene().GetSettings().tracedReflections.load(std::memory_order_relaxed);
-					if (SmallCheckbox("Ray Traced Reflections", &tracedReflections, rayQueries))
+					if (SmallCheckbox("Ray Traced Reflections", &tracedReflections))
 						App().GetScene().GetSettings().tracedReflections.store(tracedReflections, std::memory_order_relaxed);
 					SetItemTooltip(
-						"%s",
-						rayQueries ? "What smooth surfaces reflect (and clear coats), traced through the device's ray queries and shaded where the rays meet something: sharp up to a roughness of 0.15, fading into the indirect lighting's glossy reflection by 0.4. Off, the indirect lighting's and the environment's alone."
-								   : kNoRayQueries);
-					bool tracedRefractions = App().GetScene().GetSettings().tracedRefractions.load(std::memory_order_relaxed);
-					if (SmallCheckbox("Ray Traced Refractions", &tracedRefractions, rayQueries))
-						App().GetScene().GetSettings().tracedRefractions.store(tracedRefractions, std::memory_order_relaxed);
+						"What smooth and glossy surfaces reflect, traced and shaded where the rays meet something, fading into the indirect lighting's glossy reflection by a roughness of 0.6. Off, the indirect lighting's and the environment's alone.");
+					bool tracedRefractions = App().GetScene().GetTracedRefractions();
+					if (SmallCheckbox("Ray Traced Refractions", &tracedRefractions))
+						App().GetScene().GetSettings().tracedRefractions.store(tracedRefractions ? 1 : 0, std::memory_order_relaxed);
 					SetItemTooltip(
-						"%s",
-						rayQueries ? "What transmissive surfaces show behind them, traced along the refracted ray (behind them or out of the view alike), rather than looked up in the frame drawn so far."
-								   : kNoRayQueries);
+						"What transmissive surfaces show behind them, traced along the refracted ray (behind them or out of the view alike), rather than looked up in the frame drawn so far. On by default with ray queries.");
 					bool solidTransmission = App().GetScene().GetSettings().solidTransmission.load(std::memory_order_relaxed);
 					if (SmallCheckbox("Solid Transmission", &solidTransmission))
 						App().GetScene().GetSettings().solidTransmission.store(solidTransmission, std::memory_order_relaxed);
@@ -3712,14 +3747,12 @@ void WindowedApplication::PrepareDraw()
 						"Transmissive materials without a volume (KHR_materials_volume) refract as solids, into them and out of them, "
 						"rather than as glTF's infinitely thin walls, which bend nothing. On for the glTF research scenes, whose glass "
 						"and water are solids.");
-					bool caustics = App().GetScene().GetSettings().caustics.load(std::memory_order_relaxed);
+					bool caustics = App().GetScene().GetCaustics();
 					// (traced from the lights' shadow views: none without the shadows)
-					if (SmallCheckbox("Caustics", &caustics, rayQueries && shadows))
-						App().GetScene().GetSettings().caustics.store(caustics, std::memory_order_relaxed);
+					if (SmallCheckbox("Caustics", &caustics, shadows))
+						App().GetScene().GetSettings().caustics.store(caustics ? 1 : 0, std::memory_order_relaxed);
 					SetItemTooltip(
-						"%s",
-						rayQueries ? "The lights' light refracted through transmissive surfaces that don't move, traced as photons from the lights' shadow views (with the shadows). Off, it goes straight through them, tinted."
-								   : kNoRayQueries);
+						"The lights' light refracted through transmissive surfaces that don't move, traced as photons from the lights' shadow views (with the shadows). Off, it goes straight through them, tinted. On by default with ray queries.");
 					SeparatorText("Light");
 					bool emissiveLights = App().GetScene().GetSettings().emissiveLights.load(std::memory_order_relaxed);
 					if (SmallCheckbox("Emissive Lights", &emissiveLights))
