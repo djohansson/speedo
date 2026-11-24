@@ -613,6 +613,9 @@ jobs:
             $job = $needs.($check.Job)
             $outcome = $job.outputs.($check.Output)
             if (-not $outcome) { $outcome = $job.result } # cancelled before its outputs
+            # (a step after the one the job was cancelled in is skipped, not cancelled: the Metal checks, last in the macOS
+            # job, read as failed where a newer push had cancelled the run in its lavapipe checks, run 45442376982)
+            if ($outcome -eq 'skipped' -and $job.result -eq 'cancelled') { $outcome = 'cancelled' }
             $conclusion = switch ($outcome) { 'success' { 'success' } 'cancelled' { 'cancelled' } default { 'failure' } }
             $summary = "$($check.Checks): $outcome.`n`n[The run]($env:RUN_URL)"
             $fields = @('-f', 'status=completed', '-f', "conclusion=$conclusion", '-f', "output[title]=$($check.Name): $conclusion", '-f', "output[summary]=$summary")
