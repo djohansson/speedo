@@ -321,7 +321,9 @@ mean |log2| difference counts both. The checks and their measures on KosmicKrisp
   of light, on KosmicKrisp and lavapipe alike.
 - `ray-queries`: the hardware ray queries against the software BVH (the lit frame of ShadowScene with neutral.hdr), run
   on lavapipe alone (skipped on KosmicKrisp, where ray query clients wait for the user's go-ahead, and where the device
-  has none, both runs then tracing the BVHs): 0.0004% of the pixels past 16 levels, 0.0001 stops blurred, -0.00002 of
+  has none, both runs then tracing the BVHs; skipped on Metal unless `SPEEDO_RAY_QUERY=1` asks for it, its ray tracing
+  restarting the gpu now and then on macOS 27, which a Metal run had put down to KosmicKrisp until 2026-11-24, its
+  driver named although it loads none): 0.0004% of the pixels past 16 levels, 0.0001 stops blurred, -0.00002 of
   light, within lavapipe's own run to run differences.
 
 A run takes 38 s on the M4 Pro's KosmicKrisp from a new work dir (the first client's shader compile 30 of them), 9 s

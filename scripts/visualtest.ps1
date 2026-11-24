@@ -21,9 +21,12 @@ real change and not on a run's noise: a check whose measures move should be look
 messages in a file of its own appended to its log), and a check fails on a client's validation messages, load failures
 or sanitizer reports, as assettest's client runs do: CI's checks of the client itself.
 
--Only <names> runs those checks alone. The client needs a vulkan driver: on macOS the mesa port's KosmicKrisp unless
-VK_DRIVER_FILES is set (lavapipe's, say, beside it: install/arm64-osx-release/share/vulkan/icd.d/lvp_icd.aarch64.json). The ray query check needs a driver with ray queries other than KosmicKrisp
-(two clients tracing, one after the other, which is more than the rule there allows without asking): lavapipe's.
+-Only <names> runs those checks alone. A Vulkan client (SPEEDO_GRAPHICS_API=vulkan) needs a driver: on macOS the mesa
+port's KosmicKrisp unless VK_DRIVER_FILES is set (lavapipe's, say, beside it: install/arm64-osx-release/share/vulkan/icd.d/lvp_icd.aarch64.json);
+the Metal and D3D12 clients take none. The ray query check needs a driver with ray queries other than KosmicKrisp
+(two clients tracing, one after the other, which is more than the rule there allows without asking): lavapipe's. On
+Metal it runs only where SPEEDO_RAY_QUERY=1 asks for it, as the client takes ray queries on macOS: Metal's ray tracing
+restarts the gpu now and then on macOS 27 (docs/notes/indirect-lighting.md).
 
 .EXAMPLE
 pwsh scripts/visualtest.ps1 -Preset arm64-osx-clang-profile -Work /tmp/visual
@@ -135,15 +138,18 @@ if ($Validate -and $env:SPEEDO_GRAPHICS_API -eq 'd3d12' -and -not $env:SPEEDO_D3
 # errno line, the validation layer's messages (Metal's failed assertions, its command buffers' failures), the sanitizers'
 # reports
 $problemPattern = 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|Validation (Error|Warning): |WARNING-CoreValidation-|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer|failed assertion `|Metal: command buffer .* failed'
-# the driver, unless one is chosen: on macOS the mesa port's KosmicKrisp, as assettest.ps1 takes it
-if ($IsMacOS -and -not $env:VK_DRIVER_FILES -and -not $env:VK_ICD_FILENAMES)
+# the Vulkan clients' driver, unless one is chosen: on macOS the mesa port's KosmicKrisp, as assettest.ps1 takes it. The
+# Metal and D3D12 clients load none, so none is named for them (a Metal run named KosmicKrisp's until 2026-11-24, and
+# skipped the ray query check as KosmicKrisp's)
+$vulkan = $env:SPEEDO_GRAPHICS_API -eq 'vulkan'
+if ($vulkan -and $IsMacOS -and -not $env:VK_DRIVER_FILES -and -not $env:VK_ICD_FILENAMES)
 {
 	$icd = Get-ChildItem -Path (Join-Path $root 'install/*/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json') -ErrorAction SilentlyContinue | Select-Object -First 1
 	if ($icd) { $env:VK_DRIVER_FILES = $icd.FullName }
 }
-$driver = "$env:VK_DRIVER_FILES$env:VK_ICD_FILENAMES"
+$driver = if ($vulkan) { "$env:VK_DRIVER_FILES$env:VK_ICD_FILENAMES" } else { '' }
 $kosmicKrisp = $driver -match 'kosmickrisp'
-Write-Host "driver: $(if ($driver) { $driver } else { 'the system''s' })"
+if ($vulkan) { Write-Host "driver: $(if ($driver) { $driver } else { 'the system''s' })" }
 Write-Host "work dir: $Work"
 
 # what every run pins, so that a capture is the same from run to run (see docs/visual-testing-plan.md, step 1)
@@ -392,6 +398,13 @@ foreach ($check in $checks)
 	if ($check.NeedsRayQueries -and $env:SPEEDO_RAY_QUERY -eq '0')
 	{
 		Write-Host "SKIP $($check.Name) (SPEEDO_RAY_QUERY=0)"
+		continue
+	}
+	# on Metal only where SPEEDO_RAY_QUERY=1 asks for it, as the client takes ray queries on macOS: Metal's ray tracing
+	# restarts the gpu now and then on macOS 27 (see docs/notes/indirect-lighting.md)
+	if ($check.NeedsRayQueries -and $env:SPEEDO_GRAPHICS_API -eq 'metal' -and $env:SPEEDO_RAY_QUERY -ne '1')
+	{
+		Write-Host "SKIP $($check.Name) (Metal's ray tracing restarts the gpu on macOS 27: SPEEDO_RAY_QUERY=1 to run it)"
 		continue
 	}
 	$ran++
