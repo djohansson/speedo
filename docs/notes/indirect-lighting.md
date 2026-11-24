@@ -1192,7 +1192,12 @@ the window, half the updates, holds 512 updates on) and the bounce from the 4th 
 triangles (not the 32nd), the glTF research set's kitchen, lit by its emitters' bounces alone, is 11.5, 6.7 and 4.4 of
 255 from its settled light half a second, 1 and 2 seconds after a load, where it was 47.5, 33.1 and 24.0 (the user's
 reports, 2026-11-23, "the GI is settling slowly"; docs/research-scenes-review-plan.md has what was measured, what
-made no difference, and the cost while a cache is cold: Bistro's frame 32 ms for 24). Once its window has all its samples (twice
+made no difference, and the cost while a cache is cold: Bistro's frame 32 ms for 24). The cache's window is half the rays a voxel
+has traced since its cache started over, not as many samples as half the updates (2026-11-24,
+`GiClipClock::raysSinceCacheReset`): with the warm up's 4 rays a voxel the window held the last eighth of the updates, a
+mean of no more samples than one ray's, so more rays made nothing smoother (veach-bidir's left wall, lit by the spot
+its lamp makes on the ceiling, the same streaks with 8 rays as with 1; 3.4 of 255 from its light at 50 seconds after
+10, 2.3 now; Sponza's columns 4.0 of 255 from settled at 2 seconds, 2.4 now). Once its window has all its samples (twice
 `SPEEDO_GI_CACHE_SAMPLES` frames after it started over, `SPEEDO_GI_CACHE_SETTLED_FRAMES` to say when) and the sun isn't
 being followed, a voxel where nothing moves traces every other frame (`GiData::cacheSettled`): the same samples over
 twice the frames, of a light that doesn't change (Bistro 57.5 to 56.3 ms, San Miguel 68.3 to 67.4, in runs of thousands

@@ -5728,7 +5728,15 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// of its first updates, while the probes and the bounce build up (and overshoot), fall out as that ends rather than
 		// as 1 over the samples: by its whole window from the start, a mean of up to 1024 samples, Sponza's interior still
 		// darkened 1200 frames after a cold start, where without the cache it settled by 600 (docs/performance-plan.md)
-		uint32_t cacheSampleCount = myGiTimeBased ? std::clamp(clock.updatesSinceCacheReset / 2, std::min(32U, myGiCacheSampleCount), myGiCacheSampleCount)
+		// (half the samples, not as many samples as half the updates: with the 4 rays a voxel of its warm up, or
+		// SPEEDO_GI_CACHE_RAYS, the window held the last eighth of the updates, a mean of no more samples than with one
+		// ray, so more rays made a start no smoother. the glTF research set's veach-bidir's left wall, lit by the spot its
+		// floor lamp makes on the ceiling, which few rays meet, was streaked for most of a minute; the user's report,
+		// 2026-11-23, "bright splotches")
+		uint32_t windowRayCount = myGiTimeBased && clock.updatesSinceCacheReset < kGiCacheWarmFrameCount ? std::max(myGiCacheRayCount, 4U) : myGiCacheRayCount;
+		if (clock.updated)
+			clock.raysSinceCacheReset = clock.updatesSinceCacheReset == 0 ? 0 : std::min(clock.raysSinceCacheReset + windowRayCount, 1U << 30);
+		uint32_t cacheSampleCount = myGiTimeBased ? std::clamp(clock.raysSinceCacheReset / 2, std::min(32U, myGiCacheSampleCount), myGiCacheSampleCount)
 												  : myGiCacheSampleCount;
 		// and 4 rays a voxel (at least) while the light settles, its first kGiCacheWarmFrameCount updates: what it averages
 		// then is still moving, and the window being in samples, 4 a frame also forget it in a quarter of the frames (Sponza

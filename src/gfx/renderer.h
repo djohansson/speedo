@@ -669,6 +669,7 @@ private:
 		uint32_t rayPhase = 0; // over two laps of the phases (see GiData::rayPhase)
 		uint32_t probeHalf = 0; // which half of the probes' buffers and the cache's tables is this update's (see GiData::probeFirst)
 		uint32_t updatesSinceCacheReset = 0; // since its surface cache last started over (GiData::cacheReset)
+		uint32_t raysSinceCacheReset = 0; // the rays a voxel read every update has traced since (the cache's window is half of them)
 		// since it was last updated: the frames (in sixtieths of a second where the probes blend by time, see
 		// myGiTimeBased), which its blend is raised to, and whether the lights changed, the emitters started or stopped
 		// lighting or the cache started over

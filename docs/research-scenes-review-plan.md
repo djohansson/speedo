@@ -453,3 +453,22 @@ Nothing now.
   further, none by more than 0.006 blurred stops (the classroom 0.263 to 0.269, classroom2 0.333 to 0.337, veach-ajar
   0.201 to 0.205; the bathroom 0.229 to 0.226), the mean 0.2536 to 0.2540: what it mends is the blocks, which that
   measure blurs. visualtest 8 of 8, the quick tier 142 of 142.
+- 2026-11-24, **step 6, looked into, and the cache's window** (report 11, veach-bidir's left wall). As it is since
+  step 5 the wall's streaks no longer move (0.03 of 255 from frame to frame at 10 seconds) and are gone after 50
+  seconds (`temp/review/research-issues/s6-veach-bidir-wall-grid.png`: 10 seconds, 50 seconds, resolution 256, 64,
+  the emitters off): noise that takes most of a minute to average out, each voxel its own (finer at resolution 256,
+  coarser at 64). And the same at 10 seconds with 8 rays a voxel, with the filter's edge stop off, with 4 passes
+  (`s6-veach-bidir-wall-variants.png`): more rays made no difference because the cache's window, in samples, was half
+  the updates since it started over, so with the warm up's 4 rays a voxel (or `SPEEDO_GI_CACHE_RAYS`) it held the
+  last eighth of the updates, a mean of no more samples than with one. It is half the rays since now
+  (`GiClipClock::raysSinceCacheReset`): the same share of the time, of 4 times the samples while 4 are traced. The
+  wall at 10 seconds is 2.3 of 255 from its 50 seconds where it was 3.4 (`s6-veach-bidir-wall-window.png`: before and
+  after at 10 seconds, before and after at 50), and every start is smoother: mean |difference| from settled at
+  frames 60, 120, 240, 480, the kitchen 6.7, 4.4, 2.8, 1.9 to 7.0, 4.3, 2.6, 1.3; living-room 3.6, 2.6, 2.2, 1.6 to
+  2.8, 1.9, 1.4, 0.9; Sponza's columns 4.9, 4.0, 3.3, 2.7 to 3.8, 2.4, 2.1, 1.5. No cost (Bistro's frame 22.4 ms,
+  the kitchen's 9.9, Sponza's 7.8). The regression poses at 900 frames within 0.5 of 255 but modern-hall's (1.3, its
+  left wall, still on its way). The emitters' visual check is 0.072 stops from its reference where it was 0.290.
+  Step 6 proper, the rays aimed at what is bright, is not started: what is left of the wall's streaks at 10 seconds
+  is what it would mend, and the kitchen's first seconds' dots. Against the references at 1500 frames the mean is the
+  same (0.2540 to 0.2538): living-room-2 0.279 to 0.251, 7 scenes further by 0.008 at most (bathroom2 0.166 to 0.174,
+  modern-hall 0.160 to 0.166). visualtest 8 of 8, the quick tier 142 of 142.
