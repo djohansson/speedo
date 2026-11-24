@@ -472,3 +472,25 @@ Nothing now.
   is what it would mend, and the kitchen's first seconds' dots. Against the references at 1500 frames the mean is the
   same (0.2540 to 0.2538): living-room-2 0.279 to 0.251, 7 scenes further by 0.008 at most (bathroom2 0.166 to 0.174,
   modern-hall 0.160 to 0.166). visualtest 8 of 8, the quick tier 142 of 142.
+- 2026-11-24, **cornell-box's box's top edge** (report 1 again, the user: "please also look at why the top of the
+  left box in the cornellbox scene still is jaggy"). In the indirect light alone, with the near field off and at
+  native size alike: the lookups' voxels' light, not how they are read (tinted by the kinds of voxels each lookup
+  reads, the dashes' pixels are as the face below them). The dumped entries
+  (`SPEEDO_GI_DUMP=pixel:1856,898` and around) say what: the voxel under a dash holds the front face's normal and
+  0.23 along it, 0.46 downward, where the face's voxels two rows below hold 0.04 and 0.10; the voxel in a gap holds
+  the top's normal, which the face's lookups leave out since step 3. The edge's voxels' centers are 5 mm above the
+  box's top (the last level's voxels are 17 mm), their anchors start beyond the face they stand for and find the
+  top, and the half of an entry's rays that head down from a point on the top meet the top at once, lit by the lamp:
+  that light is the dashes, and the dots a row of the filter's widest pass's taps four voxels below them.
+  Fixed in `GiCacheUpdate`: where an anchor found a surface facing another way behind the voxel's own surface's
+  plane (past its edge), the rays that head into that surface are no samples
+  (`temp/review/research-issues/s9-cornell-box-edge.png`, `s9-cornell-box-edge-indirect.png`: before and after;
+  the same without ray queries). Tried on the way, in the copy of the shaders: the air's voxels behind the face's
+  plane left out of its lookups (nothing: they aren't what the dashes read); the rule for every surface found facing
+  another way (the classroom's ceiling in lighter bands beside its lamps, the regression poses up to 4.4 of 255
+  apart); and no sample at all from past the edge (as clean; the references say the kept rays are better, the
+  set's mean 0.2541 to 0.2522 for 0.2516). As committed, against the references at 1500 frames: 12 scenes nearer,
+  2 further (modern-hall 0.166 to 0.169, the bathroom 0.228 to 0.232), living-room-2 0.255 to 0.229, pontiac-gto
+  0.272 to 0.261, the kitchen 0.234 to 0.226. The regression poses at 900 frames within 0.85 of 255 (the bathroom
+  0.84, salle_de_bain's shelves 0.73, Bistro 0.71) but the classroom's 2.0 (its 0.5 m voxels hold the lamps'
+  edges). No cost: Bistro's GI pass 3.91 ms either way at 1440p balanced, interleaved. visualtest 8 of 8, the quick tier 140 of 140.

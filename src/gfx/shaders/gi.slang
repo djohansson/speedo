@@ -3747,7 +3747,11 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	{
 		// anchored (GiCacheAnchored): each ray from the surface under the voxel (GiCacheAnchor), normal the voxel's own
 		bool anchored = surface && GiCacheAnchored(gi);
-		uint drawnFacings = (gGiVoxels[gi.voxelFirst + GiVoxelIndex(at, size)].emissionB >> kGiVoxelDrawnShift) & 0x3Fu;
+		GiVoxel anchorVoxel = gGiVoxels[gi.voxelFirst + GiVoxelIndex(at, size)];
+		uint drawnFacings = (anchorVoxel.emissionB >> kGiVoxelDrawnShift) & 0x3Fu;
+		// (where its own surface is along its normal, where a drawn side wrote it: see the anchors past its edge below)
+		bool anchorPlaneKept = (anchorVoxel.normal & kGiVoxelNormalDrawn) != 0u;
+		float anchorOwnPlane = GiVoxelPlane(anchorVoxel.normal);
 		float3 voxelCenter = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
 		float open = GiUnpackRgba16(gGiDirect[gi.voxelFirst + GiVoxelIndex(at, size)]).a * gi.volumeOrigin.w;
 		// (a gap: a surface facing back at the voxel's within a voxel in front of it, which wrote the voxel too. its entry
@@ -3791,6 +3795,26 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 					if (insideSurface)
 						entry.inside += uint(round(float(kGiCacheInsideScale) * estimate));
 					continue;
+				}
+				// past the edge of the voxel's own surface (what the anchor found faces another way, kGiAnchorFacing, and
+				// is behind the own surface's plane, where the voxel keeps one: the next face around a convex edge), a
+				// ray that heads into the surface it starts on is no sample, and the emitters' sample there is by the
+				// voxel's own normal. the voxels along the top edge of cornell-box's tall box (the glTF research set) hold
+				// its front face, their centers above the box: their anchors' rays passed over the edge onto the top, and
+				// the half of the entry's rays that head down from there met the top at once, lit by the lamp over it:
+				// 0.23 along the face's way where the face's voxels below hold 0.04, a row of bright dashes under the
+				// edge (dark where a column's voxel holds the top instead, which the face's lookups leave out), and a
+				// row of dots four voxels down, where the filter's widest pass took them (the user's report, 2026-11-24:
+				// "the top of the left box ... still is jaggy"). not what faces another way in front of the plane (what
+				// stands on the surface): the classroom's ceiling beside its lamps came out in lighter bands. no sample
+				// at all from past the edge is as clean there, and further from the set's references (0.2522 blurred
+				// stops over its 28 scenes for 0.2516; 0.2541 before)
+				if (dot(surfaceNormal, normal) < kGiAnchorFacing && anchorPlaneKept &&
+					dot(origin - voxelCenter, normal) < anchorOwnPlane * gi.volumeOrigin.w)
+				{
+					if (dot(direction, surfaceNormal) < 0.0)
+						continue;
+					surfaceNormal = normal;
 				}
 				anchorCount = min(anchorCount + 1u, kGiAnchorPlaneCount);
 				anchorPlane += (dot(origin - voxelCenter, normal) / gi.volumeOrigin.w - anchorPlane) / float(anchorCount);

@@ -2082,6 +2082,26 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
       copy of the shaders: the surface's own voxels among the 27 around, by a tent 1.5 voxels wide (the kitchen's
       squares mostly gone, the arches' teeth not: there are none to take), and the left out share alone filled from
       them (little).
+    - **An anchor past the edge of the voxel's own surface** (2026-11-24; `GiCacheUpdate`, after `GiCacheAnchor`). A
+      voxel on a convex edge holds two faces and one normal, and its anchor's rays start half a voxel out along that
+      normal from its center, which may be beyond the face the normal is of: the voxels along the top edge of
+      cornell-box's tall box hold its front face, their centers 5 mm above the box's top (the voxels 17 mm), so their
+      anchors mostly passed over the edge and found the top (a quarter found nothing). An entry's rays leave over the half of the
+      directions its voxel's normal faces, and from a point on the top the lower half of those met the top at once,
+      lit by the lamp over it: the entry held 0.23 along the face's way and 0.46 downward where the face's voxels two
+      rows below hold 0.04 and 0.10 (`SPEEDO_GI_DUMP=pixel:1856,898` at the user's pose), which the face's lookups
+      drew as a row of bright dashes under the edge (dark between them, where a column's voxel holds the top's normal
+      and the lookups leave it out), and the filter's widest pass as a row of dots four voxels down (the user's
+      report, 2026-11-24: "the top of the left box ... still is jaggy"; not the lookups: tinted by what they read,
+      the dashes' pixels read the same kinds of voxels as the face below). Where what an anchor found faces another
+      way than the voxel (`kGiAnchorFacing`) and is behind the voxel's own surface's plane (`GiVoxelPlane`, where a
+      drawn side wrote it), a ray heading into the surface it starts on is no sample, and the emitters' light sample
+      there is taken by the voxel's own normal. Without the plane's test (every surface found facing another way)
+      the classroom's ceiling came out in lighter bands beside its lamps, which stand on it, in front of its plane;
+      with no sample at all from past the edge the box's edge is as clean, and the research set a little further
+      from its references (0.2522 blurred stops over the 28 scenes for 0.2516; 0.2541 before: living-room-2 0.255 to
+      0.229, 12 scenes nearer and 2 further, modern-hall by 0.003 and the bathroom by 0.004). No cost (Bistro's GI
+      pass 3.91 ms either way at 1440p balanced).
 - **The probes, resolved where they show** (step 3: the probes demoted or kept; `GiResolve`, `GiData::probes`,
   `SPEEDO_GI_PROBES`, `SPEEDO_GI_PROBE_AIR_INTERVAL`, `kGiCacheSettledCount`, `kGiVisibilityCacheAlone`,
   `kGiVisibilityBlended`). Kept, and resolved into fewer voxels. With the cache anchored, a settled entry's voxel shows
