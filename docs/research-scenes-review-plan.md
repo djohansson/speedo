@@ -516,3 +516,15 @@ Nothing now.
   0.171, classroom2 0.332, glass-of-water 0.739). The cost at 1440p balanced: the Glass History pass 0.02 ms; Main
   Transmissive 2.25 to 2.27 ms in spaceship, 3.60 to 3.71 in bmw-m6, 4.03 to 4.20 in cornell-caustic, 11.89 to 12.14
   in glass-of-water. Left: while the view moves the lobe's grain is as it was (docs/backlog.md, rough glass). visualtest 8 of 8, the quick tier 140 of 140 (vulkan and d3d12, validated).
+- 2026-11-24, **the mirror's blobs in the first seconds** (the bathroom's mirror's wall, what step 4 left), looked
+  into and nothing changed. They are soft lighter spots on the wall at 1 second, few at 2 and none at 4
+  (`temp/review/research-issues/next-bathroom-mirror.png`). Not the emitters' light the voxels keep, as first taken:
+  its samples taken with every ray while the cache is cold, 8 times as many, take 6% off the blotchiness at 1 second
+  (the mean |d - blur(d)| of the wall's luminance against the settled frame's, `temp/research-issues/blobs.ps1`: 7.24
+  to 6.94 hundredths of a stop, 4.27 to 4.06 at 2 seconds) and nothing off bathroom2's mirror's or salle_de_bain's
+  shelves'; 16 samples at the voxelizing instead of 4, the same. Nor the blocks no lookup reads
+  (`SPEEDO_GI_CACHE_EVERYWHERE=1`: 7.24), nor the near field. With 16 rays a voxel instead of the warm up's 4 the
+  spots at 1 second are fewer (6.35), with 8 some: the surface cache's own first second, each voxel a mean of a few
+  hundred rays, which the mirror shows as the walls in view do. More rays while it is cold cost what they are:
+  Bistro's GI pass 14.1 ms a frame over its first 96 updates with 4, 25.3 with 8, 47.1 with 16. Left to step 6
+  proper (the rays aimed at what is bright), which is what would make a voxel's first rays count.
