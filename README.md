@@ -1,12 +1,14 @@
 # speedo
 
-<!-- the platforms' badges take .github/workflows/ci.yml's jobs by their names, the backends' its check runs (see "CI" in docs/notes/build.md) -->
 [![CI](https://github.com/djohansson/speedo/actions/workflows/ci.yml/badge.svg)](https://github.com/djohansson/speedo/actions/workflows/ci.yml)
-[![macOS arm64](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=macOS%20arm64&label=macOS%20arm64)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster)
-[![Windows x64](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=Windows%20x64&label=Windows%20x64)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster)
-[![Linux x64](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=Linux%20x64&label=Linux%20x64)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster)
-[![Vulkan](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=Vulkan&label=Vulkan)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster)
-[![D3D12](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=D3D12&label=D3D12)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster)
+
+<!-- a platform's badge takes .github/workflows/ci.yml's job by its name (its builds and checks), a backend's the check run of its visual checks on that platform, on the cpu driver named (see "CI" in docs/notes/build.md) -->
+
+| Platform | Backends |
+| --- | --- |
+| [![macOS arm64](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=macOS%20arm64&label=macOS%20arm64)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster) | [![Vulkan · lavapipe](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=Vulkan%20%28macOS%20arm64%29&label=Vulkan%20%C2%B7%20lavapipe)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster) |
+| [![Windows x64](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=Windows%20x64&label=Windows%20x64)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster) | [![Vulkan · lavapipe](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=Vulkan%20%28Windows%20x64%29&label=Vulkan%20%C2%B7%20lavapipe)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster) [![D3D12 · WARP](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=D3D12%20%28Windows%20x64%29&label=D3D12%20%C2%B7%20WARP)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster) |
+| [![Linux x64](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=Linux%20x64&label=Linux%20x64)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster) | [![Vulkan · lavapipe](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=Vulkan%20%28Linux%20x64%29&label=Vulkan%20%C2%B7%20lavapipe)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster) |
 
 ![A glass dragon against a sunset, the sun's anamorphic streak across it and the cloth behind it seen through its body](docs/screenshots/dragonattenuation.jpg)
 
