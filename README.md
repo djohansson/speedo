@@ -10,57 +10,48 @@
 | [![Windows x64](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=Windows%20x64&label=Windows%20x64)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster) | [![Vulkan · lavapipe](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=Vulkan%20%28Windows%20x64%29&label=Vulkan%20%C2%B7%20lavapipe)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster) [![D3D12 · WARP](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=D3D12%20%28Windows%20x64%29&label=D3D12%20%C2%B7%20WARP)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster) |
 | [![Linux x64](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=Linux%20x64&label=Linux%20x64)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster) | [![Vulkan · lavapipe](https://img.shields.io/github/check-runs/djohansson/speedo/master?nameFilter=Vulkan%20%28Linux%20x64%29&label=Vulkan%20%C2%B7%20lavapipe)](https://github.com/djohansson/speedo/actions/workflows/ci.yml?query=branch%3Amaster) |
 
-![A glass dragon against a sunset, the sun's anamorphic streak across it and the cloth behind it seen through its body](docs/screenshots/dragonattenuation.jpg)
+![Water poured into a glass, splashing among ice cubes on a dark table, the glass, water and ice refracting the lit backdrop](docs/screenshots/glass-of-water.jpg)
 
-speedo is a real-time renderer physically based images at interactive frame rates.
+speedo is a real-time renderer that produces physically based images at interactive frame rates. It runs on macOS (Apple silicon), Windows (x64) and Linux (x64), on Vulkan, Metal and D3D12, and is built with the same LLVM toolchain and libc++ on all three. It renders with or without hardware ray tracing, and without a display or a GPU, which is how CI tests it.
 
-Light bounces through the scene from irradiance probes over a voxel clipmap, sharpened by a surface cache and a ray traced near field, and every emissive surface lights its surroundings as an area light. Hardware ray queries trace soft shadows from lights with a real size, glossy reflections, refraction through glass, and caustics. The sky is Earth's atmosphere, with the sun, moon and stars where the date and time of day put them, aerial perspective and fog.
-
-You see it all through a camera modeled on a real one: a physical sensor and exposure, lenses designed element by element with their aberrations, distortion, ghosts and glare (anamorphic ones too), depth of field, motion blur and film grain, and temporal upscaling by a port of AMD's FSR 3.1. Underneath are a visibility buffer, GPU culling with two-phase occlusion, clustered lighting, order independent transparency, transmission and subsurface scattering, all scheduled by a frame graph on a task based engine.
-
-Packaged builds are available for macOS (ARM64, M1+), Windows (x64, AVX2) and Linux (x64, AVX2). They are built with the same version of the LLVM compiler toolchain on all three, shipping with libc++ on all. It performs best and has the highest visual quality running on a GPU with hardware ray tracing support, but it can be run on GPUs without it as well. It can also be run without a display or a GPU, which is how CI tests it.
-
-<!-- one row, the same height: each image's width in proportion to its aspect ratio (3.25, 1.62, 2.15) -->
+<!-- one row, the same height: each image's width in proportion to its aspect ratio (1.90, 1.78, 1.78, 1.00) -->
 <p align="center">
-  <a href="docs/screenshots/abeautifulgame.jpg"><img src="docs/screenshots/abeautifulgame.jpg" width="45%" alt="A golden chess piece in focus on a green marble board, the other pieces blurred behind it, through a 2x anamorphic lens"></a>
-  <a href="docs/screenshots/sponza.jpg"><img src="docs/screenshots/sponza.jpg" width="22.5%" alt="Sponza's sunlit gallery through a 16 mm lens: a column, the arcade and its curtains, the sun's starburst and ghosts"></a>
-  <a href="docs/screenshots/carconcept.jpg"><img src="docs/screenshots/carconcept.jpg" width="30%" alt="Three CarConcept variants side by side on the ground plane at sunset, through a 1.33x anamorphic lens"></a>
+  <a href="docs/screenshots/classroom2.jpg"><img src="docs/screenshots/classroom2.jpg" width="28.5%" alt="An old classroom in low sun through venetian blinds: wooden desks, a blackboard, globe lamps and warm light across the floor"></a>
+  <a href="docs/screenshots/spaceship.jpg"><img src="docs/screenshots/spaceship.jpg" width="26.7%" alt="A chrome retro spaceship with a glass dome cockpit on a dark floor, its red interior lights seen through the dome"></a>
+  <a href="docs/screenshots/pontiac-gto.jpg"><img src="docs/screenshots/pontiac-gto.jpg" width="26.7%" alt="A dark green Pontiac GTO with chrome trim and whitewall tyres on a grey studio floor"></a>
+  <a href="docs/screenshots/bathroom.jpg"><img src="docs/screenshots/bathroom.jpg" width="15%" alt="A bright bathroom: a bathtub by a window with blinds, a wooden vanity with stone basins, a mirror and chrome bulb lamps"></a>
 </p>
 
-*The Khronos glTF sample models DragonAttenuation (at the top), ABeautifulGame, Sponza and CarConcept (click one for its full size), under the physical sky at their times of day, with indirect lighting and ray traced shadows, reflections and refractions.*
+*Five scenes of the [glTF research set](https://github.com/ErfanMo77/gltf-research-scenes) (CC0): glass-of-water (top), classroom2, spaceship, pontiac-gto and bathroom, each from its own camera in the lighting its file describes, with hardware ray tracing, indirect lighting and ray traced shadows, reflections and refractions.*
 
-<!-- made with the profile client from Edit > Copy Scene's variables, SPEEDO_YEAR=2026 SPEEDO_GI=1, plus SPEEDO_WINDOW_SIZE=3022x1898 SPEEDO_UI=0 SPEEDO_AUTOLOAD_EXIT=1200 SPEEDO_CAPTURE=<file.bmp>; the letterbox cropped, and scaled to 1600 wide. Models under test-assets/ (resources/): glTF-Sample-Assets/Models/<model>/... (ABeautifulGame/glTF-Binary-KTX-ETC1S-Draco, DragonAttenuation/glTF-Binary, Sponza/glTF, CarConcept/GLB).
-ABeautifulGame: SPEEDO_CAMERA=0.0343,0.1526,0.2572,10.550,-3.884 SPEEDO_TIME_OF_DAY=10.500 SPEEDO_LENS=anamorphic-50
-DragonAttenuation: SPEEDO_CAMERA=1.3303,1.0941,2.5190,3.171,-30.950 SPEEDO_AUTOLOAD_VARIANT=0 SPEEDO_TIME_OF_DAY=19.720 SPEEDO_LENS=anamorphic-50 SPEEDO_FOCUS=wide
-Sponza: SPEEDO_CAMERA=6.1378,4.2769,-2.4115,-18.428,-104.616 SPEEDO_TIME_OF_DAY=14.440 SPEEDO_LENS=ultrawide-16 SPEEDO_FOCUS=wide
-CarConcept: SPEEDO_CAMERA=2.5407,0.6069,0.7475,9.462,-58.063 SPEEDO_AUTOLOAD_VARIANTS=0,1,2 SPEEDO_TIME_OF_DAY=17.230 SPEEDO_LENS=anamorphic-50-133 SPEEDO_FOCUS=wide -->
+<!-- made with the profile client on Metal with hardware ray queries (Apple M4 Pro), each scene as the client opens it (the file's camera, its conversion.yaml's environment and exposure, PBR Neutral): SPEEDO_GRAPHICS_API=metal SPEEDO_RAY_QUERY=1 SPEEDO_HEADLESS=1 SPEEDO_UI=0 SPEEDO_REPEATABLE=1 SPEEDO_TIME_FRAME_SECONDS=0.0166667 SPEEDO_MOTION_BLUR=0 SPEEDO_GRAIN=0 SPEEDO_UPSCALING=native SPEEDO_AUTOLOAD_EXIT=1500 SPEEDO_CAPTURE=<file.bmp>, SPEEDO_WINDOW_SIZE twice the reference render's size (2560x1440; classroom2 2880x1514, bathroom 2048x2048), scaled to 1600 wide. Models under test-assets/ (resources/): gltf-research-scenes/scenes/gltf_research_scenes_glb/gltf_research_scenes/scenes/<scene>/gltf/<scene>_extended.glb (glass_of_water_extended.glb, classroom2.glb, spaceship_extended.glb, pontiac_gto_extended.glb, bathroom_extended.glb). -->
+
+The renders against the set's path traced references, every scene: [docs/research-scenes/overview.jpg](docs/research-scenes/overview.jpg) (docs/research-scenes-plan.md).
 
 ## Features
 
-- **Assets:** glTF 2.0 with every `KHR_materials_*` extension the Khronos samples use, material variants, Draco and meshopt meshes, KTX2/Basis and WebP textures, skins, morph targets and `KHR_animation_pointer`; Wavefront OBJ; zip archives of models; HDR panoramas; a ground plane, the scene's unit. [assets](docs/notes/assets.md)
-- **Indirect lighting:** irradiance probes over a voxel clipmap, a surface cache and a ray traced near field, and emissive surfaces lighting the scene as area lights. [indirect lighting](docs/notes/indirect-lighting.md)
-- **Ray tracing,** through hardware ray queries where the device has them (else BVHs on the GPU): soft shadows from lights with a size, glossy reflections, refractions through glass, and caustics. On macOS the BVHs are the default and ray queries opt in (`SPEEDO_RAY_QUERY=1`) until Apple fixes a GPU restart in Metal's ray tracing. [rendering](docs/notes/rendering.md)
-- **Rendering:** a frame graph, a visibility buffer, GPU culling with two-phase occlusion, clustered lighting, a cached shadow atlas, order independent transparency, transmission and subsurface scattering, reversed depth, and one to four views of the scene in split screen. [rendering](docs/notes/rendering.md)
-- **The camera:** a physical sensor and exposure (auto exposure, by the eye at night), lenses with their vignetting, aberration, distortion and glare (anamorphic ones too), depth of field, motion blur and grain, and temporal upscaling by a port of AMD's FSR 3.1. [rendering](docs/notes/rendering.md)
-- **The sky:** Earth's atmosphere, the sun, moon and stars where the time of day and the date put them, aerial perspective and fog. [sky](docs/notes/sky.md)
-- **The engine:** a task executor, Vulkan 1.4, D3D12 and Metal behind a backend-neutral abstraction, crash reports with GPU breadcrumbs, and a headless mode (no window, surface or swapchain) for runs without a display. [core](docs/notes/core.md), [layering](docs/notes/layering.md), [rhi](docs/notes/rhi.md)
-- **Testing:** every importer checked against reference decodes, the client run over the test sets with graphics backend validation, and its frames checked against the renderer's own references and a known answer, repeatably, with CI running all of it on every push. [visual testing](docs/visual-testing-plan.md), [assets](docs/notes/assets.md)
+- **Assets:** glTF 2.0 with the `KHR_materials_*` extensions the Khronos samples use, material variants, Draco and meshopt compression, KTX2/Basis and WebP textures, skinning, morph targets and `KHR_animation_pointer`; Wavefront OBJ; zip archives; HDR panoramas. [assets](docs/notes/assets.md)
+- **Lighting:** physically based materials, clustered lights, a cached shadow atlas, emissive surfaces as area lights, and indirect lighting from irradiance probes over a voxel clipmap with a surface cache and a ray traced near field. [rendering](docs/notes/rendering.md), [indirect lighting](docs/notes/indirect-lighting.md)
+- **Ray tracing:** soft shadows, glossy reflections, refraction through glass and caustics. Rays are traced with hardware ray queries where the device has them, or in software through BVHs on the GPU; every ray traced feature works either way, with smaller budgets in software. The choice can be changed while the client runs. On macOS software tracing is the default, as Metal's ray tracing can restart the GPU. [rendering](docs/notes/rendering.md)
+- **Rendering:** a frame graph, a visibility buffer, GPU culling with two-phase occlusion, order independent transparency, transmission, subsurface scattering, reversed depth, and up to four views in split screen. [rendering](docs/notes/rendering.md)
+- **Camera:** physical exposure with auto exposure, lens models with vignetting, aberrations, distortion and glare (including anamorphic lenses), depth of field, motion blur, film grain, and temporal upscaling with a port of AMD FSR 3.1. [rendering](docs/notes/rendering.md)
+- **Sky:** a physical atmosphere, the sun, moon and stars positioned by date and time of day, aerial perspective and fog. [sky](docs/notes/sky.md)
+- **Engine:** a task-based executor; Vulkan 1.4 on all platforms, Metal on macOS and D3D12 on Windows, behind one rendering hardware interface; shaders in Slang, compiled in parallel worker processes, cached, and reloaded while the client runs; crash reports with GPU breadcrumbs; a headless mode. [core](docs/notes/core.md), [layering](docs/notes/layering.md), [rhi](docs/notes/rhi.md)
+- **Testing:** importer checks against reference decodes, the client run over the test sets under graphics API validation, and image checks against references, known answers and path traced renders, run by CI on every push. [visual testing](docs/visual-testing-plan.md), [assets](docs/notes/assets.md)
 
 ## Installing
 
-Each release on GitHub has an installer for every platform: a `.dmg` for macOS on Apple silicon, an `.msi` for Windows x64, and an AppImage for Linux x64 (glibc 2.43 or newer, as on Ubuntu 26.04), each with its sha256. They aren't signed by a developer yet, so the system asks the first time: on macOS, System Settings > Privacy & Security > Open Anyway (or `xattr -dr com.apple.quarantine /Applications/Speedo.app`); on Windows, SmartScreen's More info > Run anyway. The first launch offers to download the test models while the driver creates its pipelines. An installed client's shaders come precompiled: the installers ship no shader compiler. On macOS, if running the Vulkan renderer, the app loads a bundled driver, so there is nothing else to install.
+Each GitHub release has an installer per platform with its sha256: a `.dmg` for macOS on Apple silicon, an `.msi` for Windows x64 (AVX2), and an AppImage for Linux x64 (AVX2, glibc 2.43 or newer, as on Ubuntu 26.04). The installers are not signed yet: on macOS use System Settings > Privacy & Security > Open Anyway (or `xattr -dr com.apple.quarantine /Applications/Speedo.app`), on Windows SmartScreen's More info > Run anyway. The first launch offers to download the test models. Installed clients ship precompiled shaders and no shader compiler; on macOS the Vulkan driver is bundled.
 
 ## Using the client
 
-- **File > Open...** (and Open Recent) is a file browser with thumbnails and previews of models, zip archives, panoramas and images. It opens one file or several, side by side or as authored.
-- **Moving around:** drag with the left mouse button to look around, `W`/`A`/`S`/`D` to move, the scroll wheel for the move speed. `Alt+Enter` toggles fullscreen.
-- **The interface fades away** when it isn't in use: move the mouse to the top of the window to bring the menu bar back.
-- **View** holds the settings: the layout of views, presentation, the environment and time of day, the camera and its lens, the lighting features (each can be turned off to compare), debug views, and the Lights and Statistics windows.
-- **Edit > Copy Scene** (`Ctrl/Cmd+Shift+C`) copies the camera and every changed setting as environment variables, which start the client in the same state, or Paste Scene applies to a running one: the way to report what you see.
+- **File > Open...** opens models, zip archives, panoramas and images from a file browser with thumbnails and previews, one file or several side by side.
+- **Navigation:** drag with the left mouse button to look around, `W`/`A`/`S`/`D` to move, the scroll wheel to change the speed. `Alt+Enter` toggles fullscreen.
+- **The interface** fades when not in use; move the mouse to the top of the window to bring back the menu bar.
+- **View** holds the settings: layout, presentation, scene, animation, environment and time of day, units, the cameras and lens, the lights, the rendering features (with the Ray Tracing and Global Illumination windows), tonemapping, upscaling, debug views and statistics.
+- **Edit > Copy Scene** (`Ctrl/Cmd+Shift+C`) copies the camera and every changed setting as environment variables, which start the client in the same state; Paste Scene applies them to a running client. Use it to report what you see.
 
-## Getting started with development
-
-To run speedo, an installer above is all you need; this is for building it from source.
+## Building from source
 
 ### 1. Set up the machine
 
@@ -72,120 +63,109 @@ Run the bootstrap script for your platform from the repository root:
 | Linux    | `./setup_linux.sh` |
 | Windows  | `setup_windows.bat` |
 
-The bootstrap script installs PowerShell 7.5+ if it's missing, then hands over to `setup.ps1`. Setup installs only what the project's own LLVM toolchain builds against, which comes from the system: the macOS SDK (with the Xcode Command Line Tools), the MSVC runtime and the Windows SDK (with Visual Studio's C++ build tools), or the C library's headers and runtime on Linux (`build-essential`), plus CMake and a few other packages (Homebrew, winget or apt), and on Windows the SDK's Debugging Tools for Windows (cdb, WinDbg). It installs the pinned release of vcpkg into `~/.vcpkg-tool`, restores every dependency from the binary cache below, and generates `CMakeUserPresets.json` and the VS Code launch and task configurations. Re-run it after OS or SDK updates. The tools that building packages from source takes (on Linux the distribution's clang, lld and LLVM, ninja, meson's and autotools' tools) it installs only when the binary cache lacks one of the packages.
-
-speedo builds with its own LLVM toolchain on every platform: clang, lld and libc++ from vcpkg's LLVM, one version everywhere, with the system tools providing the platform's SDKs and libraries. Setup downloads the toolchain prebuilt, along with every other dependency, from the project's shared binary cache, a public bucket read over https: for macOS 27 on Apple silicon, Windows x64, and Linux x64 on Ubuntu 26.04. A package the cache doesn't hold yet is built locally. The dependencies include the Vulkan drivers built from mesa (the djohansson/mesa fork): KosmicKrisp on macOS, lavapipe on Windows and Linux. See [build](docs/notes/build.md) ("vcpkg's shared binary cache").
+The bootstrap script installs PowerShell 7.5+ if needed and runs `setup.ps1`. Setup installs the platform SDK the toolchain builds against (the Xcode Command Line Tools, Visual Studio's C++ build tools and the Windows SDK, or `build-essential`), CMake and a few packages, the pinned vcpkg release, and every dependency, including the LLVM toolchain, from the project's public binary cache. A package the cache lacks is built locally. It also generates `CMakeUserPresets.json` and the VS Code launch and task configurations. Re-run it after OS or SDK updates. See [build](docs/notes/build.md).
 
 ### 2. Configure and build
 
-Every build directory comes from a preset named `<triplet>-<config>`, e.g. `arm64-osx-clang-profile`, `x64-windows-clang-profile` or `x64-linux-clang-profile`:
+Build directories come from presets named `<triplet>-<config>`, e.g. `arm64-osx-clang-profile`, `x64-windows-clang-profile` or `x64-linux-clang-profile`:
 
-| Config    | Use it for |
-|-----------|------------|
-| `debug`   | Debugging. Vulkan validation and asserts are on, and it's slow. |
-| `profile` | Optimized, with profiling (Tracy and GPU pass timings) and asserts. The best default for testing. |
-| `release` | Optimized, without profiling (no Tracy): what the installers ship. |
-| `sanitize` | The profile configuration with AddressSanitizer and UndefinedBehaviorSanitizer on the project's own code (macOS and Linux). |
-| `tsan`    | The profile configuration with ThreadSanitizer (macOS and Linux). |
-
-The sanitizer builds stop at the first report (`tsan` reports and goes on), and `scripts/assettest.ps1` with their preset fails a run on one. See [build](docs/notes/build.md) ("Sanitizers").
+| Config    | Use |
+|-----------|-----|
+| `debug`   | Debugging, with graphics API validation and asserts. Slow. |
+| `profile` | Optimized, with Tracy, GPU pass timings and asserts. The default for development and testing. |
+| `release` | Optimized, without profiling. What the installers ship. |
+| `sanitize` | `profile` with AddressSanitizer and UndefinedBehaviorSanitizer (macOS and Linux). |
+| `tsan`    | `profile` with ThreadSanitizer (macOS and Linux). |
 
 ```sh
 cmake --preset arm64-osx-clang-profile && cmake --build build/arm64-osx-clang-profile
 ```
 
-Always configure with `cmake --preset <name>` before building from a shell: the presets carry the toolchain's environment, which the dependencies' hashes depend on. A configure without it, from a raw `cmake` command or a build that reconfigures by itself, stops with a message telling you to run the preset. In VS Code, the CMake Tools extension picks up the presets, and the generated launch configurations start the client, the server or the Tracy profiler with the right environment.
-
-The presets build with FASTBuild, through a launcher that caches every compiled object, locally (`~/.fastbuild/cache`) and in the same shared bucket, so a build takes what CI or another machine of the platform compiled (`SPEEDO_FASTBUILD_CACHE=0` builds without it). The code is built for a fixed CPU baseline (Apple's M1, x86-64-v3), never the building machine's, so what one machine builds runs on the others. See [build](docs/notes/build.md) ("FASTBuild's cache").
+Always configure with `cmake --preset <name>` before building: the presets carry the toolchain environment that the dependencies' hashes depend on, and a configure without it stops with an error. In VS Code, CMake Tools picks up the presets and the generated launch configurations start the client, the server or Tracy. Builds use FASTBuild with a shared object cache, and target a fixed CPU baseline (Apple M1, x86-64-v3) so that builds are portable between machines.
 
 ### 3. Run the client
 
-The build puts `client`, the viewer, in the preset's build directory. Run it from the repository root, where it finds `resources/`:
+Run `client` from the repository root, where it finds `resources/`:
 
 ```sh
 ./build/arm64-osx-clang-profile/client
 ```
 
-| Client option | Default |
+| Option | Default |
 |--------|---------|
-| `-r <dir>`: the resource directory (fonts, shaders, test assets) | `resources/` |
-| `-u <dir>`: the user profile directory (settings, caches, logs) | `.speedo/` |
+| `-r <dir>`: resource directory (fonts, shaders, test assets) | `resources/` |
+| `-u <dir>`: user profile directory (settings, caches, logs) | `.speedo/` |
 
-From a checkout the shaders compile from their sources at startup, through a shader compiler library the client loads only for that; an installed client gets them precompiled, and its package ships neither the compiler nor slang. A first launch compiles them in the background and has the driver create the pipelines, with the progress shown in a Loading window while the interface stays responsive; later launches take them from the profile's caches and start in seconds.
+The default graphics API is Vulkan on Windows and Linux and Metal on macOS; `SPEEDO_GRAPHICS_API=vulkan|metal|d3d12` selects another, and File > About Speedo... shows the one in use. From a checkout, shaders are compiled at startup in worker processes and cached; later launches start in seconds.
 
-The client runs on Vulkan on Windows and Linux and on Metal on macOS (`SPEEDO_GRAPHICS_API=vulkan`, `metal` or `d3d12` picks another; File > About Speedo... shows the one running). For Vulkan on macOS, point the loader at KosmicKrisp, which setup restores from the binary cache (with a workaround for a GPU restart in Apple's ray tracing, see [indirect lighting](docs/notes/indirect-lighting.md)):
+For Vulkan on macOS, point the loader at the KosmicKrisp driver that setup installs:
 
 ```sh
 export VK_DRIVER_FILES=$(ls $PWD/install/*/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json | head -1)
 ```
 
-For Vulkan on Windows and Linux, the client uses the system's GPU driver unless told otherwise. To render without a GPU, for reference renders or on a machine without one, choose lavapipe explicitly with the same variable (setup installs it on every platform; it is slow), e.g. `VK_DRIVER_FILES=$PWD/install/x64-linux-release/share/vulkan/icd.d/lvp_icd.x86_64.json` (on macOS `install/arm64-osx-release/share/vulkan/icd.d/lvp_icd.aarch64.json`).
+On Windows and Linux Vulkan uses the system's driver. To render on the CPU, select lavapipe the same way (`install/<host triplet>/share/vulkan/icd.d/lvp_icd.*.json`). For a debug build from a shell, set `VK_LAYER_PATH=$PWD/install/<triplet>/share/vulkan/explicit_layer.d` to find the validation layers; the VS Code launch configurations do this. `SPEEDO_HEADLESS=1` runs without a window, rendering into an image that `SPEEDO_CAPTURE` saves.
 
-For a debug build from a shell, also set `VK_LAYER_PATH=$PWD/install/<triplet>/share/vulkan/explicit_layer.d` so the validation layers are found. The VS Code launch configurations set the layer path, and on macOS the KosmicKrisp driver.
+### Programs
 
-`SPEEDO_HEADLESS=1` runs the client without a window: no display is needed, and it draws into an image of `SPEEDO_WINDOW_SIZE` instead of a swapchain, which `SPEEDO_CAPTURE` saves. See [layering](docs/notes/layering.md).
+All built into the preset's build directory and run from the repository root:
 
-### Applications
-
-The build makes these programs, all in the preset's build directory and run from the repository root as the client is:
-
-| Program     | What it does |
-|-------------|--------------|
-| `client`    | The viewer: a window with a menu bar, one to four views of the scene, and tools for inspecting it, in a translucent, frosted interface styled after macOS's. |
-| `server`    | A small companion process the client talks to over ZeroMQ: the start of a distributed task system. |
-| `assettest` | Imports every model, image and environment it's given and checks the results, and the BVHs against brute force and the lens prescriptions: the main automated test. |
-| `imagecompare` | Compares a capture of the client's with a reference: the pixels past thresholds, the luminance difference sharp and blurred, the light gained or lost. What the visual checks pass or fail by. |
-| `convergence` | How long a still view's lighting takes to settle, from a series of captures (`scripts/perfbaseline.ps1`). |
-| `filebench` | A benchmark of file reading, the importers (`--import <files>`) and zip extraction (`--zip <archives>`). |
-| `taskbench` | A benchmark of the task system's overheads and how full its task pool gets. |
-| `shaderprecompile` | Compiles every shader variant the client may load into the precompiled sets an installer ships (run by `scripts/package.ps1`). |
+| Program | Purpose |
+|---------|---------|
+| `client` | The viewer: one to four views of the scene and tools to inspect it. |
+| `server` | A companion process the client talks to over ZeroMQ; the start of a distributed task system. |
+| `assettest` | Imports models, images and environments and checks the results, the BVHs and the lens prescriptions. |
+| `rhitest` | Checks each graphics backend's compute, images, draws and blits against each other. |
+| `imagecompare` | Compares a capture with a reference; what the visual checks pass or fail by. |
+| `convergence` | Measures how long a still view's lighting takes to settle, from a series of captures. |
+| `filebench`, `taskbench`, `neuralbench` | Benchmarks of file reading and importing, the task system, and a neural radiance cache's compute. |
+| `shaderprecompile` | Compiles every shader variant into the precompiled sets the installers ship. |
+| `shadercompileworker` | The worker process the shader compiler runs compiles in. |
 
 ## Testing
 
-The test sets are downloaded from their sources (Morgan McGuire's Computer Graphics Archive, and the Khronos glTF-Sample-Assets and glTF-Sample-Environments, about 4.5 GB), pinned and checked against checksums, into `resources/test-assets/` (or `$SPEEDO_TEST_ASSETS`). `scripts/assettest.ps1` runs `assettest` over them, and with `-Client` opens each model in the client, failing on load errors, asserts and validation messages:
+The test sets (Morgan McGuire's Computer Graphics Archive, Khronos glTF-Sample-Assets and glTF-Sample-Environments, and the glTF research scenes) are downloaded by `scripts/fetch-test-assets.ps1` into `resources/test-assets/`, pinned and checksummed. `scripts/assettest.ps1` runs `assettest` over them and, with `-Client`, opens each model in the client on each of the platform's graphics APIs, failing on load errors, asserts and validation messages:
 
 ```sh
-pwsh -Command '$p = & scripts/fetch-test-assets.ps1 -Quick; & scripts/assettest.ps1 -Preset arm64-osx-clang-profile -Client -Validate -Work <work dir> @p'
+pwsh -Command '$p = & scripts/fetch-test-assets.ps1 -Quick; & scripts/assettest.ps1 -Preset arm64-osx-clang-profile -Client -Validate -Headless -Work <work dir> @p'
 ```
 
-`-Quick` is a model or two per feature, about 60 client runs in a few minutes; without it, the full sets. Reuse the work directory between runs: it holds the extracted archives and the caches. The client windows stay behind your others without taking the focus; `-Headless` runs them without windows, for a locked screen or a machine without a display. See [assets](docs/notes/assets.md) for the checks and the hand-made test models.
+`-Quick` selects a model or two per feature; without it, the full sets. `scripts/visualtest.ps1 -Preset <preset>` renders scenes repeatably and compares them with `imagecompare` against references, known answers and path traced renders. See [visual testing](docs/visual-testing-plan.md) and [assets](docs/notes/assets.md).
 
-`scripts/visualtest.ps1 -Preset <preset>` checks the frames themselves. Each check renders a scene twice, headless and repeatable (`SPEEDO_REPEATABLE=1`: the same image from run to run as far as the driver allows), and `imagecompare` measures the pair against thresholds: the traced shadows and the shadow atlas against their references, the emissive surfaces' light against theirs, temporal upscaling against none, the light inside a furnace (a closed box of emitting, reflecting walls) against its known answer, and, on lavapipe, hardware ray queries against the BVHs. With `-Validate` the clients run under the Vulkan validation layer, and a validation message fails the check. See [visual testing](docs/visual-testing-plan.md).
+CI runs on every push to `master` and on pull requests, on GitHub's hosted runners without GPUs: each platform builds the debug, profile and release configurations and runs the importer checks and the visual checks, on lavapipe (Vulkan), WARP (D3D12) and the macOS runner's paravirtual GPU (Metal). See [build](docs/notes/build.md) ("CI").
 
-CI runs on every push to `master` and on pull requests, on GitHub's hosted runners for macOS, Windows and Linux, which have no GPU. Each job sets up from the shared caches, builds the debug, profile and release configurations, and runs the importer checks; on Windows and Linux it then runs the visual checks, the client headless on lavapipe with Vulkan validation. A push writes what the runners built to the shared caches, and once every job has passed, prunes them. The GPU drivers (KosmicKrisp, the desktop ones) are tested on developers' machines. See [build](docs/notes/build.md) ("CI").
-
-Environment variables start the client in a known state, for bug reports, measurements and screenshots: the model and environment to load, the camera's pose, every View setting, a capture after so many frames and an exit, a window of a given size or none at all, and the renderer's tuning and diagnostics. Edit > Copy Scene writes the current view as these variables. [Environment variables](docs/environment-variables.md) lists and describes them all.
+[Environment variables](docs/environment-variables.md) start the client in a known state (model, camera, settings, a capture and an exit) and control the renderer's tuning and diagnostics.
 
 ## Profiling
 
-Debug and profile builds are instrumented with [Tracy](https://github.com/wolfpld/tracy). Start the profiler from `install/<triplet>/tools/tracy/` or its VS Code launch configuration, then the client. The GPU side has a zone per render pass, from the same timestamps as View > Statistics. [rendering](docs/notes/rendering.md) ("GPU timings")
+Debug and profile builds are instrumented with [Tracy](https://github.com/wolfpld/tracy). Start the profiler from `install/<triplet>/tools/tracy/` or its VS Code launch configuration, then the client. GPU passes appear as zones, from the same timestamps as View > Statistics.
 
 ## Releasing
 
-`scripts/release.ps1` makes a release from a clean `master`: `-Bump patch` (the default), `-Bump minor` or `-Bump major` raises `src/version.h`'s version (or `-Version <x.y.z>` sets it), commits it and tags the commit `v<version>`. With `-Push` it pushes `master` and the tag; without, it prints the push command. The tag starts the release workflow, which checks it against `src/version.h`, builds and packages the release preset on each platform's CI runner, and attaches the installers and their checksums to a draft release, published by hand once checked. Running the workflow by hand (Actions > Release) packages without releasing, the installers kept as the run's artifacts. `scripts/package.ps1` makes this platform's installer from a local release build. See [build](docs/notes/build.md) ("Releases").
+`scripts/release.ps1 -Bump patch|minor|major` (or `-Version <x.y.z>`) raises the version in `src/version.h`, commits it and tags `v<version>` on a clean `master`; `-Push` pushes both. The tag starts the release workflow, which builds and packages each platform and attaches the installers to a draft release, published by hand. `scripts/package.ps1` builds the local platform's installer from a release build. See [build](docs/notes/build.md) ("Releases").
 
 ## Documentation
 
 | Document | Contents |
 |----------|----------|
-| [CLAUDE.md](CLAUDE.md) | The rules most changes need: the layering, conventions, and the workflow. |
-| [docs/notes/](docs/notes/) | Each subsystem in depth: [core](docs/notes/core.md), [layering](docs/notes/layering.md), [rhi](docs/notes/rhi.md), [rendering](docs/notes/rendering.md), [indirect lighting](docs/notes/indirect-lighting.md), [sky](docs/notes/sky.md), [assets](docs/notes/assets.md), [build](docs/notes/build.md). |
-| [docs/environment-variables.md](docs/environment-variables.md) | Every environment variable the client, the scripts and the build read: what it takes, its default and what it does. |
-| [docs/visual-testing-plan.md](docs/visual-testing-plan.md) | Checking what the client draws: repeatable captures, `imagecompare`, the visual checks, and the steps still to come. |
-| [docs/performance-plan.md](docs/performance-plan.md) | Frame rate and convergence in the heavier scenes: the benchmark poses and baselines. |
-| [TODO.md](TODO.md) | What's planned, in progress and done. |
+| [docs/notes/](docs/notes/) | The subsystems: [core](docs/notes/core.md), [layering](docs/notes/layering.md), [rhi](docs/notes/rhi.md), [rendering](docs/notes/rendering.md), [indirect lighting](docs/notes/indirect-lighting.md), [sky](docs/notes/sky.md), [assets](docs/notes/assets.md), [build](docs/notes/build.md). |
+| [docs/environment-variables.md](docs/environment-variables.md) | Every environment variable the client, scripts and build read. |
+| [docs/visual-testing-plan.md](docs/visual-testing-plan.md) | How the rendered images are checked. |
+| [docs/performance-plan.md](docs/performance-plan.md) | How frame times and the lighting's convergence are measured. |
+| [docs/backlog.md](docs/backlog.md) | Open work. |
+| [CLAUDE.md](CLAUDE.md) | Conventions and workflow rules for contributors and AI agents. |
 
 ## Repository layout
 
 | Path | Contents |
 |------|----------|
-| `src/core` | The task executor, memory pools, files, the application base. |
-| `src/platform` | The window system (headless too) and imgui's platform side. |
-| `src/rhi` | The graphics abstraction over Vulkan, D3D12 and Metal. |
-| `src/gfx` | Everything above the rhi: importers, the scene, the renderer and frame graph, the shaders (Slang). |
-| `src/client`, `src/server` | The two programs. |
-| `src/tools` | `assettest`, `imagecompare`, `shaderprecompile`, the benchmarks (`filebench`, `taskbench`, `convergence`), and macOS's Metal repros (`src/tools/macos`). |
-| `scripts/` | Setup, test (`assettest.ps1`, `visualtest.ps1`), asset, cache, packaging and release scripts (PowerShell), CMake toolchains and vcpkg triplets. |
-| `.github/workflows/` | CI on every push, and the release workflow on `v*` tags. |
-| `ports/` | vcpkg overlay ports: patched dependencies, mesa's Vulkan drivers (KosmicKrisp, lavapipe), and FASTBuild's cache plugin and launcher. |
-| `resources/` | Fonts and hand-made test models; test assets are downloaded here. |
+| `src/core` | Task executor, memory pools, files, math, the application base. |
+| `src/platform` | Windows (and headless), presentation, imgui's platform side. |
+| `src/rhi` | The rendering hardware interface over Vulkan, Metal and D3D12. |
+| `src/gfx` | Importers, scene, renderer, frame graph and the Slang shaders. |
+| `src/client`, `src/server` | The two applications. |
+| `src/tools` | Test tools, benchmarks, the shader tools, and Metal repros (`src/tools/macos`). |
+| `scripts/` | Setup, test, asset, cache, packaging and release scripts (PowerShell), CMake toolchains and vcpkg triplets. |
+| `.github/workflows/` | CI, and the release workflow on `v*` tags. |
+| `ports/` | vcpkg overlay ports: patched dependencies, mesa's Vulkan drivers, FASTBuild's cache plugin. |
+| `resources/` | Fonts and hand-made test models; downloaded test assets go here. |
