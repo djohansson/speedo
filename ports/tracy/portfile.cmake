@@ -21,6 +21,11 @@ vcpkg_from_github(
         # test (__cpp_lib_atomic_shared_ptr) rather than Emscripten and Apple, so libc++ on Windows and Linux takes it too,
         # and its compare_exchange_weak fixed (unused); wolfpld/tracy#1515's diff, to drop once a release has it
         0009-libcxx-atomic-shared-ptr-shim.patch
+        # the worker thread, started during static initialization, deadlocked with dyld on macOS: UdpBroadcast::Open's
+        # getaddrinfo, the first with a host name, dlopens libnetwork while the main thread runs the images' initializers
+        # (Foundation's, waiting for dyld's lock: assettest hung before main, twice on 2026-11-24, CI once). the address
+        # is numeric (Open parses it with inet_pton for Send), so the socket is made directly; to offer upstream
+        0010-udp-broadcast-without-getaddrinfo.patch
 )
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
