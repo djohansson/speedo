@@ -30,9 +30,12 @@ the captures), -TimingFrames frames: the frame time (the client's median of the 
 up, SPEEDO_GPU_TIMINGS=1, its pipelines warm from the captures) and the costliest passes' gpu times, in the table and
 the overview. Not with -Validate (the layer's own time).
 
--Chart <path> writes the overview as a JPEG there too, with a line saying what it is of (the commit, the graphics api,
-the gpu: -Device, else the operating system's name of it on Windows): docs/research-scenes/overview.jpg, which the plan
-tracks its progress by (docs/research-scenes-plan.md).
+-Chart <path> writes the overview as a JPEG there too, for people: each pair labelled (the reference's renderer, speedo's
+graphics api), how much brighter or darker speedo's image is, the frame time, under a line saying what made them (the
+operating system, the graphics api, the gpu: -Device, else the system's name of it, and how rays were traced). Beside it,
+<path> with .md, the measures in full (both |log2| differences, the light's ratio, the mean difference, the frame times
+and costliest passes): docs/research-scenes/overview.jpg and overview.md, which the plan tracks its progress by
+(docs/research-scenes-plan.md).
 
 -Reuse runs no client: it measures, sheets and charts what -Work holds from an earlier run (its captures, and with
 -Timings its timing logs).
@@ -82,6 +85,8 @@ $exe = if ($IsWindows) { '.exe' } else { '' }
 $build = Join-Path $root "build/$Preset"
 $clientExe = Join-Path $build "client$exe"
 $compareExe = Join-Path $build "imagecompare$exe"
+$sheetExe = Join-Path $build "imagesheet$exe"
+$fontFile = Join-Path $root 'resources/fonts/Roboto-Medium.ttf' # the client's ui font, for the sheets' and chart's labels
 foreach ($tool in $clientExe, $compareExe)
 {
 	if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) { [Console]::Error.WriteLine("no ${tool}: build preset '$Preset' first"); exit 2 }
@@ -126,8 +131,6 @@ $problemPattern = 'Failed to load (model|image|archive|environment)|\(errno: |VU
 Write-Host "graphics api: $env:SPEEDO_GRAPHICS_API"
 Write-Host "work dir: $Work"
 
-Add-Type -AssemblyName System.Drawing
-
 # a conversion.yaml's reference_render: its image, size, environment and its strength, exposure multiplier
 function Read-Reference([string] $Yaml)
 {
@@ -149,42 +152,39 @@ function Read-Reference([string] $Yaml)
 	return $reference
 }
 
-# a png as a 24 bit bmp (imagecompare's input, as the client's captures)
+# the images are made by build/<preset>/imagesheet (src/tools/imagesheet.cpp: sizes, conversions and compositions, the
+# same on every platform)
+
+# an image's size, @(width, height), or $null
+function Get-ImageSize([string] $File)
+{
+	$size = & $sheetExe size $File
+	if ($LASTEXITCODE -ne 0 -or -not $size) { return $null }
+	return @($size -split ' ' | ForEach-Object { [int]$_ })
+}
+
+# a png as a bmp (imagecompare's input, as the client's captures)
 function ConvertTo-Bmp([string] $Png, [string] $Bmp)
 {
-	$source = [Drawing.Bitmap]::new($Png)
-	try
-	{
-		$target = [Drawing.Bitmap]::new($source.Width, $source.Height, [Drawing.Imaging.PixelFormat]::Format24bppRgb)
-		$graphics = [Drawing.Graphics]::FromImage($target)
-		$graphics.DrawImage($source, 0, 0, $source.Width, $source.Height)
-		$graphics.Dispose()
-		$target.Save($Bmp, [Drawing.Imaging.ImageFormat]::Bmp)
-		$target.Dispose()
-	}
-	finally { $source.Dispose() }
+	New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Bmp) | Out-Null
+	& $sheetExe bmp $Png $Bmp
+	if ($LASTEXITCODE -ne 0) { throw "imagesheet couldn't convert $Png" }
 }
 
 # a row of images side by side at a width each, labelled, into a png
 function New-Sheet([string[]] $Files, [string[]] $Labels, [int] $Width, [string] $Out)
 {
-	$images = @($Files | ForEach-Object { if ($_ -and (Test-Path -LiteralPath $_)) { [Drawing.Bitmap]::new($_) } else { $null } })
-	$first = $images | Where-Object { $_ } | Select-Object -First 1
-	$height = if ($first) { [int]($Width * $first.Height / $first.Width) } else { [int]($Width * 9 / 16) }
-	$sheet = [Drawing.Bitmap]::new($Width * $Files.Count, $height + 22)
-	$graphics = [Drawing.Graphics]::FromImage($sheet)
-	$graphics.Clear([Drawing.Color]::Black)
-	$graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-	$font = [Drawing.Font]::new('Segoe UI', 10)
+	$first = $Files | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+	$firstSize = if ($first) { Get-ImageSize $first } else { $null }
+	$height = if ($firstSize) { [int]($Width * $firstSize[1] / $firstSize[0]) } else { [int]($Width * 9 / 16) }
+	$items = [Collections.Generic.List[string]]::new()
 	for ($i = 0; $i -lt $Files.Count; $i++)
 	{
-		if ($images[$i]) { $graphics.DrawImage($images[$i], [Drawing.Rectangle]::new($i * $Width, 22, $Width, $height)) }
-		$graphics.DrawString($Labels[$i], $font, [Drawing.Brushes]::White, [float]($i * $Width + 4), [float]3)
+		if ($Files[$i] -and (Test-Path -LiteralPath $Files[$i])) { $items.AddRange([string[]]@('--image', $Files[$i], "$($i * $Width)", '22', "$Width", "$height")) }
+		$items.AddRange([string[]]@('--text', "$($i * $Width + 4)", '3', "$($Width - 8)", '15', $Labels[$i]))
 	}
-	$graphics.Dispose()
-	$sheet.Save($Out, [Drawing.Imaging.ImageFormat]::Png)
-	$sheet.Dispose()
-	foreach ($image in $images) { if ($image) { $image.Dispose() } }
+	& $sheetExe compose ($Width * $Files.Count) ($height + 22) --font $fontFile @items --out $Out
+	if ($LASTEXITCODE -ne 0) { Write-Warning "imagesheet couldn't make $Out" }
 }
 
 # the scenes: each folder with a conversion.yaml and a glb of the kind (the core one where the kind's is missing)
@@ -199,7 +199,8 @@ $scenes = foreach ($folder in Get-ChildItem -LiteralPath $scenesRoot -Directory 
 	$reference = Read-Reference $yaml
 	# the reference image's own size where it has one (cornell-caustic's pbrt render is 1024x1024, which its notes don't say)
 	$image = if ($reference.Image) { Join-Path $folder.FullName "gltf/$($reference.Image)" } else { $null }
-	if ($image -and (Test-Path -LiteralPath $image)) { $bitmap = [Drawing.Image]::FromFile($image); $reference.Width = $bitmap.Width; $reference.Height = $bitmap.Height; $bitmap.Dispose() }
+	$imageSize = if ($image -and (Test-Path -LiteralPath $image)) { Get-ImageSize $image } else { $null }
+	if ($imageSize) { $reference.Width = $imageSize[0]; $reference.Height = $imageSize[1] }
 	[pscustomobject]@{ Name = $folder.Name; Folder = $folder.FullName; Model = $glb.FullName; Reference = $reference; Directory = (Join-Path $Work $folder.Name) }
 }
 
@@ -366,7 +367,7 @@ if ($Timings)
 			$cull = $passes | Where-Object Name -eq 'Cull' | Select-Object -First 1
 			$sceneFrames = if ($cull) { $cull.Frames } else { ($passes | Measure-Object -Property Frames -Maximum).Maximum }
 			foreach ($pass in $passes) { if ($pass.Frames -gt $sceneFrames) { $pass.Ms = $pass.Ms * $pass.Frames / $sceneFrames } }
-			$result.Passes = (@($passes | Where-Object { $_.Frames -ge $sceneFrames / 2 } | Sort-Object Ms -Descending | Select-Object -First 3) | ForEach-Object { '{0} {1:F2}' -f $_.Name, $_.Ms }) -join ', '
+			$result.Passes = (@($passes | Where-Object { $_.Frames -ge $sceneFrames / 2 } | Sort-Object Ms -Descending | Select-Object -First 3) | ForEach-Object { [string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0} {1:F2}', $_.Name, $_.Ms) }) -join ', '
 			Write-Host ("{0,-18} {1,6:F2} ms {2,5:F0} Hz  {3}" -f $scene.Name, $result.FrameMs, (1000.0 / $result.FrameMs), $result.Passes)
 		}
 		else
@@ -381,23 +382,37 @@ if ($Timings)
 $ordered = @($results | Sort-Object @{ Expression = { if ($null -ne $_.LogBlurred) { $_.LogBlurred } else { 99 } }; Descending = $true })
 $cell = 320
 $cellHeight = 240
-$label = 20
-$header = 40
+$label = 38 # the scene's line, then which image is which
+$header = 80
 $columns = 2
-$overview = [Drawing.Bitmap]::new($cell * 2 * $columns, $header + ($cellHeight + $label) * [Math]::Ceiling($ordered.Count / $columns))
-$graphics = [Drawing.Graphics]::FromImage($overview)
-$graphics.Clear([Drawing.Color]::Black)
-$graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-$font = [Drawing.Font]::new('Segoe UI', 9)
+$overviewWidth = $cell * 2 * $columns
+$overviewHeight = $header + ($cellHeight + $label) * [Math]::Ceiling($ordered.Count / $columns)
+$items = [Collections.Generic.List[string]]::new()
 if (-not $Device -and $IsWindows)
 {
 	$Device = (Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'NVIDIA|AMD|Radeon|Intel\(R\) Arc' } | Select-Object -First 1).Name
 }
+elseif (-not $Device -and $IsMacOS)
+{
+	$Device = (& system_profiler SPDisplaysDataType 2>$null | Select-String 'Chipset Model: (.+)' | Select-Object -First 1).Matches.Groups[1].Value
+}
 $commit = (& git -C $root rev-parse --short HEAD 2>$null)
-$title = "speedo ($Kind) against the glTF research set's path traced references, each pair reference | speedo, the most unlike first: " +
-	"blurred |log2| luminance off it and the light's ratio, in stops$(if ($Timings) { "; the frame time at $TimingSize, balanced upscaling" }). " +
-	"$(Get-Date -Format 'yyyy-MM-dd'), $commit, $env:SPEEDO_GRAPHICS_API$(if ($Device) { ", $Device" })"
-$graphics.DrawString($title, $font, [Drawing.Brushes]::White, [Drawing.RectangleF]::new(4, 2, $overview.Width - 8, $header))
+# what made the captures and the frame times, on a line of its own: the operating system, the graphics api, the gpu and
+# how rays were traced (the clients' logs' "ray queries:" line: the hardware's or gfx's BVHs)
+$platform = if ($IsMacOS) { "macOS $(& sw_vers -productVersion 2>$null)" }
+	elseif ($IsWindows) { "Windows $([Environment]::OSVersion.Version)" }
+	else { ((Get-Content -LiteralPath '/etc/os-release' -ErrorAction SilentlyContinue | Where-Object { $_ -like 'PRETTY_NAME=*' }) -replace '^PRETTY_NAME="?([^"]*)"?$', '$1') }
+$apiNames = @{ vulkan = 'Vulkan'; metal = 'Metal'; d3d12 = 'D3D12' }
+$api = if ($apiNames.ContainsKey("$env:SPEEDO_GRAPHICS_API")) { $apiNames["$env:SPEEDO_GRAPHICS_API"] } else { "$env:SPEEDO_GRAPHICS_API" }
+$rayQueries = @($ordered | ForEach-Object { Join-Path (Join-Path $Work $_.Scene) 'capture.log' } | Where-Object { Test-Path -LiteralPath $_ } |
+	ForEach-Object { Select-String -LiteralPath $_ -Pattern '^ray queries: (.+)$' | Select-Object -First 1 } | ForEach-Object { $_.Matches[0].Groups[1].Value } | Sort-Object -Unique)
+$rays = switch -Regex ($rayQueries -join ', ') { "^the hardware's$" { 'hardware ray tracing' } '^$' { 'ray tracing not logged' } default { "ray queries: $_" } }
+$madeOn = "Captured$(if ($Timings) { ' and timed' }) on $(@($platform, $api, $Device, $rays | Where-Object { $_ }) -join ', ')"
+$title = "speedo ($Kind) against the glTF research set's path traced references, the scenes most unlike their references first. " +
+	"Each scene: how much brighter or darker speedo's image is overall than the reference$(if ($Timings) { ", and the frame time at $TimingSize with balanced upscaling" }). " +
+	"$(Get-Date -Format 'yyyy-MM-dd'), $commit."
+$items.AddRange([string[]]@('--text', '6', '6', "$($overviewWidth - 12)", '22', $madeOn))
+$items.AddRange([string[]]@('--text', '6', '36', "$($overviewWidth - 12)", '15', $title))
 for ($i = 0; $i -lt $ordered.Count; $i++)
 {
 	$x = ($i % $columns) * $cell * 2
@@ -407,32 +422,37 @@ for ($i = 0; $i -lt $ordered.Count; $i++)
 	{
 		$file = Join-Path $directory $side[0]
 		if (-not (Test-Path -LiteralPath $file)) { continue }
-		$image = [Drawing.Bitmap]::new($file)
-		$fit = [Math]::Min($cell / $image.Width, $cellHeight / $image.Height)
-		$width = [int]($image.Width * $fit)
-		$height = [int]($image.Height * $fit)
-		$graphics.DrawImage($image, [Drawing.Rectangle]::new($x + $side[1] * $cell + [int](($cell - $width) / 2), $y + $label + [int](($cellHeight - $height) / 2), $width, $height))
-		$image.Dispose()
+		# (fit to the cell, its shape kept and centered: imagesheet's --image)
+		$items.AddRange([string[]]@('--image', $file, "$($x + $side[1] * $cell)", "$($y + $label)", "$cell", "$cellHeight"))
 	}
 	# (in the invariant culture's numbers: the chart goes to docs, whatever the machine's locale)
 	$invariant = [Globalization.CultureInfo]::InvariantCulture
-	$text = if ($null -ne $ordered[$i].LogBlurred) { [string]::Format($invariant, '{0}: blurred {1:F3}, ratio {2:+0.00;-0.00} stops', $ordered[$i].Scene, $ordered[$i].LogBlurred, $ordered[$i].Ratio) } else { "$($ordered[$i].Scene): $($ordered[$i].Status)" }
+	# the overall light against the reference's as a share (the ratio is log2 of the mean linear luminances' quotient)
+	$text = if ($null -ne $ordered[$i].Ratio)
+	{
+		$share = ([Math]::Pow(2.0, $ordered[$i].Ratio) - 1.0) * 100.0
+		$light = if ([Math]::Abs($share) -lt 0.5) { 'as bright' } elseif ($share -gt 0) { [string]::Format($invariant, '{0:F0}% brighter', $share) } else { [string]::Format($invariant, '{0:F0}% darker', -$share) }
+		"$($ordered[$i].Scene): $light"
+	}
+	else { "$($ordered[$i].Scene): $($ordered[$i].Status)" }
 	if ($null -ne $ordered[$i].FrameMs) { $text += [string]::Format($invariant, ', {0:F1} ms', $ordered[$i].FrameMs) }
-	$graphics.DrawString($text, $font, [Drawing.Brushes]::White, [float]($x + 4), [float]($y + 3))
+	$items.AddRange([string[]]@('--text', "$($x + 6)", "$($y + 3)", "$($cell * 2 - 12)", '15', $text))
+	# which image is which: the reference's renderer (its conversion.yaml's, Cycles where it names none) and speedo's
+	$sceneInfo = $scenes | Where-Object Name -eq $ordered[$i].Scene | Select-Object -First 1
+	$renderer = if ($sceneInfo -and $sceneInfo.Reference.Renderer) { $sceneInfo.Reference.Renderer } else { 'Blender Cycles' }
+	$items.AddRange([string[]]@('--text', "$($x + 6)", "$($y + 21)", "$($cell - 12)", '13', "reference ($renderer)"))
+	$items.AddRange([string[]]@('--text', "$($x + $cell + 6)", "$($y + 21)", "$($cell - 12)", '13', "speedo ($api)"))
 }
-$graphics.Dispose()
-$overview.Save((Join-Path $Review 'overview.png'), [Drawing.Imaging.ImageFormat]::Png)
+$items.AddRange([string[]]@('--out', (Join-Path $Review 'overview.png')))
 if ($Chart)
 {
 	$chartPath = if ([IO.Path]::IsPathRooted($Chart)) { $Chart } else { Join-Path $root $Chart }
 	New-Item -ItemType Directory -Force -Path (Split-Path -Parent $chartPath) | Out-Null
-	$codec = [Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object MimeType -eq 'image/jpeg'
-	$parameters = [Drawing.Imaging.EncoderParameters]::new(1)
-	$parameters.Param[0] = [Drawing.Imaging.EncoderParameter]::new([Drawing.Imaging.Encoder]::Quality, [long]88)
-	$overview.Save($chartPath, $codec, $parameters)
-	Write-Host "chart: $chartPath"
+	$items.AddRange([string[]]@('--out', $chartPath, '--quality', '88'))
 }
-$overview.Dispose()
+& $sheetExe compose $overviewWidth $overviewHeight --font $fontFile @items
+if ($LASTEXITCODE -ne 0) { Write-Warning "imagesheet couldn't make the overview" }
+elseif ($Chart) { Write-Host "chart: $chartPath" }
 
 Write-Host ''
 Write-Host 'the scenes most unlike their references first (mean |log2| luminance, blurred over 8 pixels: the lighting; the ratio: the light overall):'
@@ -443,5 +463,33 @@ foreach ($result in $ordered)
 	Write-Host ("  {0,-18} {1}" -f $result.Scene, $measures)
 }
 Write-Host "sheets: $Review"
+
+# the measures in full beside the chart (-Chart: <chart's name>.md), for reading and comparing rather than looking at: the
+# chart is for people, this for the record (in the invariant culture's numbers, as the chart)
+if ($Chart)
+{
+	$invariant = [Globalization.CultureInfo]::InvariantCulture
+	$resultsPath = [IO.Path]::ChangeExtension($chartPath, '.md')
+	$lines = [Collections.Generic.List[string]]::new()
+	$lines.Add('# Research scenes: measures')
+	$lines.Add('')
+	$lines.Add("speedo ($Kind) against the glTF research set's path traced references, written by scripts/researchcompare.ps1 with the chart beside it ($([IO.Path]::GetFileName($chartPath))). $madeOn; $(Get-Date -Format 'yyyy-MM-dd'), commit $commit.")
+	$lines.Add('')
+	$lines.Add("- **Blurred** and **sharp**: the mean |log2| difference of the two images' linear luminances, in stops (1 is twice or half the light), blurred over 8 pixels (the lighting's error rather than its noise) and per pixel. The scenes are ordered by the blurred one, the most unlike first.")
+	$lines.Add("- **Light**: log2 of speedo's mean linear luminance over the reference's, in stops: the light overall (+1 twice as bright, -1 half). The chart shows it as a share brighter or darker.")
+	$lines.Add('- **Mean**: the mean channel difference, in levels of 255.')
+	if ($Timings) { $lines.Add("- **Frame**: the client's median frame time at $TimingSize with balanced upscaling after the lighting settled, and the costliest passes' gpu times, in ms.") }
+	$lines.Add('')
+	$lines.Add("| Scene | Blurred | Sharp | Light | Mean | $(if ($Timings) { 'Frame | Costliest passes |' } else { '' })")
+	$lines.Add("|---|---:|---:|---:|---:|$(if ($Timings) { '---:|---|' } else { '' })")
+	foreach ($result in $ordered)
+	{
+		$row = if ($null -ne $result.LogBlurred) { [string]::Format($invariant, '| {0} | {1:F3} | {2:F3} | {3:+0.000;-0.000} | {4:F2} |', $result.Scene, $result.LogBlurred, $result.Log, $result.Ratio, $result.Mean) } else { "| $($result.Scene) | $($result.Status) | | | |" }
+		if ($Timings) { $row += if ($null -ne $result.FrameMs) { [string]::Format($invariant, ' {0:F2} | {1} |', $result.FrameMs, $result.Passes) } else { ' | |' } }
+		$lines.Add($row)
+	}
+	Set-Content -LiteralPath $resultsPath -Value $lines -Encoding utf8NoBOM
+	Write-Host "measures: $resultsPath"
+}
 $failed = @($results | Where-Object { $_.Status -ne 'ok' -or $_.Problems }).Count
 exit $(if ($failed -gt 0) { 1 } else { 0 })

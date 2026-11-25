@@ -923,6 +923,22 @@ target_link_libraries(
 # stb_image, for the png references (the glTF research set's), its implementation in imagecompare.cpp
 target_include_directories(imagecompare SYSTEM PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include)
 
+# composes images and labels into the scripts' review sheets and charts on every platform (scripts/researchcompare.ps1),
+# see src/tools/imagesheet.cpp; stb's image, image write, resize and easy font, their implementations in its one source
+add_executable(imagesheet ${SPEEDO_SOURCE_DIR}/tools/imagesheet.cpp)
+target_compile_features(
+	imagesheet
+	PUBLIC
+		cxx_std_26
+)
+target_link_libraries(
+	imagesheet
+	PRIVATE
+		${SPEEDO_MIMALLOC}
+		core
+)
+target_include_directories(imagesheet SYSTEM PRIVATE ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include)
+
 # the executables' narrow strings are UTF-8 on windows too (windows.manifest sets the process's ANSI code page):
 # libc++'s path::string() threw on file names the system's code page can't represent. lld-link can merge a manifest into
 # the one it makes only with libxml2 or mt.exe, so the executables embed it as a resource (windows.rc), and the link rule
@@ -931,7 +947,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	foreach(lang C CXX)
 		string(REPLACE "/MANIFEST:EMBED" "/MANIFEST:NO" CMAKE_${lang}_LINK_EXECUTABLE "${CMAKE_${lang}_LINK_EXECUTABLE}")
 	endforeach()
-	foreach(target server client assettest filebench taskbench convergence imagecompare shadercompileworker)
+	foreach(target server client assettest filebench taskbench convergence imagecompare imagesheet shadercompileworker)
 		target_sources(${target} PRIVATE ${SPEEDO_SOURCE_DIR}/windows.rc)
 	endforeach()
 	# the resource compiler's includes aren't tracked: without this, a changed manifest (or icon) wasn't embedded

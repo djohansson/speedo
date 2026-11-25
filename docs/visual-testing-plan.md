@@ -58,8 +58,9 @@ Thresholds fail it with exit 1 (2 on an error): `--max`, `--mean`, `--over <leve
 - `-Set <name=value>` adds variables to every run, for an experiment; `-Validate` loads the validation layer.
 - `-Frames` (default 1500) and `-TimeoutSeconds` (default 900) bound a run; `-Jobs` (default 4) clients run at once, each with its own user directory under `-Work`.
 - `-Timings` times each scene after the captures, one client at a time, at `-TimingSize` (default 2560x1440) for `-TimingFrames` frames: the frame time and the costliest passes' gpu times, in the table and the overview. Not with `-Validate`.
-- `-Chart <path>` also writes the overview as a JPEG with a line saying the commit, graphics api and gpu (`-Device` names the gpu): `docs/research-scenes/overview.jpg`, by which the plan tracks its progress.
-- `-Reuse` runs no client: it measures, sheets and charts what `-Work` holds from an earlier run.
+- `-Chart <path>` also writes the overview as a JPEG, for people: each pair labelled (the reference's renderer, speedo's graphics api), how much brighter or darker speedo's image is and the frame time, under a line naming the operating system, graphics api, gpu (`-Device`, else the system's name of it) and how rays were traced. Beside it, `<path>` with `.md` holds the measures in full (both log differences, the light's ratio, the mean difference, frame times and costliest passes): `docs/research-scenes/overview.jpg` and `overview.md`, by which the plan tracks its progress.
+- `-Reuse` runs no client: it measures, sheets and charts what `-Work` holds from an earlier run. `-KeepCaptures` captures only the scenes without a capture in `-Work` (from an earlier run, or put there at the reference's size) and still times every scene.
+- The images are made by `imagesheet` (docs/notes/layering.md, "Tools"), so the script runs on every platform.
 
 ## CI
 
