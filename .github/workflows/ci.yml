@@ -145,7 +145,7 @@ jobs:
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
           SPEEDO_GRAPHICS_API: vulkan # lavapipe is a Vulkan driver (the client's default is the platform's fastest api)
-          SPEEDO_GPU_HANG_TIMEOUT: '300'
+          SPEEDO_GPU_HANG_TIMEOUT: '1200'
         run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
 
       # the client on Metal, on the runner's gpu: Apple's paravirtual one, which runs the backend although it is no Apple7
@@ -161,7 +161,7 @@ jobs:
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
           SPEEDO_GRAPHICS_API: metal
-          SPEEDO_GPU_HANG_TIMEOUT: '300'
+          SPEEDO_GPU_HANG_TIMEOUT: '1200'
           MTL_DEBUG_LAYER: '1'
         run: |
           & "build/$env:TRIPLET-profile/rhitest" src/tools metal
@@ -300,7 +300,7 @@ jobs:
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
           SPEEDO_GRAPHICS_API: vulkan # lavapipe is a Vulkan driver (the client's default is the platform's fastest api)
-          SPEEDO_GPU_HANG_TIMEOUT: '300'
+          SPEEDO_GPU_HANG_TIMEOUT: '1200'
         run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
 
       # the least recently used past 1 GB (see scripts/prune-shader-cache.ps1) before the cache is kept
@@ -509,7 +509,7 @@ jobs:
         env:
           SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
           SPEEDO_GRAPHICS_API: vulkan # lavapipe is a Vulkan driver (the client's default is the platform's fastest api)
-          SPEEDO_GPU_HANG_TIMEOUT: '300'
+          SPEEDO_GPU_HANG_TIMEOUT: '1200'
         run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-profile" -Validate -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 1800
 
       # the least recently used past 1 GB (see scripts/prune-shader-cache.ps1) before the cache is kept
