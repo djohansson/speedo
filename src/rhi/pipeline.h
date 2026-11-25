@@ -193,6 +193,14 @@ public:
 	// as they are asked for (the pipeline cache gives back what didn't change). the gpu idle; false, and nothing done, while
 	// a pipeline is being made (a request's task: try again once it has run). the bound layout bound again
 	[[nodiscard]] bool ReplaceShaders(std::span<const std::pair<std::string, ShaderSet>> layouts);
+	// a named layout made again from a set whose resources differ (ReplaceShaders' can't: the bindings or push constants
+	// changed), under the same name, so that GetLayoutHandle finds the new one: what was set into each of the old one's
+	// sets carried into the new one's binding of the same shader variable, where it has one of the same descriptor type
+	// and at least as many descriptors (what has none there is dropped; what the new one has more stays unset, for the
+	// caller to set), and the old layout and its sets' state destroyed. every pipeline destroyed, to be made again as they
+	// are asked for; the bound layout bound again (the new one where it was the old). the gpu idle; false, and nothing
+	// done, while a pipeline is being made
+	[[nodiscard]] bool ReplaceLayout(std::string_view name, const ShaderSet& shaderSet, std::span<const uint32_t> pushDescriptorSets = {});
 
 	// "manual" api
 

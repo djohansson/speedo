@@ -297,6 +297,86 @@ bool Pipeline<G>::ReplaceShaders(std::span<const std::pair<std::string, ShaderSe
 }
 
 template <GraphicsApi G>
+bool Pipeline<G>::ReplaceLayout(std::string_view name, const ShaderSet& shaderSet, std::span<const uint32_t> pushDescriptorSets)
+{
+	{
+		std::scoped_lock lock(myPipelineMapSync->mutex);
+		if (std::ranges::any_of(myPipelineMap, [](const auto& entry) { return entry.second == PipelineHandle<G>{}; }))
+			return false;
+		InternalDestroyPipelines();
+	}
+	auto oldHandle = GetLayoutHandle(name);
+	auto bound = GetLayout();
+	auto bindPoint = myBindPoint;
+	auto [newLayoutIt, inserted] = myPipelineLayouts.emplace(
+		PipelineLayout<G>(PipelineLayoutCreateDesc<G>{SuperType::CreateDeviceObjectCreateDesc(name)}, shaderSet, pushDescriptorSets));
+	ENSURE(inserted);
+	auto newHandle = static_cast<PipelineLayoutHandle<G>>(*newLayoutIt);
+	// (bound, the new layout's sets have their state: see InternalPrepareDescriptorSets; at a bind point it has entry points
+	// for, the graphics one where it has any: a vertex layout bound for compute has none to bind)
+	bool graphics = std::ranges::any_of(
+		newLayoutIt->GetShaderModules(), [](const auto& shader) { return Any(std::get<1>(shader.GetEntryPoint()) & ShaderStage::kAllGraphics); });
+	BindLayoutAuto(newHandle, graphics ? PipelineBindPoint::kGraphics : PipelineBindPoint::kCompute);
+
+	auto oldLayoutIt = myPipelineLayouts.find(oldHandle);
+	ENSURE(oldLayoutIt != myPipelineLayouts.end());
+	const auto& newSetLayouts = myPipelineLayouts.find(newHandle)->GetDescriptorSetLayouts();
+	for (const auto& [set, oldSetLayout] : oldLayoutIt->GetDescriptorSetLayouts())
+	{
+		auto oldStateIt = myDescriptorMap.find(static_cast<DescriptorSetLayoutHandle<G>>(oldSetLayout));
+		if (oldStateIt == myDescriptorMap.end())
+			continue; // (never bound: nothing set)
+		auto newSetIt = newSetLayouts.find(set);
+		if (newSetIt != newSetLayouts.end())
+		{
+			const auto& newSetLayout = newSetIt->second;
+			const auto& newBindings = newSetLayout.GetShaderVariableBindings();
+			const auto& [oldMutex, oldStatus, oldBindingsMap, oldBindingsData, oldTemplate, oldArrays] = oldStateIt->second;
+			// each shader variable's values set into the old set, by its binding in the new one (sorted by it, as the
+			// state's offsets go)
+			std::flat_map<uint32_t, std::pair<BindingValue<G>, BindingsData<G>>> carried;
+			for (const auto& [nameHash, oldBinding] : oldSetLayout.GetShaderVariableBindings())
+			{
+				const auto& [oldIndex, oldType, oldCount] = oldBinding;
+				auto valueIt = oldBindingsMap.find(oldIndex);
+				auto newBindingIt = newBindings.find(nameHash);
+				if (valueIt == oldBindingsMap.end() || newBindingIt == newBindings.end())
+					continue;
+				const auto& [newIndex, newType, newCount] = newBindingIt->second;
+				if (newType != oldType || newCount < oldCount)
+					continue;
+				const auto& [offset, count, type, ranges] = valueIt->second;
+				auto first = oldBindingsData.begin() + offset;
+				carried.emplace(newIndex, std::make_pair(BindingValue<G>{0U, count, type, ranges}, BindingsData<G>(first, first + count)));
+			}
+			auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
+				myDescriptorMap.at(static_cast<DescriptorSetLayoutHandle<G>>(newSetLayout));
+			auto lock = std::lock_guard(mutex);
+			ENSURE(bindingsMap.empty());
+			for (auto&& [index, entry] : carried)
+			{
+				auto& [value, data] = entry;
+				std::get<0>(value) = static_cast<uint32_t>(bindingsData.size());
+				bindingsMap.emplace(index, std::move(value));
+				bindingsData.insert(bindingsData.end(), std::make_move_iterator(data.begin()), std::make_move_iterator(data.end()));
+			}
+			if (!bindingsMap.empty())
+			{
+				std::atomic_ref(setState).store(DescriptorSetStatus::kDirty, std::memory_order_release);
+				InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
+			}
+		}
+		// (the gpu idle: its sets go back to the pool)
+		myDescriptorMap.erase(oldStateIt);
+	}
+	myPipelineLayouts.erase(oldLayoutIt);
+	myLayoutNames[std::string(name)] = newHandle;
+	if (bound)
+		BindLayoutAuto(bound == oldHandle ? newHandle : bound, bindPoint);
+	return true;
+}
+
+template <GraphicsApi G>
 PipelineLayoutHandle<G> Pipeline<G>::GetLayoutHandle(std::string_view name) const
 {
 	auto nameIt = myLayoutNames.find(std::string(name));
