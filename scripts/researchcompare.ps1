@@ -40,6 +40,10 @@ and costliest passes): docs/research-scenes/overview.jpg and overview.md, which 
 -Reuse runs no client: it measures, sheets and charts what -Work holds from an earlier run (its captures, and with
 -Timings its timing logs).
 
+-Archive <dir> keeps each scene's capture as <dir>/<scene>.jpg (JPEG quality 92) with the measures beside them
+(measures.md): a platform's and backend's set, docs/research-scenes/captures/<platform>-<backend> (macos-metal,
+windows-d3d12, linux-vulkan, ...), from which a comparison of platforms can be made later.
+
 -KeepCaptures captures only the scenes without a capture in -Work (<scene>/capture.bmp, at the reference's size, made by
 an earlier run or put there by hand) and measures the rest as -Reuse does; the timings still run for every scene.
 
@@ -68,7 +72,8 @@ param(
 	[string] $Chart,
 	[string] $Device,
 	[switch] $Reuse,
-	[switch] $KeepCaptures
+	[switch] $KeepCaptures,
+	[string] $Archive
 )
 if ($Timings -and $Validate) { [Console]::Error.WriteLine('-Timings without -Validate: the layer would be timed too'); exit 2 }
 if (-not $env:SPEEDO_TRACY) { $env:SPEEDO_TRACY = '0' }
@@ -464,16 +469,15 @@ foreach ($result in $ordered)
 }
 Write-Host "sheets: $Review"
 
-# the measures in full beside the chart (-Chart: <chart's name>.md), for reading and comparing rather than looking at: the
-# chart is for people, this for the record (in the invariant culture's numbers, as the chart)
-if ($Chart)
+# the measures in full, for reading and comparing rather than looking at: the chart is for people, this for the record (in
+# the invariant culture's numbers, as the chart). $Beside says what the file is written with
+function Write-Measures([string] $Path, [string] $Beside)
 {
 	$invariant = [Globalization.CultureInfo]::InvariantCulture
-	$resultsPath = [IO.Path]::ChangeExtension($chartPath, '.md')
 	$lines = [Collections.Generic.List[string]]::new()
 	$lines.Add('# Research scenes: measures')
 	$lines.Add('')
-	$lines.Add("speedo ($Kind) against the glTF research set's path traced references, written by scripts/researchcompare.ps1 with the chart beside it ($([IO.Path]::GetFileName($chartPath))). $madeOn; $(Get-Date -Format 'yyyy-MM-dd'), commit $commit.")
+	$lines.Add("speedo ($Kind) against the glTF research set's path traced references, written by scripts/researchcompare.ps1 $Beside. $madeOn; $(Get-Date -Format 'yyyy-MM-dd'), commit $commit.")
 	$lines.Add('')
 	$lines.Add("- **Blurred** and **sharp**: the mean |log2| difference of the two images' linear luminances, in stops (1 is twice or half the light), blurred over 8 pixels (the lighting's error rather than its noise) and per pixel. The scenes are ordered by the blurred one, the most unlike first.")
 	$lines.Add("- **Light**: log2 of speedo's mean linear luminance over the reference's, in stops: the light overall (+1 twice as bright, -1 half). The chart shows it as a share brighter or darker.")
@@ -488,8 +492,28 @@ if ($Chart)
 		if ($Timings) { $row += if ($null -ne $result.FrameMs) { [string]::Format($invariant, ' {0:F2} | {1} |', $result.FrameMs, $result.Passes) } else { ' | |' } }
 		$lines.Add($row)
 	}
-	Set-Content -LiteralPath $resultsPath -Value $lines -Encoding utf8NoBOM
-	Write-Host "measures: $resultsPath"
+	Set-Content -LiteralPath $Path -Value $lines -Encoding utf8NoBOM
+	Write-Host "measures: $Path"
+}
+if ($Chart) { Write-Measures ([IO.Path]::ChangeExtension($chartPath, '.md')) "with the chart beside it ($([IO.Path]::GetFileName($chartPath)))" }
+
+# -Archive: each scene's capture kept as <dir>/<scene>.jpg (quality 92), with the measures beside them (measures.md): a
+# platform's and backend's set (docs/research-scenes/captures/<platform>-<backend>), to compare platforms by later
+if ($Archive)
+{
+	$archivePath = if ([IO.Path]::IsPathRooted($Archive)) { $Archive } else { Join-Path $root $Archive }
+	New-Item -ItemType Directory -Force -Path $archivePath | Out-Null
+	$kept = 0
+	foreach ($result in $ordered)
+	{
+		$capture = Join-Path (Join-Path $Work $result.Scene) 'capture.bmp'
+		$size = if (Test-Path -LiteralPath $capture) { Get-ImageSize $capture } else { $null }
+		if (-not $size) { continue }
+		& $sheetExe compose $size[0] $size[1] --image $capture 0 0 $size[0] $size[1] --out (Join-Path $archivePath "$($result.Scene).jpg") --quality 92
+		if ($LASTEXITCODE -eq 0) { $kept++ } else { Write-Warning "imagesheet couldn't keep $($result.Scene)'s capture" }
+	}
+	Write-Measures (Join-Path $archivePath 'measures.md') 'with the captures beside it (<scene>.jpg, at the reference''s size, JPEG quality 92)'
+	Write-Host "archive: $kept captures in $archivePath"
 }
 $failed = @($results | Where-Object { $_.Status -ne 'ok' -or $_.Problems }).Count
 exit $(if ($failed -gt 0) { 1 } else { 0 })
