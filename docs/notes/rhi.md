@@ -1,102 +1,43 @@
 # rhi
 
-A note of CLAUDE.md (its index names each): the backend's internals and their gotchas.
+rhi (src/rhi) is the graphics backend abstraction, templated on `GraphicsApi` (Vulkan 1.4, Metal, D3D12). This note covers the abstraction's model, mostly as the Vulkan backend has it: how objects are built, moved, identified and tracked; how frames, command buffers, queues and descriptor sets are owned and shared; how pipelines keep their layouts and caches; what a crash or hang leaves behind; then Vulkan specifics and the C++ gotchas a developer must respect. The Metal and D3D12 backends are described in docs/backends-plan.md.
 
-## Vulkan 1.4
+## Contents
 
-The instance asks for Vulkan 1.4 (`kVulkanApiVersion`, `rhi/vulkan/utils.h`) and only devices that support it are
-candidates (`DetectAndCreateDevices`). What 1.1 to 1.4 made core is called and enabled as core: dynamic rendering,
-synchronization2, the dynamic cull mode and front face, shader draw parameters, inline uniform blocks, push descriptors,
-tooling info (`vkCmdBeginRendering`, `vkCmdPipelineBarrier2`, `vkCmdSetCullMode`, `vkCmdPushDescriptorSetWithTemplate`,
-...), not through extensions and function pointers. Features come in `PhysicalDeviceInfo`'s version structs
-(`deviceFeatures11Ex` to `deviceFeatures14Ex`, the 1.3 and 1.4 ones chained only where the device has them), then the
-extensions' (`deviceFeatureParams`: present id and wait, swapchain maintenance1, the crash reports', the ray queries' where
-wanted, see "Hardware ray queries"); the device is made
-with the whole chain, so it enables every feature it has, and `Device` checks by name the optional ones the renderer
-needs (dynamic rendering, synchronization2, shader draw parameters, timeline semaphores, push descriptors). VMA is told
-the version too. Verified on Windows (NVIDIA, 1.4.341); macOS needs KosmicKrisp to report 1.4, else no device is a
-candidate.
+- [The backends](#the-backends)
+- [rhi: `Object<T>` / `DeviceObject<T>` base classes](#rhi-objectt--deviceobjectt-base-classes)
+- [Move-via-Swap idiom](#move-via-swap-idiom)
+- [rhi object identity and tracking](#rhi-object-identity-and-tracking)
+- [Frame indices are slots, not swapchain images](#frame-indices-are-slots-not-swapchain-images)
+- [Command buffers: one owner each](#command-buffers-one-owner-each)
+- [Queues: aliased queue types share one lock](#queues-aliased-queue-types-share-one-lock)
+- [Descriptor sets: redundant updates consume the pool](#descriptor-sets-redundant-updates-consume-the-pool)
+- [Pipelines own their layouts, by name](#pipelines-own-their-layouts-by-name)
+- [Pipeline caches: kept in check](#pipeline-caches-kept-in-check)
+- [`rhitest`: rhi checked against Vulkan](#rhitest-rhi-checked-against-vulkan)
+- [Crash reports](#crash-reports)
+- [Vulkan 1.4](#vulkan-14)
+- [Gotcha: explicit specialization ordering](#gotcha-explicit-specialization-ordering)
+- [Gotcha: delegating constructors run their arguments before the base exists](#gotcha-delegating-constructors-run-their-arguments-before-the-base-exists)
 
-## Crash reports
+## The backends
 
-A fatal Vulkan result (a lost device, out of memory, any other error) or a hang writes a crash report, in every build,
-release included (`rhi/crashreport.h`, the backend's `rhi/vulkan/crashreport.cpp`): `VK_CHECK` checks in every build
-(it discarded every result in release), and `OnCheckFailedDefault` hands an error to `vk::crash::ReportFatal`; another
-unexpected result (a timeout, suboptimal) is logged (at most 16) and traps in builds that profile. The first thread to
-meet one writes the report, the others wait for it (they used to race, each trapping), to
-`<user profile>/crashes/crash-<time>.json` (`SetCrashReportDirectory`, from the client: rhi doesn't know the
-application) and a summary line to stderr, then traps. A report has:
-
-- the kind, the result, a **signature** (a hash of the vendor, driver version, kind, result, first pass in flight and
-  fault type: the same cause on many machines groups together), the time, frame, version (`SPEEDO_VERSION`), build,
-  platform, device and driver, and the tools loaded (`VK_EXT_tooling_info`);
-  (KosmicKrisp's vendor id was the uninitialized memory of its instance, another in each process, which also threw
-  every pipeline cache away, its header being another vendor's to the next process: the instance's host allocations are
-  zeroed, see `instance.cpp`, until the driver allocates it zeroed: mesa's `kk: zero-initialize the instance`, `vk_zalloc`);
-- **breadcrumbs**: the frame graph's passes (`CrashBreadcrumb` around each, outside its render pass) written by the gpu
-  as each begins (top of the pipe) and ends (bottom), with `VK_AMD_buffer_marker` into a host visible ring of 4096
-  slots (device coherent with `VK_AMD_device_coherent_memory`), else `VK_NV_device_diagnostic_checkpoints` (each
-  queue's last checkpoints, encoded as sequence numbers, never pointers: the client printed driver markers as strings
-  once, an access violation under the layer), else none: the passes in flight (begun, not ended), the last completed,
-  how many hadn't begun. NVIDIA's driver has both; `SPEEDO_CRASH_BREADCRUMBS=markers|checkpoints|none` forces one;
-- the **device fault** (`VK_EXT_device_fault`): each faulting address and its type, the vendor's codes (its binary
-  saved beside the report), and the objects bound around the address (`VK_EXT_device_address_binding_report`, through
-  a debug utils messenger made in every build just before a device that enables it is, `crash::CreateMessenger`; made
-  with the instance, it asked for the device extension's messages where no device has it, which the validation layer
-  reports, every run on KosmicKrisp), the last 1024 unbound ones too (`unboundSecondsAgo`): a write to freed memory names
-  what was freed;
-- the last 64 submits (queue, command buffers, timeline value) and the last 256 **events**: what the application did
-  (`rhi::CrashEvent`: swapchains made, window changes, presentation asked for, models, images and environments
-  installed, shutdown), stamped with the frame (`CrashFrame`).
-
-**Hangs**: a fence, semaphore or acquire wait without a timeout waits `SPEEDO_GPU_HANG_TIMEOUT` (20 s, 0 for never) at
-most and reports a hang (`vk::crash::WatchedWait`); and the main thread, which never waits for the draw thread, watches
-it (`rhi::CrashWatch` in `ClientMain`, against `CrashHeartbeat` at each `Draw`, which runs when frames are skipped too),
-which catches the draw thread blocked inside a call without a timeout (a present stuck behind a semaphore never
-signaled blocked the draw thread where no wait did). What makes progress where no heartbeat can tell (a pipeline created cold, inside the
-driver's call, or one the draw thread waits for a background job to create) is a busy span (`rhi::CrashBusy`), which
-the watch gives 120 s from where it began: four clients compiling at once on KosmicKrisp, two waited past the timeout
-for their first frames' pipelines. The test tier's clients wait 60 s (`assettest.ps1` sets `SPEEDO_GPU_HANG_TIMEOUT`,
-2026-11-18): 11 validated D3D12 clients starting together (the debug layer on, the card's 16 GB at 13) stalled one
-another, a client's draw thread standing for 15 to 20 s a couple of seconds after its model was in, nothing in flight,
-then going on; with 20 s one client in 61 was reported hung in most runs after a shader change (`02295a514e8db0f7`,
-another model each time, each passing alone), and the stalled ones pass in 35 to 38 s for the others' 25. What it
-stands in wasn't found (the report has the watching thread's stack alone; not a pipeline's creation or the wait for
-one, which are busy spans). `SPEEDO_CRASH_TEST=hang` makes the frames from the 100th wait for
-a semaphore nothing signals, to check reports end to end (with `SPEEDO_GPU_HANG_TIMEOUT=3`).
-
-**The Crash Diagnostic Layer** (see the presentation test's paragraph): where tooling info names it, no breadcrumbs are
-recorded, nor the queues' checkpoints read (its own), and the report says its dump has the commands in flight; the
-reporter then waits 3 s before trapping, since the layer writes its dump on the thread that met the loss first.
-
-Checked with the descriptor bug of "Descriptor sets" put back: the report named `ComputeMain` in flight, the
-presentation change two frames before, a `WRITE_INVALID` fault in a 33 MB image (a 4K swapchain image) unbound 3 s
-before, with buffer markers and with checkpoints, and deferred to the layer with it loaded.
+`rhi` is generic in the backend `G` (`GraphicsApi`): its public headers use `rhi/vocabulary.h`, `BackendTypes<G>` (`rhi/types.h`, one `types.inl` per backend) names the backend's types, and each backend instantiates the templates in `rhi/<backend>/instantiate.cpp` (`rhi/vulkan`, `rhi/metal`, `rhi/d3d12`). All three are linked into one client, and which one runs is chosen at start (layering.md, "client"). What a backend provides and how Metal and D3D12 map rhi's objects: docs/backends-plan.md.
 
 ## rhi: `Object<T>` / `DeviceObject<T>` base classes
 
-Most `rhi` types (`Buffer`, `Fence`, `Queue`, `Pipeline`, `Window`, ...) derive from
-`Object<DerivedType>` or `DeviceObject<DerivedType>` (`src/rhi/object.h`,
-`src/rhi/deviceobject.h`). This is a CRTP base, not a normal template: `GetInstance()`
-and `GetDevice()` are declared in the base but have **no generic definition** — each
-concrete type must explicitly specialize them via macros, once, in its own `.cpp`:
+Most rhi types (`Buffer`, `Fence`, `Queue`, `Pipeline`, ...) derive from `Object<DerivedType>` or `DeviceObject<DerivedType>` (`src/rhi/object.h`, `deviceobject.h`), a CRTP base. `GetInstance()` and `GetDevice()` have no generic definition; each concrete type specializes them with macros, once, in its own `.cpp` (which needs `#include <rhi/rhi.h>`):
 
 ```cpp
 IMPLEMENT_OBJECT_GETINSTANCE(Foo<kVk>);
 IMPLEMENT_DEVICEOBJECT_GETDEVICE(Foo<kVk>);   // only if Foo derives from DeviceObject
 ```
 
-If a new type deriving from `Object`/`DeviceObject` is added (or one is spotted missing
-these), forgetting this produces linker errors like
-`undefined symbol: rhi::Object<rhi::Foo<...>>::GetInstance() const` — it is *not* a sign
-that something else is broken, just that the macro invocation is missing. These macros
-expand to code that calls `GetRHI<G>()`, so the `.cpp` needs `#include <rhi/rhi.h>`.
+A missing invocation shows as a linker error such as `undefined symbol: rhi::Object<rhi::Foo<...>>::GetInstance() const`.
 
 ## Move-via-Swap idiom
 
-Types in this hierarchy that need to be movable (e.g. because they live in a
-`std::vector`, like `Device` in `RHI::myDevices`) follow a consistent pattern rather than
-defaulted move members:
+Movable types (for example `Device` in `RHI::myDevices`) use `Swap` instead of defaulted moves:
 
 ```cpp
 void Foo::Swap(Foo& other) noexcept { SuperType::Swap(other); std::swap(myX, other.myX); ... }
@@ -104,286 +45,100 @@ Foo::Foo(Foo&& other) noexcept { Swap(other); }          // default-constructs *
 Foo& Foo::operator=(Foo&& other) noexcept { Swap(other); return *this; }
 ```
 
-After a swap, the moved-from object holds the *default-constructed* state (because the
-move constructor default-constructs `this` before swapping). Destructors on these types
-must guard on `IsValid()` (from `Object::IsValid()`, true iff `GetDesc().uuid` is
-set) before doing any GPU-handle cleanup, otherwise a moved-from object double-frees or
-operates on null handles.
-
-Not everything in this hierarchy is meant to be movable — e.g. `Instance` explicitly
-`= delete`s its move constructor since it's a true singleton. Check how the type is
-actually used (is it stored by value in a container that reallocates?) before assuming
-it needs Swap/move support added.
-
-## Gotcha: explicit specialization ordering
-
-When a `.cpp` file both defines an explicit template specialization *and* calls that
-same specialization earlier in the file, the compiler implicitly instantiates the
-primary template at the call site — and then errors with
-`explicit specialization of 'X' after instantiation` when it later hits the `template <>`
-definition. Two concrete ways this bites in this codebase:
-
-1. **Swap-based move members**: define `Swap()`'s specialization *before* the move
-   constructor / move-assignment specializations that call `Swap(other)` in the same
-   file, not after.
-2. **`IMPLEMENT_OBJECT_GETINSTANCE`/`IMPLEMENT_DEVICEOBJECT_GETDEVICE`**: if the same
-   `.cpp` also defines explicit specializations of functions the macro calls internally
-   (e.g. `vulkan/rhi.cpp` defining `GetRHI<kVk>()`), the macro invocation must come *after* those
-   specializations, not before.
-
-## Gotcha: delegating constructors run their arguments before the base exists
-
-Many types create their GPU handle inside the argument list of a delegating constructor:
-
-```cpp
-Foo<kVk>::Foo(CreateDescType&& desc)
-	: Foo(std::forward<CreateDescType>(desc), [this, &desc] { /* create handle */ }())
-{}
-```
-
-Those arguments are evaluated *before* the target constructor initializes the
-`DeviceObject` base, so inside them `GetDesc()`, `InternalGetDesc()`, members, and the
-no-argument `GetDevice()` (which falls back to `GetDesc().device`) all read uninitialized
-memory. Read from the incoming `desc` instead: `desc.device` where a `VkDevice` is enough,
-`GetDevice(desc.device)` where the `Device` object is needed (e.g. `.GetAllocator()`), and
-`CreateDeviceObjectCreateDesc(name, desc.device)` for child objects. `GetInstance()` is fine
-since it does not depend on object state. Don't pass references *into* `desc` either (e.g. a
-field bound to a `const&` parameter): `desc` is moved into the base before the target's
-members are initialized, so pass a copy.
-
-Serialized create-descs arrive *without* runtime handles: `ObjectCreateDesc`/`DeviceObjectCreateDesc`
-deliberately serialize only `uuid`, never `instance`/`device`/`name`. Any code that builds a desc from a
-file or cache must fill in `instance`/`device`, and
-replace the `uuid` with `uuids::NewUuid()` (a cached desc holds the uuid of the object it was saved from),
-before the desc is used to construct an object, or `GetDevice()` trips the assert below. Also, a
-derived desc with extra fields needs its own `serialize()` (see `ImageCreateDesc`): otherwise it
-inherits the base one and silently serializes only the `uuid`. When a serialized layout changes,
-bump the `cache-vN` tag in that loader's params hash so stale caches are rebuilt rather than misread.
-
-Related: `DeviceObject<T>::GetDevice()` resolves through
-`GetRHI<G>()->GetDevice(handle)`, which only finds devices already stored in
-`RHI::myDevices`. That's why `Device` creates its queues and pipeline from the `RHI`
-constructor, after the devices are registered, rather than from its own constructor. A
-failed lookup trips the `ASSERTF` in `RHI::GetDevice()`.
+A moved-from object holds the default-constructed state, so destructors must guard on `IsValid()` (true iff `GetDesc().uuid` is set) before releasing gpu handles. Not everything is movable: `Instance` deletes its move constructor.
 
 ## rhi object identity and tracking
 
-- **uuids are random and unique.** `ObjectCreateDesc::uuid` identifies a live object (`IsValid()` is
-  `uuid != nil`); `name` is for debugging only and need not be unique. Build descs with the
-  `Create*ObjectCreateDesc(name)` helpers, which assign `uuids::NewUuid()`. Validation builds `ENSUREF` in
-  `Object`'s constructor that the uuid is non-nil and not held by another live object (`gLiveObjectUuids`), so
-  copying a live object's desc to create another object traps. `Device`'s resources are a set keyed by each
-  object's own uuid: `CreateResource<T>(desc, ...)` returns the object, callers keep its uuid to `GetResource`, and
-  `ReplaceResource(previousUuid, resource)` swaps an object out (the caller then keeps the new object's uuid).
-- **Every vulkan object is tracked** (validation builds), keyed by type and handle in sharded `phmap` maps, which
-  is what the Statistics window shows (`GetObjectCounts`). Call `Track(device, type, handle, name)` right after
-  creating a handle and `Untrack(type, handle)` right before destroying it; untracking a handle that was never
-  tracked traps, so a missing `Track` shows up immediately. Handles must not be null (destroy paths that may run
-  for an object that was never created check that themselves), the device must be valid and the name non-empty:
-  use `GetDebugName(desc)` (the name, or the uuid) for desc-based objects. Instance level objects created before
-  there is a device (instance, physical devices, surfaces) use `TrackInstance(type, handle, name)` instead, and are
-  named through the device once `Device` calls `NameInstanceObjects`. Buffers, images, image views, framebuffers and render
-  passes are tracked by the `Create*` helpers in `rhi/vulkan/utils.h`: destroy them with the matching `Destroy*`
-  helpers, not `vmaDestroy*`/`vkDestroy*`. VMA's device memory blocks are tracked through its device memory
-  callbacks.
+- `ObjectCreateDesc::uuid` identifies a live object; `name` is for debugging. Build descs with the `Create*ObjectCreateDesc(name)` helpers. Validation builds `ENSUREF` that the uuid is non-nil and not held by another live object (`gLiveObjectUuids`), so copying a live object's desc traps.
+- `Device`'s resources are keyed by uuid: `CreateResource<T>(desc, ...)`, `GetResource`, `ReplaceResource(previousUuid, resource)` (the caller keeps the new uuid).
+- Every Vulkan object is tracked in validation builds by type and handle (the Statistics window shows them, `GetObjectCounts`). Call `Track(device, type, handle, name)` right after creating a handle and `Untrack(type, handle)` right before destroying it; untracking an untracked handle traps. Handles must be non-null and names non-empty (`GetDebugName(desc)`). Instance level objects use `TrackInstance`.
+- Buffers, images, views, framebuffers and render passes are tracked by the `Create*` helpers in `rhi/vulkan/utils.h`: destroy them with the matching `Destroy*` helpers, not `vmaDestroy*`/`vkDestroy*`.
 
 ## Frame indices are slots, not swapchain images
 
-A frame's index (`FrameInputs::frameIndex`, `PushConstants::frameIndex`, and every per frame buffer and descriptor
-slot kept by it) is its slot of `SHADER_TYPES_FRAME_COUNT`, which the frames take in turn (`Draw`'s `myFrameSlot`);
-`Draw` waits for the graphics timeline value the last frame in the slot signaled (`myFrameSlotTimelines`) before
-anything writes the slot's buffers. The swapchain image `vkAcquireNextImageKHR` handed out (`Swapchain::Flip`) is the
-frame's output index (`FrameInputs::outputIndex`, `PushConstants::outputIndex`), only for what is the image's:
-ComputeMain's and the UI blur's storage view of it (`gRWTextures` slots below `SHADER_TYPES_OUTPUT_IMAGE_COUNT`), the UI
-pass's render target and the capture. The frame index used to be the image: fifo hands the images out in turn, but
-mailbox and immediate needn't (an image a newer frame replaced comes back at once), so a frame still on the gpu read
-buffers the next frame wrote over: once, on Windows with mailbox (then the default where the surface had it), Sponza's
-indirect lighting kept a probe state no frame would have made and stayed black and blown out at one pose; with fifo it
-never showed, and KosmicKrisp has no mailbox, so the mac never saw it. A wait for the image's last frame fixed that,
-but stalled whenever mailbox handed back the image just drawn. The queue ring's fences (`queues.FetchAdd()`) can't
-stand in for the slot's wait: the ring is as long as the graphics family's queue count (16 on NVIDIA), not the slots.
-Test what keeps state from frame to frame under mailbox too: unthrottled frames also reach states fifo's don't (e.g.
-the indirect lighting's look distance adapts over many more frames, and auto exposure, by time, has less of it in a run
-of as many frames).
+A frame's index (`FrameInputs::frameIndex`, `PushConstants::frameIndex`, every per frame buffer and descriptor slot) is its slot of `SHADER_TYPES_FRAME_COUNT`, taken in turn (`Draw`'s `myFrameSlot`). `Draw` waits for the graphics timeline value the slot's last frame signaled (`myFrameSlotTimelines`) before anything writes the slot's buffers.
+
+- The swapchain image index (`Swapchain::Flip`) is the output index (`FrameInputs::outputIndex`), used only for what belongs to the image: ComputeMain's and the UI blur's storage views (`gRWTextures` slots below `SHADER_TYPES_OUTPUT_IMAGE_COUNT`), the UI render target and the capture.
+- Reason: fifo hands images out in turn, but mailbox and immediate do not, so a frame still on the gpu read buffers the next frame wrote over.
+- The queue ring's fences cannot stand in for the slot's wait: the ring is as long as the graphics family's queue count.
+- Test state kept from frame to frame under mailbox too, since unthrottled frames reach states fifo's do not.
 
 ## Command buffers: one owner each
 
-A `rhi::CommandBuffer` (`rhi/command.h`) is move-only, with a single owner. What records into it borrows its handle (it
-converts to a `CommandBufferHandle`, which is all the encoder, images, passes and scenes take), and only its owner can
-end it and hand it on: to `Queue::EnqueueSubmit(syncInfo, std::move(cmd))` (or a vector of them; none for a submission
-that only waits and signals), or, a secondary one, to `CommandEncoder::ExecuteCommands(std::move(secondaries))` on the
-primary, which records it there. Both end it if it is still recording and hand it back to its pool
-(`CommandBuffer::Release`). The pool (`CommandPool`, two per queue, swapped and reset by `Queue::SwapAndResetPool`)
-hands out single buffers (`Begin`, `BeginSecondary`; `Allocate` for one never begun, as Tracy's setup needs), allocated
-8 at a time when it has none free, takes them back once submitted, and makes them reusable all at once on reset, which
-traps if any is still held (as does the switch). A buffer dropped without being submitted is ended and handed back
-unrun, with a warning in validation builds. So the frame's buffer is `Draw`'s (`auto cmd = pool.Begin()`), lent to the
-scenes, the renderer and the ui, and submitted by `Draw`; uploads and transitions (`UpdateBufferOnGraphics`,
-`TransitionThenBind`, the loaders' staging copies) begin buffers of their own; the main pass's views are one secondary
-buffer, executed into the frame's. `Commands()` used to hand out the frame's recording buffer, shared by reference
-count, to anyone who asked, and submits took the pool's pending lists: the file browser's preview ran `Scene::Update`
-after the frame's buffer was begun, `UpdateBufferOnGraphics` ended that buffer to submit its upload, and the frame went
-on recording into an ended buffer (KosmicKrisp crashed creating a compute encoder, only in profile builds; validation
-never saw it). One-shot buffers and a holder count check in `End()` stopped that until buffers had one owner.
-(`CommandBufferArray`, buffers in fours sharing a slot in those lists, went with it; allocating several at once is all
-it gave, and the pool still does.) The main pass's "draw threads" recorded on one thread, a secondary buffer per level:
-a pool's buffers must not be recorded on several threads at once, so recording views in parallel needs a pool per
-thread.
+A `rhi::CommandBuffer` (`rhi/command.h`) is move-only with a single owner. Code that records into it borrows its handle (`CommandBufferHandle`); only the owner can end it and hand it on, to `Queue::EnqueueSubmit(syncInfo, std::move(cmd))`, or, for a secondary buffer, to `CommandEncoder::ExecuteCommands(std::move(secondaries))`. Both end it if still recording and return it to its pool (`CommandBuffer::Release`).
+
+- The pool (`CommandPool`, two per queue, swapped and reset by `Queue::SwapAndResetPool`) hands out buffers (`Begin`, `BeginSecondary`, `Allocate`) and makes them reusable all at once on reset, which traps if any is still held. A buffer dropped unsubmitted is ended and returned unrun, with a warning in validation builds.
+- The frame's buffer is `Draw`'s, lent to the scenes, renderer and ui. Uploads and transitions (`UpdateBufferOnGraphics`, `TransitionThenBind`, loader copies) begin buffers of their own. A helper must never end the frame's buffer: that once left the frame recording into an ended buffer.
+- A pool's buffers must not be recorded on several threads at once; parallel recording needs a pool per thread.
 
 ## Queues: aliased queue types share one lock
 
-When a device has no dedicated compute/transfer queue family (e.g. KosmicKrisp, one
-family), `Device::InternalCreateQueues` aliases those queue types to the graphics queue by sharing
-the same `std::shared_ptr<QueueTimelineContext>` (the `ConcurrentAccess`, i.e. data *and* mutex).
-Consequences:
+When a device has no dedicated compute or transfer family (for example KosmicKrisp), `Device::InternalCreateQueues` aliases those queue types to the graphics queue by sharing one `QueueTimelineContext` (data and mutex).
 
-- Access queues through `Device::GetQueue(type)`. Code that "locks the transfer queue" may really be
-  locking the graphics queue, which `Draw()` holds for the whole frame — that serialization is the
-  point (before, aliases had separate mutexes and the loader and `Draw()` raced on the same command
-  pool).
-- **Never hold locks on two queue types at once** unless you know they are distinct (`Draw()` takes the compute lock
-  inside the graphics one to present, only where the swapchain presents from a compute family of its own, see
-  `Swapchain::GetPresentQueueType`): `UpgradableSharedMutex` is
-  not recursive, so on a single-queue device it self-deadlocks. Lock one at a time, and when
-  visiting all queue types dedupe by context (see `WindowedApplication::Shutdown()`).
-- Each queue has two command pools, swapped and reset per use (`SwapAndResetPool`), *without*
-  `VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT`: on KosmicKrisp that frees the pool's Metal command allocators, which
-  never get `reset` (their command buffers give the memory back on completion), and freeing one Metal hasn't had back
-  yet aborts in `-[IOGPUMetalDeviceShmemPool dealloc]` (`_allocatedSize == 0`), even after the fences were waited on.
-  It took switching models with a cold pipeline cache to show (DamagedHelmet, then AnimationPointerUVs: one run in
-  three).
-- **The same abort at exit, not yet explained (2026-11-09).** About one quick tier client in 500 (AnimationPointerUVs,
-  four clients side by side from a new work dir: the model's pipelines cold) aborted in `-[IOGPUMetalDeviceShmemPool
-  dealloc]` from `Queue::~Queue`'s `vkDestroyCommandPool`: `kk_DestroyCommandPool` releasing one of the pool's Metal 4
-  command allocators with live allocations in it (the first `mtl_release` loop of `kk_cmd_pool_release_mtl_objects`, by
-  the return address, `_kk_DestroyCommandPool + 323`). Not reproduced: 0 in 10 single runs of AnimationPointerUVs (all
-  its variants, validated) from the warm-up's profile, 0 in 8 beside 12 cpu-bound loops. Ruled out:
-  - Metal's completion of committed command buffers lagging the fence waits. KosmicKrisp counts only its re-recorded
-    commits in flight (`commits_in_flight`); a normal commit's feedback handler only checks for a lost device. A build
-    that delayed the feedback handler by 5 ms had about 250 commits awaiting feedback when the pools went, and didn't
-    abort (100 ms stalled the client into the hang detector, the handlers run one at a time): Metal gives a completed
-    command buffer's memory back to its allocator whether or not its feedback handler ran, so waiting for them in
-    `kk_DestroyCommandPool` wouldn't help.
-  - What KosmicKrisp does with allocators, in a standalone Metal 4 program (up to 2000 iterations a case, none aborted):
-    an allocator released before a command buffer that encoded with it and was never committed (as KosmicKrisp's
-    secondaries: their commands only go to the `vk_cmd_queue`, which `vkCmdExecuteCommands` replays, but each begins
-    and ends a Metal command buffer of its own), released right after the queue's shared event was waited on (as a
-    fence wait), shared by 64 command buffers in turn (half never committed), or after a command buffer moved on to
-    another allocator (a reused command buffer takes whichever allocator tops the pool's free list). A committed command
-    buffer evidently keeps its allocator alive until done with it.
-
-  On the way: KosmicKrisp never resets its allocators (`mtl_command_allocator_reset` has no caller), and a busy one's
-  heaps (`allocatedSize`) were about 130 MB: 252 MB in all after 30 frames, 264 after 300, a high-water mark rather
-  than a leak. A committed command buffer's memory is reused once it completes (64 on one allocator: 4.7 MB), an
-  uncommitted one's held until it's begun again or freed (17 MB with half uncommitted).
-
-  To catch it next time (the user's call; not run yet): a KosmicKrisp build that logs, for each allocator just before
-  `kk_cmd_pool_release_mtl_objects` releases it, its `allocatedSize`, how many primary and secondary command buffers
-  began with it, how many of them were committed and completed (their feedback), and when each last happened, with the
-  commits awaiting feedback. Loaded through `VK_DRIVER_FILES` (an ICD json of its own pointing at the build) in quick
-  tiers repeated from a work dir holding only the warm-up's profile (`user`: the models' pipelines cold), four clients
-  at a time, until a client aborts: the line before the abort names the allocator. vcpkg's meson build dir
-  (`temp/vcpkg/buildtrees/mesa/arm64-osx-release-rel` since vcpkg's standalone install; `vcpkg/buildtrees` then) rebuilds the dylib with `ninja` in seconds; back up and restore the
-  sources it builds (a `.clean` tree under `src/`, which vcpkg may reuse). Mesa's policy (its `AGENTS.md`) keeps such
-  code local, and a report to Apple or to KosmicKrisp's developers is the user's own.
-
-  Seen again 2026-11-11: AnimationPointerUVs, 1 of the quick tier's 61 clients (the project's code just rebuilt for
-  `-mcpu=apple-m1` rather than `-march=native`, the mesa port's KosmicKrisp rebuilt from the same source, the
-  pipelines warm), the same frame (`_kk_DestroyCommandPool + 323`); 4 of 4 single runs after it passed.
+- Access queues through `Device::GetQueue(type)`. Locking the transfer queue may be locking the graphics queue, which `Draw()` holds for the whole frame; that serialization is the point.
+- Never hold locks on two queue types at once unless they are known to be distinct: `UpgradableSharedMutex` is not recursive and self-deadlocks on a single queue device. `Draw()` takes the compute lock inside the graphics one only to present from a dedicated compute family (`Swapchain::GetPresentQueueType`). When visiting all queue types, dedupe by context (see `WindowedApplication::Shutdown()`).
+- Command pools are reset without `VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT`: on KosmicKrisp that frees Metal command allocators that were never reset, and freeing one Metal has not had back yet aborts in the driver. A rare abort in `vkDestroyCommandPool` at exit on KosmicKrisp is unexplained.
 
 ## Descriptor sets: redundant updates consume the pool
 
-Array bindings set element by element (`SetDescriptorData(name, value, set, index)`) store their elements in index
-order, which the update template walks: a new index goes before the first range above it. (It used to be appended,
-which swapped elements whenever one was set below an existing one: model sampler slot 0 got the default sampler set
-earlier in slot 2.)
-An acceleration structure array's elements are written an update template entry each (`InternalUpdateDescriptorSetTemplate`):
-the validation layer (1.4.350) read a range's handles side by side, past the entries' stride, and reported the bytes after
-the first as invalid handles (`VUID-VkWriteDescriptorSetAccelerationStructureKHR-pAccelerationStructures-03580`).
-
-
-Binding a descriptor set that is marked dirty (`BindDescriptorSetAuto` → `InternalUpdateDescriptorSet`)
-takes a fresh set from the current `DescriptorSetArray` (16 sets), allocating a new array when it is
-full; old arrays are never recycled. So `SetDescriptorData` skips writes whose value is unchanged
-(`pipeline::SameBinding`, compared per field since the Vulkan structs have padding) — otherwise
-per-frame re-writes of the same data (as the compute pass does) exhaust the pool within seconds
-(`VK_ERROR_OUT_OF_POOL_MEMORY`). Genuine changes (loads, resizes) still leak a little until sets are
-recycled once the gpu is done with them. A layout whose bindings change at every dispatch can hand its sets over instead
-(`Pipeline::TakeDescriptorSets(set)`: the set's arrays so far, to destroy once the gpu is done with the commands that bound
-them, which frees them back to the pool; the next bind takes a fresh one), as the environment filter's did until its set
-was pushed (below): 20 sets a sky redraw, every frame while the time of day advances fast, which would have emptied the
-pool's storage images within minutes. Those
-handed over are freed in a timeline callback, on an executor thread, while the draw thread allocates from the same pool,
-which Vulkan requires to be externally synchronized: every allocation, free and reset of a pipeline's pool holds its
-mutex (`Pipeline::myDescriptorPoolMutex`, shared with each `DescriptorSetArray`, `DescriptorSetArrayCreateDesc::poolMutex`).
-Unguarded, the two corrupted KosmicKrisp's list of the pool's sets while the time of day advanced, and destroying the pool
-crashed at shutdown (`kk_descriptor_set_destroy`, unlinking a set already freed). The environment filter's set is pushed
-instead (2026-11-05; `Pipeline::CreateLayout`'s `pushDescriptorSets`: those sets' layouts are made with
-`VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT` and their bindings not partially bound, since a push descriptor
-layout allows no binding flags; `BindDescriptorSetAuto` then pushes the set's bindings into the command buffer with its
-template, `InternalPushDescriptorSet`, at each bind, and `TakeDescriptorSets` gives nothing for it): every one of its 9
-bindings is set before the first kernel, and 9 is within the 32 push descriptors every device has (KosmicKrisp's
-`KK_MAX_PUSH_DESCRIPTORS`, which implements the template push). Nothing else qualifies: the other layouts' sets hold
-arrays past that limit (the imgui renderer's 256 textures, the main layout's 1024 and more), and their sets seldom
-change (a model installed, a texture added); what changes every frame is in buffers indexed by the frame slot. The
-reflection keys the Environment layout's sets 0 (its push constants, `[[vk::binding(0, 0)]]`, a uniform buffer binding
-nothing binds) and 1, in that order, so the earlier try's failures (validation's `VUID-...-templateType-00353` and
-`-binding-00279`, a crash in `vkCmdPushDescriptorSetWithTemplate` on KosmicKrisp) weren't the order; a push set layout
-with the partially bound flag is invalid, likely them. Bistro's street at 600x: 45.9 to 45.3 ms with the indirect
-lighting off (KosmicKrisp, 2560x1440).
-
-A handle equal to the one set isn't the same object, though: drivers reuse a destroyed object's handle (NVIDIA's are
-addresses), so what is destroyed and made again with the gpu idle (the swapchain's storage views and the frame graph's
-transients, at every swapchain recreation) can come back with the old handles, be skipped as unchanged, and leave the
-set holding the destroyed ones' descriptors: `ComputeMain` lost the device writing through one, 1 presentation test run
-in 10 on Windows, after a present mode change (found with the crash diagnostic layer, below). So
-`Scene::CreateOutputDependentObjects` calls `Pipeline::InvalidateDescriptorSets` once it has set them, which writes
-every set afresh at its next bind. Loads aren't exposed: what they replace is retired after the new objects exist.
-
-Loaded resources (models/images from the File menu or `SPEEDO_AUTOLOAD_MODEL`/`SPEEDO_AUTOLOAD_IMAGE`)
-are installed on the draw thread via `rhi.drawCalls`, stored with `Device::ReplaceResource`, and the
-previous resource is freed via `RetireAfterGraphicsWork` once all in-flight graphics work is done.
+- Binding a dirty set (`BindDescriptorSetAuto` → `InternalUpdateDescriptorSet`) takes a fresh set from the current `DescriptorSetArray` (16 sets), allocating a new array when full; old arrays are not recycled. So `SetDescriptorData` skips writes whose value is unchanged (`pipeline::SameBinding`), or per frame rewrites would exhaust the pool (`VK_ERROR_OUT_OF_POOL_MEMORY`).
+- A layout whose bindings change at every dispatch can hand its sets over (`Pipeline::TakeDescriptorSets(set)`), destroyed once the gpu is done with the commands that bound them. They are freed in a timeline callback on an executor thread while the draw thread allocates from the same pool, so every allocation, free and reset holds `Pipeline::myDescriptorPoolMutex` (Vulkan requires external synchronization).
+- The environment filter's set is pushed instead (`Pipeline::CreateLayout`'s `pushDescriptorSets`): its layout has `VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT` and no partially bound bindings (a push layout allows no binding flags), every binding must be set before the first kernel, and at most 32 push descriptors are allowed. Other layouts hold larger arrays and cannot be pushed.
+- A handle equal to the one set is not necessarily the same object: drivers reuse destroyed handles, so objects destroyed and remade with the gpu idle can come back unchanged-looking and leave a set holding destroyed descriptors. `Scene::CreateOutputDependentObjects` therefore calls `Pipeline::InvalidateDescriptorSets` after setting them.
+- Loaded resources install on the draw thread via `rhi.drawCalls`, are stored with `Device::ReplaceResource`, and the previous one is freed via `RetireAfterGraphicsWork` once in-flight work is done.
 
 ## Pipelines own their layouts, by name
 
-A pipeline layout belongs to the `rhi::Pipeline` that created it: `CreateLayout(name, shaderSet)` registers it under its
-name, and `GetLayoutHandle(name)` finds it (`"Main"`, `"VertexZPrepass"`, `"Environment"`); binding another pipeline's
-layout trips `BindLayoutAuto`'s ENSURE. A pipeline's descriptor sets are its own too, and hold one value per binding, so
-two scenes can't share one: each `gfx::Scene` is given the pipeline it draws with (`Scene(rhi, pipeline, views)`; the
-window's scene uses `Device::GetPipeline()`), and creates its layouts in it. (The device used to keep a map of layout
-handles by name hash, which handed out the first pipeline's layouts.)
+A layout belongs to the `rhi::Pipeline` that created it: `CreateLayout(name, shaderSet)` registers it under its name and `GetLayoutHandle(name)` finds it (`"Main"`, `"VertexZPrepass"`, `"Environment"`); binding another pipeline's layout trips `BindLayoutAuto`'s ENSURE. A pipeline's descriptor sets hold one value per binding, so two scenes cannot share one: each `gfx::Scene` is given its own pipeline (`Scene(rhi, pipeline, views)`; the window's uses `Device::GetPipeline()`).
 
+`Pipeline::ReplaceLayout` makes a named layout again from a set whose resources differ (used to switch the ray queries' shader variants): what was set is carried into the new layout's binding of the same shader variable where the type matches and the descriptor count is at least as large, old layouts and sets are destroyed, pipelines remade, a bound layout rebound. The gpu must be idle; it does nothing while a pipeline is being made.
 
 ## Pipeline caches: kept in check
 
-Each backend kept the pipelines it made in a file of the profile (`PipelineCreateDesc::cachePath`: `pipeline.cache`,
-D3D12's `pipeline.d3d12.cache`, the ImGui renderer's `imgui.` ones), and the files only grew: a Vulkan pipeline cache's
-data is all or nothing, and a D3D12 pipeline library takes names and never gives them up, so every pipeline once made
-stayed. A profile used for shader work grew by about 10 MB a new variant (a run's own pipelines are about 11 MB): the GI
-experiments' slots were at 240 to 460 MB after a day (2026-11-22), the user's `.speedo` at 132 MB, and every run loaded
-all of it and wrote it back at exit (bathroom2, 1 frame, warm: 4.54 s a run with 458 MB, 3.05 s with the run's own
-11 MB; load 0.27 s, save 1.05 s, of which 0.7 s the SHA-256 `SaveBinary<true>` took of the written file, which nothing
-read: saved without it now). Bounded since 2026-11-22 by `kPipelineCacheByteCount` (256 MB, the user's call), keeping
-what runs use rather than starting over (the user's call):
+Each backend keeps the pipelines it made in files of the profile (`PipelineCreateDesc::cachePath`). A Vulkan pipeline cache is all or nothing and a D3D12 library never gives names up, so without limits they only grow; they are bounded by `kPipelineCacheByteCount`.
 
-- **Vulkan, with `VK_KHR_pipeline_binary`** (NVIDIA's 610.88 has it): no `VkPipelineCache`; each pipeline's binaries are
-  a file of their own in `pipeline.binaries/` beside the cache's file (`rhi/vulkan/pipelinebinaries.h`, `BinaryStore`),
-  named by the pipeline's key (`vkGetPipelineKeyKHR`), headed by the driver's vendor, device and pipeline cache uuid. A
-  pipeline whose file is there is made from its binaries (`VkPipelineBinaryInfoKHR`; a file of another driver, or one
-  it refuses, is made again); else it is compiled with `VK_PIPELINE_CREATE_2_CAPTURE_DATA_BIT_KHR` (the driver's own
-  cache still answers: a variant another profile made, 0.34 s for all 88 compute pipelines), its binaries written and
-  its captured data released. Pipelines made with binaries or capture take no pipeline cache (the extension's rule). A
-  file's time is its last use; at exit the least recently used go while the directory holds more than the budget, to
-  three quarters of it (311 MB of old files made 191 MB, the run's 94 kept). The old cache file is removed when the
-  store is first made (468 MB in a slot). A warm run is as fast as with a small cache (1.75 against 1.76 s, the 88
-  compute pipelines 0.02 s), and a new variant's first run the same (FragmentMain 17 to 23 s either way; with heavier
-  load from other clients one pair differed 2x, the workers' compile with it). `SPEEDO_PIPELINE_BINARIES=0` leaves the
-  extension out.
-- **Vulkan, without it** (`SPEEDO_PIPELINE_BINARIES=0`, other drivers): the pipeline cache's file as before, ignored at
-  load once it holds more than the budget (`LoadPipelineCache`: "started over"), so that the run saves its own pipelines
-  (468 MB became 11 MB; the next run loads those). After a start over, NVIDIA's driver cache makes them again quickly
-  (see layering.md, the driver's cache); a driver without its own compiles them cold once.
-- **D3D12**: the library notes every state it gave out, loaded or made (`PipelineCacheObject::used`, a reference each),
-  and at exit, if it holds more than the budget, a new library of those alone is written in its place
-  (`pipelinecache::Close`; tried with the budget at 4 MB: 24.5 MB became the run's 95 pipelines, 7 MB, which the next
-  run loaded with the debug layer on, no errors). Under the budget it is saved as before (when a state was stored).
+- Vulkan with `VK_KHR_pipeline_binary`: no `VkPipelineCache`; each pipeline's binaries are a file in `pipeline.binaries/` (`rhi/vulkan/pipelinebinaries.h`, `BinaryStore`), named by the pipeline key (`vkGetPipelineKeyKHR`) and headed by the driver's vendor, device and cache uuid. A pipeline whose file exists is made from it (another driver's, or a refused one, is made again); otherwise it is compiled with `VK_PIPELINE_CREATE_2_CAPTURE_DATA_BIT_KHR` and written. A file's time is its last use; at exit the least recently used go while over budget, down to three quarters. `SPEEDO_PIPELINE_BINARIES=0` leaves the extension out.
+- Vulkan without it: the cache file, ignored at load once over budget (`LoadPipelineCache`: "started over"), so the run saves its own pipelines.
+- D3D12: the library notes every state used (`PipelineCacheObject::used`); at exit, if over budget, a new library of those alone replaces it (`pipelinecache::Close`).
+- The driver's own cache is configured in layering.md, "Pipelines made without waiting".
+
+## `rhitest`: rhi checked against Vulkan
+
+`src/tools/rhitest.cpp` (kernels `rhitest*.slang`) tests rhi generic in the backend: compute, images, the environment kernels, draws, indirect draws and blits, compared against Vulkan.
+
+## Crash reports
+
+A fatal Vulkan result or a hang writes a crash report in every build (`rhi/crashreport.h`, `rhi/vulkan/crashreport.cpp`). `VK_CHECK` checks in every build and hands errors to `vk::crash::ReportFatal`. The first thread to meet one writes `<user profile>/crashes/crash-<time>.json` (`SetCrashReportDirectory`, set by the client) while the others wait, then traps. A report has:
+
+- The kind, result, a signature (a hash of vendor, driver version, kind, result, first pass in flight and fault type, so one cause groups across machines), build, platform, device, driver and tools loaded.
+- Breadcrumbs: the frame graph's passes (`CrashBreadcrumb`) written by the gpu as each begins and ends, with `VK_AMD_buffer_marker`, else `VK_NV_device_diagnostic_checkpoints` (sequence numbers, never pointers), else none. `SPEEDO_CRASH_BREADCRUMBS=markers|checkpoints|none` forces one.
+- The device fault (`VK_EXT_device_fault`) and the objects bound around the faulting address (`VK_EXT_device_address_binding_report`, through the messenger `crash::CreateMessenger` makes just before a device that enables it), including recently unbound ones, so a write to freed memory names what was freed.
+- The last 64 submits and the last 256 application events (`rhi::CrashEvent`), stamped with the frame (`CrashFrame`).
+
+Hangs:
+
+- A wait without a timeout waits at most `SPEEDO_GPU_HANG_TIMEOUT` seconds (default 20, 0 for never) and reports a hang (`vk::crash::WatchedWait`). The test scripts raise it, since many clients starting together stall one another.
+- The main thread never waits for the draw thread; it watches it (`rhi::CrashWatch` against `CrashHeartbeat` at each `Draw`), catching a draw thread blocked in a call with no timeout.
+- Work that makes progress where no heartbeat can tell (a cold pipeline creation in the driver) is a busy span (`rhi::CrashBusy`), which the watch gives 120 s.
+- `SPEEDO_CRASH_TEST=hang` makes frames from the 100th wait for a semaphore nothing signals, to check reports end to end (with `SPEEDO_GPU_HANG_TIMEOUT=3`).
+
+With the Crash Diagnostic Layer loaded, no breadcrumbs are recorded and the report defers to the layer's dump (`<home>/cdl/<time>/cdl_dump.yaml`); the reporter waits 3 s before trapping so the layer can write it. KosmicKrisp's instance host allocations are zeroed (`instance.cpp`) because its vendor id was otherwise uninitialized memory.
+
+## Vulkan 1.4
+
+The instance asks for Vulkan 1.4 (`kVulkanApiVersion`, `rhi/vulkan/utils.h`) and only devices that support it are candidates (`DetectAndCreateDevices`). What 1.1 to 1.4 made core (dynamic rendering, synchronization2, dynamic cull mode, shader draw parameters, push descriptors, tooling info) is called as core, not through extensions.
+
+- Features come in `PhysicalDeviceInfo`'s version structs (`deviceFeatures11Ex` to `deviceFeatures14Ex`), then the extensions' (`deviceFeatureParams`). The device is made with the whole chain, so it enables every feature it has; `Device` checks by name the optional ones the renderer needs.
+- On macOS, KosmicKrisp must report 1.4, or no device is a candidate.
+
+## Gotcha: explicit specialization ordering
+
+Calling an explicit specialization before defining it in the same `.cpp` instantiates the primary template and errors with `explicit specialization of 'X' after instantiation`. Define `Swap()`'s specialization before the move members that call it, and place `IMPLEMENT_OBJECT_GETINSTANCE`/`IMPLEMENT_DEVICEOBJECT_GETDEVICE` after any specializations the macro calls (for example `GetRHI<kVk>()` in `vulkan/rhi.cpp`).
+
+## Gotcha: delegating constructors run their arguments before the base exists
+
+Many types create their gpu handle in the argument list of a delegating constructor (`: Foo(std::forward<CreateDescType>(desc), [this, &desc] { /* create handle */ }())`). That runs before the `DeviceObject` base is initialized, so `GetDesc()`, members and the no-argument `GetDevice()` read uninitialized memory there.
+
+- Read from the incoming `desc` instead: `desc.device`, `GetDevice(desc.device)` where the `Device` object is needed, `CreateDeviceObjectCreateDesc(name, desc.device)` for children. `GetInstance()` is safe. Do not pass references into `desc`, which is moved into the base first.
+- Serialized create-descs carry only `uuid`, never `instance`, `device` or `name`. Code that builds a desc from a file or cache must fill those in and replace the `uuid` with `uuids::NewUuid()`. A derived desc with extra fields needs its own `serialize()` (see `ImageCreateDesc`). When a serialized layout changes, bump the `cache-vN` tag in that loader's params hash.
+- `GetDevice()` resolves through `GetRHI<G>()->GetDevice(handle)`, which finds only devices already stored in `RHI::myDevices`; that is why `Device` creates its queues and pipeline from the `RHI` constructor.

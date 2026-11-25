@@ -65,7 +65,7 @@ void SetName(ID3D12Object* object, std::string_view name);
 [[nodiscard]] std::string GetName(ID3D12Object* object);
 
 // the instance: the DXGI factory, made with DXGI's debug layer where D3D12's is on (SPEEDO_GRAPHICS_VALIDATION_LEVEL, or
-// SPEEDO_D3D12_VALIDATE=1, which assettest's -Validate sets)
+// SPEEDO_D3D12_VALIDATION=1, which assettest's and visualtest's -Validate set)
 struct InstanceObject
 {
 	IDXGIFactory6* factory = nullptr;

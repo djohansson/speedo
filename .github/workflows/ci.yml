@@ -49,7 +49,7 @@ jobs:
     # packages are keyed by (macos-latest and macos-26 are macOS 26: every package would be built)
     runs-on: xcode-27
     # (the platform jobs' limit: four hours since 2026-11-24, the user's call, when the Windows job ran out of two in its
-    # lavapipe checks again; see "The Windows job's two hours" in docs/notes/build.md)
+    # lavapipe checks again; see docs/notes/build.md, "CI: GitHub Actions")
     timeout-minutes: 240
     env:
       TRIPLET: arm64-osx-clang

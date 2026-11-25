@@ -1,546 +1,60 @@
 # World cache plan: the indirect lighting's light anchored in the world
 
-The surface cache and the probes keep their light per clip of the clipmap, and the clips disagree about the same place
-(by 4 to 5 of 255 on average, more in parts: docs/notes/indirect-lighting.md, "Why the clip levels disagree"). Walking,
-the disagreement shows as patches that travel with the camera (Sponza's corridor floor beside the columns: moving
-against settled 1.19, 1.52 and 1.65 of 255 at the walk's three poses, 2026-11-19), and a clip's scroll or its weight's
-hand-over shows one clip's light for another's. This plan replaces where that light is kept with cells anchored in the
-world at several resolutions, each sample added to every level, so that the levels are means of the same samples and
-agree by construction.
-
-The user's call, 2026-11-19: try it, **side by side with the clipmap's light** (a switch, the clipmap the default) until
-the new is shown better in visual quality, performance and memory; then the user decides the default, and later whether
-the old goes. The neural alternative was measured and set aside (cells of means learn in a tenth of the steps at a tenth
-of the cost, docs/notes/indirect-lighting.md, "A neural radiance cache").
+The surface cache and the probes keep their light per clip of the voxel clipmap, and the clips disagree about the same place (docs/notes/indirect-lighting.md, "Why the clip levels disagree"). Walking, the disagreement shows as patches that travel with the camera, and a clip's scroll or its weight's hand-over shows one clip's light for another's. This plan keeps the surfaces' light instead in a hash grid of cells anchored in the world at several resolutions, each sample added to every level, so that the levels are means of the same samples and agree by construction. It is built side by side with the clipmap's light, selectable, until shown better in visual quality, performance and memory. Status: steps 0 to 2 and 4 are done and step 3 was dropped. The grid works and is selectable (View > Rendering Features > Global Illumination... > Light Store: Clipmap or World Grid) but is off by default (`SPEEDO_GI_WORLD=1` turns it on): it costs more than the clipmap a frame, and buys steadier light while walking. The clipmap keeps the air's light, what moves, the fog and what traced rays meet. The clip levels' disagreement it was begun for is met in the clipmap instead (docs/backlog.md). A neural alternative was measured and set aside (docs/notes/indirect-lighting.md, "A neural radiance cache").
 
 ## The structure
 
-A hash table of cells of fixed capacity (a policy, as the shadow atlas's budget is: the oldest cells evicted, not a
-capacity to fail on), open addressing with linear probing:
+A hash table of cells of fixed capacity (a policy, not a capacity to fail on: the stalest cells are taken back), open addressing with a bounded probe, about a million cells by default (`SPEEDO_GI_WORLD_CELLS`), a cell a few dozen words (its light along the axes as an ambient cube, its sample count, its mean of squares, where its samples lie, its filtered light).
 
-```
-struct GiWorldCell          // 64 bytes
-{
-    uint  key;              // a 32 bit checksum of (level, cell xyz, normal bucket); 0 empty
-    uint  stamp;            // the frame it was last read (eviction, and blocks not read traced less, as now)
-    half3 faces[6];         // its light along the axes, an ambient cube, as a cache entry's (36 bytes)
-    uint  count;            // the samples its mean is of (16 bits), its rays' sequence (16)
-    float moment;           // the mean of its samples' squares (variance: the filter, the cut near what moves)
-};
-```
-
-- **A cell** is a level L (its side `s0 * 2^L`, s0 from the scene's size as the voxels' is now), the world position
-  divided by that side and floored, and **a normal bucket** (a surface's cells by which way it faces, so that the two
-  sides of a thin wall are different cells, as the voxels' side bits keep them apart now). **Air cells** have no normal
-  bucket: the light at a point in the air, as a probe's.
-- **Every sample is added to its cell at every level** (4 to 6), coarse levels the same samples' means over a wider
-  footprint.
-- **A lookup** takes the finest level whose cell is a few pixels on screen and holds enough samples (the benchmark's 16),
-  blended toward the next coarser by distance, continuously: no hand-over at a snap, since nothing snaps.
-- **Insertion** by 32 bit compare and exchange on the key (every backend has it; Metal's 64 bit atomics are limited),
-  collisions caught by the checksum. 2^21 cells, 128 MB, by default (sized for about 150 thousand fine cells in view at
-  1080p, its coarser levels and what is kept off screen, at 70% load).
+- **A cell** is a level L (its side doubles per level, `SPEEDO_GI_WORLD_LEVELS` of them), the world position divided by that side and floored, and a normal bucket (the facing of the surface, so that the two sides of a thin wall are different cells). Its key is a second hash independent of the one its probe starts at (`GiWorldHash`, `GiWorldKey`), since a single hash let two places share a cell.
+- **Every sample is added to its cell at every level from its clip's up**: no finer than the voxel its ray started in. A sample comes only from a surface cache entry the cache holds valid, and a ray starting on a surface facing another way than its voxel is not added. Samples are summed per frame into fixed point sums by 32 bit atomic adds, rounded at random to avoid bias, held in per-frame slots (a quarter of the cells), and a fold pass (GI World Fold) folds them into each cell's running mean, over a window that is a time rather than a count of samples.
+- **A frame's adds are a budget**: a cell takes a clip's samples every n-th of the clip's updates (`GiData::worldStride`, doubled where cells take most of the slots, halved where few), and a level whose cells would take too many samples of a voxel takes that share at random (`kGiWorldCellSampleCount`). Samples that still find no slot are left out and counted in the timings.
+- **New cells** begin from their parent's light at the next level up (`GiWorldSeed`).
+- **The filter** (`ComputeGiWorldFilter`, in the fold's pass) is an a-trous filter of three passes along the surface only, with the edge test by the cells' variance, reading cells by how recently they took samples (`kGiWorldStaleNear`).
+- **A lookup** (`GiWorldFaces`, `GiWorldBlend` in `GiSampleSurface`) takes the level of the clipmap's voxel size at the point (`GiWorldClipLevel`), blended with the next by the fraction, trilinear across the surface over cells of its bucket, each by its samples over 16. Cells are taken by how near their samples lie to the point, and each by how much of the way to its samples is clear of the voxels (`GiWorldReach`), so light does not come through walls. Where the cells hold too little, or on what moves, the clipmap's light is read.
+- **Only the main pass reads the grid**: the traced rays' hits (reflections, refractions) take the clipmap's light.
+- **Side by side**: the clipmap stays built and running whatever the switch says. The grid's storage and passes exist only while it is chosen, and switching clears the other's unused structures. Debug view `gi-world`, the exit report's `indirect lighting, world cache:` line, and the memory report (`SPEEDO_GPU_TIMINGS=1`).
+- **Source**: `giworld.slang`, `GiCacheUpdate` (the samples' source), the passes GI World Clear and GI World Fold in the renderer.
 
 ## What it has to replace
 
-The surface cache (its entries, filter and the volumes the lookups read) for the surfaces, and **the probes' roles**,
-which step 3 of the anchored cache measured (docs/notes/indirect-lighting.md, "The probes, resolved where they show");
-none of these can simply go:
+The surface cache (its entries, filter and volumes) for the surfaces, and the probes' four roles, measured in docs/notes/indirect-lighting.md, "The probes, resolved where they show":
 
-1. **The fog** reads the probes (`AerialPerspectiveAmbient`): without them it takes the sky's light indoors (Sponza's
-   corridor blue with haze).
-2. **What moves**: a moving thing's voxels are new every frame and the cache's entries where it moves are capped at 32
-   samples; its light is mostly the probes'.
-3. **The air's light**: the near field's rays that meet nothing (`GiNearTrace`), what lets light through from behind
-   (`GiIrradiance` along the normal's opposite), and the lookups beside a surface's voxel of few samples.
-4. **Thin things**: lookups beside window frames, shutters and recesses shallower than a voxel take the air voxels'
-   light (leaving the probes out of settled blocks made Bistro's shadowed facade 10 to 20 of 255 darker and blotchy and
-   the bathroom's window recess 10 to 27 brighter).
+1. **The fog** reads the probes (`AerialPerspectiveAmbient`).
+2. **What moves**: a moving thing's voxels are new every frame, so its light is mostly the probes'.
+3. **The air's light**: the near field's rays that meet nothing (`GiNearTrace`), what lets light through from behind, and lookups beside a surface voxel of few samples.
+4. **Thin things**: lookups beside window frames, shutters and recesses shallower than a voxel take the air voxels' light.
 
-Air cells are the grid's answer to all four; each is a gate of its own (step 4), and until every one passes the
-clipmap's probes stay, beside the grid.
-
-## Side by side
-
-`SPEEDO_GI_WORLD` (0, the default again since step 5's measures of 2026-11-20: the clipmap as before; 1: the grid's
-light where its step has it; the default from 0b7fd5ba to then), and a row in View > Rendering Features > Global Illumination...
-(Light Store: Clipmap or World Grid, a scene setting since 2026-11-24). The clipmap stays built and run whatever the switch says until step 5, so that
-an A/B is one variable and a capture of either is the same build. The grid's passes run only with the switch on, and its
-memory is allocated only then.
+The grid replaced none of these (step 4): air cells did not pass their gate and the volumes are what planned volumetric effects (clouds, fog banks) would sample. The grid is the surfaces' light, the clipmap's volumes, probes and cache filter the air's.
 
 ## How it is judged (every step)
 
-- **Visual quality**: the regression set (`temp/gi-disocclusion/ab.ps1`: the bathroom framed and at the user's poses,
-  Sponza's columns and corridor, Bistro by day and night, CornellBox), Sponza's corridor walk (`walkp.ps1`, moving
-  against settled), MovingInterior's to-and-fro walk (`pops.ps1`), the far wall's noise between seeds (`curve.ps1`,
-  `wallpattern.ps1`), the bathroom's thin shelves from the front, and the user's eye on each.
-- **Performance**: the `Frame` scope and the GI passes' gpu timings at the benchmark poses (docs/performance-plan.md),
-  warm pipelines, runs interleaved, serial (never alongside other clients).
-- **Memory**: each structure's buffers and images by name, from rhi's allocations (a line in the client's exit report,
-  `SPEEDO_GPU_TIMINGS=1`, to be added in step 0), the clipmap's and the grid's side by side.
+- **Visual quality**: a regression set of scenes (the bathroom, Sponza's columns and corridor, Bistro by day and night, CornellBox), a corridor walk (moving against settled), a to-and-fro walk of a moving interior, noise between seeds, thin shelves, and the user's eye on each.
+- **Performance**: the `Frame` scope and the GI passes' gpu timings at the benchmark poses (docs/performance-plan.md), warm pipelines, runs interleaved and serial.
+- **Memory**: each structure's buffers and images by name, from rhi's allocations, the clipmap's and the grid's side by side.
 
 ## The steps
 
 ### 0. The baseline
 
-The clipmap's numbers on every measure above, at resolutions 128 and 384: the memory of its voxels, probes, volumes,
-cache pages and the filter's records; the GI passes' times; the walk, pops and noise. The memory report added for it.
+Done. The clipmap's memory, GI pass times and quality measures at two resolutions, and the memory report. The clipmap's memory is dominated by its dense voxels and volumes, cubic in the resolution; the paged surface cache is a tenth of it, so the grid's memory gain would be in what it takes from the volumes, voxels and probes, not in the cache it replaces first.
 
 ### 1. The grid, filled and shown, nothing shaded from it
 
-The table, the insertion and the eviction; the surface cache's rays (as they are, from the anchored surfaces) add their
-samples to the grid too, at every level; a debug view of the cells (level, samples, light). Gate: its memory and the
-insertion's cost (the benchmark measured 0.01 ms for 16 thousand samples at 4 levels, dense), the hit rate and the
-collisions at the poses.
+Done. The table, insertion, eviction, the cache's rays adding samples at every level from their clip's up, the `gi-world` debug view, and the exit report. Adding the samples costs a fraction of a millisecond beside the clipmap.
 
 ### 2. The surfaces shaded from the grid (the go or no-go)
 
-`GiSampleSurface`'s light from the grid where the switch is on; the hits still read the voxels. Gate: the main pass's
-time against the volumes' trilinear reads (the hash, its probing and the interpolation by hand: the risk of the whole
-plan, estimated 0.3 to 1 ms at 1080p), and the walk against settled, where the gain should show. If the lookups cost
-more than the walk gains, the plan stops here and says why.
+Done after several rounds of work. As first built the grid was no go: mottled and no better walking. It became go with the cells filtered (a-trous, by variance, along the surface), new cells seeded from their parent, keys that do not collide, where-the-samples-lie and reach tests in the lookups, stale cells weighted down, the window as a time, lookups at the clipmap's voxel size, the sample budget, and a facing test on the rays added. In Sponza's corridor it matches or beats the clipmap settled and walking, and elsewhere in the regression set it is close to the clipmap with a few small differences (darker niches, a faint band beside shelves, a smaller lamp pool at night). It settles more slowly than the clipmap and is blotchier in its first seconds. Possible further work: a filter as wide as the cache's, with the cache's per-tap test of what lies between (`GiCacheFilterBlocked`), which needs a third set of faces or two passes.
 
 ### 3. The cache's rays from the grid's cells
 
-The cells take the rays themselves (from the surfaces their cells hold, as the anchored entries do), so that the
-cache's entries, its filter (or one pass over the cells) and the volumes they write aren't needed where the switch is
-on. The hits read the grid's light at the hit (with the shadow ray's direct light, as now), with the single sided
-surfaces' and the insides' protections (`GiHitVoxel`'s) carried over as the keys and the normal buckets allow. Gate:
-the GI pass's time and the memory without the cache's pages.
+Dropped. The cache's light reaches the image through the voxels' bounce, the volumes (the cache filter's last pass) and the entries themselves (also the rays' sources). Taking the bounce from the grid (3a) and leaving the cache filter's blend out (3b) both made the still image and the walk worse for no gain until the cache's own light goes, and cutting the entries to what a ray's source needs (3c) waited on 3b. The cache filter puts the cache's light into the volumes the air is read from, so it stays.
 
 ### 4. The air cells, one role at a time
 
-Each against the scene that showed it: the fog (Sponza's corridor at the default haze), what moves (MovingInterior's
-runner and sphere, the green box), the near field's misses and what lets light through (the bathroom's shelves), the thin
-things (Bistro's shadowed facade at `564,170,-2436,0,30`, the bathroom's recess at `-0.8,17.0,-6.5,0,1.2`). Gate: each
-as good as the probes', or better, by the measures and the user's eye. The probes stay for a role until its gate passes.
-
-Closed 2026-11-20 with the air left to the clipmap (see Progress): the near field's misses from air cells cost 0.24 ms
-for nothing, and the volumes are what the volumetric effects the user plans (clouds, fog banks) will sample. The grid
-is the surfaces' light; the clipmap's volumes, probes and cache filter the air's.
+Closed with the air left to the clipmap. Air cells for the near field's misses cost frame time for no visible gain, and would need a visibility and lookups of their own to stand in for the volumes. The thin things passed with the surfaces' lookups on the grid and the volumes' where the grid has no cell.
 
 ### 5. The user's decision
 
-With every measure side by side: the default, and later whether the clipmap's light (the cache, the volumes, the
-probes) goes. What stays either way: the voxels where the rays walk them (`SPEEDO_GI_TRACE=voxels`, a model without a
-BVH), which find no surface to anchor at, unless the grid is made to serve them too, a decision of its own.
-
-## Progress
-
-- 2026-11-19: the plan written; nothing built.
-- 2026-11-19, **step 0, the baseline**. The memory report: `indirect lighting, memory: ...` in the exit report with
-  `SPEEDO_GPU_TIMINGS=1` (`Renderer`: the buffers' sizes and the volumes' packed texels, by structure; what the driver
-  pads isn't counted). `temp/gi-disocclusion/baseline.ps1` (settled 1500 frames, 1080p, Vulkan, RTX 4070 Ti SUPER, one
-  client at a time; the GI passes summed over those run in most frames, Main Visibility the shading with the lookups):
-
-  | scene, resolution | frame (ms) | GI passes (ms) | Main Visibility (ms) | memory (MB): all, voxels, probes, volumes, surface cache |
-  |---|---|---|---|---|
-  | the bathroom, 128 | 3.47 | 1.67 | 0.36 | 465: 217, 57, 153, 37 |
-  | Sponza's corridor, 128 | 4.20 | 2.01 | 0.46 | 332: 118, 30, 112, 73 |
-  | Bistro, 128 | 6.01 | 2.68 | 0.50 | 337: 121, 31, 125, 61 |
-  | Bistro at night, 128 | 5.39 | 2.64 | 0.51 | 341: 121, 31, 125, 65 |
-  | MovingInterior, 128 | 3.00 | 1.50 | 0.37 | 170: 56, 15, 64, 34 |
-  | the bathroom, 384 | 13.67 | 20.27 | 0.38 | 11151: 5457, 1393, 3870, 431 |
-  | Sponza's corridor, 384 | 29.53 | 22.54 | 0.51 | 6736: 2662, 675, 2685, 715 |
-  | Bistro, 384 | 36.80 | 25.18 | 0.80 | 7161: 2723, 698, 3099, 641 |
-  | Bistro at night, 384 | 35.64 | 25.64 | 0.88 | 7165: 2723, 698, 3099, 645 |
-  | MovingInterior, 384 | 12.48 | 10.96 | 0.38 | 3155: 1169, 302, 1451, 232 |
-
-  The clipmap's memory is its dense structures, the voxels and the volumes, cubic in the resolution (27 times from 128
-  to 384: the bathroom's 11 GB of a 16 GB gpu); the surface cache, paged, is a tenth of it. So the world cache's
-  memory gain is in what it can take of the volumes (step 2 onwards) and of the voxels and probes (steps 3 and 4), not
-  in the cache it replaces first. The quality baselines, measured the same day: Sponza's corridor walk moving against
-  settled 1.19, 1.52 and 1.65 of 255 (`walkp.ps1`); MovingInterior's to-and-fro walk's steps 130000 a million pixels
-  over the walk, the worst frame 8800 (`pops.ps1`); its far wall's noise between seeds 0.44 of 255 at frame 20000 with
-  the window of 4096 (`curve.ps1`, `wallpattern.ps1`); Bistro's night turn's leading strip 14.5 to 17.9 of 255 in the
-  emitters' view, 8.6 to 11.1 lit (`turnp.ps1`).
-
-- 2026-11-19, **step 1, the grid filled and shown** (`giworld.slang`, `SPEEDO_GI_WORLD=1`, `SPEEDO_GI_WORLD_CELLS`,
-  `SPEEDO_GI_WORLD_LEVELS`; the `gi-world` debug view; the passes GI World Clear and GI World Fold; the exit report's
-  `indirect lighting, world cache:` line). As designed below, with what the first runs changed:
-  - **A sample feeds the levels from its clip's up** (its ray's voxel's level: a cell no finer than the voxel). Every
-    clip's rays at every level, the coarse clips' rays from over the whole building made cells of the finest level
-    everywhere: in Sponza's corridor 609 cells made and 6131 taken back a frame, still, with a million.
-  - **The table is a policy**: a search probes 16 cells and takes back the stalest not added to this frame where none is
-    free; a level without a cell is counted, not failed (linear probing clusters: 8 in a row were in use in Sponza
-    with a million cells, a sample in 900 frames, before the fix above).
-  - **Slots**: a quarter of the cells (the busiest frame took 90 thousand at the gate's poses).
-
-  The gate (resolution 128, settled 1500 frames, the grid on against off, one client at a time, the runs of a scene
-  back to back):
-
-  | scene | the GI passes, off and on (ms) | samples a frame | cells' slots a frame (most) | cells made a frame |
-  |---|---|---|---|---|
-  | the bathroom | 1.69, 1.89 | 17600 | 27000 (51600) | 87 |
-  | Sponza's corridor | 2.01, 2.40 | 44500 | 68900 (87100) | 229 |
-  | Bistro | 2.70, 3.22 | 32500 | 53200 (81300) | 222 |
-  | Bistro at night | 2.61, 3.20 | 37600 | 59200 (87300) | 225 |
-  | MovingInterior | 1.51, 1.59 | 14300 | 24600 (28200) | 95 |
-
-  84 MB (a million cells of 64 bytes, 262 thousand slots of 80), a third of the cells made by the run's end, none taken
-  back, no level without a cell. Adding the samples (5 levels' finds and atomic adds a ray) costs 0.1 to 0.6 ms beside
-  the clipmap; what it replaces (the cache's entries and filter, the volumes) is steps 2 and 3. The debug view shows the
-  cells unfiltered, blocky and noisy where the finest hold few samples, the light where the clipmap has it (the sky's
-  blue along Sponza's curtains, `temp/review/world-step1-sponza.png`).
-
-- 2026-11-19, **step 2 begun, the surfaces shaded from the grid** (`GiWorldFaces`, `GiWorldBlend` in `GiSampleSurface`: the
-  level whose cell is a twentieth of the distance, blended with the next by the fraction, trilinear over 8 cells of the
-  surface's bucket, each by its samples over 16; the clipmap's light for what the cells don't cover and on what moves).
-  The lookups cost Main Visibility 0.38 to 0.62 ms at Sponza's corridor (the plan's estimate 0.3 to 1). But unfiltered,
-  the cells' light is mottled where the clipmap's is smooth (`temp/review/world-step2-sheet.png`, the indirect diffuse
-  three times brighter: the near wall, the vault, the floor's blue band in patches): a cache entry is filtered over about
-  7 voxels each way, edge aware, and a cell holds only the rays that start in it. Tried, not kept:
-  - the sample spread along the surface by up to a cell either way at random before its cell is found (a box filter for
-    nothing): blotchier and brighter (`temp/gi-disocclusion/worldspread.ps1`: the lower half's mean |pixel - the 33x33's
-    mean| 1.55 to 1.65 and 1.87 at 1 and 2 cells, its mean 6.99 to 7.67 and 8.64 of 255): spread in cells, the coarse
-    levels' spread a metre and more, the curtains' light across the floor;
-  - the level by the samples (coarser by half the log2 of how far under 2048 the distance's level's cell is): the
-    blotches larger and softer, still there (1.56; at 121 pixels 3.84 where the clipmap is 3.43), the image 7% brighter
-    (the coarse cells' footprints take other surfaces of the same facing).
-  So step 2 needs a filter of the cells' own, edge aware as the cache's:
-  - **the cells filtered** (`ComputeGiWorldFilter`, in GI World Fold's pass after the folds: each cell the frame added to
-    the mean of its 26 neighbours at its level and of its bucket and itself, by place, samples and an edge test of their
-    noise, into filtered faces the lookups read; a cell 25 words, a slot 24 with its cell's place, level and bucket):
-    the fold and the filter 0.31 ms, 124 MB. With the level by distance alone (a twentieth), Sponza's corridor settled
-    against the clipmap: the mean 6.95 to 7.14 of 255, the lower half's blotchiness 1.49 to 1.44, at 121 pixels 3.71 to
-    3.43 (`temp/gi-disocclusion/worldlookup.ps1`). Coarser cells (a tenth) were brighter (7.87): a coarse cell's
-    footprint takes other surfaces of the same facing (the floor's sunlit band beside its shade), the levels agreeing
-    on their samples but not on what a lookup needs of them.
-  - **The go or no-go: no go, as built.** The corridor walk, moving against settled at the walk's three poses
-    (`walkp.ps1`, each run the clipmap or the grid throughout): the clipmap 1.16, 1.47 and 1.63 of 255, the grid
-    1.48, 1.75 and 1.53, worse at two of three, mostly on the near wall (its strips 0.8 to 1.4 where the clipmap's are
-    0.4 to 0.8). Trusting a cell only from 256 samples rather than 16 (so that new cells give way to the clipmap's
-    light) changed nothing (1.58, 1.73, 1.49): it isn't the fresh cells taken too soon. For 0.25 ms more of lookups,
-    0.4 of filling and 0.3 of folding and filtering, and 124 MB, it is no better settled nor walking.
-  What could still change that, untried: the lookups' footprint (a coarse cell takes other surfaces: cells keyed by
-  the surface's plane as well as its facing, or a lookup weighting the cells by how far its point is from the samples
-  they hold, which a cell would have to keep); a filter as wide as the cache's (three passes, about 7 cells each way:
-  two copies of the filtered faces, 36 MB more); and what the walk's difference on the near wall is (the grid's own
-  noise, its footprint, or the clipmap's light blended where the cells cover little). The plan stops here, as its step 2
-  says, until the user decides whether to go on with those or to leave the clipmap as it is.
-- 2026-11-19, **step 2 again, on the user's word** ("continue with those three, and brainstorm for other things to try"):
-  - **What the walk's difference was.** Through the grid's own view (`walkp.ps1 -View gi-world`) moving against settled
-    was 2.75 to 3.95 of 255: the floor ahead strewn with bright cells, new ones of a few samples, one that met the sun's
-    band all of its light. Not the hits' light depending on where the clips are (every hit lit by the last clip: the
-    same, 1.64, 1.70, 1.52), nor the frames' noise (settled against itself 16 frames on: the grid 0.38, the clipmap
-    0.06). The difference maps (`temp/review/walk-grid-diff-47.png` against `walk-clip-diff-47.png`) showed cell sized
-    patches everywhere: each run's own blotches, slow to change, which a moving run and its settled reference hold
-    differently. So the grid's spatial noise, not motion.
-  - **New cells begun from their parent's light** (`GiWorldSeed`: the cell of the next level up holding it, of its
-    bucket, as 64 samples; the samples added coarse first so the parent is there; as the clipmap's cache begins an entry
-    new to a clip from the coarser clip's): the grid's view 2.83, 3.56, 3.39; shaded 1.45, 1.71, 1.46.
-  - **The filter a-trous, three passes** (taps 1, 2 and 4 cells apart, reaching 7 each way, as the cache's; two copies
-    of the filtered faces, the passes taking turns; a cell 34 words): shaded 1.53, 1.63, 1.36, the still image 1.46
-    and 3.57 but spotted (bright cells on the vault, blue ones in the floor's band) and 6% darker; 0.77 ms.
-  - **The edge test by the cells' variance** (each cell keeps the mean of its samples' squares, of the light along its
-    bucket's face, from a sum of squares in the slot; a tap's noise the root of its variance over the samples it stands
-    for, as the cache's filter has it): a cell that caught a rare bright sample has the variance to take its neighbours,
-    where by its light alone it stood apart as an edge and kept it. The still image 1.33 and 3.37 (the clipmap 1.44 and
-    3.43), the walk 1.29, 1.39, 1.11 (the clipmap 1.16, 1.47, 1.63).
-  - **The filter along the surface alone** (the 3 by 3 taps across the bucket's axis, not the 27 around: those in front
-    and behind are other surfaces facing the same way): the still image 1.32 and 3.38, mean 6.83 (the clipmap 7.14),
-    the walk **1.19, 1.31, 1.12**; the fold and filter 0.54 ms rather than 0.77. In Sponza's corridor the grid now
-    matches or beats the clipmap settled and walking (the same at 31, better by a tenth at 47, a third at 63).
-    `temp/review/world-step2-sheet.png` (the indirect diffuse three times brighter, the clipmap above).
-  Costs as they stand, beside the clipmap (Sponza's corridor, 1080p): the frame 4.94 ms against 4.11, of which the
-  lookups 0.25, the samples added 0.3, the fold and filter 0.54; 161 MB. What the grid would take of the clipmap's
-  (the cache's entries, filter and volumes, steps 3 and 4) is what pays for it.
-  - **Beyond Sponza** (the regression set, `ab.ps1` A the clipmap, B the grid, lit, settled 1500 frames): every scene's
-    mean within half a level of 255 (the bathroom framed and at the user's two poses, Sponza's columns and corridor,
-    Bistro by day and night, CornellBox), every strip within 1.6. By eye the same, but in the bathroom the niches and
-    under the window a little darker and a faint band down the back wall beside each shelf (where the wall's cells meet
-    the shelf sides' of another facing), and at night Bistro's lamp's pool on the wall smaller. MovingInterior's to and
-    fro walk (`pops.ps1`): the steps 96 thousand a million pixels over the walk against the clipmap's 109, the worst
-    frame 5.6 against 4.9; but the frames change more from one to the next (9048 against 6250), the grid's noise from
-    frame to frame (settled against itself 16 frames on, `noisefloor.ps1`: 0.16 of 255, the clipmap's 0.06).
-  - **The corner's bright line came back with the grid**: the entries of MovingInterior's +x wall's hidden part (inside
-    the +z wall), which the cache marks inside, gave the grid their rays' samples of the sunlit outside. A sample now goes
-    to the grid only from an entry the cache holds valid (no more than a quarter of its rays inside something) once it
-    has traced 16 rays (`toWorld` in `GiCacheUpdate`): the line gone, the corridor the same (still 1.33 and 3.36, the
-    walk 1.17, 1.37, 1.13).
-  - Tried for the cost, not kept: the lookups blended with the next level only in the last quarter before it (Main
-    Visibility 0.63 to 0.55 ms, but the walk 1.25, 1.43, 1.21: the levels don't agree well enough for a short hand-over);
-    the filter's variance read from the face's two words rather than all nine (no change, 0.54 ms: its cost is the
-    hash searches, 3 passes of 9 taps a touched cell). Frame times of single runs vary by a few tenths of a
-    millisecond here: the performance work wants interleaved runs.
-- 2026-11-19, **step 2, the user's artifacts** (with `SPEEDO_GI_WORLD=1`): a bright line along the foot of
-  MovingInterior's far wall, a bright spot in the shadow of Sponza's blue curtain ("not visible from all view
-  distances"), then bright diamonds on Sponza's vaults and walls at six more poses.
-  - **The spots: two places in one cell.** A cell's key was a mix of the 32 bit hash its probe begins at, so two places
-    of the same hash had the same key, and were one cell, of both places' samples. Among a million cells that is about a
-    hundred pairs: a sunlit place's light in a cell in the shade, one cell's diamond in the lookups. Found by the dump:
-    the samples a cell under the vault took averaged 4e-5 along its face, and the slot sums it folded 0.0177. The key now
-    a second hash, independent of the first (`GiWorldHash`, `GiWorldKey`): two places are one cell only where both agree
-    and their probes meet, about one pair in a hundred tables. Every spot gone, the curtain's and the six poses' (the
-    brightest pixel of each the clipmap's, at the same place). Which places collide depends on which cells a run has
-    made, so the spots came and went with a run's first frames: a cold start (the first run after a shader edit, or a
-    deleted profile) showed the curtain's where a warm one often didn't.
-  - **The line: the floor took the light of the floor outside**, sunlit and under the sky ((56,65,82) where the
-    clipmap has (35,26,14)): the lookup's trilinear reached cells across the wall, and across the floor's own layer the
-    cells of the ground outside, a layer lower. Each cell keeps where its samples lie (their mean position in the cell,
-    3 words, `kGiWorldWhere`); across the surface the lookup takes the two cells by how near their samples lie to the
-    point rather than by their centers (the layers are where the grid cuts the world, not where the surface is); and each
-    cell by how much of the way to where its samples lie is clear of the voxels of the finest clip holding the point
-    (`GiWorldReach`, from the point lifted 2 voxels off its surface). The reach first went to the cells' centers, taken
-    or left whole: Sponza's end wall in blocks behind its arch, MovingInterior's room's every edge in a checker (an edge's
-    cell holds this side's strip while its center is past the other surface); by the share of the way clear and to where
-    the samples lie, with the voxels it starts in left out until it is clear of them (but one it goes into), both are
-    smooth. The foot now (31,27,26): the faintest dark line where the wall meets the floor.
-  - **What the collisions hid.** Before the key was found, the curtain's spot looked like a cell of a few stray samples
-    (the floor 2 cm under y = 0, where every level's cells begin, rising over it here and there) begun from its parent's
-    light and sure of it, and three changes each seemed to fix it: the seed counted apart from a cell's own samples, a
-    sample by a cut going to the cell across it, and the two cells across a surface weighed by their samples. With the
-    key fixed none was needed (the committed grid with only the key: no spot in any run), and all three are out.
-  - **After a flight through the model** (the user's: down through the courtyard to the ground floor, then around the
-    corridors): a glow along the tops of the arcade's walls under the vaults, and the top of a capital bluish white.
-    Neither showed in a fresh capture of the pose; a camera path through the user's poses (`SPEEDO_CAMERA_PATH`)
-    reproduced both, the glow the stronger the more places visited before (a path from its last stop 15.9 of 255, from
-    its first 25.3; the clipmap 15.9 either way). Not the table (4 million cells, none taken back: the same), nor time
-    (3000 frames at the pose: the same). A cell's own mean the same after the path and fresh (6.8e-5, 7.9e-5), its
-    filtered light four times brighter: the filter's taps, along the surface 1, 2 and 4 cells apart, reached the wall's
-    cells over the vault, of the sunlit gallery the camera had passed, which no longer took samples. And the capital's
-    ledge took, in the lookups themselves, the sky's light of cells passed in the courtyard. Both take a cell by how
-    lately it was added to now (`kGiWorldStaleNear`: all of its weight to 64 frames, none from 192; an entry in use
-    traces a ray every frame or two, one no lookup reads every 8): the glow 16.6, the ledge 14.0 (the clipmap 14.2).
-    Open: where both sides of a vault are in view and taking samples, the filter's taps still reach across (a march per
-    tap would tell, at a cost); not seen yet.
-  - **Measuring**: a single run of the walk varies by a quarter of a level (the same shader 1.27, 1.35, 1.13 and 1.52,
-    1.53, 1.23), more than most changes; `SPEEDO_REPEATABLE=1` makes it repeat to a hundredth (`walkp.ps1` and
-    `worldlookup.ps1 -Env`). Repeatable, still and walk: the committed grid 1.35 and 3.44, 1.08, 1.31, 1.06; now 1.35
-    and 3.45, 1.13, 1.37, 1.13; the clipmap 1.46 and 3.47, 1.02, 1.43, 1.59.
-  - Tried, not kept: the samples keyed by the surface the anchor found rather than the voxel's (blotchier, 1.47 and 3.58
-    against 1.43 and 3.51); a level's uncovered share filled from the next coarser and so on (1.47 and 3.58 against
-    1.41 and 3.51); the grid fed only from the finest clip holding an entry (no change to the spots); the reach to the
-    cells' nearest points (the line back: a cell across the foot holds the room's floor and the outside's, its nearest
-    point in the room); voxels the march runs along left out (the line back: corner voxels keep one surface's normal);
-    a cell weighed also by how far its samples lie off the point's plane, along its normal (no change to the glow).
-  - Costs: a cell 37 words rather than 34, a slot 28 rather than 25 (about 177 MB with a million cells); the lookups 8
-    reach marches of a few voxels a level (to measure with interleaved runs).
-  - The regression set (`ab.ps1`, the clipmap against the grid): every scene's mean within 0.74 of 255. The user
-    confirmed the fixes (2026-11-20, committed 572de917).
-- 2026-11-20, **the grid the default, on the user's word** ("I am happy with ... the results of the new GI grid. Lets
-  make SPEEDO_GI_WORLD=1 the default now"): `SPEEDO_GI_WORLD=0` turns it off. The surfaces take its light where its
-  cells cover them and the clipmap's for the rest, as in step 2; the clipmap and its cache stay, as steps 3 to 5 say,
-  until the grid takes their parts. Pushing waits for step 5 still. The validated quick tier passed with it on (122
-  clients).
-- 2026-11-20, **step 3 laid out.** The cache's light reaches the image three ways: the voxels' bounce
-  (`ComputeGiLight` lights each voxel from the volumes, `GiSampleClip`, which the cache's rays then see at their hits
-  through `GiHitLit`); the volumes (the cache filter's last pass blends the entries' filtered light into the probes'
-  resolve); and the entries themselves, which are also the rays' sources (the anchoring, the emitters' samples, the
-  inside counts) and can't go as they are. So in parts, each measured and committed: **3a** the bounce from the grid
-  (`ComputeGiLight` takes the grid's light at the voxel, by the voxel's size, the volumes' for the rest), so the rays'
-  hits see what the surfaces show; **3b** the cache filter's blend into the volumes left out where the grid covers (its
-  time; the volumes keep the probes' light for the air and the near field); **3c** the entries cut to what a ray's source
-  needs (their own means gone: the memory step 3's gate asks for).
-- 2026-11-20, **3a and 3b tried, neither kept; step 4's air before 3b.** Sponza's corridor at 1080p, warm, interleaved,
-  repeatable where measuring the image:
-  - **3a, the bounce from the grid** (`ComputeGiLight` blending `GiWorldBlend` in at the voxel's plane, at its clip's
-    level): the GI pass 2.36 to 2.65 and 2.35 to 2.56 ms, the still image and the walk the same (1.34 and 3.43; 1.18,
-    1.38, 1.11). A cost with nothing to show until the cache's own light goes.
-  - **The cache filter's cost** (`SPEEDO_SKIP_PASSES='GI Cache Filter'`): the GI pass 2.55 to 1.97 ms, the frame 7.07 to
-    6.40. But without it (3a in) the still image 1.36 and 3.89 at 121 pixels (3.43 with it) and the walk 1.61, 1.82,
-    1.42 (1.18, 1.38, 1.11); with the next coarser levels filling what a level doesn't cover, the same (3.88; 1.61,
-    1.81, 1.39). So not the surfaces' lookups: the volumes the filter writes the cache's light into serve what the grid
-    doesn't, the near field's rays that meet nothing within their reach (`GiNearTrace`'s miss reads `GiSampleAt` at a
-    point in the air) first. The filter, and with it the volumes' cache light, can go only once the air's light is the
-    grid's: step 4's air cells come before 3b. 3c waits on 3b.
-- 2026-11-20, **step 4's first role, the near field's misses, tried and not kept: it doesn't pass its gate, and the
-  misses weren't what the cache filter gave.** Sponza's corridor, as above. Air cells (bucket 6: no depth gate across an
-  axis, trilinear; their faces the mean of the radiance by the basis's weights, kept apart in the slot, 6 more words;
-  filtered by nothing but themselves) read by `GiNearTrace`'s misses through `GiWorldBlend`. The patch is in
-  `temp/gi-disocclusion/air-cells-step4-with-3a.patch` (3a's edit with it). What was learned:
-  - **Fed along the surface cache's rays** (a point at random within the near field's reach): the still image's mean 7
-    to 11.3 without the cache filter. The air took the light of the ways out of what the camera sees (the arcade's
-    openings to the sunlit courtyard), little of the ways back in. At a surface's levels the air cells filled the table
-    (1912 cells taken back a frame) and their filter took the fold from 0.5 to 4.5 ms: at 3 levels coarser (about a
-    probe's spacing), filtered by themselves alone.
-  - **Fed from the probes' rays** (they leave a probe evenly over the sphere): one add a ray ran out of slots (the 120
-    rays of a probe come to the same new cell at once, each counting a slot, one claiming it: more than 262144 slots a
-    frame). Summed a probe at a time (one thread of `ComputeGiProbeUpdate` over its rays, one add of all of them) it runs:
-    195771 samples a frame into 62816 slots, against 40329 into 61267.
-  - **The image**: with the cache filter, the mean 6.97 to 7.20 and the blotchiness 1.35 and 3.45 to 1.38 and 3.55, the
-    walk the same (1.15, 1.32, 1.19); the right wall and the floor by it a little brighter, nothing else. At the misses the
-    air cells give 1.28 times the volumes' light (1.20 without the filter), an estimate without the probes' visibility
-    weighting, of a point among the probes of a cell. No reference says which is right.
-  - **The cost**: the frame 6.98 to 7.21 ms, interleaved three times; the near field 0.09 to 0.23 ms (its lookups: two
-    levels of eight cells' finds and their reach marches a miss), the fold and the probes' adds 0.01 each.
-  - **The cache filter's role, corrected**: skipping it brightens the image's mean from 7.0 to 10.2 with the air not read
-    at all, while the misses' light rises 15% (the volumes' alone): the brightening comes through the voxels' bounce
-    (`ComputeGiLight` reads the volumes, which hold the probes' light alone without the filter), which 3a takes from the
-    grid instead (3a without the filter: 7.33). With 3a and the air, without the filter: the still image 1.41 and 4.08
-    (3a alone 1.36 and 3.89), the walk 1.64, 1.82, 1.59 (1.61, 1.82, 1.42). So the misses aren't what the filter's
-    absence degrades either; what is, after the bounce, is open (the lookups' fallback to the volumes during the walk,
-    where new cells' confidence is below 1, is the candidate left).
-- 2026-11-20, **the air stays the clipmap's; step 4 closed, 3b and 3c dropped.** The user's word: volumetric effects
-  (clouds, fog banks) are wanted later. Those sample the light at every point of the air, per froxel: the clipmap's
-  volumes are that already (3D images in the world, trilinear in hardware, the probes' light with their visibility
-  weighting and the cache's light blended in by the filter, read by the fog now through `AerialPerspectiveAmbient`).
-  Air cells would need a visibility of their own and lookups by hand (the near field's 0.14 ms above) to stand in for
-  them. Measured before deciding, Sponza's corridor as above:
-  - **The lookups' fallback isn't the filter's loss either**: with 3a, without the filter, the surfaces taking the grid's
-    light wholly wherever it holds any (no volumes' share by its confidence), the still image 1.35 and 3.88 and the walk
-    1.60, 1.80, 1.43, as with the fallback (with the filter that change alone made the walk 1.22, 1.41, 1.17: the
-    fallback helps). What the frames show: without the filter the settled frames' vault and upper walls are brighter and
-    blotchy and the walking frames darker and smoother. The light bounced through the grid (3a: the voxels lit from
-    cells at their clip's level, the rays' hits lit from the voxels) settles slowly and unevenly, and a walk doesn't
-    catch up with it; through the volumes, filtered over 7 voxels each way, it does.
-  - **The thin things, the grid's surfaces against the clipmap** (`SPEEDO_GI_WORLD` 1 against 0, settled, Vulkan):
-    Bistro's shadowed facade 0.09 of 255 apart, the bathroom's recess from the front 0.72 (the left wall's top a
-    little brighter, 1.4); the probes left out of settled blocks made 10 to 20 and 10 to 27. Passed: the surfaces'
-    lookups beside thin things are the grid's where it covers, and the volumes' (the air voxels', the probes') where not.
-  - So the clipmap's light stays: what moves and the fog keep the probes' (they have them now), the near field's misses
-    and what lets light through the volumes'. The cache filter stays (it puts the cache's light into the volumes the air
-    is read from), and with it the entries' means (3c). Step 5's decision is the grid as the surfaces' light beside the
-    clipmap (its 182 MB in Sponza; the default since 0b7fd5ba), or the clipmap's alone.
-- 2026-11-20, **step 5's measures: the grid's cost and its table's occupancy.** 1080p, Vulkan, warm, the grid on
-  (`SPEEDO_GI_WORLD`) against off, interleaved, two rounds (within 0.1 ms of each other but Bistro by day's clipmap,
-  6.94 and 8.12). The exit report counts the table's occupancy now (a 32nd of its cells a frame, in the fold: the cells
-  held, and those added to within `kGiWorldStaleReach`, which the lookups still take).
-  - **The frame, settled** (1500 frames): the bathroom 3.21 to 4.21 ms (from the front 3.46 to 4.49), Sponza's columns
-    4.30 to 6.44, its corridor 4.31 to 6.55, Bistro 6.94/8.12 to 10.92, at night 7.36 to 10.65, CornellBox 3.40 to
-    3.88. Of Bistro at night's 3.27: the transmissive surfaces' lookups 0.87, the main pass's 0.72, the reflections'
-    hits 0.64, the GI pass (the cache's samples added) 0.58, the fold and filter 0.47; of Sponza's corridor's 2.23: the
-    main pass 0.65, the reflections 0.62, the fold 0.51, the GI pass 0.32; of the bathroom's 1.04: the main pass 0.55,
-    the GI pass 0.20, the fold 0.15. Step 2's 0.83 ms (Sponza's corridor) was before the depth gate, the reach marches
-    and the stale weights, and counted the main pass, the samples and the fold alone.
-  - **The frame, moving**: Sponza flown through the user's six poses into the vault (`tour-vault.txt`, 1601 frames)
-    4.21 to 7.07 ms (the reflections 0.33 to 1.35, the main pass 0.45 to 1.28); Bistro walked 8 cm a frame turning 0.4
-    degrees (1500 frames) 6.97 to 8.97.
-  - **The table** (1048576 cells): settled, 10 to 27% held and 10 to 25% live (the bathroom 11%, CornellBox 10%,
-    Sponza 25%, Bistro 22 to 24%). Moving, Sponza's flight held 79% (6.4 cells taken back a frame) with 23.5% live at
-    the end and 39.6% at most (414751); Bistro's walk 48% held, 22% live, 31% at most. A table of half the cells would
-    have held Sponza's flight's live cells at 79%, its 16 probes taking back live ones: the million stays. The slots:
-    at most 130491 a frame in the flight (of 262144), 128492 in CornellBox settled.
-  - So what shrinking it could take is the filter's second copy of each cell's light (9 words of 37: its passes could
-    alternate in the slots, which the cells filtered a frame have): 36 MB of the 176.
-- 2026-11-20, **step 5 decided: the grid off by default, at the main pass alone when on.** The user's word was to
-  measure what of the lookups' cost could go and turn the grid off if it couldn't come to about 1 ms. Sponza's corridor
-  and Bistro at night settled (1200 frames), serial, each variant warmed, the second round's frames: the grid off 4.38
-  and 7.59 ms; everywhere 6.78 and 10.97; at the main pass alone, the traced rays' hits (the reflections', the
-  refractions' in Main Transmissive) taking the clipmap's light, 6.09 and 9.67; that without the reach marches 5.70 and
-  9.05 (the marches 0.35 ms of the main pass's, and what keeps the cells' light from coming through walls). So at
-  least 1.3 to 1.5 ms: the samples added (0.5 to 0.6) and the fold and filter (0.5) are the same whatever reads the
-  cells. What it buys is the walk at the far pose (1.13 of 255 against the clipmap's 1.59, the still image the same).
-  `SPEEDO_GI_WORLD=1` keeps it, at the main pass alone. The clip levels' disagreement it was begun for goes back to
-  the backlog, to be met in the clipmap (a fade between the levels, which the user passed over for this plan).
-
-- 2026-11-24, **what a frame adds is a budget, and the switch is the user's** (the user: "fix the world cache cold
-  start crash", then "Lets add a UI option to select either the world grid or the clipmap. make sure that selecting
-  one also mean to clear any data structure of the other that are not in use").
-  - *The stops.* `SPEEDO_GI_WORLD=1` stopped Sponza three seconds after its load: "458954 of the world cache's samples
-    found no slot: more than its 262144 slots' cells a frame". A cold surface cache traces every block as read for its
-    first 96 updates (the review plan's step 5, 2026-11-23), and every voxel's rays added to the grid. The blocks no
-    lookup read add as they did before that again, a ray every 8 updates (`GiCacheUpdate`'s looked). That wasn't all
-    of it: the glTF research set's veach-bidir, most of whose cells are in view at every level, takes 415 thousand
-    cells' slots a frame settled, and 16 rays a voxel (the warm up's, where the user asks for them) put 4096 samples
-    in a coarsest cell's sums a frame, the other hard stop. Neither is a capacity content should fail on, with a
-    switch in the menu: a cell takes a clip's samples every n-th of the clip's updates, by its place
-    (`GiData::worldStride`: 1, and doubled where a frame's cells take more than seven eighths of the slots, halved
-    under three eighths, at most 64; by the clip's updates, not the frames, by which half the cells' turns never came
-    where a settled clip updates every other frame), and a level whose cells would take more than 1024 of a voxel's
-    samples a frame takes that share of them at random (`kGiWorldCellSampleCount`). A frame that runs out all the same
-    leaves the samples past it out, counted (the timings' line of the world cache: "without a slot", "past a cell's 4096").
-    After it, 600 frames from a cold start at 1080p: Sponza 84 thousand cells' slots a frame (at most 131 thousand),
-    Bistro 58 (117), the kitchen 68 (189), a walk through Sponza 39 (132), none without a slot; 64 rays a voxel in
-    Sponza, 1.6 million samples a frame, none past a cell's sums; veach-bidir at every other update, 1500 samples a
-    frame without a slot over its first 1500 frames (those of its start, before the turns); veach-bidir at resolution 256, which wants 5.9
-    million cells' slots in its first frames and more cells than the table's million, at every eighth update and
-    166 thousand samples a frame left out: it needs more cells (`SPEEDO_GI_WORLD_CELLS`), and runs.
-  - *The switch.* View > Rendering Features > Global Illumination... > Light Store: Clipmap (the default) or World Grid
-    (`Scene::Settings::giWorldGrid`, `FrameInputs::giWorldGrid`; `SPEEDO_GI_WORLD=1` is the scene variable of it now,
-    and Copy Scene writes it). The grid's cells and slots (176 MB) and its passes are there only while it is chosen:
-    switched every 150 frames in a run, validated, on Vulkan and D3D12, the storage comes and goes and the clipmap's
-    frames are the clipmap's again (0.44 to 0.54 of 255 from the run's last). Nothing of the clipmap's is given up
-    under the grid, and nothing can be yet: its rays are what fill the grid, and its voxels light what moves, the
-    air, what a traced ray meets and whatever the grid has no cell for (steps 4 and 5).
-  - *Seen on the way, not looked into*: Sponza's columns 100 frames after a switch to the grid are 16.1 of 255 where the
-    clipmap's are 11.3 (12.9 after 600 frames from a cold start): the coarse cells' start, see the next entry.
-
-- 2026-11-24, **the grid brought nearer the clipmap's look and settling** (the user, having tried the selector: "The
-  grid was worked on before many of the latest improvements in the GI code ... it does look rougher in many places as
-  you say, and that it settles slower than the clipmap currently, but that it still is more spatially stable in Sponza
-  than the plain clipmap. Give it some love and attention, and try and get it closer to the current visual and settling
-  behaviour that the clipmap has"). Measured with `temp/research-issues/worldcheck.ps1` (lit, 1080p, the grid or the
-  clipmap from a cold start: frames 60, 120, 240 and 480 against the run's frame 1800, the mean |difference| of 255
-  and `blobs.ps1`'s blotchiness in hundredths of a stop; and the grid's frame 1800 against the clipmap's) and the
-  corridor walk (`walkp.ps1`, moving against settled at its three poses). Pictures: `temp/review/research-issues/s14-*`.
-  - *Where it was*: Sponza's columns 5.52/23.7, 4.71/21.6, 3.40/18.3 and 1.94/14.4 at the four frames where the
-    clipmap is 1.41/16.2, 0.95/13.5, 0.75/11.1 and 0.60/10.1; the research set's kitchen 4.78, 3.32, 2.17, 1.44 (the
-    clipmap 4.52, 2.79, 1.67, 0.90), veach-bidir 2.94, 3.24, 2.11, 1.58 (1.10, 0.79, 0.58, 0.44), living-room 4.42,
-    3.16, 2.44, 1.55 (2.64, 1.66, 0.98, 0.62). Settled against the clipmap's: 1.47, 2.14, 1.05 and 5.11 of 255. The
-    walk 1.04, 1.22 and 1.00 (the clipmap 0.89, 1.06, 0.87).
-  - *A cell's window is a time* (`ComputeGiWorldFold`: `GiData::worldWindow` updates' samples, of as many as the
-    update brought; half the frames since the grid started, from 8). It was a count of samples, half the frames since
-    the start as well, whatever a cell takes a frame: a coarse cell, which takes hundreds, was the mean of its last
-    frame or two for most of a minute, and a fine one's, under the warm up's 4 rays a voxel, of its last eighth. With
-    it alone: Sponza 2.57/18.9, 1.94/16.8, 1.28/13.3, 1.45/13.4; the kitchen 4.30 to 1.08; veach-bidir 1.18 to 0.54;
-    living-room 3.05 to 1.00; settled against the clipmap's 1.32, 2.06, 0.79 and 4.95; the walk 1.08, 1.12, 0.94.
-  - *The lookups' cells are the clipmap's voxels' size at the point* (`GiWorldClipLevel`: each clip's level by its
-    weight, as the clipmap's lookups take the clips), not a twentieth of the distance from the eye. A clip's center is
-    ahead of the eye, so its voxels light up to about 48 of them ahead, and the last clip holds the whole scene at one
-    size: the grid's cells were 2 to 4 times the clipmap's voxels, and coarser yet with distance in a small scene. A
-    cell holds every surface of its bucket in its footprint: living-room's wall beside its shutters took the shutters'
-    light half a metre along, with a white patch over the far window's corner (the user, of the first pictures: "There
-    is a pretty big white splotch", and "it could be one of those corner cases we have been chasing earlier": it is of
-    that family, a lookup taking light gathered at another surface; the clipmap's lookups have those chases' tests of
-    its voxels, the grid's have its cells' size and a march through the voxels), its reveals came out in teeth,
-    Sponza's arcade's floor took the sky's band's, and the grid began brighter than it settles (Sponza's frames' mean
-    13.4 of 255 at frame 60, 12.3 at 480, 11.7 settled, the clipmap 11.1 to 11.2 throughout: a coarse cell's samples
-    are of wherever the cache traces, everywhere while it is cold, then what is in view). On the way: a fortieth of
-    the distance (settled against the clipmap's 0.93, 1.59, 0.79, 2.33; the patch smaller, still there), a 28th
-    (1.09, 1.78, 0.79, 3.41), a fortieth no coarser than the clips' levels (0.89, 1.36, 0.85, 1.57: the same as the
-    clips' levels alone, 0.90, 1.35, 0.85, 1.57, so the distance went).
-  - *A ray that starts on a surface facing another way than its voxel isn't added* (`GiCacheUpdate`'s startNormal,
-    `kGiAnchorFacing`), and a sample is kept by the facing of the surface it starts on. With the cells the voxels'
-    size, living-room's far window's jamb showed light and dark notches a cell long: a voxel that stands for one face
-    and whose anchors land on the next, past its edge, added that face's light under its own facing. Added under the
-    facing of where they start instead, the notches went and the kitchen's settled frame was 2.16 of 255 from the
-    clipmap's for 1.35 (Sponza 1.05 for 0.90): those rays are drawn for the voxel's facing, few of them the way the
-    other face looks. Left out: the jamb clean, the kitchen 1.36.
-  - *Where it is now*: Sponza 2.47/21.6, 1.92/18.8, 1.43/16.0, 1.08/13.8; the kitchen 4.26, 2.71, 1.73, 1.06;
-    veach-bidir 2.56, 1.89, 1.46, 0.99; living-room 3.33, 2.27, 1.56, 1.11. Settled against the clipmap's: 0.91,
-    1.36, 0.86 and 1.58 of 255 (1.47, 2.14, 1.05 and 5.11 before). The walk 1.10, 1.29 and 1.18.
-  - *What it cost, and what is still unlike the clipmap*: a cell the size of a voxel holds a voxel's samples without
-    the surface cache's filter over 7 voxels each way, so the first seconds are blotchier than the clipmap's
-    everywhere, and blotchier than the coarse cells' were where those did no harm (veach-bidir, a plain room: 1.18 to
-    0.54 with the window alone, 2.56 to 0.99 now); and the walk's moving frames are further from the settled ones'
-    than before at the last pose (1.18 for 1.00; the clipmap ahead of both by this measure). The next thing is a
-    filter that can be as wide as the cache's:
-  - *Tried, not kept: the surface cache's edge test in the cells' filter* (`GiData::cacheSigma` deviations of the
-    noise of 64 samples at most, toward the mean square for few: where the cells' test, 2 deviations of the noise of
-    all a cell's samples, takes no neighbour once a cell is settled). At a twentieth of the distance: smoother while
-    settling (Sponza 2.29/14.8 to 1.01/9.2, veach-bidir 0.81 to 0.27, under the clipmap's) and wrong settled, the
-    arcade's floor and vaults taking the courtyard's sky: 9.15, 4.90, 4.29 and 7.80 of 255 from the clipmap's. With
-    the noise following the passes (the weights' sum squared over the sum of each's square over its samples), 7.14,
-    3.89, 3.28, 6.85. In two passes that read no result of an earlier frame (the three passes take turns in two sets of
-    faces, so a pass reads, of the cells the frame didn't add to, what the last pass left there: filtered light
-    filtered again, frame after frame), 4.05, 3.07, 1.33, 6.18, and at a fortieth 1.69, 1.88, 1.33, 2.80 where the
-    cells' own test gave 0.93, 1.59, 0.79, 2.33; the walk no better (1.07, 1.32, 1.31). The cache's filter has what
-    the cells' has not: each tap tested for what is between (`GiCacheFilterBlocked`), the surfaces' planes and
-    facings, the far sides. A wider test needs those first (and a third set of faces, or two passes).
-  - *Tried, not kept*: a new cell seeded with its parent's light as 16 samples rather than 64 (the same to the
-    hundredth, the walk 1.07, 1.17, 0.93); the squares' sums in finer steps (256 of the fixed point's units squared
-    for 1048576, the light clamped at 16 times white): both filters then did nothing at all (the same frames to 0.22
-    of 255 with either test, rougher than before), which says the coarse steps weren't the reason for the mottle (why
-    the finer ones leave the test nothing wasn't looked into: the samples' light above that clamp, most likely); put
-    back.
-  - *Checked*: the validated quick tier 140 of 140 on Vulkan and D3D12 and the visual checks 8 of 8; with the grid on
-    (`SPEEDO_GI_WORLD=1`), validated, Sponza, CornellBox, the test models (split screen and without ray queries among
-    them) and the research set's cornell-box on both: 54 of 54.
-
-## Step 1's design, before it is built
-
-- **Many rays add to a cell at once** (every coarse level's cell takes samples from many voxels' rays in a frame), so
-  a cell's mean can't be updated in place as an entry's is by the one thread that owns it. Each frame's samples go into
-  fixed point sums by 32 bit atomic adds (every backend has them; NVIDIA's SHaRC sums its radiance so), rounded at
-  random from the value's bits before the add (a sum rounded toward zero, or to the nearest by a float compare the
-  compiler folds, is biased: the half rounding of the cache's faces climbed without end, see the notes), then a pass
-  over the cells touched that frame folds each sum into the running mean (its window, as the cache's: up to
-  `SPEEDO_GI_CACHE_SAMPLES` samples).
-- **The sums aren't kept per cell** (19 words more a cell, 2^21 cells: 150 MB more): a cell touched in a frame takes a
-  slot of the frame's sums (its index in the cell, tagged with the frame, set by compare and exchange), from a buffer
-  sized by the most cells the frame's rays can touch (the cache's rays a frame times the levels): a capacity, failing
-  hard where it runs out, as the others do.
-- **Per ray**: a cell at each level found or inserted (a hash, a probe of up to 8 slots), and 9 atomic adds and a count
-  in each (the three faces a direction lights, in rgb): 50 atomics a ray at 5 levels, a few million a frame. Its cost
-  is step 1's gate, beside the table's memory.
+Decided: the grid is off by default and selectable, and on it serves the main pass alone. What would still change that is the lookups' and fill's cost coming down. What stays either way: the voxels where rays walk them (`SPEEDO_GI_TRACE=voxels`, a model without a BVH), which find no surface to anchor at.

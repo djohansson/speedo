@@ -1,1663 +1,183 @@
 # Rendering
 
-A note of CLAUDE.md (its index names each): the frame graph, the camera, upscaling, culling, shadows, the traced effects, the visibility buffer and the lights' clusters.
+How the renderer draws a frame, in the order a frame uses its parts. A frame graph orders the passes, which declare what they read and write, and places the barriers. Each view is uploaded per frame, with reversed depth. Geometry is culled in chunks against each view's frustum and drawn in a pre-pass, and opaque surfaces are shaded from a visibility buffer, each pixel looping over the lights of its cluster. Punctual lights cast shadows from one shadow map atlas, refined by traced shadows where the atlas is unsure. Scattering and transmissive materials, then glass and glossy surfaces, which trace reflections and refractions with hardware ray queries or gfx's own BVHs, follow. Optional temporal upscaling and a physical camera finish the picture, and debug views, statistics and gpu timings are last. The code is in `src/gfx` (`gfx/renderer.h`, `gfx/scene.h`) and the shaders in `src/gfx/shaders` (slang, sharing `capi.h` with the C++). The sky, the indirect lighting and the importers have their own notes; environment variables are in docs/environment-variables.md.
 
+## Contents
+
+- [The frame graph: passes declare, the graph synchronizes](#the-frame-graph-passes-declare-the-graph-synchronizes)
+- [Views: uploaded per frame](#views-uploaded-per-frame)
+- [Depth: reversed](#depth-reversed)
+- [Culling: chunks, and frustums per view](#culling-chunks-and-frustums-per-view)
+- [The pre-pass](#the-pre-pass)
+- [The visibility buffer](#the-visibility-buffer)
+  - [Tiers](#tiers)
+- [Clustered lighting](#clustered-lighting)
+- [Shadows](#shadows)
+  - [Caustics](#caustics)
+  - [The emitters' caustics](#the-emitters-caustics)
+- [Ray traced shadows](#ray-traced-shadows)
+  - [The traced shadows](#the-traced-shadows)
+- [Scattering and transmission](#scattering-and-transmission)
+- [Traced reflections and refractions](#traced-reflections-and-refractions)
+  - [Ray queries or the BVHs, and the budgets](#ray-queries-or-the-bvhs-and-the-budgets)
+  - [Fragment and glossy rays](#fragment-and-glossy-rays)
+  - [Hardware or software, switched while running](#hardware-or-software-switched-while-running)
+  - [The Ray Tracing window](#the-ray-tracing-window)
+- [Temporal upscaling](#temporal-upscaling)
+- [The physical camera](#the-physical-camera)
+- [Debug views and the Statistics window](#debug-views-and-the-statistics-window)
+- [GPU timings and shader tiers](#gpu-timings-and-shader-tiers)
 ## The frame graph: passes declare, the graph synchronizes
 
-A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
-once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving, GI Seen and GI before Main with indirect lighting, after the Prepass, whose depth GI Seen reads), OIT clear, Shadows, Shadow Transmittance (with transmissive materials; Caustics Clear and Caustics where it redraws views and the device has ray queries), Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter New, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility Clear, Main Visibility Classify and Main Visibility (the visibility buffer), Reflection Trace, Reflection X and Y and Reflection Temporal (the traced glossy reflections), Main,
-Transmission and Transmission Mips, Main Transmissive, Glass History, Depth Save, Aerial Perspective (the sky's air, see "The sky"), Exposure Clear, ComputeMain (or, with temporal upscaling or a lens, Composite,
-the Upscale passes, Lens (the camera's lens, see "The physical camera") and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
+A frame is recorded by `gfx::Renderer` as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes added once in the order they run, each declaring what it does with which resource (`ResourceUse`: layout, stages, accesses) and an execute callback recording only its own commands. Never add barriers or transitions in a callback for what a pass declared; declare the use. In order, many only when their feature is on: the culling passes, OIT Clear, Shadows and their transmittance, caustics, Scatter, Prepass, the indirect lighting's GI passes, Depth Pyramid and the late cull, the traced shadow passes, the emitters' passes, Sky Eye View, Aerial Perspective, Main Visibility, the Reflection passes, Main, Transmission, Main Transmissive, Glass History, Depth Save, ComputeMain (or, with upscaling or a lens, Composite, the Upscale passes, the depth of field, motion blur, lens and glare passes and Sharpen), UI Blur, UI, Present.
 
-Where a scene's frames go is a `gfx::RenderOutput` (`gfx/renderoutput.h`), which the scene and its renderer are given
-rather than branching on: its extent, image count and per image storage views (ComputeMain's output, bound up front),
-the target a frame is drawn into, `Prepare` after it is (re)created, and the passes that end a frame
-(`AddFinalPasses`, which see the frame being recorded through `RecordingFrame`). `SwapchainOutput` is a window's
-swapchain (looked up each time, since the rhi recreates it): the UI Uploads, UI and Present passes end its frames, and
-`Prepare` sets its frames' load and store ops. `ImageOutput` is an image (RGBA8 unorm, storage, sampled and color
-attachment, srgb encoded as the swapchain's) with a `RenderImageSet` over it, one for every frame (frames are
-serial on the graphics queue): an Output pass leaves it in `kShaderReadOnly` for the UI to sample (`GetView()`), as
-`Prepare` does before its first frame; its owner recreates it (`Resize(extent)`) and then has the scene resize. The
-output's owner keeps it alive longer than the scene. The UI shows a GPU image it doesn't own through
-`ImGuiRenderer::AddTexture(view)` (an `ImTextureID` for `ImGui::Image`, a slot of the renderer's texture array; the view
-must be in `kShaderReadOnly` whenever a frame drawing it runs, as an `ImageOutput`'s is) and `RemoveTexture(id)`, both on
-the ui thread: the slot is released as imgui's own textures' are, once the draw thread has drawn a ui frame published
-after the removal and the gpu is done with it.
+Where frames go is a `gfx::RenderOutput` (`gfx/renderoutput.h`) that the scene and renderer are given rather than branching on: `SwapchainOutput` is a window's swapchain, `ImageOutput` an RGBA8 image left in `kShaderReadOnly` for the ui to sample (`ImGuiRenderer::AddTexture`/`RemoveTexture`, on the ui thread). The ui's panels are translucent and blurred: `ImGuiLayer::EndFrame` collects their rectangles (`UiBlurRect`), `ComputeMain` copies the color near a panel to a transient (the swapchain image isn't sampleable), and the UI Blur passes write a gaussian blur back inside each panel before the UI pass. Menu shortcuts are checked in `PrepareDraw` with `ImGui::Shortcut(..., ImGuiInputFlags_RouteGlobal)`; a `MenuItem`'s shortcut is only a label.
 
-The ui's frosted panels, as macOS's: every top level window shown with a background (the main menu bar's, the dialogs
-such as the file browser and Lights, menus, popups, tooltips; not child windows, which are inside theirs, nor windows
-without a background, which would show the blur alone; a collapsed one by its title bar) is translucent (`WindowBg`,
-`TitleBg*`, `MenuBarBg` and `PopupBg` with alpha) and rounded, over its backdrop blurred, with the controls in a macOS
-dark palette: faint white buttons, fields and scrollbars, macOS's blue for what is hovered, open, selected or pressed,
-rounded frames (all `ImGuiLayer`'s style). `ImGuiLayer::EndFrame` collects their windows' rectangles and corners (in
-framebuffer pixels: `ImGuiPanel`) with the frame's draw data, so a panel and its blur are of the same ui frame; `Draw`
-takes the frame (`TakeFrame`) before recording and hands them to the scene as `UiBlurRect`s (`FrameTarget::uiBlurRects`). `ComputeMain`
-also writes its finished linear color within the blur's reach of a panel to a transient
-(`SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE`), and the UI Blur X and Y passes (`uiblur.slang`: a 24 pixel gaussian in 25 reads
-per pass, the taps paired into one linear filtered read between each two, at the offset weighing them as the gaussian
-does, then a little more saturation, as macOS's vibrancy; the same image as 49 reads, to 3 in 255) write it back over
-the output inside each panel's rounded rectangle, antialiased (the most coverage of any panel, so overlapping panels
-write the same), before the UI pass. Each pass is one dispatch of a thread per pixel of the panels in turn
-(`UiBlurRect::firstThreadX`/`Y`, filled in by the renderer; X's over the blur's reach above and below each too). The
-swapchain images aren't sampled images, and reading them as storage images needs `shaderStorageImageReadWithoutFormat`,
-hence the copy. `BeginMainMenuBar`'s window draws its own `WindowBg` (85% opaque in the classic style) under the bar:
-the ui clears it. ImGui draws menu items' highlights square (macOS's are rounded and inset), and what the ui draws
-itself behind the windows (the light gizmos, a background draw list) shows through them sharp, not blurred. A full
-window of blur (the browser, 2400 by 1600 pixels) cost no measurable frame time (3000 frames of Bistro unthrottled, 4.38
-s either way). `SPEEDO_OPEN_MENUS=View/Presentation` holds menus open, for screenshots.
-
-The ui fades out when it isn't in use (`PrepareDraw`): a second after the mouse leaves the menu bar with no other window,
-menu, popup or tooltip up, over half a second, and back in over 0.15 s when the mouse is over the menu bar or one comes
-up (a shortcut's, a load's choice). `ImGuiLayer::Fade(opacity)` fades the windows begun after it, by imgui's style alpha
-(its colors are multiplied by it as they are drawn), and their frosted backdrops (`UiBlurRect::opacity` scales the
-blur's coverage); the ones begun before keep theirs, so the client draws what stays first: the loading bars, the FPS and
-TPS overlay and the move speed. Which windows are whose comes from imgui's begin order (`BeginOrderWithinContext`
-against the active window count when `Fade` ran), not their names. `ShowedFadingWindows` says whether the last frame had
-a faded window other than the main menu bar, which keeps the ui up; it counts hidden windows too, since imgui hides a
-window begun at a style alpha of 0 (a browser opened by its shortcut once the ui had faded out stayed open, invisible,
-and the next press closed it). Faded windows still take input: the invisible menu bar is under the mouse when it fades
-back in.
-
-The menus' shortcuts (Ctrl, cmd on macOS: Open, Open Environment, Exit, the layouts) are checked in `PrepareDraw` with
-`ImGui::Shortcut(..., ImGuiInputFlags_RouteGlobal)`: a `MenuItem`'s shortcut is only a label. Escape closes the focused
-window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s default route is the focused window's).
-
-- **Barriers come from tracked state, at run time.** `Execute` keeps each resource's last write and the reads since (across
-  frames too, which are serial on the graphics queue), and before each pass emits one batched memory barrier for the
-  hazards and an `Image::Transition`/`IRenderTarget::Transition` per layout change (whose masks come from the layouts).
-  So a disabled pass (`SetEnabled`: the transmission passes without transmissive materials) changes nothing else.
-  Layouts are the image's own tracked ones: a callback may leave an image elsewhere (`GenerateMips` leaves
-  `kShaderReadOnly`), and the next transition starts from there.
-- **Transients** (`CreateImage`/`CreateBuffer`: the main color and depth, the transmission texture, the OIT lists) are
-  created by `Compile` for the frame's extent (again on resize, with the gpu idle) with the usages their uses imply,
-  and placed in `rhi::MemoryBlock`s (images and buffers apart, per memory type set), largest first at the lowest offset
-  overlapping no placed transient whose pass lifetime overlaps (`Image`/`Buffer`'s placing constructors,
-  `vmaCreateAliasing*2`; requirements from a temporary resource, since Vulkan 1.2 has no desc query). Their contents
-  don't outlive the frame: the first use in a frame must write them (`Compile` checks: no read, no `kLoad`), and is
-  preceded by `Image::Discard` and a barrier from whatever last used the same bytes, but a persistent one's
-  (`ImageDesc::persistent`: the shadow atlas, whose tiles are kept from frame to frame), which is placed where no other
-  transient's bytes are and keeps what the last frame left, once a frame has used it after `Compile` made it
-  (`IsPersistentValid`). Views exist for sampled or storage transients only. The Statistics window shows the bytes,
-  aliased and not.
-- **Imported** resources (the swapchain, the exposure histograms) are bound each frame (`Bind`); passes writing them are
-  never culled (others: only if something needed reads what they write, or `SideEffects`).
-- **Depth stencil formats** attach both: `RenderTarget`'s dynamic rendering took a combined format's depth branch
-  alone, so the stencil was never attached and what draws wrote to it went nowhere (found by the depth reprojection,
-  whose stencil read garbage). The stencil's load and store ops are the depth's (the frame graph sets both).
-- **Raster passes** declare attachments (`ColorAttachment`/`DepthAttachment` with load and store ops): all transients
-  (the graph makes a `RenderImageSet` over the shared images, one per attachment list) or all of one bound render target
-  (the swapchain). The graph sets the ops, begins it (inline or secondary contents) around the callback and ends it.
-  `RenderImageSet` shares its images (`std::shared_ptr<Image>`), rather than owning them. One render target now serves consecutive
-  frames (there used to be one per frame index), so nothing it holds may be recreated while earlier frames' command
-  buffers reference it: `InternalUpdateAttachments` recreated the depth view on every transition (it compared the
-  aspect before reducing depth and stencil to depth), and KosmicKrisp crashed resetting the command pool (an
-  `objc_release` of the freed view, at random in debug). Each pass is a gpu scope of its own (see "GPU timings"):
-  don't add a `GPU_SCOPE` in a pass's callback.
-- **Draws** are data: `BuildDrawList` turns the model into `DrawItem`s for a main pass phase (pipeline variant, cull mode,
-  front face, material slot, instance range, skin and morph bases), and `RecordDrawList` records them for a view, which
-  the main pass does per view in the queue pool's secondary command buffers. A draw's per draw values are a `DrawRecord`
-  (material, first instance, skin and morph bases) in the frame's `gDrawRecords[frame]` (host visible, per frame index),
-  written in `Renderer::Record` once the frame's lists are built (`WriteDrawRecords`, which sets each item's `record`).
-  The buffer starts at `SHADER_TYPES_DRAW_RECORD_COUNT` and grows to the next power of two that holds a frame's draws
-  (NodePerformanceTest's two encodings side by side have 40000), the old one kept until the frames in flight, whose
-  descriptor sets name it, are done (`myRetiredBuffers`). Each draw names its record by its first instance, which the
-  vertex stage reads as `SV_StartInstanceLocation` (shader draw parameters, `VkPhysicalDeviceShaderDrawParametersFeatures`;
-  `SV_InstanceID` doesn't count it), and the vertex stage hands the material on (`VertexOutput::materialId`, flat); the
-  push constants only say the view (`viewId`). Each run of draws with the same pipeline and state is one
-  `DrawIndexedIndirect` of their commands, which the frame index's `DrawStream` hands out in recording order from chunks of
-  `kChunkCommandCount` host visible commands, made as a frame needs them, so there is no limit to what a frame records
-  (`SPEEDO_INDIRECT_DRAWS=0` records direct draws instead). A slot table (slot to record, read at `SV_DrawIndex`) came
-  first, but a frame's recorded draws are only known once recorded, so it couldn't grow, and the shadow views multiply
-  them. Renders are the same either way. On KosmicKrisp, measured on Bistro: multi-draw indirect costs nothing over
-  direct draws (Shadows 4.18 to 4.03 ms looking down a street, 3.22 to 3.12 framed), `DrawIndexedIndirectCount` (the
-  count read from a buffer) about 0.8 us per draw more (Shadows 4.03 to 4.53 ms: its four cascades' 600 draws), and a
-  draw of no instances in a plain indirect draw about 0.2 us: Metal has no draw count indirect, which KosmicKrisp
-  emulates. Elsewhere (desktop Vulkan, D3D12) the count is read natively, so the gpu culling (TODO.md) compacts the
-  draws it keeps and counts them, the general method, and KosmicKrisp's cost is known rather than designed around.
-  Renders came out the same as with push constants, but for one byte of ScatteringSkull's (by 2 of 255, in every run).
-- **The gpu's culling** (wherever the draws are indirect; `SPEEDO_GPU_CULLING=0` hands it to the cpu, `SPEEDO_CULLING=0`
-  turns culling off on either path). Each list's items are cut into runs of the same pipeline variant, cull mode and front face
-  (`PlanDrawRuns`, at most `maxDrawIndirectCount` each; a specialized variant whose pipeline isn't made yet draws its run
-  with the generic one). `InternalPlanCulling` writes the candidates (`CullCandidate`: bounds, cullable, record, the
-  command's values, its run and the run's first item), a job per list and view drawing it (`CullJob`: the main pass's
-  phases and the scatter lists by the main views, the shadow list by the shadow views) and the views' planes (`CullView`).
-  The Cull Clear pass empties the counts, the Cull pass (`ComputeCull`, `cull.slang`, compute entry point 5) runs a
-  thread per candidate and job: one in view takes the next place of its run (`InterlockedAdd`) and writes its command
-  there, and the drawing passes (which declare `ResourceUse::Indirect()` on the commands and counts) draw each run with
-  one `DrawIndexedIndirectCount` (`RecordCulledDrawList`). The candidates, commands and counts grow as the records do
-  (`GrowingBuffers`). The order of a run's draws is the order threads got their places, which only shows between
-  coplanar opaque surfaces; renders came out identical to the cpu's (seven models, ScatteringSkull and DragonAttenuation
-  among them); the debug quick tier passes with it, under validation. Where the count is emulated
-  (`DeviceLimits::drawIndirectCountEmulated`, rhi's: KosmicKrisp, by its driver id), or missing, nothing is compacted
-  or counted (below), since there a count costs: `kk_CmdDrawIndexedIndirectCount2KHR` (mesa's `kk_cmd_draw.c`) runs a compute kernel per call that zeroes the
-  commands past the count (`kk_predicate_draws`: in a render pass, a Metal encoder split, about 55 us with the shadow
-  atlas) and then draws every one of `maxDrawCount`. ThousandsOfLights' 256 shadow views, a call each: Shadows 1.0 ms to
-  15.1; Bistro's Main 4.03 to 4.31 framed. Mesa main of 2026-10-19 (44fd0fde) still does that, with a TODO to build Metal
-  indirect command buffers on the gpu instead: once it does, measure again and drop the exception. Uncompacted
-  (`CullJob::compact` 0, `CulledDraws::counted`), every draw keeps its place, of no instances if culled, and each run is
-  a plain `DrawIndexedIndirect`: on KosmicKrisp that costs nothing measurable (ThousandsOfLights' 256 shadow views and
-  Bistro's, the cpu's culling against it: the same Shadows time to 0.02 ms), so every list is culled on the gpu there too
-  (the shadow and scatter lists stayed the cpu's for a while). By the frustum alone the gpu culling saves no gpu time
-  anywhere (the cpu's draws are the same ones): it saves the cpu's recording, and occlusion (below) is where it pays.
-- **Occlusion culling** (two phase, `SPEEDO_OCCLUSION_CULLING=0` turns it off; where there is a count, emulated or not,
-  and culling is on): the main pass's opaque list is culled on the gpu in two jobs per view. The Cull pass's
-  (`CULL_JOB_EARLY`) keeps the draws seen last frame (`gCullVisibility`, a word per draw and main view, one buffer kept
-  from frame to frame: the main list comes first, so its place holds while its draws and the views do; it grows, which
-  loses it once), and the Prepass draws them (see "The pre-pass", below: it took this role from Main, which shades over
-  its depth, the early draws in Main and the late in Main Late). The Depth Pyramid pass (`ComputeDepthPyramid`, compute entry point 6) reduces the
-  main depth (`SHADER_TYPES_MAIN_DEPTH_TEXTURE`) into an `R32Sfloat` mip chain of the farthest depth, half its size at
-  level 0 (`FrameGraph::ImageDesc::downscale`), each texel the farthest of 3x3 below so odd sizes are covered, a dispatch
-  per level with barriers between, written and read as storage images of a format (`gDepthPyramid`, binding 1 of the rw
-  textures' set: reading without one needs `shaderStorageImageReadWithoutFormat`, which KosmicKrisp lacks). Cull Late
-  (`CULL_JOB_LATE`) tests every draw in view against it (`CullOccluded`: the box's corners projected into the view's
-  viewport, its nearest depth against the farthest of the at most 2x2 texels of the level where its rectangle spans two;
-  a box reaching behind the eye is never hidden), keeps the ones it doesn't hide that weren't drawn first, and writes
-  each one's visibility for the next frame; Prepass Late draws them, loading the attachments (and Main Late shades
-  them). Blended draws
-  (`CullCandidate::late`) are only ever drawn late, after every opaque draw (the transparency's lists depth test when
-  written), and the transmissive phase's list is tested against the pyramid alone (`CULL_JOB_PYRAMID`). Renders are identical with and without (eight models, BlendInstances among them),
-  and with a still camera Main Late draws nothing. Measured on KosmicKrisp by the frame's gpu time (the `Frame` scope,
-  see "GPU timings"), off to on: Sponza 5.34 to 4.83 ms (Main 3.78 to 1.78), Bistro 7.67 to 7.94 framed, 8.58 to 9.05
-  and 11.67 to 11.79 in its streets, ThousandsOfLights 9.78 to 10.26. Where little is hidden it costs: the second render
-  pass loads and stores the main color and depth (a tile based gpu's cost; a desktop gpu's is lower), the pyramid takes
-  0.14 ms (0.28 from a full size level 0), and the cull passes. It is the general method, so it stays on.
-- **The shadow views' occlusion** (`SPEEDO_SHADOW_OCCLUSION_CULLING=1`; off by default): the same two phases in each
-  light's view, before Scatter and Main sample the atlas. Shadows draws the casters each shadow view saw last frame
-  (`CULL_JOB_EARLY`, the visibility after the main views'), the Shadow Depth Pyramid pass reduces the atlas
-  (`gShadowDepthPyramid`, half its size at level 0, `PushConstants::depthPyramidSource` 2), Cull Shadows Late tests the
-  rest against it and Shadows Late draws them, loading the atlas. One pyramid serves every tile: tiles are power of two
-  squares aligned to their size (`shadows::Plan`, checked), and a view reads no level coarser than its tile is a texel of
-  (`CullView::maxLevel`; `CullView::pyramid` says which pyramid). The cull jobs are bounded by design (`kCullJobCount`:
-  the main lists' per main view, the shadow list's early and late per shadow view); ThousandsOfLights' 256 shadow views
-  overflowed it before it counted both. Renders are identical with and without, and to the cpu's culling. It is off
-  because it hides almost nothing at the chunks' size: a shadow view sees few chunks behind others (Bistro 6 to 11 of
-  560 to 800 draws, ThousandsOfLights and ManyLights none), while the atlas's second render pass and its pyramid cost
-  0.5 to 1 ms a frame on KosmicKrisp (Bistro framed 8.2 to 9.1 ms, Sponza 4.8 to 5.1). Smaller chunks for shadows, or a
-  pyramid of the tiles that are drawn only, might change that.
-- **Occlusion modes** (`SPEEDO_OCCLUSION_MODE`): `two-phase` (the default, above), `reprojected` and `hybrid`, which take
-  the last frame's depth instead of drawing first what it saw. Each frame saves its depth of what doesn't move (Depth
-  Save, `ComputeDepthSave`, compute entry point 7, into `gPreviousDepth`, a float per pixel kept from frame to frame and
-  remade on resizes): what moves is at the far plane, since its depth is last frame's place, marked in the main depth's
-  stencil (`CommandEncoder::SetStencilReference`, dynamic: 1 for draws that aren't cullable, written by every pipeline
-  that writes depth; `gMainStencil` reads it). The next frame pushes each saved pixel to where its point is seen now
-  (Depth Reproject, `ComputeDepthReproject`, entry point 8: the view's last inverse view projection, then the current
-  view projection; `CullView::previous*`), the nearest landing on a pixel kept (`InterlockedMax` of the float's bits, the depth being reversed, into
-  `gReprojectedDepth`, a transient cleared to the far plane, 0), and builds the pyramid from it (Depth Pyramid Reprojected,
-  `PushConstants::depthPyramidSource`). Every point pushed is on a surface that doesn't move, so it is no nearer than
-  what the pixel sees now; pixels nothing lands on (revealed, or the gaps when coming closer) hide nothing; rounding is
-  made up for by a bias farther and the pyramid's 3x3. `reprojected` culls once (Cull Reprojected, `CULL_JOB_PYRAMID`)
-  and draws once: no Main Late, no second render pass. `hybrid` draws first what the reprojected depth doesn't hide
-  (`CULL_JOB_HYBRID_EARLY`, marked in the visibility), then a pyramid of what was drawn tests the rest
-  (`CULL_JOB_HYBRID_LATE`), drawn in Main Late: exact as two-phase. All three render identically to culling off. The
-  cull kernel counts its decisions (`gCullStatistics[frame]`, `CULL_STATISTIC_*`: drawn early, late, late blended,
-  hidden), which the Statistics window shows and `SPEEDO_GPU_TIMINGS=1` averages at exit; hybrid's opaque late draws
-  are what the reprojection alone would have hidden wrongly (popping in `reprojected`). `SPEEDO_CAMERA_TURN=<degrees
-  per second>` and `SPEEDO_CAMERA_WALK=<units per second>` move the views in automated runs (`Views::Turn`). Measured on
-  KosmicKrisp (the frame's gpu time, still, turning, walking, and both, on Sponza, Bistro framed and in a street, and
-  ThousandsOfLights): hybrid's opaque late draws were 0 in every run, so the reprojection never hid what was seen;
-  `reprojected` costs the same as `two-phase` (within 0.1 ms either way; it was 1 ms faster in one Sponza session,
-  the same in another: the gpu clock drifts between sessions), and hides less while the camera turns (Sponza 0.4 draws
-  against 1.3, Bistro's street 2.8 against 6.8: the revealed edges hide nothing); `hybrid` costs 0.35 to 0.45 ms more
-  than either (both pyramids and the reprojection, and still the second render pass). On a tile based gpu the second
-  render pass is what two-phase pays; the reprojection pays as much in Depth Save and the scatter's atomics. A
-  `reprojected` miss would show as a draw missing for a frame, never for longer: its pixels then save the depth behind
-  it.
-
-Sync validation is available (`SPEEDO_VALIDATE_SYNC=1` in a debug build, with `VK_LAYER_PATH` set as `assettest.ps1`
-does) but sees no hazards on the main layout's descriptors (all partially bound), even with the graph's barriers
-removed, so it can't vouch for them; compare renders instead (identical before and after the graph).
-
-## Debug views and the Statistics window
-
-View > Debug View (`SPEEDO_DEBUG_VIEW=<key or number>`; Ctrl/Cmd+[ and ] step through them, +0 back to the light)
-shows something other than the light in the main pass: `PushConstants::debugView`, `DEBUG_VIEW_*` in `capi.h`, keys in
-`client/ui.cpp`'s `kDebugViews`, helpers in `debug.slang`. The surface's values (base color, normals, roughness,
-metallic, occlusion, a color per material, texcoords) return early from `ShadeFragment` (`DebugSurfaceValue`); the
-lighting's (direct alone, ambient alone, its diffuse on white and its specular, the shadows' share of the direct light,
-the cluster's light count as a heat map) and the indirect lighting's (from `DEBUG_VIEW_GI_FIRST`, `DebugViewGi`, which
-the renderer also writes to `GiData::debug` for the references' compute) return from `Shade`, without emission and the
-scattering's light. Views of values (`DebugViewIsData`) skip exposure and tonemapping in `ComputeMain` (stored as
-`pow(v, 2.2)` where a value should read as itself after the srgb curve) and have a dark backdrop instead of the sky.
-The scatter pass is never in a debug view. An overlay at the bottom left names the view and what its colors mean.
-Indirect lighting's views beyond the per pixel lookups: Voxel World (radiance, albedo, normal: `ComputeMain` marches
-each pixel's ray through the clips' voxels, `GiTraceVoxels`, what the probes' rays see) and Probes (the 8 probes
-around a point, trilinear, without the resolve's weights). The traced shadows' (see "Ray traced shadows"), of the first
-traced light, magenta where none is traced: as the main pass takes them (`traced-shadow`, filtered), the rays as traced
-(`traced-shadow-raw`, a ray a pixel), and a reference (`traced-shadow-reference`: 256 rays a pixel over the light's
-disk where the atlas isn't sure, `SHADER_TYPES_SHADOW_REFERENCE_RAY_COUNT`; seconds a frame in Bistro, so capture it
-after a few frames). The last two go through the filter's passes unfiltered into the mask, which is what the main pass
-reads: the rays' image is a transient whose memory the mask takes once the filter has read it.
-
-For comparing renders of a move: `SPEEDO_CAMERA_PATH=<x,y,z,pitch,yaw>[;...]` (or `@<file>` of them, separated by `;`
-or lines: a still pose repeated for 1200 frames is more than a Windows environment variable holds) places the views at a pose a frame,
-the last kept (`Views::FollowPath`, applied by `Upload`: the draw calls the ui queues needn't run in their order, since
-`RHI::drawCalls` keeps it per producer thread only and the ui's frames run on any of the executor's, so placements
-queued in different frames landed out of order); `SPEEDO_CAPTURE_PATH=<directory>` saves each frame of the path
-(`pose-NNNN.bmp`; `SPEEDO_CAPTURE_PATH_FIRST=<pose>` from that pose on, to measure a still pose's frames once what
-settles over frames has; `SPEEDO_CAPTURE_PATH_STRIDE=<n>` every n-th of those, for a long move); `SPEEDO_GI_EYE_PATH=<x,y,z>[,<look x,y,z>][;...]` (or `@<file>` of them, one a line: an
-environment variable on Windows holds 32767 characters) centers the clips on a point a frame instead of the camera, so
-that under a still camera what changes is what the clips' moves change, and with the look a run's clips replayed exactly
-(`SPEEDO_GI_EYE_LOG=1` prints each frame's as it takes them, and each clip's scroll); `SPEEDO_GI_REVOXELIZE=1` voxelizes every clip again every
-frame, what their scrolling must come to. `SPEEDO_TIME_FRAME_SECONDS=<s>` advances the time of day by that many real
-seconds a drawn frame once a model is installed (times `SPEEDO_TIME_SPEED`), rather than by the real time between frames,
-so that two runs have the sun where it was at the same frame whatever their loads and frames took;
-`SPEEDO_ANIMATION_FRAME_SECONDS=<s>` advances the model's animation so, so that two runs have what moves where it was at
-the same frame (CommercialRefrigerator's door: the upscaler's trailing, before against after and against the same frames
-unupscaled).
-
-The Statistics window (debug and profile builds) has the pass timings in two columns, then: per draw list its draws
-and triangles; the culling of the main and the shadow views (`Renderer::GetFrameStatistics` for what was tested, the
-cpu's plan of the last frame recorded, and `GetCullStatistics` for the gpu's decisions of the last frame it finished,
-a frame or two behind): tested, outside the frustum, occluded, drawn early and late, triangles drawn. The cull kernel
-counts `CULL_STATISTIC_FRUSTUM` in the job that decides last on a draw (frustum, late, pyramid and hybrid late jobs) and
-`CULL_STATISTIC_TRIANGLES` wherever a draw is kept; frustum only jobs count their draws as early (they were left out
-before, so a list without occlusion counted nothing). Then the lights, shadows and clusters (most lights in a cluster,
-the mean where any), and the indirect lighting's clips (voxel counts and sizes, how many were voxelized this frame,
-what moves). `SPEEDO_GPU_TIMINGS=1`'s exit summary has the frustum and triangle counts too. The cpu culling path
-(`SPEEDO_GPU_CULLING=0`) has no gpu statistics.
-
-`DebugViewIsData` is a mask of the views with its bit taken by a shift within the word, not a `switch`: the lost frames on
-D3D12 (the user's report, 2026-11-15: the sky and the ui flickering while flying Bistro with the ui up, the whole window
-showing a frame from a few frames back, then freezing; pose `SPEEDO_CAMERA=-1438.0128,278.4583,-267.8915,-10.585,88.481`,
-`SPEEDO_TIME_OF_DAY=13.612`, `SPEEDO_UNITS=cm`, 1920x1080, an RTX 4070 Ti SUPER). DXC compiles a `switch` whose cases
-return constants into a mask of its own, `lshr i32 <mask>, debugView - 1`, with the range check not before the shift but
-anded with its result: for `DEBUG_VIEW_NONE`, every ordinary frame's, a shift by 0xffffffff, which has no defined value
-in LLVM's IR and which DXIL's specification says nothing of. NVIDIA's driver then, in some frames, ran neither side of the
-branches on that flag: the threads of `ComputeMain` and `ComputeSharpen` (the two kernels that write the swapchain's
-image, the only two with the pattern) stored nothing past it, the image kept what it held 3 frames before (its last turn),
-and the present showed that. Which frames went by the frame's slot and the upscaler's parity (every 4th frame, every
-2nd, or all of them, for seconds; nothing lost under the debug layer, headless, or on Vulkan, whose code comes from
-SPIR-V), and oftener the further the cpu recorded ahead of the gpu, which is why it read as a race in the backend for a
-night (the queue, the command pools, the descriptor heaps, the fences and the barriers were each ruled out; a frame lost
-and one drawn record the same commands, tables and push constants). Found by markers stored from inside the kernel (a
-block of pixels per step, colored by the frame's slot): those before the flag's first branch were this frame's, those
-after the last turn's. Measured: 100 frames captured along a flight, the frames whose image is the same as 3 before
-counted: with the switch most runs lost from 24 to 97 of them, with the mask 0 in 22 runs (upscaling on and off, the ui
-up, fifo and mailbox). A `switch` of constants in a shader is the pattern (`%switch.downshift` in its DXIL's
-disassembly, as in `<profile>/.slang.intermediate/*.dxil-asm`): none is left, and the shader compiler refuses one
-(`CheckDxilSwitchTables`, `gfx/shadercompiler.cpp`: each entry point's DXIL disassembled by DXC and searched, an error
-naming the entry point; the old `switch` put back failed `ComputeMain`'s compile so, and a cold compile of every shader
-takes 165 s with the check as without).
-
-## GPU timings and shader tiers
-
-Gpu work is timed by one path: each queue's `rhi::GpuProfiler` (`rhi/gpuprofiler.h`, `Queue::GetProfiler`; only with
-`SPEEDO_PROFILING_LEVEL > 0`: debug and profile, else null), a ring of 4096 timestamps (KosmicKrisp's query pools are
-Metal counter heaps of at most 4096) in the order they were recorded. A scope (`Begin`, ended when dropped or by
-`Scope::End`) writes a timestamp at each end and opens and closes a Tracy gpu zone at record time (Tracy's C api: a
-context of the queue's, `___tracy_emit_gpu_new_context` with a first timestamp, uncalibrated, as `TracyVkCtx` was).
-`GPU_SCOPE(cmd, queue, tag)` is one with a static name; the frame graph opens one per pass, named after it and in the
-graph's timing group (`FrameGraph::GetTimingGroup`), so its callbacks have none of their own. `Collect` (in `Draw`,
-after the frame's fences) reads what the gpu is done with (up to the first timestamp that isn't, and never half a
-grouped scope), gives Tracy every one, frees them from the host (`vkResetQueryPool`, Vulkan 1.2), and keeps each grouped
-scope's duration, which `Renderer::Record` takes (`TakeTimings`), shows in the Statistics window, and with
-`SPEEDO_GPU_TIMINGS=1` prints each pass's median of at exit, and the draw thread's median frame time.
-`SPEEDO_CAPTURE=<file>` saves the frame an autoload exit ends on (`SPEEDO_AUTOLOAD_EXIT`) as a bmp, read back from the
-swapchain image (its images are transfer sources for it): renders can be compared without the screen, which a locked
-one hides from screenshots. `SPEEDO_UI=0` leaves the ui out of the frames (and its panels' blur; it still runs: the
-autoloads, the camera's placement and the capture itself), so a capture is the scene alone. `SPEEDO_WINDOW_SIZE=<width>x<height>`
-makes the window's framebuffer that many pixels whatever the display's scale (the default, 1280x720 in the window
-system's units, is 2560x1440 pixels on the Mac's display and 1280x720 on a Windows display at 100%), so that
-measurements match across machines. `Renderer::Record`
-also opens a `Frame` scope (in the same group) around the whole graph, whose timestamps are outside every pass: it is
-timed where passes aren't (KosmicKrisp times neither compute passes nor Main Late). It misses most compute work there
-too, though: Bistro's evening frame read 43.4 ms by it and 67.3 ms by the draw thread, which a sampling profiler showed
-waiting on its fences (the gpu's time), and leaving out any GI pass didn't move it, where San Miguel's agreed within 2
-ms. So on KosmicKrisp measure a frame by the draw thread's frame time (fifo, printed at exit; check that the draw thread
-waits on its fences; the half seconds the lighting warms up in, `Renderer::IsLightingWarmingUp`, the surface cache's
-first 256 frames of 4 rays a voxel, are printed apart, as "frame time warming up": they cost Bistro 16 ms a frame, and a
-run of 400 frames measured mostly them), and a pass by the frame time it frees left out (`SPEEDO_SKIP_PASSES=<pass>[;...]`, the GI pass's
-steps by name: `framegraph::Skipped`; a pass whose output decides another's work changes that too). The costs of compute
-heavy features recorded here by the `Frame` scope are undercounts on KosmicKrisp: the near field's 0.9 ms was 16 to 19
-ms at the benchmark poses. `scripts/perfbaseline.ps1` measures features, passes and how long the lighting takes to
-settle (`build/<preset>/convergence`, from captures) at the benchmark poses (docs/performance-plan.md, with the M4 Pro's
-baseline). The frame time unthrottled is no substitute for the gpu's on macOS: presentation stays at the display's rate even with
-`SPEEDO_PRESENT_MODE=immediate` (in the background, at least), so frames take one or two refreshes. A timestamp is plausible if it is not 0, not before the one
-before it in its command buffer, and not more than 250 ms after it: Tracy gets the one before in place of the others,
-and a grouped scope is timed only if both of its are plausible. KosmicKrisp only writes timestamps where its own Metal
-command encoders begin and end: passes inside one encoder read 0, and the others are unwritten, which it reports as
-available (`VK_QUERY_RESULT_WITH_AVAILABILITY_BIT`, which `QueryPool::Read` asks for, per timestamp) with 0 or a value
-written frames before. Taking those, the UI pass's time grew with the run time (its begin stale, its end current), and
-reading without availability (`VK_NOT_READY` for the whole range) dropped every pass of most frames, so the Statistics
-window flickered. Where the timestamps go matters there: outside a render pass KosmicKrisp writes them from a compute
-encoder (Metal 4's counter heap, resolved when the encoder ends), and once that encoder also holds dispatches its
-samples read 0 (`ComputeMain`, the UI blur passes), and the last before the UI render pass a value about a second old.
-Inside a render pass with inline contents it samples the render encoder's stages: so a raster pass recorded inline has
-its scope inside its render target (`InternalRecord`: top of pipe after it begins, bottom of pipe before it ends), its
-own work, and the others around it (one begun for secondary command buffers, as the main pass's, can hold none). The UI pass reads 0.015 ms with the menu bar alone, 0.09
-with the file browser's grid, and Shadows 3.67 rather than 3.9 (without the transitions around it). The Statistics
-window (View > Statistics, or `SPEEDO_SHOW_STATISTICS=1`; in debug and profile builds, the vulkan object counts in debug
-only) shows each pass's moving average over the frames that timed it (factor 0.1), for 2 seconds after it was last
-timed; `SPEEDO_GPU_TIMINGS` prints the raw frames' medians. The GPU's clock drifts between runs, so compare a pass
-against a pass the change doesn't touch (e.g. Main against Shadows).
-
-Shader tiers: `GraphicsPipelineVariant::specialization` is the shaders' specialization constant 0, `kSkippedLayers` in
-`bindings.slang`, the layer groups (`SHADER_TYPES_LAYERS_*`) a pipeline compiles away. `SHADER_TYPES_LAYERS_EXTENDED`
-(clearcoat, sheen, transmission, anisotropy, iridescence, diffuse transmission, gated by `Layer()`) is skipped for the
-draws of materials without any of them (`LayersOf`, counting animated layers), so a plain PBR material doesn't pay the
-uber-shader's register allocation for them: Sponza's main pass took 13 to 23% less (its time over the shadow pass's,
-across runs; single runs are noisy, one pair showed almost no difference). `SHADER_TYPES_LAYERS_GLASS` (what the traced
-reflections do at glass) is the Reflection Trace pass's kernel's alone, skipped where the model has no glass,
-whatever `SPEEDO_SHADER_TIERS` says. `SPEEDO_SHADER_TIERS=0` draws with the
-generic pipelines. Pipelines take 15 to 50 ms each to create cold on KosmicKrisp, so a specialized one is never waited
-for: `RecordDrawList` asks `Pipeline::RequestGraphicsPipeline`, which returns it if it exists, or the first time a job
-creating it from a copy of the current graphics state (`GraphicsSnapshot`, its pointers aimed at its own storage), which
-runs on the task executor (`FrameInputs::runInBackground`) while the generic pipeline draws. The pipeline map is guarded
-by a mutex and a condition variable (`PipelineMapSync`): a null handle is a pipeline being created, which
-`BindPipelineAuto` waits for. Each phase's draws are sorted by pipeline variant (opaque ones depth test, blended ones are
-order independent), so pipelines switch once per variant.
-
-The same constant's next bits are what a frame as it is set leaves unused (2026-11-24, the user's ask: where
-specialization constants make a difference): `SHADER_TYPES_LAYERS_WORLD`, the world cache's lookups where it is off
-(`GiWorldFaces`), `SHADER_TYPES_LAYERS_DEBUG`, the debug views where none is shown (`DebugView`), and
-`SHADER_TYPES_LAYERS_EMITTERS`, the emissive surfaces as lights where none lights the scene (`EmittersLight`), read
-through `Skipped()` in `bindings.slang`. The main pass's shading (its fragments' pipelines by their draws' variants, and
-the visibility buffer's kernel) is specialized without the first two where the world cache is off and no debug view is
-shown, else without neither (`Renderer::myShadingSkipped`); the indirect lighting's traced resolve's kernel without the
-world cache's and the emitters' (`myResolveSkipped`). The compute variants are all made ahead
-(`Renderer::ComputePipelineVariants`: 2 more of the shading's kernel, 3 of the resolve's), so that none is made in the
-middle of a frame; the fragments' are asked for as any tier's, the generic one drawing meanwhile, so a debug view
-switched on draws at once. Measured first with each switch hard wired in a copy of the shaders
-(`temp/research-issues/specvariants.ps1`: what compiling it away gives at most), at 2560x1440 balanced, the gpu's
-frame and passes over 2500 frames, two rounds interleaved, a second untouched copy within 0.03 ms of the first:
-
-| hard wired | Bistro's frame, 21.69 ms | Sponza's, 7.46 ms |
-|---|---|---|
-| no debug view | -0.39 (Main Visibility 1.37 to 1.21, Main Transmissive 5.82 to 5.67) | -0.17 (Main Visibility 0.97 to 0.82) |
-| the world cache off | -0.28 (Main Visibility 1.19, GI 3.36 to 3.31) | -0.21 (Main Visibility 0.82, GI 2.27 to 2.23) |
-| no emitters lighting | (it has them) | -0.13 (GI 2.16) |
-| the rays trace the triangles | +0.07 (GI 3.30, and Reflection Trace 6.25 to 6.43) | -0.04 (GI 2.21) |
-| nothing moves | -0.08 (Main Transmissive 5.77, GI 3.33) | none |
-| no emitter caustics | none | |
-
-The first three are the groups; the others aren't worth their variants (and the triangles' made the Reflection Trace
-kernel slower, twice over). As built, against `SPEEDO_SHADER_STATE_TIERS=0` (the generic ones, to compare): Bistro's
-frame 21.64 to 21.17 ms (Main Visibility 1.36 to 1.16, Main Transmissive 5.80 to 5.64, GI 3.37 to 3.28), Sponza's 7.46
-to 7.12 (Main Visibility 0.96 to 0.76, GI 2.28 to 2.15); the pictures the same to the runs' own noise (two runs of one
-setting differ by 0.02 to 0.29 of 255 at frame 300, the two settings by 0.10 to 0.29), with a debug view and with the
-world cache on too. Not on D3D12 (`rhi::DeviceLimits::specializationConstants`): DXIL has no specialization constants,
-each value is code compiled ahead for every entry point that reads the constant (`CompileSpecializations`), and these
-groups are read by many of them (the kernels of the indirect lighting, the emitters and the shading); the shaders are compiled there with `SHADER_TARGET_NO_SPECIALIZATION_CONSTANTS`, under
-which `Skipped()` is false and reads nothing, so its compiles and its frames are as they were. To look at again if
-HLSL gets them, or the shader compiler takes the values per entry point. Tried the same day for a count rather than a
-switch, the surface cache's rays a voxel (the resolve's kernels specialized for 1, 4, 8 and 16): nothing, the loop's
-count being each voxel's own (docs/notes/indirect-lighting.md).
+- **Barriers come from tracked state at run time.** `Execute` keeps each resource's last write and the reads since, across frames, and emits one batched barrier plus a transition per layout change before each pass. A disabled pass (`SetEnabled`) changes nothing else.
+- **Transients** are created by `Compile` for the frame's extent and aliased in `rhi::MemoryBlock`s by pass lifetime, so their contents don't outlive the frame and the first use must write them (`Compile` checks). A persistent one (`ImageDesc::persistent`: the shadow atlas) keeps its contents. A transient read through `gTextures` must be declared `Sampled` by some pass, which gives it the usage.
+- **Imported** resources (the swapchain, exposure histograms) are bound each frame; passes writing them are never culled, others only if something reads their output or they declare `SideEffects`.
+- **Raster passes** declare attachments; the graph sets the ops and begins and ends the render pass. One render target serves consecutive frames, so nothing it holds may be recreated while earlier command buffers reference it. Each pass is a gpu scope: don't add a `GPU_SCOPE` in a callback.
+- **Draws are data.** `BuildDrawList` makes `DrawItem`s per phase and `RecordDrawList` records them per view into secondary command buffers. A draw's values are a `DrawRecord` in `gDrawRecords[frame]`, named by the draw's first instance (`SV_StartInstanceLocation`); push constants only say the view. Each run of draws with the same pipeline and state is one `DrawIndexedIndirect` whose commands come from the frame's `DrawStream` in chunks of `kChunkCommandCount`, so a frame has no draw limit (`SPEEDO_INDIRECT_DRAWS=0` records direct draws).
+- **The gpu's culling** (`SPEEDO_GPU_CULLING=0` for the cpu's, `SPEEDO_CULLING=0` for none). `ComputeCull` (`cull.slang`) runs a thread per candidate and job (a list drawn by a view): a draw in view takes the next place in its run and writes its command, and the drawing passes draw each run with one `DrawIndexedIndirectCount`. Where the count is emulated or missing (`DeviceLimits::drawIndirectCountEmulated`: KosmicKrisp) nothing is compacted: culled draws stay with no instances in plain indirect draws.
+- **Occlusion culling** (two phase; `SPEEDO_OCCLUSION_CULLING=0` off). The Prepass draws what was visible last frame (`gCullVisibility`); Depth Pyramid reduces the main depth into a mip chain of the farthest depth; Cull Late tests every draw against it (`CullOccluded`), and Prepass Late and Main Late draw those not hidden and not yet drawn. Blended draws are only drawn late. The shadow views have the same two phases (`SPEEDO_SHADOW_OCCLUSION_CULLING=1`, off by default since it hides little).
+- **Occlusion modes** (`SPEEDO_OCCLUSION_MODE`): `two-phase` (default), `reprojected` and `hybrid`, which use last frame's depth (saved by Depth Save, pushed to where each point is seen now by Depth Reproject) instead of drawing first what was seen. Every point pushed is on a static surface, so none is nearer than what is seen, and empty pixels hide nothing. Depth Save writes what doesn't move (the main stencil's bit) and the far plane for what does. Depth Reproject Clear fills the frame's reprojected depth (`myReprojectedDepth`) with the far plane; Depth Reproject (`ComputeDepthReproject`) takes each saved pixel through its view's last inverse view projection and the view projection now and keeps the nearest depth landing on a pixel, a little biased farther against rounding; Depth Pyramid Reprojected builds the pyramid from it; and Cull Reprojected tests the draws against that pyramid in place of Cull's early phase, so the reprojected and hybrid modes need no early draw to build a pyramid. Cull Clear empties the cull counts first, once the previous frame's draws have read them. Where the last frame's depth is invalid (the first frame, a resize) Depth Reproject is skipped and the far plane hides nothing.
 
 ## Views: uploaded per frame
 
-`Views` (`gfx/views.h`) keeps a camera per view, which the input, resizes, the grid, framing and the scene's cameras
-change from any thread, and a view buffer per frame index (`gViewData[frame]`). `Upload(frameIndex)` writes only the
-recording frame's buffer, from the cameras as they are then, and returns those cameras: `Scene` calls it while recording
-(after the frame's fence), and culls, fits the shadows and plans the clusters by them, so the cpu and the gpu see one
-camera. It replaced `UpdateBuffers`, which wrote every frame index's buffer whenever a camera changed, including frames
-still in flight, so a frame could draw with a newer camera than it had been culled by (a chunk at the screen's edge
-missing for a frame while the camera turned). Nothing else uploads the views: a change shows in the next frame.
-
-## The physical camera
-
-`gfx/physicalcamera.h` (the user's call, 2026-11-05: a camera that behaves like a real one, and lenses whose artifacts
-arise from the lens; its first stage, the sensor and the exposure, then the lenses (their vignetting, aberration and
-distortion, see "The lens" below), and the glare, the depth of field, the motion blur and the grain follow, each a
-commit). The renderer's units: a unit of radiance is `camera::kUnitLuminance`, 49230 cd/m^2 (the sky's sun gives
-`SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE` units for 128000 lux, and a white Lambertian surface under a unit of illuminance
-radiates a unit over pi), and a sensor saturates at 1.2 * 2^EV100 cd/m^2 (Lagarde and de Rousiers' physically based
-camera), so the exposure that shows a unit as white, the renderer's 0 stops, is EV100 `kSaturationEv100`, 15.32: sunny
-sixteen's, f/16 at 1/160 s and ISO 100, the defaults (`camera::Exposure`); the stops an aperture, shutter and ISO give are
-`kSaturationEv100 - EV100(N, t, S)` (`ExposureStops`), on which View > Cameras... > Compensation (`Settings::exposureStops`) is a
-compensation. The **sensor** (`camera::Sensor`: full frame, 36x24 mm, by default; APS-C, Super 35, 1 inch, a phone's
-1/2.3 inch; View > Cameras... > Sensor, `SPEEDO_SENSOR=full-frame|aps-c|super35|1-inch|phone`) and the **focal length**
-(View > Cameras... > Focal Length, `SPEEDO_FOCAL_LENGTH=<mm>`) give the vertical field of view (`camera::FieldOfView`,
-`Views::SetFocalLength`, `SetSensorHeight`, which keeps the focal length, so a smaller sensor narrows the view as a
-lens's does): the cameras' `fovY` stays the truth, the default 75 degrees reading as 15.6 mm on full frame, and a scene
-camera's yfov as its focal length; the variables are applied with `SPEEDO_CAMERA`, once the model is in (the install
-frames the views, which sets the field of view back: `ui::AutoLens`), and Copy Scene writes them where they aren't the
-defaults. The **exposure** (`Settings::exposureMode`, `aperture`, `shutter`, `iso`; View > Cameras... > Exposure;
-`SPEEDO_EXPOSURE_MODE=program|aperture|shutter|manual`, `SPEEDO_APERTURE=<f-number>`, `SPEEDO_SHUTTER=<seconds or
-1/n>`, `SPEEDO_ISO`; Copy Scene writes the mode where it isn't program, as `SPEEDO_AUTO_EXPOSURE=0` for manual, and what
-is set in it): auto exposure asks for stops as before (see "Auto exposure" under "Asset import and testing"), and the
-camera chooses what to expose with (`camera::Choose`, per view, every frame: `ChosenExposure` in `scene.cpp`, whose
-stops `ViewExposure` takes): in **program** mode the aperture and the shutter along the line through sunny sixteen, a
-stop to the shutter for every stop to the aperture (narrower and faster where the scene is brighter, wider and slower
-where darker), each as far as its limit (`camera::ExposureLimits`: f/0.7 to f/64 until a lens narrows it, 1/8000 to
-30 s, 1/30 the slowest held by hand, which the program keeps to, ISO 50 to 409600), and the ISO for the rest; in
-**aperture or shutter priority** the one set and the other along the line, then the ISO; **manual** exposes with what
-is set (View > Cameras... > Mode: Manual; turned to it, it takes what the camera chose, as a lock does, and a mode change keeps the
-chosen as the set, so a priority starts from the exposure it had). Beyond the limits the image is under or over exposed,
-as a real camera's: moonlight at +20 stops is f/0.7, 1/30 s and ISO 38000 with the pinhole's aperture, f/1.4 and ISO
-153000 with a 50 mm f/1.4; starlight past ISO 409600 stays dark. Within them the choice reaches auto exposure's stops
-exactly, so the renders are as before (Bistro's street by day +2.76 at f/9.9, 1/62 s and ISO 100; the night pose over its
-square, +6.5, f/3.9 at 1/30 s, the shutter at its handheld limit and the aperture the rest; a day's shutter priority at
-1/1000 s f/7.9), and manual with the defaults is the 0 stops `SPEEDO_AUTO_EXPOSURE=0` always was (ThousandsOfLights at
-a fixed exposure 0.37 of 255 from before, the traced effects' noise). The client prints the
-choice at exit with the stops (`auto exposure: +x EV (f/n, 1/t s, ISO s, EV100 e)`), and the View menu shows it under
-Auto Exposure.
-
-**The lens** (`gfx/lens.h`, the second stage; View > Cameras... > Lens, `SPEEDO_LENS=<key>`, `Scene::Settings::lens`, which
-Copy Scene writes where it isn't the pinhole): a prescription (`lens::Prescription`: its glass surfaces from the front as a
-patent lists them, a radius, the distance to the next, the glass after it by its index at the d line and its Abbe number,
-its clear radius; one of them the aperture stop, with its blade count and whether its glass-air surfaces are coated; its
-nominal focal length, which `lens::Scale` scales it to, its aperture range, its third order distortion, an anamorphic
-squeeze and what it lets through on axis), and from it, by paraxial ray transfer matrices (height and angle through
-refractions and translations, Lee and Eisemann 2013 after Hullin et al. 2011, `lens::Trace`: the effective focal length
-is -1 over the entrance to sensor matrix's c, the back focal distance -a over it, the entrance pupil the stop seen
-through the elements before it), what the camera shows (`lens::Appear`, `lens::Appearance`): the vignetting over the
-field (`SHADER_TYPES_LENS_VIGNETTING_COUNT` samples from the axis to the sensor's corner: the natural one, cos^4 of the
-angle the chief ray meets the sensor at, the field's tangent times the chief ray's slope after the lens over before it,
-so the exit pupil's distance decides it; and the mechanical one, the share of the stop's disk whose rays, traced back
-to the entrance and through, pass every clear radius, the cat's eye, strongest wide open and at the corner. The natural
-one was cos^4 of the object side's field angle at first, which left a 12 mm's corner, at 61 degrees, 0.056 of the axis
-however it was built, four stops in a game's view; a retrofocus design's exit pupil stands far before the sensor, real
-ones keep 0.15 to 0.3 wide open, and now the 12 mm keeps 0.43, while a telephoto's, its exit pupil near, darkens: the
-85 mm's corner went from 0.865 to 0.473, the Gauss's from 0.265 to 0.276), the lateral chromatic aberration (the red and the blue
-images' heights over the green's, from the chief ray at 650, 550 and 450 nm through the glasses' dispersion, `IndexAt`,
-linear in the inverse square of the wavelength; a design's correctors' glasses are chosen for it by bisection,
-`Achromatize`), and each ghost (`lens::Ghosts`: every pair of glass-air surfaces, the ray reflected back at the later and
-forward again at the earlier, as an affine map of the entrance pupil onto the sensor per wavelength, with the two
-Fresnel reflectances' product through a quarter wave of magnesium fluoride where coated, `Reflectance`; for the glare,
-not drawn yet). The lenses (`lens::Lenses()`, their keys): the pinhole (`pinhole`, the default: no surfaces, the frame
-as it is, at any focal length), a 50 mm f/1.8 double Gauss (`gauss-50`, Kolb's 1995 prescription), a 28 mm f/2.8 wide
-angle (`wide-28`, barrel distortion of 6%), an 85 mm f/1.8 portrait (`portrait-85`), a 50 mm f/2.8 vintage Tessar
-(`vintage-50`, uncoated: its ghosts 25 times a coated lens's, and 85% transmittance), a 50 mm 2x anamorphic
-(`anamorphic-50`, the Gauss squeezed), and since 2026-11-06 (the user's ask: more lenses, wide angles a first person
-game can be played through) a 20 mm f/1.8 (`wide-20`), a 16 mm f/2.8 (`ultrawide-16`) and a 12 mm f/2.8 ultra wide
-(`ultrawide-12`), retrofocus as the 28 (on a 16:9 view of the full frame sensor 84, 97 and 113 degrees across, the
-fields games call 90 to 110; rectilinear as a game's projection, 2.5 to 3.5% barrel at the corner: at 15% the 12 mm
-looked a fisheye's), a 35 mm f/1.4 (`fast-35`, a Gauss's topology of six elements) and a 135 mm f/2 telephoto
-(`tele-135`); and anamorphics beside the 50 mm 2x (the user's ask, the same day): a 40 mm 2x (`anamorphic-40`, a 20 mm's
-field across) and a 75 mm 2x (`anamorphic-75`), the Gauss scaled to them behind the same cylinders, and a 50 mm 1.33x
-(`anamorphic-50-133`, a 2.39:1 frame squeezed onto a 16:9 sensor). An anamorphic's bokeh is an oval the squeeze taller
-than wide (see the depth of field), and its letterbox is black: the composite's gray backdrop there, exposed as the first
-view, came out white at night in Bistro (the final pass and Sharpen write black outside every view now). The retrofocus designs achromatize five glasses (the front's two negative elements, the positive before
-the stop, the flint and the positive after it): with two the glasses ran to the ends of their range and the 12 mm's
-red and blue images stood 1% apart at the corner, 10 pixels at 1440p, 0.15% now. `assettest` checks each
-(`CheckLenses`: the focal length it scales to, a positive back focus, the vignetting within 0.04 and 1, the aberration
-under 2%, ghosts and their brightness, the ghosts and the streaks within the gpu's capacity (`SHADER_TYPES_LENS_GHOST_COUNT`,
-120, 16 glass-air surfaces' pairs: it was 64, and the 35 mm's 12 surfaces make 66, which `FrameLens` asserted on as soon
-as the user picked it, a case the quick tier's pinhole clients never reach), and that a ray near the axis and one at 0.7 of the pupil reach the sensor through
-`lens::TraceRay`, the exact trace, reporting the surface that cut it: the 35 mm's elements, a convex back against the
-next one's concave front at no spacing, overlapped off the axis, which the paraxial matrices don't see, and the 135's
-rear element stood at its front group's focus, scaling it to 4 mm of back focus): the Gauss's corner 0.276 of the axis
-wide open at 23.4 degrees, the 28's 0.690, the portrait's 0.473, the vintage's 0.656, the 20's 0.580 at 47 degrees, the
-16's 0.522 at 54, the 12's 0.434 at 61, the 35's 0.128 (mechanical, f/1.4), the 135's 0.831. A prime pins the views' focal length (`Views::SetLens`: the framing and the
-scene cameras take its field of view, the Focal Length drag is disabled, and `SPEEDO_FOCAL_LENGTH` is ignored) and the
-aperture's range (`Scene::GetExposureLimits`, which `ChosenExposure` and the Exposure menu take: a manual f/0.7 is
-clamped to its widest); the anamorphic lens's image, squeezed across onto the sensor, is shown unsqueezed, the views
-letterboxed the squeeze wider than the sensor (as to a scene camera's aspect ratio) with the field across the squeeze
-times a spherical lens's. The scene appears the lens each frame it draws (`FrameLens` in `scene.cpp`, before the views
-upload: made again when the lens, the aperture to a sixth of a stop, the sensor's height or the first view's aspect
-changes, since the mechanical vignetting goes by the aperture; `LensData` in `gLensData[frame]`), and the frame is
-rendered wider by a margin (`LensData::margin`, `Views::SetLens`'s: the ideal image's radius at the lens's corner under
-barrel distortion, 1 - k, over the least of the red's and the blue's scales, so that nothing the lens's image reads is
-outside the frame; the cameras' `fovY` is the field rendered, `GetFieldOfView` the nominal). The **Lens pass**
-(`ComputeLens`, `lens.slang`, `kLensEntryPoint`; where `LensData::enabled`, `PushConstants::lens`' `LENS_ACTIVE`),
-between the frame's reconstruction and the final pass: a thread per output pixel finds its place in the lens's field
-(its offset from the view's center over the view's half diagonal, on the sensor: an anamorphic view's offset across
-over the squeeze), the point of the ideal image the distortion maps it to (r (1 - k r^2), the third order inverted
-once), reads the red and the blue there at their images' scales and the green at its own, each over the margin, within
-the view's viewport, and scales the three by the vignetting at its field angle times the transmittance, into the
-lensed image (`SHADER_TYPES_LENSED_TEXTURE`, 73, and its storage view, output sized), which Sharpen exposes and tonemaps
-in place of the reconstruction. The chain is one whatever the upscaling: with it off and a lens, the frame is composited
-at the output's size (the Composite pass, as with upscaling) and Sharpen takes the lensed image without its sharpening
-(`UPSCALE_SHARPEN`, the Upscale passes' alone), where ComputeMain did everything; the pinhole's frames are as before on
-both paths (the Lens pass disabled, Sharpen reading the reconstruction, ComputeMain without upscaling).
-
-**The glare** (the third stage, 2026-11-05; View > Cameras... > Lens Glare, `Settings::lensGlare`, `SPEEDO_LENS_GLARE=0`
-without, which Copy Scene writes; `LensData::glare`, `flares`, `ghostCount`): three passes after the Lens pass, in
-`lens.slang` and `flare.slang`, in the renderer's units of radiance as the lens's image is. The **Bloom** pass veils the
-lens's image over itself: a chain of `SHADER_TYPES_BLOOM_LEVEL_COUNT` (6) levels at half the output's size and down
-(`myBloom`, an output sized transient with a mip chain, a storage view per level, `gBloomLevels`, and sampled whole as
-`SHADER_TYPES_BLOOM_TEXTURE`), `ComputeBloomDown` from the lens's image by Jimenez's 13 taps (the weights sum to 1: the
-partial Karis average, which weighs a tap down by its brightness, dropped the sun's disk, thousands of times white, from
-the chain), the levels after by a 4x4 tent over the 2x2 they hold, then `ComputeBloomUp` summing each level back into
-the one above by a 3x3 tent, a dispatch a level with a barrier between as the depth pyramid's; the final pass adds the
-first level over the level count times the lens's share (`lens::Appearance::glare`: half a percent coated, 2% uncoated,
-a veiling glare index's order; the surfaces' reflections are the ghosts). Within the pass the levels are read through
-their storage views: a sampled view of the chain, written by the dispatch before, read what the memory held before the
-pass on KosmicKrisp. And a transient read through `gTextures` must be declared `Sampled` by some pass, which gives its
-image the usage: declared storage alone, its sampled descriptor was invalid
-(`VUID-VkWriteDescriptorSet-descriptorType-00337`), and KosmicKrisp read black through it with no other sign, which
-took an afternoon of tints to find; the validation layer finds it at once. The **Flare Sources** pass
-(`ComputeFlareSources`, a thread per texel of the chain's third level; `gLensSourceCount`, emptied by the Flare Clear
-pass, and `gLensSources`, `LensSource`, at most `SHADER_TYPES_LENS_CANDIDATE_COUNT`, 64) lists the frame's bright compact
-blobs as candidates: a texel over `kFlareSourceLeastLuminance` (64 times white at the view's exposure) that is the
-brightest of its 5x5 (ties by place) and `kFlareSourceLeastContrast` (4) times the mean of the 5x5's outer ring (the
-sun's disk, a lamp's bulb, a glint; a sunlit wall or a window by day isn't: at 8 times white and without the ring,
-Bistro's sunlit facades at 10:30 made sources all over, and with 8 slots another set each frame, flares that jumped
-between them, the user's pose `-917.1450,363.1188,47.4961,5.605,71.996`), where it is on the sensor (the 5x5's
-luminance weighted centroid, mm from the view's center; an anamorphic view's across over the squeeze), and its light
-at the lens (the texels' radiance times their solid angle, over the vignetting the lens's image was darkened by there),
-kept where its brightest ghost or its starburst's far field would show (`LensData::ghostGain`, `starGain`, from the
-cpu; the near field is every pixel's, see the starburst below) and where its light at the exposure is at least half the
-least of a full list's last frame (`gLensSourceCount`'s fourth word, which Flare Track writes), so that a frame of glints
-doesn't fill the candidates with arbitrary ones. The sun's disk in view is such a blob, so is a lamp. The **Flare
-Track** pass (`ComputeFlareTrack`, one thread) keeps the sources from frame to frame: the buffers are the renderer's
-own, imported into the graph and emptied once (the frames' lists by parity, `SHADER_TYPES_LENS_SOURCE_COUNT`, 16, each,
-then the candidates, counted in `gLensSourceCount`'s first three words; the Flare Clear pass empties the candidates'
-count alone; 8 sources and 8 candidates until 2026-11-06, when the starburst was every source's); each source holds
-the point of the world it is at (`LensSource::world`, homogeneous: `ComputeFlareSources` takes the main depth under the
-candidate, through the sensor's point undistorted to the frame rendered, `LensSensorToFrame`, and the jittered inverse
-projection, `LensFrameToWorld`; the sky's depth gives a direction, w 0, so the sun is a direction), and each frame
-each of the last frame's sources is first projected to where that point is now (`LensWorldToFrame`, this frame's
-projection, then back to the sensor, `LensFrameToSensor`, the distortion inverted by Newton's method; dropped behind
-the view), then matched to the nearest candidate of its view within `kFlareTrackReach` (32 pixels) of there, taking
-the candidate's place (and point) unless it strays within `kFlareTrackDeadZone` (1.5 pixels: the centroid moves with
-the frames' jitter, and a streak a pixel wide with it), its light blended toward it by `kFlareTrackBlend` (0.2). The
-place was blended by that share too until 2026-11-06, which trailed the camera by about four frames' motion (the far
-spikes and the ghosts lagging behind the near field and the light when turning, the user's anamorphic 75 mm pose on
-ABeautifulGame `0.0354,0.1547,0.2937,6.946,-1.841` at 10:30 on super35: the sun turning at 10 degrees a second at 720p
-showed two sets of spikes 10 to 20 pixels apart, one now), and a source lost in a turn faster than the reach faded out
-where it had been; it fades out where its point projects now. Its strength (`LensSource::position.w`,
-which the Flare pass scales the light by) up by `kFlareTrackRamp` (0.15) a frame, or, unmatched, down by as much and
-dropped at 0; the candidates left become sources of that strength while there is room, the brightest first. So a flare
-fades in over about seven frames and out over as many. Then each source's size (`ComputeFlareSize`, a group of 16x16
-threads a source, in the same pass): the disk as large as the lens's image's pixels above half the brightest within 64
-pixels around it (the sun's disk is uniform, a bulb near it), its radius on the sensor in `LensSource::flux.w`, which
-spreads its spikes across (below). At the user's pose a still frame changed by 0.52 of 255 a frame with 0.45% of its
-pixels off by more than 16 (the flares jumping) and changes by 0.22 to 0.33 with 0.05 to 0.15% now (the fades). The **Flare** pass draws their ghosts and starbursts over
-black into `myFlare` (`SHADER_TYPES_FLARE_TEXTURE`, output sized), added: the Flare layout's (`flare.slang`, created
-beside the Main layout, its set 1 the lens, its ghosts, the sources; `CommandEncoder::Draw`, rhi's plain draw, 6
-vertices an instance), a quad an instance, each source's ghosts then its starburst, the unused degenerate
-(`VertexFlare`), what each fragment is worked out from the pixel's place on the sensor (`FragmentFlare`). A **ghost**
-(`lens::Ghosts`, `LensGhost` in `gLensGhosts[frame]`: per channel a, b to the sensor and as, bs to the stop, the two
-reflectances' product): a ray entering at the height that lands on the pixel, (p - b t) / a with t the source's angle,
-passes the first surface's clear radius and, where it first crosses the stop's plane, the aperture
-(`FlarePolygonDistance`, antialiased over a pixel: the blades' polygon cut by the barrel's round opening, see the
-starburst), and its irradiance is the source's times the reflectances over a
-squared, read as radiance through the pupil (f^2 over pi times the pupil's radius squared: stopped down a ghost is
-smaller and sharper but no dimmer per area, as a real one); the quad is the box of the entrance's and the stop's images'
-overlap (the whole entrance's image, mostly cut away, cost 2.5 ms of fill at 720p for the sun's 45 ghosts; 0.41 now).
-The **starburst** (`FlareStarburst`): each edge of the blades' polygon diffracts a streak either way along its normal,
-the source's irradiance times the edge's length squared over 4 pi^2 times the distance squared (an edge's far field),
-as wide across as the wavelength times the focal length over the edge (its first zero, a pixel or two: red wider),
-drawn as a gaussian of that integral at least a pixel wide, so that the streaks are brighter per pixel stopped down (the
-edges longer wide open, the streaks thinner than a pixel); an anamorphic lens's cylindrical front element adds the
-streak across the lenses are known for, from an edge of its whole clear aperture, tinted blue. In the renderer's units
-the sun (2.6 units of illuminance) gives streaks across the frame at f/14, as sunstars go. The aperture is the blades'
-polygon cut by the barrel's round opening (`LensData::openRadius`, the stop's radius wide open; `lens::OpenRadius`,
-`StraightEdgeLength`): wide open the blades are retracted behind it, so the aperture is round, with no straight edge to
-diffract (no star, as a real lens wide open, the user's question at Bistro at night, 2026-11-06), and the bokeh and the
-ghosts are round; a little stopped down the opening leaves chords of the polygon's edges (the 8 blades' polygon is whole
-a quarter stop down), and the edges are 2 a tan(pi / N) for the apothem a (they were 2 a sin(pi / N), short by cos(pi / N)).
-The starburst is every point's (the user's ask, 2026-11-06: an image of sun glints on water, a star on each of hundreds,
-which 8 sprites couldn't give): its **near field** is a gather over the whole image (the **Star Tiles** pass,
-`ComputeStarTiles`: the lens's image at half the output's size, `SHADER_TYPES_STAR_SOURCE_TEXTURE`, and each 16 half
-texel tile's brightest channel at the exposure, `SHADER_TYPES_STAR_TILES_TEXTURE`; the **Starburst** pass,
-`ComputeStarburst`, a thread per half texel into `SHADER_TYPES_STAR_TEXTURE`, which the final pass adds bilinearly):
-along each spike's direction (an even blade count's N, its opposite edges sharing a line twice as bright, an odd
-count's 2N, the anamorphic's cylinder's two across), a half texel a step, each step's radiance times the edge's length
-times the f-number squared times the wavelength over pi cubed times the focal length (`StarCoefficient`), over the step
-on the sensor, over the step's count squared: the sprite's streak integrated over the image, so a point source gets
-the same light, an extended one a band as wide as itself. It reaches as far as the brightest tile within two tiles
-would show (`kFlareLeastVisible` at the shortest step) and at most `SHADER_TYPES_STAR_REACH`, 32 half texels, fading out
-over the second half; the sources' sprites draw the **far field** past that, faded in by the complement over the same
-steps (`FlareFarField`), each spike spread across by the source's disk (a uniform disk's chord has a deviation of half
-its radius; drawn as lines from a point, the sun's bands turned thin where the far field began), and only where it
-reaches past the near field. Two passes, since within one a sampled view of what a dispatch wrote read stale memory on
-KosmicKrisp (the glare's lesson). An anamorphic lens's **streak** (the user's ask, the same day, with a reference of a
-long blue streak through a light; `lens::Streaks`, `LensData::streaks`): the cylinders (`Prescription::cylinderRadii`,
-a Galilean pair of plano cylinders, -100 and 200 mm for the 2x, -150 and 200 for the 1.33x) reflect a light between each
-pair of their surfaces back and forward again, and having power across alone, the ghost is in focus up and down, on the
-light's row, and defocused across into a line: half its length on the sensor is half the focal length squared times
-the vergence the two reflections add (twice the difference of the surfaces' curvatures) over the f-number, its light
-the two reflectances' product spread evenly along it (the two flat surfaces' ghost is the light itself, so no streak;
-four surfaces, five streaks of three lengths, nested). The cylinders' quarter wave is tuned to 650 nm
-(`Prescription::cylinderCoating`): tuned to the green, as the spherical surfaces are, the streak came out magenta (both
-ends reflecting), and anamorphic streaks are known blue. Every point's, as the near field: the **Streak Scan** pass
-(`ComputeStreakScan`, a group of 256 a row, each thread a run of it, the runs' totals scanned in groupshared memory)
-sums each row of the half size image from its left (`SHADER_TYPES_STREAK_SUM_TEXTURE`, 32 bit, so that the difference of
-two sums far along a row with the sun in it keeps the dim light between), and the Starburst pass adds each streak's box
-along the row, two reads (`StreakLight`, within the view's viewport). The 50 mm 2x at f/2.8 against the sun: a blue
-streak through it in three nested lengths, the longest about 0.7 of the frame. Its cost at 1440p is within the runs'
-noise (0.2 ms at most). The near field sampled the lens's image at the output's size at first, which cost
-twice as much. Bistro's bulbs at night get stars a few pixels long at f/11: they are 10 to 50 times white, where real
-bulbs are thousands of times; the sun's highlights on MetalRoughSpheres aren't brighter than 64 times white either. The
-coatings tint the Gauss's ghosts purple (magnesium fluoride reflects the red and the blue ends most); the vintage lens,
-uncoated, cascades hexagons over the frame against the sun, 25 times brighter. A still pose changes by 1 of 255 a frame
-(the sources' centroids don't jump with the jitter). Cost on KosmicKrisp at 720p, the Flare pass: the Gauss against
-the sun 0.41 ms, the vintage 1.15, Bistro's street at night 0.16 (its lamps' starbursts, no ghost bright enough); the
-glare isn't drawn over a letterbox. The near field, at 1440p by the draw thread's frame time against runs that skip its
-two passes, the helmet against the sun through the Gauss at f/14: 0.7 ms (21.9 against 21.2); forced to its whole reach
-everywhere, as a frame of bright glints would be, 2.6 to 3.2 ms with 8 blades and 5.4 to 6.9 with the portrait's 9 (18
-spikes; 6.5 and 11 to 15 sampling the lens's image at the output's size). Not yet: ghosts of sources out of the frame
-(the sun just outside it flares a real lens), extended sources' ghosts, rounded blades (round a few stops down), the
-ghosts at half resolution where their fill costs.
-
-**The depth of field** (the fourth stage, 2026-11-05; a real lens's, the pinhole's everything sharp; View > Cameras... >
-Autofocus and Focus Distance, `Settings::focusAuto` and `focusDistance` in meters, `SPEEDO_FOCUS=auto|<meters>`, which
-Copy Scene writes where it isn't auto; `Scene::GetFocusDistance`; `LensData::dof`, `focusDistance`, `apertureDiameter`,
-`focusShiftRed`, `focusShiftBlue`, `catEye`; `dof.slang`, five passes before the Lens pass, which takes the frame
-through it, `SHADER_TYPES_DOF_TEXTURE`, in place of the frame). The circle of confusion is the thin lens's
-(`DofCircleMm`: the sensor at the green's image of the focus, a point's image at its own distance along the view,
-`UpscaleViewDepth` times the scene's unit; the aperture's diameter, the focal length over the f-number the camera
-exposes with, times how far the point's image falls from the sensor over the image's distance, is the circle's
-diameter, and its radius half that; signed, in the output's pixels by the sensor's mm per pixel, at most
-`SHADER_TYPES_DOF_MAX_COC`, 48. Every pass after takes the circle as a radius, and until 2026-11-06 it was the diameter,
-so everything spread over twice the thin lens's circle), so the depth of field follows the
-exposure's aperture (wide open at night, shallow); the focus is what the autofocus mode picks (`gfx::FocusMode`, View > Cameras... > Focus, `SPEEDO_FOCUS=spot|zone|wide|<meters>`, as a system camera has them, the user's ask, 2026-11-05): the median distance of what is under the view's center spot (4% of the view each way, `SHADER_TYPES_FOCUS_SPOT`) or its center zone (20%, `SHADER_TYPES_FOCUS_ZONE`), binned by ComputeMain beside the distance bins (`SHADER_TYPES_FOCUS_BINS`), or the nearest tenth of the whole view (wide, an auto area's nearest subject), each read back and adapted as the look distance is, followed continuously (AF-C) or held as acquired (`Settings::focusContinuous`, Focus Now, `SPEEDO_FOCUS_CONTINUOUS=0`); the whole view's median at first, which focused on the board rather than the king under the center (the user's ABeautifulGame pose `-0.0303,0.2001,0.2945,29.066,0.046`): spot puts the king's cross sharp, zone the board behind it, wide the king's base
-(`myFocusDistances`, as a camera's single point autofocus) or the setting. The red's and
-the blue's circles are the green's less the aperture's diameter times their focal lengths' shift over the focal length
-(`lens::Appearance::focalLengthRed`, `focalLengthBlue`, from `Trace` at their wavelengths: the longitudinal chromatic
-aberration, fringes at the circles' edges, small for the achromatized designs). DOF Tiles finds each 16 pixel tile's
-largest circle (every other pixel's, the view looked up once per tile), DOF Tiles Dilate the largest among its
-neighbors as far as theirs reach, DOF Prepare reduces the frame to half the output's size with the 2x2's mean and the
-circle of the one that spreads farthest, DOF Gather gathers each half texel over its tile's reach (a scatter as gather:
-`kDofTapCount`, 48, taps on a spiral turned per texel by interleaved gradient noise, up to twice that the farther the
-reach, each on the aperture's shape, `DofBokehPoint` (the blades' polygon cut by the barrel's round opening: round wide
-open, polygonal stopped down, see the glare), and kept where the cat's eye leaves it, a disk of the same radius
-`catEye` radii toward the view's center, which `lens::Appear` solves per field angle from the mechanical share of the
-light, two disks' overlap by bisection; an anamorphic lens's taps on an oval the squeeze taller than wide, since its
-cylinders, an afocal squeeze of the angles across, shrink the defocus across by the squeeze squared on the sensor and
-the view shows the sensor's width the squeeze wider (a tap's distance taken in the oval's measure, every circle being
-the same oval; Bistro's far lamps through the 75 mm focused at 0.6 m are tall ovals); weighed by the bokeh's profile, `DofBokeh`, the light at the tap's share of its
-circle's radius: the lens's spherical aberration spreads a point's rays over its circle unevenly, so a point's disk has
-a bright rim on one side of the focus and a soft edge on the other (an undercorrected lens's far points soft, its near
-ones rimmed, an overcorrected lens's the other way), which `lens::Appear` finds by tracing 96 rays parallel to the axis
-exactly (`lens::TraceRay`, Snell's law at each sphere, the stop and the clear radii cutting) and fitting their heights
-on the sensor as c1 y + c3 y^3, c3 the aberration; a defocused point's rays land at k y + c3 y^3, so 4096 of them over
-the pupil, counted by the radius they land at over each annulus's area, give the profile for a near point and a far one
-(`LensData::bokehNear`, `bokehFar`, 32 radii each) at the reference circle where the aberration is a quarter of the
-defocus (`bokehReference`, mm), tending to uniform as a circle outgrows it (the profile's departure from 1 scaled by the
-reference over the circle). The Gauss is a little overcorrected (c3 3.3e-5 mm/mm^3: its far points rimmed, 2.4 times
-the mean at the edge, the reference 0.35 mm, so its larger disks are nearly flat), the portrait undercorrected (-2.3e-4,
-12 mm), the vintage strongly (-3.1e-3, 8.7 mm: soft far disks wherever it blurs); Bistro's lamps at night through them
-out of focus show it. A tap counts for a channel where its circle covers the texel, antialiased over
-a texel, a tap behind the point by as much as the point is blurred itself, so a blurred background doesn't bleed over
-a sharp foreground; the share of what counted that lies in front of the point in the alpha), and DOF Composite
-recomposes the frame at the output's size (the gather's result, a 3x3 tent of it, where the pixel's own circle is past
-a pixel or the foreground's spread reaches it, else the frame; a letterbox as it is). DamagedHelmet through the Gauss
-at f/1.8 under autofocus: the helmet sharp, the ground blurring away before and behind it; focused at 1.2 m, all of it
-blurred, smooth (the taps' noise was dotty before the composite's tent and the taps scaled with the reach). Cost on
-KosmicKrisp at 1440p by the draw thread's frame time, the helmet framed, the Gauss with its other passes skipped
-(`SPEEDO_SKIP_PASSES`; a pinhole run is no baseline, a prime's field of view being another scene): the Lens pass
-0.15 ms, the depth of field 1.1 at f/14 (little blurred; 2.5 before the view lookups were hoisted out of the tiles'
-and the prepare's pixels), about 4 wide open focused at 1.2 m, 6.3 at f/1.8 focused at 0.3 m (31.8 ms skipped, 38.1
-with it, every circle at its limit, so the same before and after the radius's fix), the glare within the runs' noise there. Clean
-under the validation layer. Not yet: the bokeh's onion rings (an aspheric's polish) and a mirror lens's rings, the
-profile across the field (it is the axis's everywhere), the focus pulling smoothly over time, each split screen view's
-own focus (the first's serves all).
-
-**The motion blur and the grain** (the fifth stage, 2026-11-05, the camera plan's last; View > Cameras... > Motion Blur
-and Grain, `Settings::motionBlur` and `grain`, `SPEEDO_MOTION_BLUR=0` and `SPEEDO_GRAIN=0` without, which Copy Scene
-writes; both a real lens's, the pinhole's frames as before). The **motion blur** (`motionblur.slang`, four passes after
-the depth of field, before the Lens pass, which takes the frame through it, `SHADER_TYPES_MOTION_BLUR_TEXTURE`): what
-moves across the sensor while the shutter is open smears along its way, the shutter's share of a frame's motion
-(`LensData::shutterShare`: the shutter the camera exposes with over the frames' length, `Scene::Impl::myFrameSeconds`,
-smoothed over about ten frames in `UpdateSky`, `SPEEDO_TIME_FRAME_SECONDS`'s where set; a 1/160 s shutter at 60 frames
-a second is 37% of the way a point moved since the last frame, 1/30 s 190%, at most 4 frames'), as McGuire et al. 2012
-reconstruct it: Motion Velocity takes each output pixel's velocity over the shutter from the render pixel under it
-(`UpscaleMotion`: what moves by the pre-pass's motion, the rest by the camera's reprojection of the main depth; in the
-output's pixels, at most `SHADER_TYPES_MOTION_BLUR_MAX`, 64) with its depth, Motion Tiles each 16 pixel tile's longest
-(of every other pixel's), Motion Tiles Dilate the longest among the neighbors within reach, and Motion Blur gathers
-each pixel along its tile's longest velocity (`kMotionBlurSampleCount`, 12, samples jittered per pixel and frame,
-each weighed by McGuire's cone and cylinder: a sample moving far enough to reach the pixel, or the pixel moving far
-enough to reach it, the one in front by depth, soft over a hundredth of the distance; the pixel itself whole). The
-helmet under a turn of 10 degrees a second at 1/30 s smears along the turn, the ground's checker under 60 degrees a
-second into bands. Cost on KosmicKrisp at 1440p by the draw thread's frame time, the Gauss turning: 1.0 ms (29.0
-against 28.1 with its passes skipped). The **grain** (`SharpenLens` in `upscale.slang`, with the glare, at each of
-Sharpen's taps): the sensor's shot noise at the ISO, a normal deviate per pixel, channel and frame (`SharpenGrainNoise`:
-the sum of three uniforms of an integer hash, pcg's permutation; interleaved gradient noise, tried first, drew the
-grain as a screen) times `LensData::grainNoise`, the relative noise of a white pixel (the square root of the ISO over
-100 over the photons a full well holds at ISO 100, `kGrainFullWell`, twenty thousand electrons: 0.7% at ISO 100, 11%
-at 25600, 14% at moonlight's 38000), times the square root of the color's share of white at the exposure, in white's
-units. Bistro's street at night at f/1.8, 1/30 s and ISO 25600 (`SPEEDO_EXPOSURE=-8.5` to hold the exposure) is grainy
-as a phone's night shot is; at ISO 100 the grain is 1.7 of 255 on the helmet (every real lens frame carries it: a
-capture compared against another takes `SPEEDO_GRAIN=0`, or the pinhole). Clean under the validation layer. Not yet:
-the blur of what the shutter's time hides across frames (a shutter longer than a frame only takes a frame's motion
-times its share), the grain's color (a Bayer sensor's chroma noise), read noise at the darkest.
+`Views` (`gfx/views.h`) keeps a camera per view, changed from any thread, and a view buffer per frame index (`gViewData[frame]`). `Upload(frameIndex)` writes only the recording frame's buffer from the cameras as they are then and returns those cameras; `Scene` culls, fits shadows and plans clusters by them, so the cpu and gpu see one camera. Nothing else uploads the views.
 
 ## Depth: reversed
 
-Depth is reversed: 1 at the near plane, 0 at the far (or at infinity), the cameras' and the shadow views' projections
-taking gl's clip space to vulkan's as `kClip` does (`camera.cpp`, `shadows.cpp`: y down, and z' = (w - z) / 2), the depth
-test keeping the greater (`rhi::DepthTest::kNearer`, `VK_COMPARE_OP_GREATER`; `kEqual`, the main pass's over the
-pre-pass's depth, greater or equal) and depth cleared to 0 (`ClearValue`'s default, the frame graph's, `RenderImageSet`'s,
-the shadow tiles'). A float's exponent then holds the precision where a perspective depth has none, near 0: the distance
-two surfaces can be told apart at grows with the distance, not with its square. Standard (0 near, 1 far, a float's
-mantissa near 1 alone), a window's shutter and the lit interior a few centimetres behind it fought 50 m away (the user's
-night time lapse over Bistro, `-827.3380,155.1481,33.8635,-9.897,72.297`, the window's mean change between frames 6.49 of
-255 at native and 0.74 at performance, 0.12 at both reversed), as did a sign's lettering and its board, and dots on a
-ledge. What reads depth by its convention: the sky (`depth <= 0.0`: nothing drawn), the depth pyramid (the farthest is the
-smallest: `min`) and occlusion (`CullOccluded`: a box's nearest depth is its largest, hidden when below the farthest
-under it; a corner nearer than the near plane, `clip.z > clip.w`, isn't), the depth reprojection (an `InterlockedMax` of
-the bits, a transient cleared to 0, the bias farther a factor), temporal upscaling (FSR's inverted depth:
-`FFX_FSR3UPSCALER_OPTION_INVERTED_DEPTH`'s comparisons, its reconstructed depth an atomic maximum), the shadow atlas
-(a blocker's depth is larger than the point's; `ShadowViewDistance` unprojects a depth along its view), the transparency's
-sort key (the depth's float bits taken from the near plane's, increasing with the distance) and the backdrop's rays (from
-depth 1, the near plane, to 0.5). The frustum's planes swap: `planes[4]` (z >= 0) is the far one and `planes[5]` the near,
-which the clusters slice from. Unprojections through the inverse view projections need nothing, and are more precise:
-what starts from a point unprojected from the depth (the traced shadows' rays, the near field's and the emitters') was
-off by a standard depth's step along the view, 7 mm at 30 m with a near plane a ten-thousandth of the far (the views'
-framing, `Views::FrameBounds`), and Sponza's framed sun shadows came out a pixel lower along its facade than they do now,
-closer to where the atlas alone puts them (which shades the fragment's own position). Against the same tree
-with standard depth (2560x1440, captures of 14 scenes and settings: Bistro at night and in its streets, Sponza under each
-occlusion mode, CornellBox, ShadowScene, ManyLights, the blending, scattering and transmission tests): the same means,
-each scene within 0.03 of 255 a pixel where nothing fought (Bistro 0.1 to 0.3, its noise), and the same draws culled and
-hidden (Bistro through its arch 46.8 a frame two-phase, 46.5 reprojected and hybrid; the shadow views' occlusion 11.9).
+Depth is reversed: 1 at the near plane, 0 at the far plane or infinity. Projections take gl's clip space to vulkan's with `kClip` (`camera.cpp`, `shadows.cpp`), the depth test keeps the greater (`rhi::DepthTest::kNearer`; `kEqual` is greater or equal), and depth clears to 0. A float's exponent then holds the precision where perspective depth has none. Everything that reads depth knows the convention: the sky (`depth <= 0.0`), the depth pyramid (the farthest is the `min`), occlusion, the reprojection, FSR (`FFX_FSR3UPSCALER_OPTION_INVERTED_DEPTH`), the shadow atlas, the transparency's sort key. The frustum's `planes[4]` is the far plane and `planes[5]` the near.
 
-A view of a model on the ground plane has no far plane (the ground reaches the horizon: `Views::SetScene`'s `horizon`;
-`CameraCreateDesc::farPlane` 0, glm's perspective as its far plane goes to infinity, `Camera::UpdateProjectionMatrix`), the
-near plane the framing's as before; a scene camera's too, whatever its `zfar` (`Views::InternalApplySceneCamera`:
-ThousandsOfLights' camera has one of 500 m, which the views took and `SPEEDO_CAMERA` kept, so the plane's rings were cut
-4 degrees below the horizon from 32 m up and the sky model's own sun-lit ground showed between the cut and the horizon, a
-gray band, the user's pose `70.0000,32.0000,70.0000,17.913,-45.000`, 2026-11-05). Not infinity: the release and profile builds were `-ffast-math`, which assumes there is
-none (IEEE 754's since 2026-11-14, no `-ffast-math`, docs/notes/build.md), so `std::isinf` was compiled to false and the ground past the old far plane was clipped (the sky's own ground showed
-there, below its horizon). What took a far plane takes none: the cascades slice along the frustum's edges from the eye
-(`shadows.cpp`'s `unbounded`), the clusters and the frustum culling already did (Gribb and Hartmann's far plane comes out
-as (0, 0, 0, near)). Unprojections stay sound at the ground's tiny depths (its depth row is (0, 0, 0, near) exactly, so
-the inverse's w row has the zeros it should, and w is proportional to the depth): the haze at the horizon came out as the
-aerial perspective's slices have it.
-
-## Temporal upscaling
-
-View > Upscaling (`SPEEDO_UPSCALING=off|native|quality|balanced|performance`, `gfx::Upscaling` in `gfx/upscaling.h`;
-Copy Scene writes it where it isn't the default; balanced by default since 2026-10-29, the user's call once FSR 3.1 was
-ported, `kDefaultUpscaling`, the file browser's preview too; `SPEEDO_UPSCALING=off` for measurements of the frame at the
-output's size): the frame rendered at a share of the output's size each way (`RenderScale`: 1,
-0.77, 0.67, 0.5) and reconstructed at it over frames by AMD's FSR 3.1 upscaler, ported (`upscale.slang`); native
-reconstructs at the output's size, its antialiasing alone. `Scene::Settings::upscaling`; a change resizes the render
-targets before the next frame (`Scene::NeedsResize`, which the client's `Draw` checks with the gpu idle, as for a
-window's resize). The frame graph has two extents (`FrameGraph::Compile(device, extent, outputExtent)`): the transients
-are the render size's, but those sized after the output (`ImageDesc::outputSized`: the ui's frosted panels' backdrop).
-The views' viewports are scaled into the render target (`ScaleViewport`, in `Views::Upload` for `ViewData::viewport` and
-in the scene for `FrameInputs::viewports`, the same rounding), and their projections offset within a pixel, a point of
-Halton's (2, 3) a frame (`Views::Upload`'s jitter: 8 points at the output's size, more the fewer pixels a frame renders,
-FSR's phase count, `ViewData::jitter`, this frame's and the last's in normalized device coordinates; the cameras `Upload`
-returns, which culling and the shadows fit to, aren't), and the materials' textures sample their mips by the output's
-size, half a level finer still (`ViewData::textureLodBias`, `SampleView`'s `SampleBias`; FSR recommends a whole level,
-which shimmered more). Then ComputeMain composites at the render size (the Composite pass: `PushConstants::upscale`'s
-`UPSCALE_COMPOSITE`, into `SHADER_TYPES_COMPOSITE_TEXTURE`, linear, before exposure, its alpha the blended layers'
-coverage, FSR's reactive mask; the exposure and distance histograms and the surface cache's block marks as before), the
-Upscale passes reconstruct it, and Sharpen (`ComputeSharpen`) tonemaps that into the swapchain, sharpened by Lottes'
-RCAS (FSR's).
-
-The Upscale passes are FSR 3.1's (the FidelityFX SDK 1.1.4's fsr3upscaler, MIT licensed, its notice in `upscale.slang`),
-each a compute entry point: Upscale Clear (the reconstructed previous depth, `gUpscaleDepth`, a float's bits per pixel,
-to the far plane), Prepare Inputs (the dilated depth and motion, the nearest of each pixel's 3x3 and its motion; that
-depth pushed to where the point was, an atomic maximum; the farthest depth; the luma), Shading Change Pyramid and Shading
-Change (how the luma changed since the last frame where each point was: the smallest relative difference between sorted
-sets of 5 lumas, so that an edge the jitter moved hasn't changed, its mean and its sign's over three levels from half the
-render size, one pass through shared memory where FSR's single pass downsampler makes six; noise, whose signs disagree,
-is no change), Prepare Reactivity (the disocclusion, by the reconstructed depth; the motion's divergence; the shading
-change with the reactive mask; the accumulation, a third more a frame up to whole, none after a shading change, a third
-less after a disocclusion; and new locks where thin features are), Luma Instability (a pixel's luma unlike the last
-frame's but like one of the three before, from a history of 4 lumas) and Accumulate (at the output's size: the history
-where the point was, Lanczos 2 over 4x4; this frame's 3x3 by an approximated Lanczos 2 as wide as the render pixels are;
-the history clamped onto the ellipsoid of the 3x3's deviations, 3 of them, down to 1 where the point moves, is near,
-hasn't accumulated, reacts or its shading changed, luma counting 1.7 times, but kept where it is locked or its luma
-flickers; blended by the accumulation against this frame's sixteenth). What they keep from frame to frame, two of each by
-the frame's parity (`UPSCALE_PARITY`; `UPSCALE_HISTORY` whether the last holds a frame at this size), is the luma, the
-accumulation and the luma history at the render size and the color (its alpha the lock) at the output's; the new locks
-are one image at the output's. What is ours: the motion (`UpscaleMotion`: what moves by the pre-pass's motion, the rest
-by its depth through the view's last view projection, the jitters taken out), the views (viewports of one render target,
-each pixel's jitter and history its view's), the exposure (the frame's, FSR's `Exposure()`, with a pre-exposure of 1),
-depth inverted (near 1, see "Depth: reversed"), the scene's units as meters, FSR's default settings, and no transparency and composition mask. What moves
-(the main depth's stencil) keeps a history by its own motion, since its depth reprojects where it is, not where it was:
-the pre-pass writes each pixel's motion since the last frame (`SHADER_TYPES_PREPASS_MOTION_TEXTURE`, its second color
-attachment, RG16F, in the render target's pixels, the jitters taken out: `FragmentPrepass`), from where the vertex stage
-places what moves in the last frame (`VertexOutput::previousPosition`: `WorldPosition` with the last frame slot's
-instances, joints and morph weights, for the draws `DRAW_FLAG_MOVES` marks; the rest where they are).
-
-Ours too, beyond FSR: each render pixel keeps its log2 luma's running mean and variance (by a sixteenth a frame, with
-the accumulation, `Upscale Accumulation` RGBA16F, where the point was; started over without a history, where revealed,
-or where something moving covers the pixel and moves, the main depth's stencil and the pre-pass's motion over a tenth of
-a pixel, `kUpscaleSweptLeastMotion`: a thin moving thing passing over a pixel takes its luma away and back, a swing, and
-the history kept there held what passed, CommercialRefrigerator's door frame leaving dark pixels over the sky as it swung,
-its frames near the top edge 8.9 of 255 from the same frames unupscaled, now 5.5; by the stencil alone, which marks what
-may move, the door standing closed lost its frost's swings, and its glass flickered three times as much, 0.57 of 255
-between frames against 0.21 at the user's near pose),
-and the shading change counts only as far as the frame's luma strays past 3 of its deviations
-(`UpscaleGateShadingChange`), and the history is kept where the luma swings (FSR's luma instability, as much as the
-deviation passes a quarter of a stop, all of it at three quarters: `kUpscaleLumaSwing*`). A feature thinner than a render
-pixel is hit by some of the jitter's samples and missed by others (a vertical one whole), and FSR took that for the
-light changing every frame: the shading change took its locks (made at the output pixel a sample lands on, another as
-the jitter moves, they never built) and its accumulation, and the history was clamped onto the frames that missed it,
-so it showed each frame's samples as they were: AnisotropyBarnLamp's filament through its bulb (the user's pose
-`0.1543,-0.1653,0.3783,-5.337,-31.820`, balanced) jumped in 5867 pixels over 40 still frames and now in 471 (native 881,
-now none), changing by 0.080 of 255 a frame and 0.097 over 20, now 0.020 and 0.038, drawn as whole glowing strands
-rather than dashes; the thin features at the user's night pose in Bistro's street crept 0.77 over 20 frames, now 0.51. A
-change past the deviations moves the mean there at once and the variance by at most what it allows (a swing that keeps
-coming back grows it in about ten frames, a step barely does): taking the whole step in, a model appearing over the
-backdrop was within its pixels' deviations, its shading change gated and its history kept, and DamagedHelmet faded in
-over half a second (CubeVisibility's toggles are a frame, as before). And neither the history is kept nor the shading
-change gated where the luma drifts rather than swings (`UpscaleDrifting`: the running mean of its differences from its
-mean, by an eighth a frame, the statistics' fourth channel, against its deviation: a swing's cancel, a moving shadow's or
-object's add up): kept there, moving shadows' edges trailed their light and faded out over frames, bright bands along
-every one at the user's pose over Bistro's square at 13:21 at 600 times real time (`-790.9853,245.9946,216.9426,-0.435,66.449`):
-against the same frames with upscaling off (`SPEEDO_TIME_FRAME_SECONDS` alike), a mean of 7.80 of 255 off before the
-gate, 8.27 with it, 7.60 with the drift too; the filament's 471 jumping pixels 555. Still and turning renders are
-otherwise the same (Sponza 0.05 of 255, DamagedHelmet 0.14, Bistro's street 0.15; turning at the same angles 0.10).
-A stray is a change only where the last frame's luma, where the point was, strayed the same way too, and a drift only
-where both are on its side: a feature the jitter's samples seldom hit strays once in many frames, and each time the
-history was dropped for that frame's samples, a blob of light for a frame. CommercialRefrigerator's frost and the
-bottles' highlights seen through it (the user's pose `-0.0138,1.0920,1.3258,0.000,0.000`, balanced) flashed in 10391
-pixels over 43 frames of the door held a little open, now 994 (native 446, unupscaled none), held closed 6656, now 863,
-and in the animation's closed hold 13012 over 48 frames, now 1456 (between frames 0.46 of 255, now 0.28); a single
-stray had also pulled the drift its way for frames after, which then passed it. A change of the light is still one, a
-frame later; the filament (5 flashing pixels over 38 still frames against 6) and Bistro's moving shadows (3.94 of 255
-from unupscaled against 3.94) are as they were, and the door frame's trailing over the sky 5.0 against 5.5 (its pixels
-off by more than 48, though, 678000 against 602000 over 40 frames).
-
-Glass has no motion of its own here: through thin clear glass what is seen moves with what is behind it, and only its
-frost with the glass, which one motion vector a pixel can't follow both of. Giving the transmissive phase its own motion
-(a second color attachment over the pre-pass's motion) made the refrigerator's door suppress the highlights seen through
-it as it swung, and measured no better walking or strafing at it: its pixels keep the motion of what is behind them.
-Where the glass itself moves over what doesn't, that motion took its edges and what it reflects as still, and the
-history dragged them: IridescentDishWithOlives' cover lifting left trails over its dome and along its rim (the user's
-pose `0.7811,0.4122,0.1465,22.123,-77.115`, at 19:41). So a transmissive fragment says how far its surface moved since
-the last frame (`TransmissiveMotionReactivity`: its last and its current place through this frame's view projection, so
-the glass's own move, not the eye's; all of it from a render pixel, `kTransmissiveReactiveMotionPixels`) in its main
-color's alpha past 1, which the composite takes into the reactive mask, FSR's for what has no motion of its own (the
-frame's samples taken rather than the history): the lift's frames against the same frames unupscaled, 2.5 to 3.7 of 255
-before, 1.2 to 1.3 now (as while the cover rests, upscaling's own difference); CommercialRefrigerator's door swinging at
-most 2.16 before, 1.55 now (1.35 held open); glass that doesn't move as before (DragonAttenuation 0.04 of 255), and its
-cost within the runs' noise (the dish's frame 8.69 ms against 8.63).
-
-FSR 2.2 came first (its depth clip, locks and lock luma, luma instability at the output's size, a box of 1 deviation at
-the output's size and up to 20 at a quarter of its pixels, whose clamp cut the accumulation to a tenth): steadier than
-the resolve it replaced at performance, but at native it flickered at every edge twice as much (a center-weighted 1
-deviation box clamped the history wherever the jitter moved an edge pixel's sample across). The resolve before it, ours,
-was a TAA (a 3x3 gaussian, a box of 1.25 deviations, a history weight of at most 16).
-Stability, by the mean change of the output between consecutive frames of a still pose (frames 300 to 305, 0 to 255, the
-user's Bistro pose `-994.4661,340.8679,-53.6291,-8.370,78.594` in the evening, `SPEEDO_EXPOSURE=10`, the old binary built
-beside the new and run in the same session): FSR 3.1 against the resolve, performance 0.432 and 0.602, at 600 times real
-time (the sun moving) 0.776 and 1.210; native 0.434 and 0.458, at 600 times 0.674 and 0.832 (FSR 2.2: performance 0.554
-and 0.964, native 0.956 and 1.616). What is left is the traced features' grain (the near field's and the emitters', a
-texel per 2 or 4 pixels: see their sections), which no upscaler takes out.
-Measured by the draw thread's settled frame time at the benchmark poses (2560x1440 output, GI on), with the SBVH and
-the shadow atlas's cache, warm pipelines (the first run after a shader change draws with the generic ones while the
-specialized compile): off, balanced and performance with the resolve before FSR, Bistro 57.6, 42.2 and 36.3 ms; San
-Miguel 68.3, 46.3 and 39.1; Sponza 29.4, 24.4 and 21.6: a quarter to a third of the heavier scenes' frame at balanced,
-short of the pixels' 55% since the probes, the voxels and the surface cache don't scale with the pixels. FSR 3.1 costs
-0.8 ms more than the resolve did at Bistro's performance (37.1 against 36.3 ms, the history reprojected by its approximated
-Lanczos rather than the reference, FSR's option, which took 37.5). With upscaling off the images are as before (the frame graph's Composite, Upscale and Sharpen passes
-disabled, ComputeMain's as it was; unless a lens is chosen, whose Lens pass takes the Composite and Sharpen passes without the Upscale passes, see "The physical camera").
+A view of a model on the ground plane has no far plane (`Views::SetScene`'s `horizon`; `CameraCreateDesc::farPlane` 0 gives an infinite projection; a scene camera's far plane is ignored likewise). It is a flag, not an infinity test. Whatever took a far plane takes none: cascades slice along the frustum's edges (`shadows.cpp`'s `unbounded`), and clusters and frustum culling use (0, 0, 0, near).
 
 ## Culling: chunks, and frustums per view
 
-The importers make one submesh per material, which can span a whole scene (Bistro: 2.8 M triangles in 132 submeshes, a
-material's walls on every side of the camera), so a submesh's bounds cull nothing. `mesh::Chunk` (`gfx/meshimport.h`,
-run by `Model`'s load after `mesh::Import`, and by `assettest`) cuts each static triangle submesh into chunks of at most
-`kChunkTriangles` (16384): the triangles' centroids ordered along a space filling curve (`meshopt_spatialSortRemap`), cut
-into even runs, each run's triangles back in the file's order (their vertex reuse). A chunk is a submesh like the one it
-came from (material, instances, ...), with its bounds: its vertices at each of its instances, in world space
-(`Submesh::bounds`). What moves (skinned, morphed, or instances that follow animated nodes: `Submesh::moves`) stays whole, and
-is culled by where its animations take it (`AnimatedBounds` in `model.cpp`, from the same samples that grow the model's
-bounds: its linked instances' or its skin's joints' reach, a morphed submesh's targets' reach at weights from 0 to 1, and a
-tenth of its size more, since a crossfade turns joints between two animations' poses; a skinned or linked submesh's
-morph reach is only at rest). `DrawItem::moves` keeps marking it in the stencil and voxelizing it each frame; it used to
-be `!cullable`. Renders are the same with and without culling (CesiumMan, Fox, BrainStem, AnimatedMorphCube,
-MorphStressTest, RiggedFigure at frozen times). The chunk size is part of the model cache key (`chunks-N`). `assettest` reports the chunks and fails a
-chunk whose vertices leave its bounds; its encodings comparison counts the submeshes before chunking.
+An importer's submesh per material can span a whole scene, so its bounds cull nothing. `mesh::Chunk` (`gfx/meshimport.h`, run by `Model`'s load and `assettest`) cuts each static triangle submesh into chunks of at most `kChunkTriangles` (16384) along a space filling curve of the triangles' centroids (`meshopt_spatialSortRemap`), each chunk a submesh with world space bounds. What moves (`Submesh::moves`) stays whole and is culled by the reach of its animations (`AnimatedBounds` in `model.cpp`). The chunk size is in the model cache key.
 
-`RecordDrawList` takes the view's `gfx::Frustum` (`gfx/frustum.h`: six planes from a view projection, Gribb and Hartmann;
-an infinite far plane comes out as (0, 0, 0, near), which culls nothing) and skips the draws whose bounds are outside a plane. The
-main pass culls by `FrameInputs::viewProjections` (the cameras `Views::Upload` wrote to the frame's view buffer, so the
-cpu culls by what the gpu draws with), the shadow pass by each shadow view's (no depth clamp, so a caster in front of
-a shadow view's near plane casts nothing anyway). View > Rendering Features > Culling (`SPEEDO_CULLING=0`) turns it off. Each draw costs about a
-microsecond of gpu time on KosmicKrisp (Bistro framed, nothing culled: Main 3.72 ms unchunked, 4.34 in chunks of 4096), so
-`RecordDrawList` sets cull mode, front face and push constants only where they change (a submesh's chunks share them), and
-the chunks are big. Bistro's gpu time (Main + Shadows), before and with chunks of 16384 culled: 11.9 to 10.9 ms looking
-down a street through an arch, 11.0 to 7.8 in a shopping street, 9.1 to 7.3 framed (the shadow views gain most: each
-cascade skips what it doesn't see); chunks of 4096 were 7.5 in the street but 7.5 framed. `SPEEDO_CAMERA=x,y,z,pitch,yaw`
-(degrees; positive pitch looks down, positive yaw turns from -z towards +x) places the views once the autoloads have
-installed (`Views::Place`), for such measurements: Bistro's were `3430,170,2200,0,-62`, `564,170,-2436,0,30`, and framed.
-It keeps the near and far planes of the camera the views had (a model's own camera's, e.g. a chase camera's far plane of
-1 m in DiffuseTransmissionPlant, where the model stands on no ground plane: on one the views have no far plane, see
-"Depth: reversed"); `SPEEDO_CAMERA=frame` frames the model instead, as View > Cameras... > Frame model.
-`SPEEDO_LAYOUT=1x1|1x2|2x1|2x2` starts with that grid of views, as View > Layout.
+`RecordDrawList` takes the view's `gfx::Frustum` (`gfx/frustum.h`, Gribb and Hartmann) and skips draws outside a plane; the main pass culls by `FrameInputs::viewProjections` (what `Views::Upload` wrote), the shadow pass by each shadow view's. Draws cost about a microsecond of gpu time each, so chunks are big. View > Rendering Features > Culling (`SPEEDO_CULLING=0`). `SPEEDO_CAMERA=x,y,z,pitch,yaw` or `frame` places the views after the autoloads; `SPEEDO_LAYOUT=1x1|1x2|2x1|2x2` sets the view grid.
 
-## Shadows
+## The pre-pass
 
-The punctual lights cast shadows from one depth atlas (`gfx/shadows.h`: 4096 texels, a grid of 128 texel cells; a frame
-graph transient, `SHADER_TYPES_SHADOW_ATLAS_TEXTURE`), planned on the cpu each frame (`shadows::Plan`, in
-`Renderer::Record`, after the frame's fence, from every view's camera, `FrameInputs::cameras`): directional lights first (4
-cascades of 1024 texels per view, 512 from three views on, a view of a 2x2 grid having a quarter of the pixels; Zhang's
-practical splits over the view's frustum up to the scene's bounds, each a bounding sphere seen along the light, depth from
-the scene's nearest caster, snapped to whole texels; all of a light's views' cascades finest first, by texel size, so
-that the first `PlaceInShadowMap` finds covering a point, which it takes, is the finest any view has: by cascade then
-view, a far view's big nearest cascade covered a close-up view's points before its own, and lost an awning's contact
-shadow in Bistro; testing every cascade in the shader for the finest cost San Miguel's main pass 2.2 ms with one view),
-then point lights (6 cube faces, a little wider than 90 degrees so the filter near a face's edge stays in it) and spot
-lights (the outer cone plus a margin), by brightness at the nearest eye. A point or spot light whose range is outside
-every view's frustum lights nothing seen and gets none. The others' tiles are sized by how big their range looks from the
-view it looks biggest in (`CellsFor`: its share of the view's height; at most 512 texels a face, 1024 a spot), then budgeted: while they need more than the atlas, the lowest priority light of those with the
-biggest tiles gets them halved (down to one cell; the cascades keep theirs), and once all are one cell the lowest
-priority ones go without. The tiles are placed biggest first (aligned power of two squares then pack without gaps), all
-of a light's or none, up to `SHADER_TYPES_SHADOW_VIEW_COUNT` (256) views. It used to stop at 4 point and spot lights,
-each a fixed size, while every shadow view drew the whole scene (before culling): `ManyLights.gltf` (24 point and 8 spot
-lights between pillars) shows all of them shadowed, the Shadows pass taking 0.46 ms (0.31 with 4), the main pass 5.6
-(4.3: each pixel filters a shadow per light in reach, 4 to 9 here). A light's tile size changes by octaves as the camera
-moves, which shows as its shadow sharpening or softening at once. The views go in `gShadowViews[frame]` (`ShadowData`: view projection, atlas rectangle, texel size) and each
-light's first in `gLightShadows[frame]`, host visible buffers per frame index. The Shadows pass draws each view in its
-tile with `BuildShadowDrawList` (opaque and alpha masked triangles; not blended or transmissive; both faces of every
-caster, as the traced shadows' rays and the indirect lighting's voxels have a single sided triangle block light from
-behind: culled as the main pass draws them, CornellBox's ceiling cast nothing and the box's inside was lit where the rays
-found it in shadow; 0.5 ms more of Shadows on Bistro, 3.69 to 4.15 in its street), `VertexMain` taking the
-view from `PushConstants::shadowView` and `FragmentShadow` (the layout's third fragment entry point) cutting out alpha
-masks. A pipeline without color attachments writes depth if its variant's first blend mode is `kOpaque`, and pipelines
-are cached per render target attachment formats too (the shadow pass made the main pass's default variant for the depth
-only target, so the main pass drew nothing). `ShadowFactor` in the light loop picks the cascade (the nearest whose
-filter stays in its tile) or face, offsets the point along the geometry's normal by 1 to 3 texels by the angle to the
-light (1.5 alone left acne, a gray cast on lit faces, since the filter reaches 2 texels), on the side facing the light
-(a leaf lit from behind, diffuse transmission's or the scattering's light, pushed away from it was behind itself as the
-light sees it: DiffuseTransmissionPlant's fireflies shone through leaves in a star, where the cube faces meet), and filters 3x3 bilinear
-lookups (`GatherRed`, four comparisons each). The rule holds for whatever replaces this, shadow maps or rays: a point
-pushed off its surface goes to the side its query goes to (a shadow test's light, a reflected ray's viewer, a refracted
-or transmitted ray's far side), not along the normal regardless, which faces the viewer on double sided materials; on
-the wrong side, the surface occludes or hits itself (missing transmitted light, black speckles in refractions). View > Rendering Features > Shadows toggles them (`SPEEDO_SHADOWS=0` starts without). View > Lights... (`SPEEDO_SHOW_LIGHTS=1`) lists gLights (the model's,
-then the environment's dominant lights, or the sky's sun, unless merged: a model sun more than 5 degrees from
-the sky's makes two sets of shadows) and draws them over the views as an imgui overlay (no shader or pipeline of its own):
-the renderer keeps a copy of a frame's lights, shadow views and scene bounds while it is open (`FrameInputs::captureLights`,
-`Renderer::GetLightCapture`), `gfx::BuildLightGizmos` turns it into world space lines (a directional light's arrow into the
-scene's center, spot cones, point ranges, each shadow view's frustum: its clip space box through the inverse view
-projection) and markers, and the ui projects them with each view's camera, a directional light's marker where it is in the
-sky (the direction at w = 0), at the view's edge when it is out of it, dimmed when behind the camera.
-The atlas keeps its tiles from frame to frame (a persistent transient, loaded rather than cleared): a view that the last
-frame also had in the same tile (its view projection, tile and texel size bytewise, the same model and shadow draws)
-isn't drawn again, unless something that moves is in its frustum and moved (not where the model's pose is the last
-frame's, `FrameInputs::modelStill`: an animation paused or frozen) (`Renderer::InternalPlanShadowCache`); the others'
-tiles are cleared (`IRenderTarget::ClearRect`) and drawn, and the pass is skipped when every view is kept. A frame
-whose shadow (or transmittance) pipelines are still being made clears its tiles without drawing them, and the next
-frame keeps none (`myShadowCacheStale`): until 2026-11-11 those views were cached as drawn and kept empty for as long
-as nothing changed, a still view's shadows missing from its first frames on, since the pipelines are made in the
-background on every start (ShadowScene's softbox light lit by neutral.hdr, without its shadows on the floor at 8 frames
-and at 120, the traced shadows' default mode, which traces only where the atlas isn't sure, as well; found by the
-traced shadows against their reference, docs/visual-testing-plan.md's step 3, after the user's hint that the
-pipelines' asynchronous creation could be behind it). `SPEEDO_SHADOW_CACHE=0` draws them all every frame. Point and spot lights keep theirs while the camera moves (their
-tiles change size by octaves), the sun's cascades while it is still (they follow the view, snapped to texels: the far
-ones, of big texels, change less often). San Miguel's still pose 86.9 to 68.4 ms (its two sided foliage four times over;
-more than the 9.9 ms the baseline's left out Shadows pass freed, not yet understood), Sponza's 30.35 to 29.37,
-Bistro's evening the same (its sun is down); renders identical, still and along a path.
-`resources/test-models/gltf/ShadowScene.gltf` has a sun, a point and a spot light over boxes on a ground plane.
-
-Transmissive surfaces aren't casters (nor in the rays' structures), but tint the light through them: the Shadow
-Transmittance pass draws each shadow view's transmissive draws again (`BuildShadowTransmittanceDrawList`, the transmissive
-phase's, records and all) into its tile of a second atlas at half the size (`SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE`,
-RGBA16F, persistent and kept with the atlas's tiles; 32 MB), no depth, rgb multiplied over the layers and alpha the
-nearest's depth (`rhi::BlendMode::kMultiplyMax`): what each lets through (`FragmentShadowTransmittance`: its transmission
-of the dielectric, the base color, `VolumeAttenuation` over its thickness, less what its two faces reflect at normal
-incidence), a volume's faces toward the light alone (each for the whole thickness, as the view through it takes it at its
-front face), a thin wall's both. `ShadowFactor` returns a color: the traced shadow or the atlas's, times what the 4x4
-texels around the point's place give by a cubic B-spline, each where the point is behind its nearest layer
-(`ShadowTransmittance`; the normal offset keeps a layer's own lit face in front of it), wherever the frame drew any
-(`PushConstants::shadows`' `SHADER_TYPES_SHADOWS_TRANSMITTANCE`, which also has a traced light's pixels place themselves in
-its views); bilinear over 2x2, the edges were steps a texel wide, as long again on a surface at a slant. AttenuationTest's
-blocks (the user's pose `0.0000,0.0000,19.9960,0.000,0.000`, 2 m in front of the board) cast nothing before; now each a
-blue band as deep as its thickness and attenuation make its view, overlapping bands deeper; TransmissionTest's spheres
-cast their colors on the floor, the metallic row's darker; the other glass sample models change by 0.4 of 255 at most
-(the shadows behind TransmissionRoughnessTest's panels, DragonAttenuation's at its base). The traced reflections' and
-refractions' hits take it too (see "Traced reflections and refractions"). Not yet: the indirect lighting's voxels
-(sunlight through a window into a room).
-
-**Caustics** (View > Rendering Features > Caustics, under Ray Traced Refractions; on by default with ray queries and off through the BVHs, where they can be turned on, see "Ray queries or the BVHs, and the budgets" below; `SPEEDO_CAUSTICS=0` or `1`, which Copy Scene writes where set; `caustics.slang`): where the transmittance is drawn, the light the transmissive surfaces
-refract lands where it goes rather than straight behind them. The Caustics pass traces photons from every shadow view of
-a light (`ShadowData::lightViews`: a directional light's cascades, a point light's faces) of which the frame redraws one
-and one's frustum holds a transmissive draw (`Renderer::myCausticViews`; the atlas's cache keeps the others', and the
-passes are disabled where none is redrawn), `SHADER_TYPES_CAUSTIC_PHOTONS_PER_AXIS` squared (16) a texel of the
-transmittance where a transmissive surface is (its alpha) and no finer view of the light holds the glass
-(`CausticViewHolds`, at the texel's nearest layer: each point of it is traced once, by the finest), each at a point of
-its part of the texel jittered by its place (`CausticJitter`: on a regular grid a sphere drew rings of moire), from the
-view's near plane along the light
-(`ShadowData::inverseViewProjection`) through a structure of the transmissive surfaces that don't move (the top level
-structure's third instance, `BVH_TRACE_MASK_GLASS`, built once of `bvh::RayQueryGlassGeometries`, which only the
-photons and the traced refractions query; with the opaque scene's in one query, `BvhTraceSceneOrGlass`, which says
-which it met). At each surface (at most `SHADER_TYPES_CAUSTIC_SURFACE_COUNT`, 8; `GlassPath`, `GlassPathStep`, which the
-traced refractions walk too) a photon keeps what it
-lets through (the transmission of the dielectric, the base color at the point, less Schlick's Fresnel by its ior), is
-refracted about the normal as interpolated (the facets drew polygons), and in a volume attenuated over its thickness as
-the screen space lookup takes it (`VolumeAttenuation` at the entry, the factor by the texture and the instance's scale: along
-the path inside, DragonAttenuation's dragon passed almost nothing, and cast a black shadow), reflected back in where it
-can't leave; a thin wall. The traced view's paths (`TracedPath`, `GlassPathStep`'s `alongPath`, since 2026-11-23)
-absorb along each segment inside instead, by the attenuation the path took where it went in, as KHR_materials_volume has
-a ray tracer take it (its thickness is a rasterizer's stand in for the path's length), and `TransmittedLight` takes the
-thickness's absorption for the untraced lookup alone: the glTF research set's modern-hall has a green glass panel whose
-thickness factor 8.84 at an attenuation distance of 2 passed 1% of the light, an opaque slab, where its reference's
-panel is clear (0.284 stops off to 0.234); the glass sample models within 0.26 of 255 (DragonAttenuation 0.16,
-CompareVolume 0.25, AttenuationTest 0.10; IridescentDishWithOlives' olives differ from run to run by more); teapot-full's
-tea, in its glass as two interface volumes, a little lighter (0.186 to 0.208). A thin wall
-lets it through as it was going. It lands on the first opaque surface (alpha masks cut out) if what it crossed was
-transmissive, inside a volume too (a core in a shell, a mosquito in amber, the ground behind glass modelled as one
-surface of a thickness, which no photon leaves: dropped there, as at first, what is inside the glass took no light,
-which the traced refractions show through it), added in fixed point to the 2x2 texels of the surface's place in
-each of its light's views whose tile holds it (`CausticSplat`, by the views' texel sizes squared; `gCausticPhotons`, a
-uint per channel and texel of the transmittance, emptied by Caustics Clear) where the atlas has that surface nearest,
-within its receiver gradient's slack. A lens throws its light sideways: by the views redrawn alone, each tracing the
-glass in its tile and landing in its tile, CausticSpheres' clear sphere, across the finest cascade's edge and focusing
-past the ground (the image inverted), lit the ground inside the cascade with the half of it outside, which only the
-next cascade traced: a straight cut through its caustic, dark on the finer side. The side lit through the coarser
-cascade's photons (a quarter as many a texel there) is grainier. A photon meeting an opaque surface
-before its texel's transmissive one is the light straight to it, which the lookup gives, and is dropped, and one meeting
-none (its point past the surface's edge) lands where the light straight on goes, which the lookup takes away. The resolve
-(`ComputeCausticsResolve`) writes the light into the transmittance's rgb (alpha kept), in units of what the light gives an
-unshadowed surface; with `SHADER_TYPES_SHADOWS_CAUSTICS` the lookup gives a texel 1 in front of its nearest layer and 0
-behind, plus its rgb for what receives light (not the transmissive surfaces themselves, `gShadingTransmissive`, set by
-`ShadeFragment`: a depth test of the point against the layer failed on surfaces at a slant, the normal offset putting
-them texels in front of it). CausticSpheres' spheres focus the sun into a spot in their dark shadows by their bases,
-the clear one's white and the amber one's orange: seen from a camera between them the clear one hides most of its own,
-and shows the ground behind it upside down, its shadow at its top, and the amber one leaves its own in view;
-AttenuationTest's blocks throw their light aside of their shadows, as thick
-glass does; DragonAttenuation's body spreads what it lets through over the floor and the cloth behind it, its shadow
-dark (the floor's light around it the same as with the tint alone, red 78.7 of 255 against 79.5). The other glass
-sample models change by 0.4 of 255 at most. The glass that moves is in a structure of its own, refit each frame (see
-"Hardware ray queries"): before, a model with a transmissive draw that moves took the tint for all of its glass, and
-IridescentDishWithOlives' dish had none under its lifting cover. Cost with the shadow cache off (every view redrawn
-every frame; RTX 4070 Ti SUPER, 2560x1440): Caustics 0.19 to 0.55 ms, Caustics Clear 0.06, the frame 0.26 to 0.53 ms
-more (CausticSpheres, AttenuationTest, DragonAttenuation; each view tracing the glass in its tile, the cascades over
-again, 0.28 to 0.66 and 0.35 to 0.55); with it, nothing while the views are kept. A view something moving is in is
-drawn every frame, and its light's photons traced with it, while the animation plays: IridescentDishWithOlives framed
-1.27 ms of Caustics a frame (its cover a dome over most of the tiles), CommercialRefrigerator 0.56. Paused or frozen
-(`FrameInputs::modelStill`, the model's pose the last frame's) its views are kept: by the draws' may move alone they were
-drawn every frame, the dish's frame 5.67 ms against 4.48 now, its render the same to 0.001 of 255. Not yet: dispersion,
-rough glass's spread, the photons' light in the indirect lighting's voxels, and the caustics' noise where few photons
-land (a texel's 16).
-
-**The emitters' caustics** (2026-11-23, the research scenes plan's C3; `ComputeEmitterCaustics`, the Emitter Caustics
-pass, before Emitter Temporal): the shadow views' photons are the punctual lights' and the sun's, landing in their views'
-tiles of the transmittance, of which an emissive surface has none: cornell-caustic's water (a small emissive quad over a
-box filled to two thirds with water) cast nothing, and the walls under it were lit straight through the waves, a flat
-light where the reference's is a net of bright lines. Where some glass is solid (a volume's thickness, or all of it by
-the research set's conditions, `TransmissionSolid`; Bistro's, thin walls all, traces none) and caustics are on,
-`SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT` photons a frame (262144) leave points of the emitter triangles picked by their power
-(`EmitterPickByPower`, down the light tree by the nodes' power alone), aimed at the sphere about the transmissive draws
-(`EmitterData::glass`: uniformly in its cone from outside it, cosine weighted from inside), each its share of the light
-(the radiance by the emission's cosine over the densities it was picked with), through the glass as the shadow views'
-photons go (`GlassPathStep`, absorbing along the path), reflected at a surface met from outside as often as its Fresnel
-term says (Russian roulette) and on through it otherwise. As first built (the cells of the world have it all since, below),
-one that lands on an opaque surface having crossed solid glass
-or been reflected by glass adds its light to the pixels that show that point (`EmitterCausticSplat`: the 2x2 around its
-place in each view, those whose pre-pass point is on its surface and seen from its side, by the pixel's area there: the
-irradiance over pi times the exposure, in fixed point rounded at random, `gEmitterCausticPhotons`), and Emitter Temporal
-adds that to the emitters' light past its clamp on what is far brighter than the history, over frames with it (the
-photons land on a caustic's pixel in some frames and not others). Light straight through solid glass would count it
-again: the emitters' shadow rays for the diffuse stop at solid glass that gathers their light while the photons are
-traced (`EmitterGatheredByGlass`, below: at first at any solid glass). Not
-the highlights': the photons bring irradiance alone, and glass-of-water's backdrop and table, metals of roughness 0.32,
-lost the softbox's reflection behind the glass and stream (0.738 stops off to 0.841) where only their glossy rays,
-through two glass surfaces at most, could follow it through the water, ice and bubbles; their light samples
-(`TracedGlossyEmitters`, `TracedHitRadiance`'s) and the untraced specular's points still see through glass. The
-reflected photons are no one else's light either (the shadow rays go straight, the indirect lighting's rays don't meet
-glass): cornell-caustic's ceiling and upper walls, lit by what the waves reflect up in the reference, took only the
-indirect light (0.495 stops off to 0.446). The research set at 1500 frames: cornell-caustic 0.669 to 0.448 blurred stops
-off its reference (its net of caustics over the walls, floor and cubes under the water as the reference's), every other
-scene within 0.007 (veach-bidir 0.240 to 0.232, coffee-maker 0.411 to 0.406; glass-of-water as before, its light the
-highlights'), D3D12 the same.
-
-The photons land on what the screen shows, and a refraction shows what is hidden there: cornell-caustic's back wall
-beside its cubes, seen through the water's front face where the screen has the cube, took what its voxels keep
-(`TracedEmitterKept`: straight through the water, shadowed by the cube as if it weren't there), a hard shadow beside each
-(the user's report, 2026-11-23: "an additional light"). The light the screen gathered nearest it on its own plane in its
-place (rings of taps around its place) drew blocks of the wall's caustics from elsewhere among patches of the voxels'
-where no ring met the wall ("broken and corrupted"). So the photons land in the world too: cells of a hash table
-(`gEmitterCausticCells`, `EmitterCausticCellFind`, as the world cache's: 262144 cells, a cube about 2 pixels wide at its
-distance from the first view's eye to a power of two, of a normal bucket, found by linear probing, the stalest probed
-taken back where none is empty), each the irradiance its photons brought (their light over the cell's area of their
-plane, `EmitterPlaneBoxArea`), over frames (Emitter Caustic Cells: as long as the emitters' history while the model is
-still, the view or not: the cells are the world's). A photon the screen hides makes its cell; one it shows adds to a cell
-that is there alone (a cell across the edge of what is hidden takes all of its light), and one out of every view to
-none: made wherever the photons land, each face of cornell-caustic's box was some 260000 cells, the table's size, and they
-were taken back all the time, a grain; at 6 pixels the table held them, and the strip beside the cube was a blur among
-the caustics' lines. A traced hit the screen hides (`TracedEmitterSeen`'s hidden) takes the cells' light, interpolated
-over the 8 around it (those not made left out), and a light sample of the rest whose shadow ray stops at solid glass
-(`TracedEmitterHidden`); none where the hit has no diffuse (a metal's). The strip beside each cube has the caustics'
-lines now, as the wall around it. What is off the screen still takes the voxels' straight light, and the indirect
-lighting's voxels take the emitters' light straight through glass (no photons land there).
-
-Measured with the cells (the research set at 1500 frames): every scene within 0.009 of before or nearer its reference
-(coffee-maker 0.407 to 0.398, its carafe's bottom; kitchen, crown 0.004 nearer), but cornell-caustic 0.448 to 0.470: its
-conditions now light it without the sky (`ReadModelConditions`: a reference without an environment, pbrt's, has none;
-the default sky lit its cubes' fronts through the box's open side, a bluish grey where the reference's are brown, the
-user's report), its colors the reference's and its auto exposure taking a scene without the sky's share. The cost at
-1440p balanced (RTX 4070 Ti SUPER, cornell-caustic): Emitter Caustics 0.29 ms, Emitter Caustic Cells 0.05, Main
-Transmissive 0.37 ms more (its hidden hits; 0.74 with the area taken at each lookup, 8 polygons a hit, 0.3 of it the
-light sample), the frame 0.84 ms more; glass-of-water 0.3 ms in all; nothing where no glass is solid (Bistro).
-
-Only glass that gathers light is the photons' (the research scenes review plan's step 1, 2026-11-23). With the set's
-conditions every glass is solid, and the photons, a few a pixel, brought all the light through any of it as a grain of
-single pixels (the user's reports: lamp's floor, lit through the bulb around its emitter; modern-hall's wall behind its
-glass rail, 37687 pixels a million brighter than their 5x5 window's median by 8 of 255, 13461 with the photons off; red
-specks around spaceship's dome), where the shadow rays' light is filtered and its shadows sharp. None of that glass
-makes a caustic. So a shadow ray, walked through the glass on its line from the surface toward the emitter's point
-(`EmitterGatheredByGlass`, `EmitterGlassWalkStep` at each face), lets the light through:
-- out of a body the emitter is inside (the ray goes into a solid and ends there): a point within a convex body is nearer
-  its surface than the surface's focus, so its light leaves spread, never gathered. lamp's bulb, a single sheet taken as
-  a solid around its emitter. (An emitter under a wavy surface, a pool's light, loses its caustics above by this.)
-- through a slab, where the line goes in and comes out by faces whose normals are within 2 degrees
-  (`kEmitterSlabCosine`, the normals the vertices': facets a few degrees apart would flicker between the two) and, where
-  the light goes in by a curved face, no further apart than a quarter of the radius it curves by (`kEmitterShellReach`,
-  `GlassFlat`'s radius: a lens's middle is no slab): the rail (a box with a volume), the dome (a shell).
-- by a flat face (the triangle's corners' normals within half a degree, `GlassSurface::flat`; the set's curved glass
-  differs by 3 to 14 degrees across a triangle) to a surface inside the solid or out by another flat face: a pane taken as
-  a solid, a box's corner, bend the light all alike.
-The photons follow the same rule by the faces their own paths meet, and a photon reflected off a flat face is dropped
-(it mirrors the emitter; the rail's few were a speck each). What a rule by the glass's whole shape would miss, the
-emitter inside a bulb, and one by how far the photons are turned, the same (the bulb's are turned up to 23 degrees and
-gather nothing), this decides at each ray. Measured at the reports' poses at 3840x2160 (pixels a million brighter than
-their 5x5 window's median by 8 of 255): lamp 3682 to 2385 (2396 with the photons off), modern-hall 37687 to 13823 (13461:
-its floor and wood), spaceship 4805 to 3121 (3107), the means within 0.3 of 255 of the photons off; cornell-caustic's water
-and veach-bidir's egg as before (0.3 and 0.1 of 255, the runs' noise).
-
-The caustics are kept in the world, not on the screen (the review plan's step 2, 2026-11-23). On the screen, the
-photons landed in a buffer of sums a pixel and were averaged over frames in the emitters' history: 256 frames while the
-view was still and 32 once it moved, a few photons a pixel, so a grain that began again with every move of the camera,
-and the cells, made only where the screen hid a landing, 2 pixels wide and of the same 256 frames, were mottled (the
-user's report: "settle slowly, and look unnatural behind objects after moving the camera"). But the emitters' caustics
-are the same from wherever they are seen while the glass and the emitters are still. So every photon that lands in a
-view lands in cells (`EmitterCausticCellsAdd`): the one about 2 pixels wide where it lands (by the pixel's footprint on
-the surface, `EmitterCausticCellLevel`: wider where the surface slants from the eye; by the distance alone a floor at a
-low angle was several cells a pixel, more than the table holds) and the two levels coarser, each twice as wide. A cell
-holds the sum of its photons' light since the frame it was made in (fixed point, in a unit taken from the exposure when
-the cells were emptied, `EmitterData::causticUnit`), their count and its area of the surface's plane, and its light is
-the sum over the frames since (the photon that makes a cell adds nothing, nor the others of that frame: with it, a cell
-where few land would be the brighter the younger it is); a share of the table is looked after each frame (Emitter
-Caustic Cells: a cell past `SPEEDO_EMITTER_CAUSTIC_FRAME_COUNT` frames, 4096, or near what a word holds, is halved; the
-history's 32 where the model moves). A lookup (`EmitterCausticCellLight`) takes the coarsest level's light and each
-finer one's over it by the photons its cells hold (none below 8, all from 48), each level interpolated over its 8 cells
-around the point, a young cell counting by its frames (of 32) or its photons (of 16): the picture is smooth from its
-first frames and sharpens level by level, and after a move of the camera it is as it was. The frame's pixels take it in
-a pass of their own (Emitter Caustic Light, into `SHADER_TYPES_EMITTER_CAUSTIC_TEXTURE`, which `EmitterIrradiance` and
-`TracedEmitterSeen` add to the emitters' light), stamping the cells they take, and a traced hit the screen hides as
-before (`TracedEmitterHidden`, from the two coarser levels); a cell nothing has used for 64 frames may be taken back for another place. The table is
-half as many cells as the frame has pixels, to a power of two (34 MB at 2560x1440 balanced, 67 at 3840x2160).
-
-Two things went wrong on the way. A cell was taken back by swapping its key, so a thread could take the cell another had
-taken the moment before, which went on to write its area into it: cells with the area of another level's, 16 times too
-dark or too bright, dark dots over cornell-caustic's walls and the whole 40% too bright with the table full; now by
-swapping the stale stamp it saw for the frame's (`EmitterCausticCellFind`). And a just made cell counted in full, a dark
-dot until its photons came. Measured at the user's pose in cornell-caustic, 3840x2160: pixels a million brighter than
-their 5x5 window's median by 8 of 255, 44591 to 6246 at 1500 frames, the mean the same (111.9 and 111.2 of 255); from a
-cold start, 8.0 of 255 off the frame at 1500 after 1 second, 3.4 after 3 and 2.1 after 7 (softer, then sharper, never a
-grain); and on arriving after the move the places behind the cubes are as the wall around them. The cost at 1440p
-balanced, cornell-caustic: Emitter Caustics 0.33 to 0.23 ms (no pixels to test), Emitter Caustic Cells 0.05 to 0.003,
-Emitter Temporal 0.25 to 0.21, Emitter Caustic Light 0.43 (0.25 in kitchen, whose glasses' caustics are small: a place
-whose two coarsest levels have no cells isn't looked up further), Main Transmissive 3.95 to 3.84 (its hidden hits take
-the two coarser levels: with all three, 4.0, and 0.55 more at its reference pose). The research set as before
-(cornell-caustic 0.470 to 0.472 blurred stops off its reference, the rest within their runs' noise).
-
-What it costs is the transmissive fragment shader's size, not its rays (1440p balanced, RTX 4070 Ti SUPER, old and new
-interleaved): cornell-caustic's Main Transmissive 3.3 to 3.95 ms a frame, glass-of-water's 11.3 to 13.3, where each
-refraction's hit the screen hides takes a light sample (`TracedEmitterHidden`; since 2026-11-23 the sample only says
-whether solid glass gathers its emitter's light on the way to the hit, shadowed or not, and where none does the light
-is the voxels', `TracedEmitterKept`'s: a sample a pixel a frame was a patch of grain on the wall in the bathroom's
-mirror, which shows it sharp, beside the voxels' smooth light where the wall is off the screen); Emitter Shade 0.035 to 0.042. Tried, each
-3.9 to 3.95 in cornell-caustic: the other face looked for only within the shell's reach of a curved one (a short query);
-the scene's any hit and the glass's nearest made one query of the nearest of both; any glass queried first and a curved
-back face ending it there, a query fewer than before the rule (even deciding by that hit's facing alone, with no vertex
-read). And the direction matters to the driver: the old query of any glass, traced from the emitter's point instead of
-from the surface, 4.15 against 3.35. The hits' light sample out of the fragment shader would take the cost back
-(docs/backlog.md).
-
-## Ray traced shadows
-
-Lights have a size (`LightData::size`): a directional light's angular radius in radians, a point or spot light's radius
-in world units (the sphere it emits from), 0 for none (hard shadows). The model's directional lights take the real sun's,
-0.00465 (0.27 degrees, `environment::kSkySunRadius`), its point and spot lights none; View > Lights... sets each (degrees
-for a directional light), as does `SPEEDO_LIGHT_SIZES=<light>=<size>[,...]` (the model's lights by index; cleared when a
-model is installed, `Scene::GetLightSizes`). The sky's sun is the real one too, and each dominant light of a
-panorama gets its own (`DominantLight::angularRadius`: its texels' mean squared angle from its center, weighed by their
-light, is a uniform disk's r^2 / 2; at least half a texel; `environment-v7`).
-
-**The pre-pass** (Prepass, and Prepass Late with occlusion culling): the main list's opaque draws first, their depth
-and their geometry normals toward the side seen (`FragmentPrepass`, the layout's fifth fragment entry point,
-`kPrepassFragmentShader`; `PrepassOutput`'s alpha says whether the fragment takes light from behind, diffuse transmission
-and the scattering's), `SHADER_TYPES_PREPASS_NORMAL_TEXTURE`. Main and Main Late shade over that depth, each pixel once
-(`GraphicsPipelineVariant::depthTest`, rhi's `DepthTest::kEqual`: greater or equal, the depth being reversed, no writes); blended draws depth test as
-before, and the transmissive phase isn't in the pre-pass (it must see the opaque scene behind it). Renders are identical,
-and frames are faster for the overdraw no longer shaded (Bistro's street, GI on, 25.15 to 22.9 ms). With the visibility
-buffer (the default, see "The visibility buffer") the opaque triangles aren't drawn again at all: Main Visibility shades
-them from what the pre-pass wrote, and Main draws only the rest.
-
-**The traced shadows** (View > Rendering Features > Ray Traced Shadows, on by default; `SPEEDO_TRACED_SHADOWS=0` for the atlas alone, `all`
-to trace every pixel): for up to `SHADER_TYPES_SHADOW_TRACE_SLOT_COUNT` (4) lights a frame (the directional ones first,
-brightest first, then the point and spot lights the atlas has views of, by their light at the nearest eye; none of zero
-light), where the model has a BVH (see "Tracing the triangles"; `Animate` places the moving one for them too), a ray per
-pixel of the pre-pass's depth and traced light toward a point of the light's disk, through the static BVH (alpha masks
-cut out, `GiAlphaMask`) and the moving one (`ShadowOccluder`), filtered over the penumbra's width
-(`tracedshadows.slang`, `gShadowTrace[frame]`: `ShadowTraceData`, the slots' lights; the images are the frame graph's
-transients, a slot a channel). Main's opaque fragments take them for the traced lights (`ShadowFactor`, by
-`PushConstants::prepassImages`' `PREPASS_IMAGE_SHADOW_MASK`); everything else is the atlas's.
-
-- **Classify** (Shadow Classify, `ComputeShadowClassify`, compute entry point 18): where the atlas is sure, no ray
-  (`ShadowMapClassify`): a point no shadow view holds lit, unless its way to the light passes the casters' bounds
-  (`ShadowPathMeetsCasters`, `ShadowTraceData::casterMin` and `casterMax`: the ground plane past the cascades traced a ray
-  a pixel, see "The ground plane"); its 3x3 filter all lit or all shadowed, and none of 24 taps up to 24 texels away says otherwise
-  within the penumbra it would make (a blocking texel within the half width its depth gives, plus 2 texels, of a lit
-  pixel; an unblocked one within its own blocker's reach, of a shadowed one), each compared with the pixel's tangent
-  plane where the texel is (`ShadowReceiverGradient`: a surface sloping toward the light isn't its own blocker), and
-  the 2x2 texels where the pixel itself is (without the filter's normal offset) agreeing with the verdict within a
-  texel's slope of its tangent plane (none blocking a lit one, all a shadowed one): where they disagree, the verdict is
-  the bias's. a contact shadow within the offset's reach was lit and sure (Bistro's cornice band under its ledge, the
-  user's pose `2991.8064,394.9334,1467.5278,-0.016,5.767`: a sawtooth of the atlas's texels along the ledge, which
-  tracing every pixel didn't have), and a concave corner's other surface, nearer than the pixel's own depth but within
-  a texel's slope of its plane, shadowed and sure (the dark lines along CornellBox's edges). The cost: Bistro's street
-  75.1 to 76.1 ms, the cornice pose 79.8 to 82.4 (the pixels traced; a 4x4 footprint traced the mouldings' curves too,
-  77.2 and 84.8). A faint dashed highlight is left along one of the cornice's creases. For a lit verdict a texel there
-  blocks within a quarter of a texel's slope, if it is a texel's size or more before the plane: a facade in a far
-  cascade under a high sun slopes so steeply in the light's view that a texel's slope was as deep as its eave's overhang,
-  and the band under the eave was lit and sure between traced pixels, teeth again (the user's pose
-  `-1033.9612,281.2515,-184.0673,-3.357,86.270` at 12:23); about a percent more pixels traced, Bistro's street at noon
-  37.6 to 38.0 ms (a quarter of the slope without the size, every frame and moulding traced, 38.3). The
-  rest are listed (`gShadowTraceList`: a count, then the pixels) and the 8x8 tiles within the filter's reach of them
-  flagged (`gShadowTraceTiles`). Bistro's street lists 136000 pixels (4%), mostly along grazing sunlit facades. A thin
-  occluder can fall between the taps: such a pixel is decided wrongly, which the filter takes as one more sample.
-- **Trace** (Shadow Trace, `ComputeShadowTrace`, entry point 19): `SHADER_TYPES_SHADOW_TRACE_THREAD_COUNT` threads take
-  the listed pixels in turn (traced where they were classified, a group waited for its slowest pixels: as costly as
-  450000 rays). The disk's point (`ShadowDiskPoint`): one of 16 a 4x4 tile, its radius band and quarter of the circle
-  from two orthogonal latin squares over GF(4), so every row and column has all of both, within them a (0,2,2)-net,
-  turned per tile (by the order of a Vogel spiral each row of a tile had a band of its own, and a narrow penumbra came
-  out in steps along the rows). The ray starts off the surface toward the light by 1.5 pixels (more far away) and keeps
-  what it met's distance (`SHADER_TYPES_SHADOW_BLOCKER_TEXTURE`, -1 where the light doesn't reach: facing away).
-- **Filter** (Shadow Denoise X and Y, `ComputeShadowDenoiseX`/`Y`, entry points 20 and 21; flagged tiles only): rows,
-  then columns, a gaussian of the distance along the surface whose deviation is a third of the penumbra's half width
-  (`ShadowPenumbraHalfWidths`: from the pixel's blocker, else the mean of those 16 taps around met, as
-  `ShadowPenumbraHalfWidth` gives it: d tan(a) of a disk, r d / (s - d) of a sphere) and at least the step's footprint
-  on the surface (`ShadowFootprint`: a surface at a slant isn't blurred further across than along), up to 16 pixels,
-  weighed by the neighbor's distance off the pixel's tangent plane and its normal's agreement, leaving out where the
-  light doesn't reach (a pixel facing away keeps its 0: its neighbors beyond its edge alone lit it). A pixel no ray
-  around met a blocker takes the floor (its taps' places are fixed, and rays lit by chance left single pixels of
-  penumbrae unfiltered, as bright as the light). Against the reference (`traced-shadow-reference`, see "Debug views"),
-  mean error over the reference's penumbrae, of 255: ShadowScene under a 2 degree sun 7.7, its point and spot lights of
-  0.4 units 4.1 and 5.2, Sponza at the user's pose (`0.9128,4.5351,-2.4096,-2.036,-83.129`) 9.6, Bistro's street 11.0;
-  a deviation of 0.7 of the half width in pixels facing the eye, as it was, widened ShadowScene's by three fifths
-  (15). The real sun's penumbrae a pixel or two wide are 33 off: one ray a pixel can't resolve them, and their edges
-  wobble by a pixel from tile to tile, which only more rays (accumulated over frames) would fix.
-- **The atlas where nothing is traced** (the lights past the traced ones, blended, transmissive and scattering
-  fragments, a model without a BVH): percentage closer soft shadows for a light with a size (`ShadowMapSoft`, Fernando's:
-  16 taps for the blockers within the widest penumbra the point can have, 16 bilinear comparisons over the one their
-  mean distance makes, turned per pixel by interleaved gradient noise, at most 16 texels; the 3x3 filter where the
-  penumbra is under a texel and a half). Lit renders with it alone against the traced ones: a mean difference of 0.03 to
-  0.09 of 255, a little blockier. Point and spot lights have no size by default, so they cost nothing more.
-
-Cost, by the frame's gpu time (the `Frame` scope; 2560x1440, GI on, interleaved runs agreeing to 0.1 ms): Bistro's street
-31.1 ms traced, 26.0 with the atlas soft (`SPEEDO_TRACED_SHADOWS=0`), 23.1 with its 3x3 filter alone; Sponza's inside
-(`0,2,0,0,90`) 19.2, 19.3 and 16.7; ManyLights 16.4 traced (4 of its 32 lights, without sizes) against 13.9. Bistro's
-is its rays along sunlit facades seen at a grazing angle (136000 a frame, about 35 ns each against its 2.8 M triangles):
-letting the atlas decide the grazing pixels saved 1.2 ms of it, and was dropped. On the way there (GI off, Bistro's
-street, 11.0 ms with the atlas alone): every pixel traced 52.7, the classification 26.4, by the penumbra's reach 20.7,
-the listed pixels taken by persistent threads 20.3, the filter over flagged tiles only 18.3.
-
-## Traced reflections and refractions
-
-**Ray queries or the BVHs, and the budgets** (the user's calls, 2026-11-24; not yet confirmed by the user). Every traced feature compiles and runs with the device's ray queries and without: `HARDWARE_RAY_QUERY` (`BVH_RAY_QUERY` until that day: renamed for what it now is, the user's call, with the watch's `HARDWARE_RAY_QUERY_WATCH`, a diagnostic of the ray queries' hangs that the BVHs' capped traversals have no use for, and the masks and instances both paths go by, `BVH_TRACE_MASK_*` and `BVH_TRACE_INSTANCE_*`) now picks only how a ray is traced, in one place, `BvhTraceInstances` (`bvhtrace.slang`, split from `bvh.slang`, which the tools' kernels include without the scene's bindings): the ray query, or the static BVH and then the moving one (`TRACED_MOVING_BVH`). It compiled features out before (the glossy and sharp reflections, the refractions, the caustics, the emitters' photons), so a Mac, where ray queries are opt in, had none of them. The BVHs' glass and instances (the gaps as it was first committed, closed the same day): the transmissive surfaces are in the static BVH and the moving one among the rest, flagged (`BVH_TRIANGLE_FLAG_GLASS`, `bvh::Triangles`, `bvh::Moving` with a tree; the cached BVH's version 5), which the rays of `BVH_TRACE_MASK_GLASS` alone meet (`BvhMasked`) and every other ray passes (`GiAlphaMask`): no buffers or bindings of their own, and the nearest of the scene and the glass is one traversal of each BVH, where a glass BVH beside each would have been two. A static triangle keeps the instance that placed it, one more than it above its facing's bit in its record's x (`BvhFinish`), so a hit's vertex normals are placed as a ray query's (what moves keeps its triangle's own: the moving BVH's record has no room); `BvhHit::moves` says what moves, which the instance's absence used to. A traversal that runs into its step cap isn't known (`TracedShade`). With them, the refractions and the caustics on through the BVHs (as the research set is rendered, 1500 frames at its references' sizes, blurred stops, off and on): cornell-caustic 0.884 to 0.473 (its water's net of bright lines), glass-of-water 0.601 to 0.555, lamp 0.194 to 0.188; at a cost that keeps them off by default there: glass-of-water 240 ms a frame at 1280x720 with the refractions, the caustics and the fragments' reflections on (365 s for its 1500 frames; 43 s at the defaults). The instances, every pixel traced, before and with: crown 0.454 and 0.454, material-testball 0.079 to 0.078, bathroom2 0.176 to 0.172. The cost through the BVHs decides the defaults, each setting a "the device's" unless set (`Scene::Settings`, View > Rendering Features > Ray Tracing..., a panel of each feature's options): the glossy reflections a ray every 4th pixel each way (`reflectionStride`, `SPEEDO_REFLECTION_STRIDE`; every pixel with ray queries), the fragments' sharp reflections off (`fragmentReflections`), the refractions and the caustics off (they can be turned on to test), a path through 4 glass surfaces rather than 8 (`glassSurfaceCount`, `GlassSurfaceCount`). Measured on the M4 Pro (Metal, 1440p balanced, the BVHs), Reflection Trace: a ray every pixel 64.6 ms a frame in Bistro at night and 22.5 in Sponza (the frames 63 to 138 ms and 34 to 67); every 2nd pixel 14.4 and 5.3; every 4th 5.4 and 1.7 (with the three filter passes about 8 and 4 in all); the fragments' sharp rays 19 ms more in Bistro's Main Transmissive (its windows). On a budget the traced pixel of each stride's square is another every frame (`ReflectionOffset`, a Bayer order) and the pass dispatches a thread per traced pixel (a thread per pixel with most idle cost 15 ms at a 16th of the rays); `ReflectionFilter` fills the pixels between along rows, then columns, and `ComputeReflectionTemporal` takes a filled sample by how far the pixel's lobe blurs over the stride anyway (a mirror keeps what its own rays found, so a still view ends as sharp as a ray every pixel: veach-mis at the user's pose after 300 frames 0.15 of 255 from every pixel's at a stride of 2, 0.48 at 4); a clear coat's own sharp ray, added straight to the main color, isn't recorded on a budget, where a smooth coat takes the pixel's glossy ray instead wherever it outweighs the base (off a budget only a coat rougher than 0.15 does: ClearCoatCarPaint at a stride of 4 0.43 of 255 from every pixel's, untraced 0.61; the base under such a coat goes untraced there, the trade the paragraph below measured). What it does for a Mac, against the glTF research set's references (blurred stops, before and with every pixel traced; a stride of 4 measures within 0.02 of it): bathroom2 0.917 to 0.176 (its mirror reflects the room), crown 1.037 to 0.483, glass-of-water 1.464 to 0.607, kitchen 0.469 to 0.233, coffee-maker 0.558 to 0.350, veach-mis 0.353 to 0.242. It came of the user's report of a grid over veach-mis's plates' highlights (pose `28.2792,3.5000,0.0000,-0.000,-90.000`): without glossy rays every highlight was the emitters' light samples' (`EmitterSpecular`), made for rough surfaces. Two fixes within that path were tried and dropped: its history unclamped and a second point resampled by the lobe removed the grid but left bright cells trailing in bathroom2's mirror as the eye moved (pose `-8.7096,20.3547,8.0721,-0.883,-32.286`), and fading the highlights out below a roughness of 0.1 the user turned down as hidden special casing.
-
-**Hardware or software, switched while running** (the user's asks, 2026-11-25: a Ray Queries dropdown in the Ray Tracing panel, the stale options outside it gone, and a switch that reloads rather than restarts). The device enables its ray queries wherever it has them, macOS included (rhi's `RayQueriesEnabled`: unless `SPEEDO_RAY_QUERY=0`; KosmicKrisp's `MESA_KK_EXPERIMENTAL=ray_query` with them), and which the shaders use is the scene's choice, `Scene::Settings::hardwareRayQueries`: the hardware's by default, but software on macOS unless `SPEEDO_RAY_QUERY=1` (the user's call: choosing Hardware is the opt in to Metal's ray tracing, which restarts the gpu now and then). The two shader variants keep their own bindings (the user's call, over one layout declaring the ray queries' bindings in both: a Metal kernel with an acceleration structure among its arguments might count as ray tracing for Apple's gpu restart, and the software default would then risk it), so a switch can't be a shader reload (`InternalApplyShaders` refuses a layout whose resources changed). It is `Pipeline::ReplaceLayout` instead (rhi, for every backend): a named layout made again from a set whose resources differ, what was set into each of its sets carried into the new one's binding of the same shader variable (same descriptor type, at least as many descriptors), the old layout and its sets' state destroyed. The scene (`InternalFollowRayQueries`, in Prepare) compiles the other variant's layouts that change (`VertexZPrepass` and `Main`, of shaders.slang; the flare's and the environment's are the same) on the executor, and the model is loaded again with that variant's structures (`ModelBvh::kRayQueries` for the acceleration structures, `kBuild` for the BVHs: a model built them by the device's limits before; `Scene::TakeModelReload`, `LoadModelAgain`, the last load's files and options kept); its install switches the layouts as it binds (`BindAfterRayQuerySwitch`), so no frame draws the software shaders over a model whose BVH buffers hold the ray queries' geometry table, or the other way. With no model, or one without structures, the scene switches at once; a change back while the layouts compile drops them. What tested it (M4 Pro): veach-mis at the user's pose, switched at frame 60 (`SPEEDO_RAY_QUERY_SWITCH_FRAME`, a diagnostic) and captured 540 frames later, against a run started that way, 0.12 of 255 apart both ways on Metal (with Metal's api validation), where hardware and software are 0.57 apart; the user's session, three switches each way. Two faults found on the way: `ReplaceLayout` bound the new layout at the bind point in use, compute, which the z prepass's has no entry point for (it binds at one the layout has); and the install waited for pipelines being made before switching, on the draw thread, which KosmicKrisp's cold ray query kernels held for over 20 s (97 compute pipelines in 64 s), and the crash watch reported a hang: it tries again next frame instead, the installed model drawn meanwhile, kept by the scene and tried from Prepare (`DeferredBind`: queued again as a draw call it ran again in the same drain of them, which empties the queue, and the draw thread hung the same way). With it, on KosmicKrisp too (the validation layer on, switched at frame 60, 2440 frames later): 0.12 of 255 from a run started that way, both ways, no validation message; the quick tier passes (130 of 130 clients, validated, Vulkan and Metal), visualtest 7 of 7 on both backends.
-
-View > Rendering Features > Ray Traced Reflections and Ray Traced Refractions (the reflections on by default, the refractions with ray queries: the paragraph above; the user's call,
-2026-11-01; greyed out without ray queries until 2026-11-24; `SPEEDO_TRACED_REFLECTIONS=0` and `SPEEDO_TRACED_REFRACTIONS=0` or `1`,
-which Copy Scene writes): `traced.slang`, by `PushConstants::traced` (`TRACED_*`, set where the model has its acceleration
-structures: the file browser's preview hasn't, and its reflections would all be the environment's). `Shade` takes what a
-traced ray meets in place of the probes' and the environment's radiance along the reflection (`environmentRadiance`, which
-the split sum's terms then weigh as before), two ways. A fragment's (Main's blended surfaces, the transmissive ones, the
-forward path): sharp, a ray along the reflection's dominant direction (`SharpReflections`, traced before it is shaded, see
-below), all of it below a roughness of 0.15, none from 0.4 (`TracedShare`); the clearcoat's reflection so as well. The visibility buffer's (compute, the opaque
-surfaces): glossy, a ray a pixel along the view reflected about a normal of the GGX lobe (`TracedGlossyDirection`:
-Heitz's visible normals, `TracedVisibleNormal`, by Roberts' R2 over the frames offset per pixel by interleaved gradient
-noise, `TracedRandom`; the cone widened by the lobe, so its hit's textures blur as the reflection does), all of it up to a
-roughness of 0.45, none from 0.6 (`TracedGlossyShare`: rougher, the probes' glossy reflection is as good). A pixel
-traces one glossy ray: the clearcoat's where the coat is rougher than a sharp ray stands for (0.15, below which all of
-it is traced sharp) and its traced light (its strength by its share) outweighs the base's, sampled from the coat's lobe
-about its own normal, the base's reflection untraced then; else the base's, and the coat's traced sharp, as a
-fragment's (`TracedCoatRecord`, the difference its ray makes added by the Reflection Trace pass). The coat's was sharp
-either way, and bathroom2_extended's wooden floor (a coat of roughness 0.32, GGX alpha 0.1 from pbrt's coateddiffuse,
-over a base without specular) reflected the emissive window as a mirror would, a crisp rectangle on the floor (the
-user's pose `10.9019,15.3708,48.9398,10.747,-10.048`, 2026-11-22): a quarter of the coat's light (`TracedShare` at 0.32)
-along its one direction; now a soft glow stretched toward the eye, which the user confirmed. A smooth coat's sharp ray
-is its reflection: given the glossy ray wherever its Fresnel outweighed the base's, ClearCoatCarPaint's (roughness 0,
-over metallic flakes of roughness 0.4) took it toward the rim, the flakes' reflection of the ground went untraced there,
-and the sphere's lower half came out darker (0.31 of 255 over the frame); coats as smooth as that are as before
-(ClearCoatTest, CompareClearcoat, ClearCoatCarPaint and CarConcept within 0.01 to 0.02 of 255). Its sample is
-a ratio (Heitz et al.'s ratio estimator, as for shadows): the ray's radiance over what the probes and the environment
-predict along the ray (as `environmentRadiance` along the reflection, the environment prefiltered for the roughness and the
-probes' terms, along the direction traced: below the geometry, where a ray is turned to skim it, the prediction saw the
-ground), and its weight the specular's weight of this pixel's own prediction, plus a fiftieth of white at the view's
-exposure in both (`kReflectionPredictionLeast`: below it the prediction is too dark to matter, and the sample is the
-radiance itself, at night). Where a ray sees what is predicted (the sky) the ratio is 1 and the pixel is shaded as
-untraced, its normal map's detail and all; what the ray met that isn't predicted (a surface, a shadow) comes in at the
-scale the filter keeps. Filtering the radiance itself, as at first, blurred what each pixel's own reflection direction
-gives over the pixels around: ChronographWatch's carbon fiber (a gold metal of roughness 0.4 under a fine weave normal map,
-the user's pose `-0.3403,1.1883,-2.8639,17.242,2.387`) came out as blurred blotches without its fibers, and Bistro's
-scooter and lamp posts lost the rims along their curves; the ratio's renders are the untraced ones where the rays meet
-the sky (MetalRoughSpheresNoTextures 0.17 of 255 from before, ABeautifulGame 0.08; Bistro's benchmark pose 3.8 from
-untraced, 4.1 before). Predicting with the environment unblurred, and misses so, so that the lobe's rays are the blur,
-cast the low sun's glow over Bistro in pink (6.0 from untraced). The shading records the ray (`TracedReflectionRecord`, in
-compute only: a fragment shader's storage writes turn its early depth test off): what is predicted along it
-(`SHADER_TYPES_REFLECTION_RAW_TEXTURE`), the weight with the roughness (`..._WEIGHT_TEXTURE`; `kReflectionUnknown` in both
-where none, which `ShadeVisibility` writes first) and its direction and the roughness (`..._RAY_TEXTURE`); its share is
-left out of the shading, and four passes after Main Visibility take it. Reflection Trace (`ComputeReflectionTrace`) traces
-it, and writes the ratio and the hit distance over the prediction (the distance as -2 less it where what the ray met moves,
-`ReflectionPackDistance`: what moves' structure has no model instance; the prediction alone where what it met isn't
-known), Reflection X and Y filter it along rows and columns (`ReflectionFilter`: a gaussian as wide
-as the blur the lobe makes where the ray met something, `ReflectionBlurPixels`, the hit distance by alpha over the pixel's
-width on the surface, at most 16 pixels, weighed by the surface, as the near field's, and by the roughness; moving where
-any tap met what moves), and Reflection Temporal blends it into the last frame's history where the point was
-(`PixelHistory`, as the near field's), clamped to the box of the frame's filtered 3x3 (a reflection moves across the
-surface as the eye does, which reprojecting the surface doesn't follow: kept, it trails), by 1 over the frames it holds,
-from 2 at a mirror to 24 at the roughest traced, then adds the weight times it to the main color, before Main's blended
-surfaces and the transmission texture read it. The clamp goes by how far what the surface reflects slid across it since the
-last frame, over the blur its lobe makes there: the eye travelling `dt`, the image of what a ray met at hit distance `t`
-behind a surface at distance `d` slides by `dt t / (d + t)`, in pixels over the pixel's width there; a turn of the view
-about the eye slides nothing (a reflection is the eye's place's, not its direction's). Where it slid by less than its
-blur, and nothing but what moves may change what the reflections see (`TRACED_SETTLED`: the lights neither changed nor are
-being followed) and no tap met what moves, the history is unclamped and holds 64 frames (`kReflectionFramesStill`); by
-more, the history is taken where the reflection was seen last frame instead (virtual motion, as NVIDIA's ReBLUR:
-`ReflectionVirtualHistory`, at the image of what the ray met through the view's last view projection, as deep behind the
-surface as a curved mirror puts it, `1 / v = 1 / t + 2 k` with `k` the surface's curvature from the pixels beside it,
-`ReflectionCurvature`; each tap only where its surface faced as this one's does and its reflection met something about as
-far), unclamped as well; else it is clamped as above. Not where a normal map turns the normal from the geometry's by more
-than about 6 degrees in the 3x3 around (`ReflectionPackRoughness`: the weight's alpha, 2 more): each cell of the watch's
-woven strap reflects along its own direction, the image of a mirror was another cell's, and moving sideways at the
-user's pose `-0.5305,-2.4926,-1.6792,46.951,3.879` it trailed in streaks along the move (its last frame 3.68 of 255 from
-a still render of its pose, 8.5% of the pixels off by more than 16; clamped 2.09 and 0.9%; now 2.16 and 1.2%). Close to the watch's case (the user's pose
-`-1.0900,-0.8416,-0.1727,1.857,162.935`) a step aside slid the strap's reflection across it by tens of pixels a frame:
-moving sideways there, a mean second difference of 0.92 clamped, untraced 0.09, now 0.24, and the move's last frame 0.46
-of 255 from a still render of its pose (1.26 clamped). As a flat mirror's image, MetalRoughSpheresNoTextures' glossy
-spheres smeared their reflections as the eye walked (0.83 from a still render, 0.78 clamped and with the curvature: a
-convex mirror's image of what is far is half its radius deep). The frame's filtered 3x3 is smooth, so its box held the
-history to the frame's own noise:
-ChronographWatch's strap (its rays meeting the sky in some weave cells and the case in others) changed between still
-frames by 0.258 of 255, untraced 0.021, now 0.024; under small turns of the view (the user's pose
-`-0.6502,-2.5011,-1.5277,43.502,1.044`, 0.05 degrees a frame) the mean second difference over the frames (what changes but
-the image's steady motion) was 4.49, untraced 0.60, now 0.74, and the turn's last frame is 0.88 from a still render of its
-pose (2.56 clamped); walking sideways 5.88, untraced 1.83, 2.48 by the slide alone, 2.37 with the virtual motion. A mirror's reflection still clamps as the eye walks:
-MetalRoughSpheresNoTextures' first column walked a sphere's spacing is as far from a still render of the last pose as
-before (0.78 of 255, 0.77). The whole model's moving would have kept it clamped wherever anything moves (the watch's
-seconds hand). Their history is valid once they ran the frame
-before at this size (`TRACED_REFLECTION_HISTORY`); the frames they ran are above `TRACED_FRAME_SHIFT` (the rays' sampling,
-the history's parity).
-A ray that meets nothing takes the environment prefiltered for the roughness of the surface it leaves, as `Shade` looks it
-up: at the panorama's level, a glossy ray meeting the sun's disk took it twice (the sun is a light, its highlight the
-lobe's), a sample thousands of times the sky's, which the filter spread into a white square on MetalRoughSpheres; and the
-light a pixel takes of a sample (by its weight, as Reflection Temporal adds it) is at most 8 times white at the view's
-exposure (`kReflectionMostWhite`: a lamp's bulb met by one ray among its neighbors'). It capped the sample's own
-radiance at first, which a faint specular takes a share of: the glossy reflection is the lobe's average of what its rays
-meet, and bathroom2_extended's floor, a coat reflecting some 5% of the emissive window over part of its lobe, lost most of
-it (the floor beside the window's reflection 178 to 213 of 255 at exposure 1.5; 208 to 227 by the light taken, 225 to
-238 uncapped). Elsewhere it changed 0.02 to 0.14 of 255 (ABeautifulGame, MetalRoughSpheres, ChronographWatch; Sponza's
-corridor, Bistro's street, bathroom2_core), and Bistro at night's lamps came out no brighter in what reflects them (its
-strips within the lit interiors' run-to-run noise, the frame's mean the same). Since 2026-11-23 the cap leaves the
-emissive surfaces' light alone (docs/research-scenes-plan.md, C1, step 4): where they are lights, a glossy ray's sample
-is what it met less its emission (the hit's, `gTracedHitEmission`, less what the glass on the way kept), capped, plus
-the emitters' highlights by the balance heuristic between the ray and a light sample beside it
-(`TracedGlossyEmitters`): an emitter point picked down the light tree from the pixel (one candidate; the resampling by
-the lobe from two cost Bistro at night 0.17 ms more and measured the same), its light by the lobe's density toward it
-(`TracedGlossyDensity`, the visible normals' G1 D / 4 n.v, about the lobe's own normal, which the ray record carries now,
-32 bits a coordinate) and its area's solid angle, shadowed by a ray. The ray's emission takes lobe / (lobe + light) of
-itself, the light sample light / (lobe + light), the light density `EmitterDensity`: the tree walked toward the child
-whose box is nearest the point, a function of the point alone, so that the two weights sum to one at every point
-whatever the boxes' overlaps (the walk is the pick's own path where they don't), and no hit has to be traced back to its
-emitter. The shadow ray is a gamble below a quarter of white in what the pixel takes (Russian roulette, its estimate
-divided by its chance): traced always it cost Bistro at night 0.3 ms more. veach-mis, its plates' highlights of four
-spheres of falling size, went from 0.726 stops (blurred) off its reference to 0.458, its light from -0.441 stops to
--0.209: each sphere's highlight on each traced plate, and the smallest's on the smooth plate no longer dark in its center
-(the cap's, B5); glass-of-water 1.055 to 0.739, its backdrop's highlight on the metal table; bathroom2 0.234 to 0.225,
-kitchen 0.276 to 0.271; the rest within 0.006 (crown's gold, rough or untraced, 0.596 to 0.591). The roughest plate
-(0.5, a quarter of its reflection untraced: the traced share fades from 0.45 to 0.6) was step 5's: since 2026-11-23 the
-untraced specular takes the emitters' highlights too (`EmitterSpecular`, the visibility buffer's and a fragment's opaque
-pixels, where the emitters' diffuse is gathered): the points the four traced pixels around found reaching them that
-frame (Emitter Shade writes each, `EmitterPlacePoint`: where, and its light by its contribution weight and what its
-Russian roulette made it count for, in two more parts of `gEmitterReservoirs`), each weighed by the pixel's own specular
-lobe (`BaseLobe` without the diffuse), by where the pixel is between them and how much theirs is its surface, as the
-diffuse's upsample; unbiased where the pixel's surface is its traced pixels' (a sample and its contribution weight
-estimate the light over what that pixel could pick). A frame's alone was a grain over rough metal (veach-mis's roughest
-plate; its frames 600 and 601 apart by 0.27 of 255, 0.11 before), so it is blended over frames as the diffuse is
-(`EmitterSpecularOverFrames`, `SHADER_TYPES_EMITTER_SPECULAR_TEXTURE`: Emitter Temporal gathers the last frame's by its
-own reprojection into the frame's image, which Main Visibility blends the frame's into; 0.106 of 255 apart then).
-Reprojected in Main Visibility it cost Bistro at night 0.26 ms more, and the kept value read at the start of the pixel's
-shading (held through it) 0.3 more; each traced pixel's point fetched by the pixels 0.07 more. veach-mis 0.458 to
-0.421 (light -0.209 to -0.171), crown 0.591 to 0.581, living-room-2 0.212 to 0.204, classroom2 0.356 to 0.351,
-veach-ajar 0.182 to 0.179, the rest the same; D3D12 alike. It costs at 1440p balanced: Bistro at night Main
-Visibility 0.22 ms and Emitter Temporal 0.07, bathroom2 0.14 and 0.07, Sponza (no emitters) Main Visibility 0.06. It costs at 1440p balanced, in Reflection Trace: Bistro at night 0.91 ms
-(its 20 thousand emitter triangles' tree walked twice a glossy pixel, the pick and the density; the frame 1.06),
-glass-of-water 0.43, bathroom2 0.11, Sponza 0.02 (no emitters), and Main Visibility 0.04 more for the record's wider
-texels. Only where the reflection can show: the specular's share of its light (the split sum's
-terms by the occlusion, as luminance) from 0.005, all of it from 0.015 (`kTracedStrengthNone`, `kTracedStrengthFull`;
-a dielectric's is about 0.04 at normal incidence). San Miguel is an obj whose materials' `Ns` make walls, floors and trees
-smooth (`sqrt(2 / (Ns + 2))`, 0.14 at 96) and their `Ks` their specular faint: traced everywhere they cost 1.85 ms a frame
-and changed nothing to see. Gated at 0.01 to 0.03, a faint lacquered door and pilasters in Bistro lost the dusk sky their
-reflections traced, and took back the probes' light along them, the lit interior's leaking through (orange). The ray starts
-off the geometry on the viewer's side by a pixel and a half, as the traced shadows' (a normal map turning it below the
-geometry has it skim the surface). `TransmittedLight` takes the light traced through the surface (`TracedFragmentRays`' refraction: into
-its volume along the refracted ray, or through a thin wall as the view goes, as the screen space lookup has it, then
-through the transmissive surfaces that don't move as the caustics' photons go, `GlassPath`: out of the volume where it
-meets its back, refracted, less its Fresnel reflection, or reflected back in where it can't leave, through or into the
-glass beyond, to the first opaque surface or the environment, at most `SHADER_TYPES_CAUSTIC_SURFACE_COUNT` surfaces, past
-which the screen space lookup's is kept; the opaque scene's structures hold no glass, and the ray passed through its
-own volume without leaving it: a ball showed what is behind it shifted rather than upside down, and a thin wall was
-refracted as a volume's face; the glass that moves is in a structure of its own: passed through, IridescentDishWithOlives'
-cover, a shell, magnified the olives under it as a solid lens would, which it now shows as they are), where the
-transmission texture's mips wouldn't blur it much (`roughness * saturate(2 ior - 2)`), what is behind out of the view as
-well, along a ray of the surface's lobe (`TransmittedLobeRay`, since 2026-11-23, the research scenes plan's step 6: the
-view refracted about a microfacet normal of its GGX lobe, by the normals visible from the view, another each frame and
-pixel, which the temporal upscaler averages; a thin wall's out again through its other face as parallel to this one).
-The upscaler's average is enough where most of a pixel's rays meet the same thing, and not where few of them meet
-something far brighter: the glTF research set's spaceship's display, a bar of emission 20 behind its
-dome's glass (roughness 0.1), drew red single pixel specks around itself for good, each a frame's ray of the lobe's
-skirt (the user's report, 2026-11-23; with refractions untraced the display is clean). So while nothing but the view
-may have changed what the glass shows and the view is still (`TRACED_GLASS_STILL`: the model doesn't move, the lights
-neither changed nor are followed, the frame is drawn with the last one's switches), a rough surface's refraction's
-light is the mean of the frames' (`GlassLight`, at most `kGlassFrameCount`, 128; from roughness 0.02 to all of it at
-0.06): the last frame's mean at the pixel with this frame's ray, written beside the color in the transmissive phase's
-second color attachment (the depth test keeps the nearest fragment's; its draws' blend is `kTransmissiveBlend`) and
-copied by the Glass History pass for the next frame to read. The rays' light alone, not the fragment's color, so that
-what the glass reflects and its edges stay the upscaler's to resolve. What is shown is that mean with the means the
-pixels around kept, two each way by a tent and by their frames (not kept: it would spread further every frame): a
-pixel's own 128 rays left a lattice of dim dots further out, where one ray in a hundred meets the bar (the rays'
-sequence is the same in every pixel but for where it starts). And the lobe's rays are of its inner 97%
-(`kTransmittedLobeShare`): with the whole lobe faint smudges were left up to a hundred pixels from the bar, the rays of
-GGX's skirt, too rare for the frames kept here to make a glow of; with 99% the glow's rim is ragged. Tried first, in a
-copy of the shaders: the sharp ray, and where what it met is on the screen the transmission texture there at the mip
-as wide as the lobe (no noise at all, and wrong: the mips mix what is near with what is far, a red haze over the dome
-from the bar, and the hits the screen hides, shaded sharp, drew doubled edges). The cost: the Glass History pass 0.02 ms
-at 1440p balanced, Main Transmissive 2.25 to 2.27 ms in spaceship, 11.89 to 12.14 in glass-of-water, 4.03 to 4.20 in
-cornell-caustic; the research set's glass scenes at the same distance from their references (spaceship 0.197 to 0.194
-blurred stops). While the view moves it is a frame's ray as before, the lobe's grain with it: the history taken where
-what is behind the glass was is the next step (docs/backlog.md). The frames the rays' sequence goes by
-(`TracedFrame`) were counted with the glossy reflections alone: with reflections off a rough refraction's ray was the
-same every frame, a grain standing still; counted while either is traced now.
-The sharp refraction drew what is behind rough glass sharp in its share (a quarter of the light at 0.32): lamp's frosted
-bulb showed its emitter's edge in grainy notches along its rim, where the reference's is a glow; the lobe's ray draws it
-smooth, and the research set measures the same (lamp 0.191 blurred stops, bathroom2 0.199). Three rays a pixel were a
-little smoother and cost Main Transmissive 0.45 ms more a frame in lamp at 1440p, 0.25 in bathroom2, 0.14 in Bistro at
-night; the traced share as far as the glossy reflections' (all to 0.45, none from 0.6) drew bathroom2's jar's edges
-orange, the counter below seen through the bottle's sides, where the reference's show the wall behind as the mips do; and, whatever the roughness, where the screen space lookup leaves the view (its last 5%,
-where untraced glass fades to the environment along the ray) the trace stands in for the environment: rough glass, partly
-the transmission texture's, faded to the sky toward the view's edges as untraced glass does. Nothing else of the traced
-reflections or refractions fades toward the view's edges (with traced refractions off, ABeautifulGame's glass pieces do,
-which the user took for the reflections'). It used to start where the screen space lookup has the ray leave the volume, at the
-material's thickness: USDShaderBallForGltf's glass shell has a thickness of up to 8.9 around a core a tenth of a unit
-across, so its rays started inside the core (its back met, shaded black) or past everything (the sky), a wavy border
-between the two (the user's pose `0.0069,0.0526,0.0899,13.528,-7.460`); from the surface they meet the core through the
-shell, and DragonAttenuation, with nothing inside its volume, is the same to 0.15 of 255 (what that left out, a thick
-slab's sideways shift, its exit gives now). A ray that meets a single sided triangle's back (`TracedRadiance`'s `valid`: it started inside
-something, or looks where the triangle isn't drawn from) is dropped, and the shading keeps what it would have taken
-without it. Past the glass (a refraction's ray, or a reflection's once it crossed glass: `TracedShade`'s `fromGlass`)
-such a back is shaded as its front instead: it is of what the glass is set into, whose inside isn't modelled.
-ABeautifulGame's glass balls are sunk a quarter of their diameter into their pawns and brass collars, modelled by their
-outsides alone: dropped, what the bottoms of the balls refract took the screen space lookup, which faded to the
-environment toward the view's edges (the user's pose `-0.1076,0.0909,-0.1234,14.436,67.711`, turned right); passed, as
-the rasterizer culls them, the pawns' tops showed through them in jagged holes (the user's pose
-`-0.0363,0.0840,0.0848,47.406,151.416`). The user's choice, 2026-11-04, knowing its cost: MosquitoInAmber's body, some
-of whose triangles face inward, comes out in lit facets (passed, it was clean). A hit is shaded in `TracedHitRadiance`: its material at its texcoords
-(base color, metallic and roughness, emission; not the extensions' layers nor its normal map) at the mip level a ray cone
-picks (Akenine-Moller et al.: the pixel's width and angle where the ray starts, `TracedPixelCone`, against the triangle's
-texels per area; without one a reflected texture shimmers), the vertices' normal placed by its instance
-(`BvhHit::modelInstance`; what moves keeps the triangle's), lit as the voxels are (the lights of its cell of the finest
-clip holding it, each with a shadow ray; every light without the indirect lighting), each light by what the
-transmissive surfaces let through to the hit and the caustics' light too, the shadow transmittance's where the light's
-views hold it (`ShadowTransmittance`, as the main pass takes it: the shadow rays meet no glass, and the ground seen
-through CausticSpheres' clear sphere was lit as if the sphere weren't there, neither its shadow nor its caustic), and by
-the indirect lighting there
-(the probes' diffuse, and the environment's specular as much as they see of it; where its lookup barely sees its probes,
-`GiLookupTrust`, the light of near field rays of its own, `TracedNearLight`, one in the glossy reflections and four in
-the sharp, `GiNearTrace` as the near field's, rather than the lookup's second try, as the near field does for the
-pixels: by that try the gold strip at the foot of Sponza's curtains reflected the floor in front of them lit from the
-courtyard, in orange flames; they cost Main Visibility 0.09 ms at the user's pose there, 0.10 in Sponza's corridor and
-0.31 in Bistro's street, 2560x1440, RTX 4070 Ti SUPER, half of it their code, traced where the lookup sees no probe
-alone; fading such hits' light out instead cost nothing, but left golden patches along the corridor's hems), plus its
-emission, plus the emissive surfaces' light (since 2026-11-23, docs/research-scenes-plan.md, step 2): the diffuse where
-the hit is on the screen as the main pass gathered it at the pixel there (`TracedEmitterSeen`: Emitter Temporal's
-history, where its pixel surfaces say that pixel's surface is the hit's), else as the voxels at the hit keep it (`gGiKept`,
-`TracedEmitterKept`, as the indirect lighting's rays' hits take it: the 4 columns of voxels around the hit across its
-normal's main axis by their shares, in each the voxel at the hit's depth where it holds a surface facing the hit's way,
-else the one beside it out along the axis, in the clips that light the hit as their lookups blend them. The one voxel
-the hit is in, as it was until 2026-11-23, is the other side's where a double sided sheet is by a voxel's face, each
-side a voxel's: the glTF research set's bathroom's wallpaper took no emitters' light in its mirror, off the screen;
-and it showed as squares of the last level's voxels for the 5 seconds their light takes to settle, the finest clip
-alone as a step where the next takes over); the specular, where the
-hit's specular takes at least `kTracedEmitterSpecularLeast` (0.1) of the light, from a point resampled from
-`kTracedEmitterCandidateCount` (2) candidates down the light tree and its shadow ray (`EmitterCandidates`,
-`EmitterShade`), by the specular lobe. Without, what the emitters light was lit by the probes alone wherever a ray met
-it, and the glTF research set's glass-of-water, its backdrop and floor rough metals an emissive quad lights, was black
-through the glass (2.906 stops off its reference). A light sample at every hit, the diffuse too, was the closest
-(glass-of-water 1.058, veach-mis 0.639, coffee-maker 0.258, bathroom 0.224, kitchen 0.262; the split 1.056, 0.726,
-0.319, 0.242, 0.277) but cost Bistro at night 3.1 ms a frame at 1440p (2.2 with one candidate, not four; the screen's
-lookup in front of it saved little, a wave waiting for its slowest thread), the split 0.6, glass-of-water 2.2 (its
-metals' highlights are all sampled) and bathroom2 0.1; where the ray meets
-nothing, the environment along it (the sky with its sun). Debug view Traced Reflections (`traced-reflections`): what the
-reflections see where they are traced (the glossy ones filtered and over frames), magenta elsewhere. Through the glass
-(framed, against the refraction that didn't leave its volume and hits lit past the glass): the 16 glass sample models
-by 0.06 to 2.8 of 255, USDShaderBallForGltf most (its shell reflects all of the light near its rim, and shows its
-bubbles and its core as the path traced screenshot has them), then MosquitoInAmber 1.7 (the amber's surface focuses the
-sun onto the mosquito), GlassVaseFlowers 1.4 (the sky upside down in the vases' feet) and DispersionTest 1.0, the rest
-under 0.75. Main Transmissive (framed, 2560x1440, RTX 4070 Ti SUPER): DragonAttenuation 0.36 to 1.15 ms,
-USDShaderBallForGltf 0.71 to 1.54, GlassVaseFlowers 0.40 to 0.58, ABeautifulGame 0.13 to 0.21, CausticSpheres 0.10 to
-0.18, the hits' lookups 0.10 to 0.17 of it and the rest the path (a query for glass and one for the scene at every
-surface crossed, as at first, took the dragon's 1.31); Main Visibility, the glossy reflections' hits' lookups, 0.004 to
-0.03 more. A reflection's ray meets the glass too, that moves or not (`TracedRadiance`, with `BvhTraceSceneOrGlass`): its
-reflection of what is around it, as a hit's specular is taken (`TracedIndirect`: the environment as much as the probes
-see of it; not its own traced reflections), and the light through it (`TracedPath`, as the refractions take it),
-from inside its volume out of it (a reflection of what is in the glass, a mosquito in amber); the rays passed through
-it, and glass was missing from every reflection (CausticSpheres' amber sphere from its clear sphere's, a glass object
-from a mirror floor's). A reflection follows `kTracedReflectionGlassSurfaceCount` (2) surfaces through the glass, past
-which the shading keeps what it would have taken untraced: all 8, DragonAttenuation reflecting itself and its glossy
-cloth reflecting it took its Main Visibility from 0.41 ms to 0.95 and its Main Transmissive from 1.14 to 2.16, 0.65
-and 1.68 with 2 (its render within 0.09 of 255 of all 8's). Where the model has no glass, the kernel tracing the visibility
-buffer's reflections is specialized without it (`SHADER_TYPES_LAYERS_GLASS`, `Renderer::myVisibilityNoGlass`; then Main
-Visibility's): its code alone, never run, took MetalRoughSpheresNoTextures' Main Visibility from 0.382 ms to 0.416;
-specialized, it and DamagedHelmet's are as before. With glass (framed, 2560x1440, RTX 4070 Ti SUPER), Main Visibility and Main Transmissive: CausticSpheres
-over a mirror floor 0.60 to 0.65 and 0.36 to 0.39 ms, ABeautifulGame 0.36 to 0.44 and 0.21 to 0.24, DragonAttenuation as
-above; the 16 glass sample models change by 0.02 to 0.13 of 255 (glass reflecting glass: TransmissionTest's spheres
-their neighbors, DispersionTest's blocks each other). Not yet (TODO.md):
-glossy refractions (the transmissive surfaces are drawn forward, after the visibility buffer: they keep the sharp trace,
-and the transmission texture's mips where rough), a hit's own reflections, and the glossy rays at a lower resolution
-(their cost, below). Transmission without `KHR_materials_volume` is glTF's infinitely thin wall, which bends nothing,
-unless `TRACED_SOLID_TRANSMISSION` (`Scene::Settings::solidTransmission`, `SPEEDO_SOLID_TRANSMISSION=1`, on with the glTF
-research set's conditions) makes every transmissive surface a solid (`TransmissionSolid`: the fragment's refraction into
-it, the path's inside and outside, the caustics' photons; a solid without a thickness absorbs nothing, and the screen
-space lookup reads at the surface).
-
-Each kernel traces from one call site, in a loop the compiler doesn't unroll (`[loop]`): every call is a copy of all that
-shades a hit (the glass's path, the hit's lights and their shadow rays, the probes, the near field's rays), since NIR
-inlines every function and KosmicKrisp gives every ray query state of its own. The visibility buffer's in the Reflection
-Trace pass (its glossy ray and the clearcoat's sharp one where the base took the glossy, which the shading records: `TracedCoatRecord`, the direction, the
-roughness and the weight of the difference the trace makes, which the pass adds to the main color); a fragment's in
-`TracedFragmentRays` before it is shaded (the base's and the clearcoat's reflections, `SharpReflections`, and the
-refraction, a ray for each color under dispersion, `TransmittedTraced`, whose light `Shade` and `TransmittedLight` take);
-and the way through the glass in one loop with what it ends on shaded once after it (`TracedPath`). Traced where each was
-taken, the visibility buffer's generic kernel was 31.5 MB of Metal source on KosmicKrisp and took 127 s to compile cold
-(19.1 MB and 58 s without glass), and the main pass's fragment shader 22.5 MB and 30 to 37 s (a copy of `Shade` in each of
-`ShadeFragment`'s two returns, and of the refraction in each of dispersion's channels); now 6.0 MB and 6 s, 6.0 MB and 9 s,
-and the Reflection Trace pass's 1.9 MB and 2 s, and a client's cold start with ray queries (IridescenceLamp) takes 40 s.
-Renders are as before to the runs' noise (11 scenes of traced reflections, refractions, glass and clearcoat, the visibility
-buffer's and the forward path's: 0.015 of 255 at most, two runs of the same client 0.022), and frames no slower: settled
-on KosmicKrisp at the benchmark poses (2560x1440, interleaved), Sponza 27.6 to 28.0 ms before and 26.3 to 26.4 after,
-Bistro's evening 48.5 to 51.3 and 48.1 to 50.7, ABeautifulGame 19.1 to 20.0 either way. Not measured on NVIDIA yet.
-Pipelines that take a second or more to create are printed (`pipeline: <kind> <entry point> (specialization <n>) took
-<s> s to create`; `SPEEDO_LOG_PIPELINES=1` prints every one).
-
-Measured on NVIDIA (RTX 4070 Ti SUPER; the benchmark poses at 2560x1440, balanced, interleaved runs), on against off. Sharp
-alone (the first version): Bistro 6.2 and 6.4 ms against 5.9 and 6.0, San Miguel 7.4 and 7.6 against 6.8 and 7.1, Sponza the
-same (4.3); the gated captures differ from the ungated within the runs' own noise. Glossy: Bistro 7.1 to 7.4 ms against 5.9,
-San Miguel 8.1 to 8.6 against 6.9 to 7.2, Sponza 4.8 against 4.3: the rays in Main Visibility (Bistro's 1.36 ms against 0.66),
-the three passes 0.10 to 0.17 ms each (two images read a pixel, traced or not). A still pose changes between frames about as
-much as untraced (the mean change of consecutive frames, of 255: ABeautifulGame 0.081 against 0.075, Bistro's benchmark pose
-0.093 against 0.080). What changes: MetalRoughSpheresNoTextures' smooth metal spheres reflect their neighbours and the grid
-behind (only the sky and the ground before), sharp in the first column and blurred by the roughness to the fourth (the
-probes' light alone before); DragonAttenuation's glass shows its cloth refracted and reflected sharp; Bistro's scooter,
-lamp posts, railings and lacquered panels reflect the street; San Miguel's fountain the sky over the courtyard; Sponza's
-floor the sky through the gap under its curtains. Clean under the validation layer (DragonAttenuation, BrainStem, Bistro,
-Sponza, MetalRoughSpheresNoTextures); the forward path (`SPEEDO_VISIBILITY_BUFFER=0`, sharp, traced in the fragment shader)
-renders as the visibility buffer's sharp version did (0.16 of 255 apart), and without ray queries (`SPEEDO_RAY_QUERY=0`) the
-traced code compiles out (0.14 of 255 from the untraced).
+Prepass (and Prepass Late) draws the main list's opaque draws first: depth and geometry normals toward the side seen (`FragmentPrepass`). Main and Main Late shade over that depth with `DepthTest::kEqual`, each pixel once; blended draws depth test as before and the transmissive phase isn't in the pre-pass since it must see the opaque scene. With the visibility buffer (default) opaque triangles aren't drawn again.
 
 ## The visibility buffer
 
-The main list's opaque triangles are shaded from what the pre-pass wrote rather than drawn a second time (on by default
-since 2026-11-01, the user's call; `SPEEDO_VISIBILITY_BUFFER=0`, read when the renderer's graph is made, draws them
-again over the pre-pass's depth): the pre-pass writes each pixel's draw record, and its triangle (`SV_PrimitiveID`) and
-instance in one word, the instance above the record's `primitiveBits` (`WriteDrawRecords`: the instance count's bits, at
-least one; a draw whose primitives don't fit the rest is a hard failure), to a third color attachment
-(`Prepass Visibility`, RG32 uint, `gVisibility`; `DrawRecord::firstIndex` finds the triangle's indices; RGBA32, 16
-bytes a pixel, measured the same), and the Main Visibility pass (`ComputeMainVisibility`, compute entry point 42,
-`ShadeVisibility` a pixel) places the triangle's corners as the vertex stage places them (`PlaceVertex`: morphed,
-skinned, then by the instance, read once for the three), interpolates them at the pixel's center by perspective correct
-barycentrics (`PixelBarycentrics`: Schied and Dachsbacher's, in The Forge's form), and shades the pixel as `FragmentMain`
-does (`MainColor`) into the main color as a storage image (`gMainColor`), every view's pixels in one dispatch
-(`ViewIndexAt`, by the viewports alone: `ViewAt`'s whole ViewData, and the instance read per corner, made the
-reconstruction 2.2 ms at Sponza rather than 1.25). What the fragment stage has, the kernel makes: the barycentrics'
-screen space derivatives stand in for its implicit ones (`gPositionDx`, `gTexCoordDx`: `SampleView`'s `SampleGrad`, the
-view's lod bias as a factor, and `CotangentFrame`'s, `SurfaceDerivativesAt`; `__stage_switch` picks, with `case
-compute:`, since slang's `default:` conflicted with the fragment stage's capabilities), a cut out fragment returns
-rather than discards (`CutOutFragment`: the pre-pass kept only what passed), the view shaded is `gShadingViewId` rather
-than the push constant, and the front face is the triangle's geometric normal toward the eye, reversed for a mirroring
-instance, in world space (by the winding of its corners projected, a triangle with a corner behind the eye, the floor
-beside the camera, came out back facing: its normals flipped). Main then draws what is left (`renderer::VisibilityUnshaded`:
-blended triangles, points and lines) over it, loading the color, and it and Main Late are disabled where nothing is left
-(a render pass loading and storing the color and depth for nothing). Shading with the view and the material broadcast
-per SIMD group (a `WaveReadLaneFirst` loop, so that what is read of them is uniform, as a draw's fragments have them)
-changed nothing. A fragment shader reading `SV_PrimitiveID` declares the Geometry capability (slang's choice), which
-needs `geometryShader`, which KosmicKrisp lacks; Vulkan takes the Tessellation capability for it too, which KosmicKrisp
-has, so rhi declares that instead there (`shader::DeviceCode`).
+Opaque triangles are shaded from what the pre-pass wrote instead of drawn again (default; `SPEEDO_VISIBILITY_BUFFER=0` draws them again). The pre-pass writes per pixel the draw record, triangle (`SV_PrimitiveID`) and instance in one word (`WriteDrawRecords`; a draw whose primitives don't fit is a hard failure) to `gVisibility`. Main Visibility (`ComputeMainVisibility`, `ShadeVisibility` per pixel, all views in one dispatch) places the corners as the vertex stage does (`PlaceVertex`), interpolates at the pixel center by perspective correct barycentrics (Schied and Dachsbacher) and shades as `FragmentMain` does (`MainColor`) into `gMainColor`. What the fragment stage has, the kernel makes: analytic derivatives for texture gradients (`__stage_switch` with `case compute:`), a returning cut out, the view in `gShadingViewId`, and the front face from the geometric normal toward the eye. Main then draws only what is left (`renderer::VisibilityUnshaded`: blended triangles, points, lines). The transmissive phase is still drawn as before. A fragment shader reading `SV_PrimitiveID` declares the Geometry capability, which KosmicKrisp lacks, so rhi declares Tessellation there (`shader::DeviceCode`).
 
-**Tiers.** The kernel is specialized without the extended layers where none of the frame's triangles needs them
-(`ComputePipelineVariant::specialization`, a compute pipeline's specialization constant 0, as a graphics pipeline's):
-generic, it cost Sponza 2.4 ms more. Where some do, the tiles (`SHADER_TYPES_VISIBILITY_TILE_SIZE`, 8 pixels a side, a
-thread group's) can be sorted (Main Visibility Classify, `ComputeMainVisibilityClassify`, entry point 43: the pre-pass
-marks a record whose material has one, `VISIBILITY_EXTENDED`, its top bit; a tile with a pixel so marked goes to one
-list of `gVisibilityTiles`, the others to the other, each counted in its list's indirect dispatch,
-`CommandEncoder::DispatchIndirect`, emptied by Main Visibility Clear), and Main Visibility shades each list with the
-same entry point (`PushConstants::visibilityTiles`), the specialized kernel the plain tiles and the generic kernel the
-others, in one pass (as passes of their own, the graph put a barrier between them, both writing the color: about 0.13 ms
-more).
-Sorting costs 0.21 to 0.25 ms (the passes, whatever each pixel reads: four dependent loads or one), so it is done where
-it pays: where the last count of the tiles with something drawn without an extended layer (`gVisibilityStatistics`, read
-back per frame index) was an eighth of the frame or more (`kVisibilityTieredShare`), and every 16th frame to count again
-(`kVisibilityRecountFrameCount`); else the generic kernel shades every tile. On a plain quad filling the view with a
-small clearcoat quad in front (`VisibilityTiers.gltf`, nearer than it frames), 13.50 ms against 15.48 with the generic
-kernel everywhere; SheenChair and CarConcept, mostly extended, 13.83 and 13.79 against 13.77 and 13.71 (sorted every
-frame, 14.02 and 13.98). The check in the shading kernel itself, a group's barriers around it, cost 0.45 ms even in
-frames that skipped it at Sponza and San Miguel (the compiler's doing), hence the pass of its own.
+### Tiers
 
-Measured by the draw thread's frame time (balanced, 2560x1440, GI on, interleaved): San Miguel 40.95 to 33.56 ms, Bistro
-33.99 to 31.19, Sponza 18.80 to 19.57. What it saves is the second draw of the triangles (about half of San Miguel's
-Main, see docs/performance-plan.md); what it costs is the reconstruction, 1.25 ms at Sponza, where the second draw is
-cheap. Renders are forward's to about twice the run to run noise (still captures at the benchmark poses, and models of
-every feature: skins, morph targets, mirroring and instances, alpha masks, clearcoat's generic kernel and sorted tiles,
-points and lines, split screen): texture filtering differs a little along a texture's sharp edges, the barycentrics'
-derivatives being exact where the quads' are finite differences. Not yet: the transmissive phase (drawn as before).
+The kernel is specialized without the extended layers where no triangle in the frame needs them. Where some do, Main Visibility Classify can sort the 8x8 tiles into those with an extended material (`VISIBILITY_EXTENDED`) and the rest, each list with its own indirect dispatch, shaded by the same entry point in one pass (separate passes would add a barrier). Sorting has a fixed cost, so it runs only where the last count of plain tiles (`gVisibilityStatistics`) was at least `kVisibilityTieredShare` of the frame, recounted every `kVisibilityRecountFrameCount` frames; otherwise the generic kernel shades every tile.
 
 ## Clustered lighting
 
-Each fragment loops over only the lights that may reach it (`ClusterLights` in the shaders, for `Shade` and
-`ScatterLight`). Each view's frustum is a grid of clusters (`SHADER_TYPES_CLUSTER_TILES_X` by `_Y` tiles of normalized
-device coordinates, 16 by 9, and `SHADER_TYPES_CLUSTER_SLICES` slices of depth, 24, logarithmic: `log2(1 + d / unit)` of
-the distance from the near plane, over 1023 units to the scene's farthest point or the far plane). `clusters::Plan`
-(`gfx/clusters.h`, in `Renderer::Record` after the shadows' plan) bins the lights on the cpu each frame: a directional
-light into every cluster; one without a range as far as the scene's farthest corner (nothing beyond the scene is lit, as
-the shadows' reach: an unranged spot light used to reach every cluster); a point light into the box of clusters around its range's sphere, a
-spot light around its cone's (`LightReach` in `gfx/lightbounds.h`: the cone capped by the range, in its smallest
-bounding sphere, Wronski's; shadows skip and size spot lights by it too) (its corners projected, the whole screen if one
-is behind the eye; a light outside the frustum into none), widened by a thousandth of a tile or slice against rounding.
-Per frame index, host visible: `gClusterViews` (a `ClusterView` per view: the depth plane and slicing; the tile comes
-from the view's own view projection, which is the one the clusters were planned with, see `Views::Upload`), `gClusters`
-(per cluster its first index and count) and `gClusterLights` (the indices, at most
-`SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT`, a hard failure past it: ThousandsOfLights in four views fits; `enabled` 0, all
-lights looped over, is for View > Rendering Features > Clustered Lights off).
-View > Rendering Features > Clustered Lights (`SPEEDO_CLUSTERED_LIGHTS=0`) turns it off. Every light the loop rejects cost about 60 us of
-main pass per frame (ManyLights with 223 more lights out of reach: 20.7 ms, clustered 5.2, as without them; ManyLights
-itself 5.8 to 5.2, 4.9 with its spot lights bounded by their cones, orthographic 6.3 to 5.3; Bistro with one light 4.10
-to 4.15). Renders with and without are identical. The cpu binning stays cheap: 6 us a frame for Bistro's one light, 42
-for ManyLights' 33, 80 (105 at the 90th percentile) for the 4000 of `ThousandsOfLights.gltf` in one view, so it hasn't been
-moved to a compute pass; that scene's main pass takes 8.9 ms clustered, and unclustered more than the 250 ms a timed pass
-may (its timings are dropped). `SHADER_TYPES_LIGHT_COUNT` (gLights) is 4096.
+Each fragment loops only over the lights that may reach it (`ClusterLights`, for `Shade` and `ScatterLight`). Each view's frustum is a grid of clusters (16 by 9 tiles and 24 logarithmic depth slices, `SHADER_TYPES_CLUSTER_*`). `clusters::Plan` (`gfx/clusters.h`, in `Renderer::Record` after the shadows' plan) bins lights on the cpu each frame: a directional light into every cluster, a point light into the clusters around its range's sphere, a spot light around its cone's bounding sphere (`LightReach` in `gfx/lightbounds.h`, shared with the shadows), a light without a range as far as the scene's farthest corner, a light outside the frustum into none. The indices are in `gClusterLights` (at most `SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT`, a hard failure past it). View > Rendering Features > Clustered Lights (`SPEEDO_CLUSTERED_LIGHTS=0`) loops over all lights instead. `SHADER_TYPES_LIGHT_COUNT` (`gLights`) is 4096.
 
+## Shadows
+
+The punctual lights cast shadows from one depth atlas (`gfx/shadows.h`: 4096 texels, 128 texel cells; transient `SHADER_TYPES_SHADOW_ATLAS_TEXTURE`), planned on the cpu each frame (`shadows::Plan`, in `Renderer::Record`). Directional lights come first: 4 cascades per view (Zhang's practical splits, bounding spheres seen along the light, snapped to whole texels), ordered finest first so the first cascade `PlaceInShadowMap` finds covering a point is the finest. Then point lights (6 cube faces) and spot lights, by brightness at the nearest eye; a light whose range is outside every view gets none. Tiles are sized by how big the light's range looks and budgeted: while they need more than the atlas, the lowest priority light among the biggest tiles has them halved, and finally lights go without. Tiles are aligned power of two squares placed biggest first, a light's all or none, up to `SHADER_TYPES_SHADOW_VIEW_COUNT`. Views are in `gShadowViews[frame]`.
+
+The Shadows pass draws each view in its tile (`BuildShadowDrawList`: opaque and alpha masked triangles, both faces, since the traced shadows' rays and the voxels would let a single sided triangle block light from behind). `ShadowFactor` picks the cascade or face, offsets the point along the normal by 1 to 3 texels, and filters 3x3 bilinear lookups. Rule for any shadow query, maps or rays: a point pushed off its surface goes to the side its query goes to (the light for a shadow test, the viewer for a reflection, the far side for a refraction or transmission), not along the normal regardless, which faces the viewer on double sided materials. View > Rendering Features > Shadows (`SPEEDO_SHADOWS=0`); View > Lights... (`SPEEDO_SHOW_LIGHTS=1`) lists the lights and draws gizmos from a copy of the frame's lights (`FrameInputs::captureLights`). The atlas keeps its tiles between frames: a view whose view projection, tile, model and draws are unchanged isn't redrawn unless something that moves is in its frustum (`FrameInputs::modelStill`), and a frame whose shadow pipelines are still being made keeps nothing the next frame (`myShadowCacheStale`). `SPEEDO_SHADOW_CACHE=0` redraws everything. The shadow views can be occlusion culled as the main view is (`SPEEDO_SHADOW_OCCLUSION_CULLING=1`): Shadows draws what each view saw last frame, Shadow Depth Pyramid reduces the atlas, Cull Shadows Late tests the rest against it and Shadows Late draws what it doesn't hide. It is off by default, since a light sees few chunks hidden behind others and the pyramid and second pass cost more than they save.
+
+**Transmittance.** Transmissive surfaces aren't casters but tint the light. The Shadow Transmittance pass redraws each view's transmissive draws into a second persistent atlas at half size (`SHADER_TYPES_SHADOW_TRANSMITTANCE_TEXTURE`, RGBA16F): rgb multiplied over layers (`rhi::BlendMode::kMultiplyMax`), alpha the nearest layer's depth. `ShadowFactor` returns a color: the traced or atlas shadow times a B-spline lookup (`ShadowTransmittance`) where the point is behind the nearest layer. Traced hits take it too.
+
+### Caustics
+
+View > Rendering Features > Ray Tracing... > Caustics (`SPEEDO_CAUSTICS=0|1`; `caustics.slang`; on with hardware ray queries, off through the BVHs). The Caustics pass traces photons from the shadow views the frame redraws, through a structure of the static transmissive surfaces (`BVH_TRACE_MASK_GLASS`, queried with the scene by `BvhTraceSceneOrGlass`), refracting at each surface (`GlassPath`, `GlassPathStep`, at most `SHADER_TYPES_CAUSTIC_SURFACE_COUNT`), attenuating in volumes and reflecting where they can't leave. A photon lands on the first opaque surface and is added in fixed point to the texels around its place in the light's views (`gCausticPhotons`); `ComputeCausticsResolve` writes the light into the transmittance's rgb, which the lookup adds for receivers. Moving glass is in a structure of its own, refit each frame.
+
+### The emitters' caustics
+
+Emissive surfaces have no shadow views, so `ComputeEmitterCaustics` (before Emitter Temporal) traces photons from emitter triangles picked by power down the light tree, through glass that is solid (`TransmissionSolid`), as the shadow views' photons go. They land in the world rather than on the screen, because the caustics are the same from any viewpoint while glass and emitters are still: a hash table of cells (`gEmitterCausticCells`, `EmitterCausticCellFind`) at three resolutions holds each cell's summed light, photon count and area, a lookup (`EmitterCausticCellLight`) blends the levels so a picture is smooth at first and sharpens, and Emitter Caustic Cells ages the table (`SPEEDO_EMITTER_CAUSTIC_PHOTON_COUNT`, `SPEEDO_EMITTER_CAUSTIC_FRAME_COUNT`). A stale cell is reclaimed by swapping its stale stamp, not its key, which would let two threads take one cell.
+
+Only glass that gathers light is the photons'. A shadow ray toward an emitter is walked through the glass (`EmitterGatheredByGlass`) and lets the light through where the glass cannot make a caustic (out of a body the emitter is inside, through a flat slab, by a flat face), and the photons follow the same rule. They bring irradiance only: highlights come from glossy rays and `TracedGlossyEmitters`.
+
+## Ray traced shadows
+
+Lights have a size (`LightData::size`): a directional light's angular radius in radians, a point or spot light's radius in world units, 0 for hard shadows. The model's directional lights take the sun's (`environment::kSkySunRadius`); View > Lights... or `SPEEDO_LIGHT_SIZES=<light>=<size>[,...]` set them.
+
+### The traced shadows
+
+View > Rendering Features > Ray Tracing... > Ray Traced Shadows (on by default; `SPEEDO_TRACED_SHADOWS=0` for the atlas alone, `all` to trace every pixel). For up to `SHADER_TYPES_SHADOW_TRACE_SLOT_COUNT` lights a frame, where the model has a BVH, a ray per pixel goes toward a point of the light's disk and the result is filtered over the penumbra (`tracedshadows.slang`). Shadow Classify skips pixels where the atlas is sure (a 3x3 filter all lit or all shadowed with no blocker within the penumbra it would make) and lists the rest; Shadow Trace takes the listed pixels with persistent threads; Shadow Denoise X and Y filter along the surface with a gaussian sized by the penumbra's width. Where nothing is traced (lights past the traced ones, blended, transmissive and scattering fragments, models without a BVH) percentage closer soft shadows (`ShadowMapSoft`) give soft shadows for lights with a size.
+
+## Scattering and transmission
+
+Materials that scatter light under their surface (`SubsurfaceScattering` in the shaders) take three passes before the main one: Scatter Back draws their back faces, depth only, to measure how thick they are; Scatter draws their surfaces lit as the light entering them (`FragmentScatter`); Scatter Blur (`ComputeScatter`) blurs that light over the surface by the diffusion profile, once per pixel, and Scatter Denoise (`ComputeScatterDenoise`) filters it. The main pass then blurs it over the surfaces by their volume's radius.
+
+Transmissive materials see the opaque scene behind them. The Transmission pass copies it, compressed by its brightness (`TransmissionCompress`), with mips for the roughness, and Main Transmissive draws the transmissive phase over it. The rough glass's light is kept by Glass History (`ComputeGlassHistory`) for the next frame's fragments to average theirs with. OIT Clear empties the blended layers' per-pixel lists once the previous frame's ComputeMain has read them.
+
+## Traced reflections and refractions
+
+### Ray queries or the BVHs, and the budgets
+
+Every traced feature compiles and runs with hardware ray queries and without. `HARDWARE_RAY_QUERY` picks only how a ray is traced, in one place, `BvhTraceInstances` (`bvhtrace.slang`): a ray query, or the static BVH then the moving one. No feature is compiled out by it. Transmissive triangles are in the BVHs among the rest, flagged (`BVH_TRIANGLE_FLAG_GLASS`); only rays of `BVH_TRACE_MASK_GLASS` meet them. Since the BVHs cost more, features take defaults by the device ("the device's" in `Scene::Settings`, View > Rendering Features > Ray Tracing...): the glossy reflections' stride (`SPEEDO_REFLECTION_STRIDE`: every pixel with ray queries, every 4th through the BVHs, the traced pixel of each square changing every frame and the rest filled in), the fragments' sharp reflections, refractions and caustics (off through the BVHs), and the glass path length.
+
+### Fragment and glossy rays
+
+View > Rendering Features > Ray Tracing... > Ray Traced Reflections and Ray Traced Refractions (`SPEEDO_TRACED_REFLECTIONS=0`, `SPEEDO_TRACED_REFRACTIONS=0|1`; `traced.slang`, `PushConstants::traced`, set where the model has acceleration structures). `Shade` takes what a traced ray meets in place of the probes' and environment's radiance along the reflection. A fragment's ray (blended, transmissive, forward path) is sharp, along the reflection direction, for smooth roughness only (`SharpReflections`, `TracedShare`). The visibility buffer's (opaque) is glossy: a ray a pixel about a GGX visible normal (`TracedGlossyDirection`) up to a medium roughness, one per pixel, the clearcoat's where its light outweighs the base's.
+
+The sample is a ratio (Heitz et al.'s ratio estimator): the ray's radiance over what the probes and environment predict along it, so where the ray sees what is predicted (the sky) the pixel is shaded as untraced, normal map detail intact. `TracedReflectionRecord` (compute only: a fragment shader's storage writes disable its early depth test) records the prediction, weight and ray; after Main Visibility, Reflection Trace (`ComputeReflectionTrace`) traces, Reflection X and Y filter by the lobe's blur at the hit distance, and Reflection Temporal blends into history and adds the result to the main color. The history clamp accounts for reflections sliding across a surface as the eye moves: where the slide is small and only what moves may have changed, history is unclamped; where it is large, history is taken where the reflection was seen last frame (virtual motion as in NVIDIA's ReBLUR, `ReflectionVirtualHistory`). A ray meeting nothing takes the environment prefiltered for the roughness; the sample's contribution is capped (`kReflectionMostWhite`) except for emissive surfaces' light, which uses the balance heuristic between the ray and a light sample (`TracedGlossyEmitters`); untraced specular takes the emitters' highlights too (`EmitterSpecular`). A ray that meets a single sided triangle's back is dropped, except past glass (`fromGlass`), where it is shaded as its front.
+
+Hits are shaded in `TracedHitRadiance`: the material at the mip a ray cone picks (`TracedPixelCone`), lit as the voxels are with shadow rays tinted by `ShadowTransmittance`, plus the indirect lighting, emission and the emissive surfaces' light (Emitter Temporal's history where the hit is on screen, else the voxels').
+
+**Refractions.** `TransmittedLight` takes the light traced through the surface (`TracedFragmentRays`, a ray per color under dispersion): into the volume or through a thin wall, then through the static transmissive surfaces as photons go (`GlassPath`), after which the screen space lookup is kept past a surface count. Rough glass uses a ray along its lobe (`TransmittedLobeRay`) averaged by the upscaler and, while the view is still, a running mean (`GlassLight`, the Glass History pass). Transmission without `KHR_materials_volume` is an infinitely thin wall that bends nothing, unless `SPEEDO_SOLID_TRANSMISSION=1` makes it solid. Reflection rays meet glass too (`BvhTraceSceneOrGlass`, `TracedPath`). Not done: glossy refractions, a hit's own reflections.
+
+**One call site per kernel.** Each kernel traces from one call site, in a loop the compiler doesn't unroll (`[loop]`): every call copies everything that shades a hit (the glass path, lights and shadow rays, probes, near field rays), because NIR inlines everything and KosmicKrisp gives each ray query its own state; several sites made kernels of tens of megabytes of Metal source. Keep it so when adding a trace.
+
+### Hardware or software, switched while running
+
+The device enables ray queries wherever it has them (rhi's `RayQueriesEnabled`, unless `SPEEDO_RAY_QUERY=0`); which the shaders use is the scene's choice (`Scene::Settings::hardwareRayQueries`, Ray Tracing... > Ray Queries): hardware by default, software on macOS unless `SPEEDO_RAY_QUERY=1`. On macOS, Metal's ray tracing restarts the gpu now and then (an Apple driver bug), more often with other gpu work beside it, so hardware ray queries are an opt in there and their clients run one at a time. The two variants keep their own bindings, so a switch can't be a shader reload. `Pipeline::ReplaceLayout` (rhi) makes a named layout again from a set whose resources differ, carrying over what was set into the binding of the same shader variable. The scene (`InternalFollowRayQueries`, in Prepare) compiles the other variant's changed layouts on the executor and reloads the model with that variant's structures (`ModelBvh::kRayQueries` or `kBuild`); the install switches layouts as it binds (`BindAfterRayQuerySwitch`) so no frame mixes variants, and retries from Prepare while pipelines are being made (`DeferredBind`) rather than waiting on the draw thread. `SPEEDO_RAY_QUERY_SWITCH_FRAME` switches once for testing.
+
+### The Ray Tracing window
+
+View > Rendering Features > Ray Tracing... (`SPEEDO_SHOW_RAY_TRACING=1` opens it; `ui.cpp`) holds every traced feature's switch and budget, each written into `Scene::Settings` (`gfx/scene.h`) and read by the scene each frame into `FrameInputs`. A setting of "the device's default" (0, or -1 for the fragment reflections) resolves by whether ray queries are in use (`Scene::GetReflectionStride`, `GetFragmentReflections`, `GetGlassSurfaceCount`), so the defaults follow a switch between hardware and software. A combo is greyed out while the feature it budgets is off.
+- **Ray Queries** (Hardware, Software): see above.
+- **Ray Traced Reflections** (`SPEEDO_TRACED_REFLECTIONS`) switches the glossy reflections' rays; its two combos below set what is traced.
+- **Reflection Rays** (`Settings::reflectionStride`, `SPEEDO_REFLECTION_STRIDE`): the glossy reflections' ray budget, a ray every 1st, 2nd or 4th pixel each way ("Every pixel", "1 in 4 pixels", "1 in 16 pixels"). The pixels between take the traced ones' around them and the traced pixel of each square changes every frame, so a still view ends as sharp as a ray every pixel. Default: every pixel with ray queries, 1 in 16 through the BVHs. A clearcoat's own sharp reflection is traced with a ray every pixel regardless.
+- **Transparent Surfaces** (`Settings::fragmentReflections`, `SPEEDO_FRAGMENT_REFLECTIONS`): whether what glass and blended surfaces reflect is traced, one sharp ray along the reflection per pixel of them (Traced, Not traced; default traced with ray queries only). Not traced, they take the indirect lighting's and the environment's reflection alone.
+- **Ray Traced Refractions** (`SPEEDO_TRACED_REFRACTIONS`) traces what transmissive surfaces show behind them along the refracted ray, instead of looking it up in the frame drawn so far.
+- **Glass Surfaces** (`Settings::glassSurfaceCount`, `SPEEDO_GLASS_SURFACE_COUNT`): how many transmissive surfaces a refraction's ray and a caustic's photon cross at most, 1 to `SHADER_TYPES_CAUSTIC_SURFACE_COUNT` (`GlassPath`). Default 8 with ray queries, 4 through the BVHs. Past the count a refraction keeps the screen space lookup and a photon is dropped. Greyed out unless the refractions or the caustics are on.
+- **Solid Transmission** (`Settings::solidTransmission`, `SPEEDO_SOLID_TRANSMISSION`): transmissive materials without `KHR_materials_volume` refract as solids, into them and out of them (`TransmissionSolid`), rather than as glTF's infinitely thin walls, which bend nothing.
+- **Caustics** (see above).
+- **Ray Traced Shadows** and **Shadow Rays** (`Settings::tracedShadowsEverywhere`, `SPEEDO_TRACED_SHADOWS=all`): "Where unsure" (default) traces only where Shadow Classify finds the atlas unsure, along the shadows' edges; "Every pixel" traces every pixel for each traced light, for comparisons. Greyed out without the shadows or the traced shadows.
+
+## Temporal upscaling
+
+View > Upscaling (`SPEEDO_UPSCALING=off|native|quality|balanced|performance`, `gfx/upscaling.h`): the frame is rendered at a share of the output size (`RenderScale`) and reconstructed over frames by AMD's FSR 3.1 upscaler, ported in `upscale.slang` (FidelityFX SDK 1.1.4, MIT). Native reconstructs at output size. The graph has two extents (`FrameGraph::Compile(device, extent, outputExtent)`, `ImageDesc::outputSized`). Projections jitter by a Halton point per frame (`ViewData::jitter`; the cameras culling and shadows use aren't jittered) and textures sample half a mip finer.
+
+ComputeMain composites at render size (`UPSCALE_COMPOSITE`: linear, before exposure, alpha being the blended layers' coverage, FSR's reactive mask), the Upscale passes follow FSR, and Sharpen (`ComputeSharpen`) tonemaps into the swapchain. The renderer supplies the motion (`UpscaleMotion`: what moves by the pre-pass's motion attachment, written from `VertexOutput::previousPosition` for `DRAW_FLAG_MOVES` draws; the rest by depth reprojection), per view viewports and jitter, and inverted depth. Beyond FSR, history is guarded against lying: each render pixel keeps a running luma mean and variance that gate the shading change and keep history where luma swings (a feature thinner than a render pixel is hit by only some jitter samples); drifting luma (moving shadows) is told from swinging; and a transmissive fragment writes how far its surface moved into its alpha (`TransmissiveMotionReactivity`), which the composite turns into the reactive mask since glass has no motion vector of its own. Traced features' grain remains after upscaling.
+
+The Upscale passes, in order (compute, `upscale.slang`; the history images are two of each, the frame's parity picking which is read and which written):
+- **Upscale Clear** fills the pushed depth (`myUpscaleDepth`) with the far plane.
+- **Upscale Prepare Inputs** (`ComputeUpscalePrepareInputs`, FSR's PrepareInputs) per render pixel: the nearest depth and its motion over the 3x3 around it (the dilated depth and motion), the depth pushed to where the point was last frame, the farthest depth, and the luma stored for the next frame's shading change to compare.
+- **Upscale Shading Change Pyramid** (`ComputeUpscaleShadingChangePyramid`) builds the luma's pyramid from 2x2 pixels at half the render size, and the farthest depth's mean.
+- **Upscale Shading Change** (`ComputeUpscaleShadingChange`) takes, at half the render size, the most of the levels' mean luma differences times the agreement of their signs, so noise, whose signs disagree, isn't a change.
+- **Upscale Prepare Reactivity** (`ComputeUpscalePrepareReactivity`) per render pixel: the dilated reactive masks (reactiveness, disocclusion, shading change, accumulation) and a new lock where a sample lands for a thin feature.
+- **Upscale Luma Instability** (`ComputeUpscaleLumaInstability`) flags a luma that flickers: unlike last frame's but like one of the three before, by a history of four unexposed lumas, where the pixel has accumulated.
+- **Upscale Accumulate** (`ComputeUpscaleAccumulate`, FSR's Accumulate) per output pixel: history sampled where the point was (Lanczos 2), the lock updated, this frame's samples upsampled, history rectified and this frame blended in, into the history image (rgb before exposure, alpha the lock) that Sharpen maps into the output.
+
+## The physical camera
+
+`gfx/physicalcamera.h` models a real camera. The renderer's 0 stops is EV100 `kSaturationEv100` (sunny sixteen: f/16, 1/160 s, ISO 100, the defaults of `camera::Exposure`), after Lagarde and de Rousiers' physically based camera; `ExposureStops` gives the stops of any aperture, shutter and ISO. `camera::Sensor` (`SPEEDO_SENSOR`) and the focal length (`SPEEDO_FOCAL_LENGTH`) give the vertical field of view; the cameras' `fovY` remains the truth. `Settings::exposureMode` (`SPEEDO_EXPOSURE_MODE=program|aperture|shutter|manual`, `SPEEDO_APERTURE`, `SPEEDO_SHUTTER`, `SPEEDO_ISO`): `camera::Choose` picks aperture, shutter and ISO per view and frame to reach auto exposure's stops (docs/notes/assets.md) within `camera::ExposureLimits`, which a lens narrows.
+
+**The lens** (`gfx/lens.h`; `SPEEDO_LENS=<key>`). A `lens::Prescription` lists glass surfaces as a patent does; paraxial ray transfer matrices (`lens::Trace`) give focal length and pupils, and `lens::Appear` derives vignetting, lateral chromatic aberration and ghosts. `pinhole` is the default and takes none of the camera passes. The scene renders a wider frame (`LensData::margin`) and the Lens pass (`ComputeLens`, `lens.slang`) applies distortion, aberration and vignetting before Sharpen tonemaps. `assettest`'s `CheckLenses` validates each prescription.
+
+**The glare** (`SPEEDO_LENS_GLARE=0`): Bloom, then Flare Sources and Flare Track, which find and track bright sources across frames, then Flare, which draws their ghosts and starbursts (`flare.slang`). The aperture is round wide open (no star) and polygonal stopped down. Anamorphic lenses add streaks. Flare Clear empties the source candidates' count (`gLensSourceCount`) each frame. The starburst of every point of the image, not only the found sources, is the near field, in three passes before the final pass adds it: Star Tiles (`ComputeStarTiles`) copies the lens's image at half the output's size and keeps each tile's brightest (`SHADER_TYPES_STAR_TILE_SIZE` half texels square, the largest channel at the exposure); Streak Scan (`ComputeStreakScan`, anamorphic lenses) sums each row of that image from its left (a group a row, the runs' totals scanned in groupshared memory), so a streak's box along the row is two reads; Starburst (`ComputeStarburst`) gathers per half texel along each spike direction (the blades' edge normals either way) as far as the brightest tile around would show, at most `SHADER_TYPES_STAR_REACH` steps, fading out over the second half where the sources' sprites (`VertexFlare`, the far field) take over. Star Tiles and Starburst are separate passes because, within one, a sampled view of what a dispatch wrote read stale memory on KosmicKrisp.
+
+**Depth of field** (`SPEEDO_FOCUS=spot|zone|wide|<meters>`; `dof.slang`): a thin lens circle of confusion from the exposure's f-number, autofocus by the median distance under a spot or zone, and five passes (tiles, dilate, prepare, gather, composite) before the Lens pass, with the bokeh shaped by the aperture and the lens's spherical aberration.
+
+**Motion blur and grain** (`SPEEDO_MOTION_BLUR=0`, `SPEEDO_GRAIN=0`): motion blur (`motionblur.slang`, McGuire et al. 2012) smears along the motion during the shutter, in four passes: Motion Velocity (`ComputeMotionVelocity`) writes each output pixel's velocity over the shutter (the render pixel's motion from `UpscaleMotion`, in output pixels, times the shutter's share of the frame, at most `SHADER_TYPES_MOTION_BLUR_MAX`) with its depth; Motion Tiles (`ComputeMotionTiles`) keeps each tile's longest velocity (`SHADER_TYPES_MOTION_BLUR_TILE_SIZE` pixels square); Motion Tiles Dilate takes the longest among the tiles within 4 each way whose reach covers the tile; and Motion Blur gathers the frame (through the depth of field where it is drawn) along it, for the Lens pass. The grain (`SharpenLens` in `upscale.slang`) is shot noise at the ISO. Compare captures with `SPEEDO_GRAIN=0` or the pinhole.
+
+## Debug views and the Statistics window
+
+View > Debug View (`SPEEDO_DEBUG_VIEW=<key or number>`) shows something other than the light in the main pass: `PushConstants::debugView`, `DEBUG_VIEW_*` in `capi.h`, keys in `client/ui.cpp`'s `kDebugViews`, helpers in `debug.slang`. Surface values return early from `ShadeFragment`, lighting and indirect lighting views from `Shade`. Views of values (`DebugViewIsData`) skip exposure and tonemapping. The traced shadows have `traced-shadow`, `traced-shadow-raw` and a slow `traced-shadow-reference`; `traced-reflections` shows what the traced reflections see.
+
+`SPEEDO_CAMERA_PATH`, `SPEEDO_CAPTURE_PATH`, `SPEEDO_GI_EYE_PATH`, `SPEEDO_TIME_FRAME_SECONDS` and `SPEEDO_ANIMATION_FRAME_SECONDS` make runs repeatable. `SPEEDO_RAY_QUERY_WATCH` records the ray queries in flight for hang reports, and `SPEEDO_RAY_QUERY_REPLAY=<file>` traces the rays of a file again every frame (the Ray Query Replay pass, `gfx/rayquerywatch.h`). The Statistics window (debug and profile builds) shows pass timings, draw and triangle counts, the cpu's culling plan and the gpu's counts (`Renderer::GetFrameStatistics`, `GetCullStatistics`), lights, shadows, clusters and the indirect lighting's clips.
+
+`DebugViewIsData` is a bit mask indexed by a shift, never a `switch`: DXC turns a `switch` of constants into a shift by an unchecked amount, which is undefined in DXIL, and NVIDIA's D3D12 driver then skipped the stores of the kernels that write the swapchain. `CheckDxilSwitchTables` (`gfx/shadercompiler.cpp`) refuses a shader whose DXIL has such a table. Don't write a `switch` of constants in a shader.
+
+## GPU timings and shader tiers
+
+Gpu work is timed by one path: each queue's `rhi::GpuProfiler` (`rhi/gpuprofiler.h`, only with `SPEEDO_PROFILING_LEVEL > 0`), a ring of timestamps. A scope writes a timestamp at each end and opens a Tracy gpu zone. The frame graph opens one scope per pass and `Renderer::Record` a `Frame` scope around the graph; `GPU_SCOPE(cmd, queue, tag)` is for code outside passes. `Collect` (in `Draw`, after the frame's fences) keeps each finished scope's duration for the Statistics window and `SPEEDO_GPU_TIMINGS=1`'s exit summary. `SPEEDO_CAPTURE=<file>` saves the last frame as a bmp, `SPEEDO_UI=0` leaves the ui out, `SPEEDO_WINDOW_SIZE=<w>x<h>` fixes the framebuffer size. KosmicKrisp writes timestamps only where its own Metal encoders begin and end, so compute passes read 0; there, measure a frame by the draw thread's frame time and a pass by the time freed when skipped (`SPEEDO_SKIP_PASSES=<pass>[;...]`).
+
+**Shader tiers.** `GraphicsPipelineVariant::specialization` is specialization constant 0, `kSkippedLayers` in `bindings.slang`: the layer groups (`SHADER_TYPES_LAYERS_*`) a pipeline compiles away. `LAYERS_EXTENDED` (clearcoat, sheen, transmission, anisotropy, iridescence, diffuse transmission) is skipped for draws of materials with none (`LayersOf`); `LAYERS_GLASS` belongs to the reflection kernels and is skipped without glass; `LAYERS_WORLD`, `LAYERS_DEBUG` and `LAYERS_EMITTERS` skip the world cache's lookups, the debug views and the emitters' light where unused (`Skipped()`). `SPEEDO_SHADER_TIERS=0` and `SPEEDO_SHADER_STATE_TIERS=0` use generic pipelines. A specialized pipeline is never waited for: `Pipeline::RequestGraphicsPipeline` returns it or starts a job on the executor while the generic one draws (a null map entry is a pipeline being created, which `BindPipelineAuto` waits for). D3D12 has no specialization constants (`rhi::DeviceLimits::specializationConstants`): its shaders compile with `SHADER_TARGET_NO_SPECIALIZATION_CONSTANTS`, under which `Skipped()` is false.
