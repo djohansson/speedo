@@ -124,7 +124,7 @@ public:
 		// (FrameInputs::caustics; View > Rendering Features > Caustics, SPEEDO_CAUSTICS=0 to start without: they tint it as it goes straight through)
 		// (1, 0, or -1 for the device's: on with ray queries, off through the BVHs; Scene::GetCaustics)
 		std::atomic<int32_t> caustics = -1;
-		// whether emissive surfaces light the scene as lights do (FrameInputs::emissiveLights; View > Rendering Features > Emissive Lights,
+		// whether emissive surfaces light the scene as lights do (FrameInputs::emissiveLights; View > Rendering Features > Global Illumination... > Emissive Lights,
 		// SPEEDO_EMISSIVE_LIGHTS=0 to start without: the indirect lighting's rays then take their emission as they meet them)
 		std::atomic<bool> emissiveLights = true;
 		// whether the models loaded from now on get their BVHs (see ModelBvh), which the traced shadows, the emitters' light and the
@@ -183,35 +183,35 @@ public:
 		// what the views show (DEBUG_VIEW_*: the light, or a debug view of the surfaces or the lighting; View > Debug
 		// View, SPEEDO_DEBUG_VIEW)
 		std::atomic<uint32_t> debugView = DEBUG_VIEW_NONE;
-		// whether the indirect lighting runs (see FrameInputs::indirectLighting; View > Rendering Features > Indirect Lighting; on by default
+		// whether the indirect lighting runs (see FrameInputs::indirectLighting; View > Rendering Features > Global Illumination... > Indirect Lighting; on by default
 		// since 2026-10-22, SPEEDO_GI=0 to start without it)
 		std::atomic<bool> indirectLighting = true;
 		// whether its rays trace the model's triangles (its BVHs, see gfx/bvh.h) or walk the voxels (FrameInputs::traceTriangles;
-		// View > Rendering Features > Indirect Lighting... > Rays; triangles by default, SPEEDO_GI_TRACE=voxels to start with the voxels)
+		// View > Rendering Features > Global Illumination... > Rays; triangles by default, SPEEDO_GI_TRACE=voxels to start with the voxels)
 		std::atomic<bool> traceTriangles = true;
-		// the indirect lighting's voxels along the scene's longest axis (FrameInputs::giResolution; View > Rendering Features > Indirect Lighting
-		// Resolution, SPEEDO_GI_RESOLUTION to start with another): 128 by default, finer for light through narrow openings
+		// the indirect lighting's voxels along the scene's longest axis (FrameInputs::giResolution; View > Rendering Features > Global Illumination...
+		// > Resolution, SPEEDO_GI_RESOLUTION to start with another): 128 by default, finer for light through narrow openings
 		std::atomic<uint32_t> giResolution = gi::kDefaultResolution;
-		// whether the surface cache refines the probes' light (FrameInputs::giSurfaceCache; View > Rendering Features > Indirect Lighting... > Surface
+		// whether the surface cache refines the probes' light (FrameInputs::giSurfaceCache; View > Rendering Features > Global Illumination... > Surface
 		// Cache; on by default, SPEEDO_GI_CACHE=0 to start without it)
 		std::atomic<bool> giSurfaceCache = true;
 		// and the rays a voxel traces an update while its cache warms up (FrameInputs::giCacheWarmRayCount; View > Rendering
-		// Features > Indirect Lighting... > Warm-Up Rays, SPEEDO_GI_CACHE_WARM_RAYS to start with another): 4 by default
+		// Features > Global Illumination... > Warm-Up Rays, SPEEDO_GI_CACHE_WARM_RAYS to start with another): 4 by default
 		std::atomic<uint32_t> giCacheWarmRayCount = gi::kDefaultCacheWarmRayCount;
-		// and where the surfaces' lookups take that light from (FrameInputs::giWorldGrid; View > Rendering Features > Indirect
-		// Lighting... > Light Store, SPEEDO_GI_WORLD=1 to start with the grid): the clipmap's voxels, the default, or the
+		// and where the surfaces' lookups take that light from (FrameInputs::giWorldGrid; View > Rendering Features > Global
+		// Illumination... > Light Store, SPEEDO_GI_WORLD=1 to start with the grid): the clipmap's voxels, the default, or the
 		// world cache's cells (docs/world-cache-plan.md), whose storage is only held while they are chosen
 		std::atomic<bool> giWorldGrid = false;
 		// whether the shading takes the near field's rays near other surfaces (FrameInputs::giNearField; View > Rendering
-		// Features > Indirect Lighting... > Near Field; on by default, SPEEDO_GI_NEAR=0 to start without it)
+		// Features > Global Illumination... > Near Field; on by default, SPEEDO_GI_NEAR=0 to start without it)
 		std::atomic<bool> giNearField = true;
-		// and how near what its rays meet is a contact, in voxels (FrameInputs::giNearContact; View > Rendering Features > Indirect Lighting... > Near
+		// and how near what its rays meet is a contact, in voxels (FrameInputs::giNearContact; View > Rendering Features > Global Illumination... > Near
 		// Field Contact, SPEEDO_GI_NEAR_CONTACT to start with another)
 		std::atomic<float> giNearContact = gi::kDefaultNearContact;
 		// and every how many pixels each way its rays are traced (FrameInputs::giNearStride: 2, a quarter of the pixels, or 4, a
-		// sixteenth, gi::kDefaultNearStride; View > Rendering Features > Indirect Lighting... > Near Field Rays, SPEEDO_GI_NEAR_STRIDE to start with another)
+		// sixteenth, gi::kDefaultNearStride; View > Rendering Features > Global Illumination... > Near Field Rays, SPEEDO_GI_NEAR_STRIDE to start with another)
 		std::atomic<uint32_t> giNearStride = gi::kDefaultNearStride;
-		// and whether the near field is accumulated over frames (FrameInputs::giNearTemporal; View > Rendering Features > Indirect Lighting... > Near
+		// and whether the near field is accumulated over frames (FrameInputs::giNearTemporal; View > Rendering Features > Global Illumination... > Near
 		// Field Over Frames, SPEEDO_GI_NEAR_TEMPORAL=0 to start without)
 		std::atomic<bool> giNearTemporal = true;
 		// temporal upscaling (FrameInputs::upscaling; View > Upscaling, SPEEDO_UPSCALING; balanced by default, kDefaultUpscaling): a

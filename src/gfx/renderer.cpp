@@ -2700,8 +2700,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	const char* stateTiers = std::getenv("SPEEDO_SHADER_STATE_TIERS");
 	mySpecializationConstants = limits.specializationConstants && (stateTiers == nullptr || std::string_view(stateTiers) != "0");
 	myGiMaxVolumeSide = limits.maxImageDimension3d;
-	// the indirect lighting, when FrameInputs::indirectLighting says (View > Rendering Features > Indirect Lighting, on by default, SPEEDO_GI=0
-	// to start without it), at FrameInputs::giResolution voxels along the scene's longest axis (View > Rendering Features > Indirect Lighting... > Resolution,
+	// the indirect lighting, when FrameInputs::indirectLighting says (View > Rendering Features > Global Illumination... > Indirect Lighting, on by default, SPEEDO_GI=0
+	// to start without it), at FrameInputs::giResolution voxels along the scene's longest axis (View > Rendering Features > Global Illumination... > Resolution,
 	// SPEEDO_GI_RESOLUTION), and the surface cache's rays a voxel a frame and most samples (see GiData::cacheRayCount)
 	if (const char* rays = std::getenv("SPEEDO_GI_CACHE_RAYS"); rays != nullptr && *rays != '\0')
 		myGiCacheRayCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(rays, nullptr, 10)), 1U, 64U);
@@ -2716,7 +2716,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	if (const char* sigma = std::getenv("SPEEDO_GI_CACHE_SIGMA"); sigma != nullptr && *sigma != '\0')
 		myGiCacheSigma = std::max(std::strtof(sigma, nullptr), 0.0F);
 	// the world cache (docs/world-cache-plan.md): on where the frame says (FrameInputs::giWorldGrid: View > Rendering
-	// Features > Indirect Lighting... > Light Store, SPEEDO_GI_WORLD=1; off by default since its step 5, 2026-11-20: 1.3
+	// Features > Global Illumination... > Light Store, SPEEDO_GI_WORLD=1; off by default since its step 5, 2026-11-20: 1.3
 	// to 3.4 ms a frame at 1080p for steadier walks), the clipmap's light where its cells don't cover a surface, its
 	// cells (a power of two, SPEEDO_GI_WORLD_CELLS, rounded down) and levels (SPEEDO_GI_WORLD_LEVELS)
 	if (const char* cells = std::getenv("SPEEDO_GI_WORLD_CELLS"); cells != nullptr && *cells != '\0')
@@ -5881,7 +5881,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			clock.raysSinceCacheReset = clock.updatesSinceCacheReset == 0 ? 0 : std::min(clock.raysSinceCacheReset + windowRayCount, 1U << 30);
 		uint32_t cacheSampleCount = myGiTimeBased ? std::clamp(clock.raysSinceCacheReset / 2, std::min(32U, myGiCacheSampleCount), myGiCacheSampleCount)
 												  : myGiCacheSampleCount;
-		// and 4 rays a voxel (at least, or as many as the user asks for: View > Rendering Features > Indirect Lighting... >
+		// and 4 rays a voxel (at least, or as many as the user asks for: View > Rendering Features > Global Illumination... >
 		// Warm-Up Rays) while the light settles, its first kGiCacheWarmFrameCount updates: what it averages
 		// then is still moving, and the window being in samples, 4 a frame also forget it in a quarter of the frames (Sponza
 		// within 10% of settled after 240 frames rather than 460, within 5% after 920 rather than 1460: 4 rays throughout

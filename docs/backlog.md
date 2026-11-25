@@ -101,7 +101,7 @@ wait for the queues measured and left, docs/shader-compile-plan.md, step 6).
   view moves it is still a frame's ray, grain the upscaler doesn't take out (seen at twice the size in a slow turn
   around spaceship's dome): the history read where what is behind the glass was the frame before (the pre-pass's
   motion there), a dozen frames of it, would be the first part of that design.
-- **The world grid's first seconds and its walk** (2026-11-24; View > Rendering Features > Indirect Lighting... > Light
+- **The world grid's first seconds and its walk** (2026-11-24; View > Rendering Features > Global Illumination... > Light
   Store, off by default): its lookups' cells are the clipmap's voxels' size now, and settled it is within 0.9 to 1.6 of
   255 of the clipmap's in Sponza and three research scenes, but a cell is filtered far less than a cache entry, so
   its first seconds are blotchier (veach-bidir 2.56 of 255 from settled at frame 60 where the clipmap is 1.10) and the

@@ -550,7 +550,7 @@ Nothing now.
   The user's call which ("Open for the user").
 - 2026-11-24, **the warm up's rays, the user's to set** (the user: "Make it an option in the Indirect Light UI panel.
   Set it to 4 by default", then "Use specialization constants for it if possible"). View > Rendering Features >
-  Indirect Lighting... > Warm-Up Rays (4, 8 or 16; `SPEEDO_GI_CACHE_WARM_RAYS`, 1 to 64, a scene variable: Copy Scene
+  Global Illumination... > Warm-Up Rays (4, 8 or 16; `SPEEDO_GI_CACHE_WARM_RAYS`, 1 to 64, a scene variable: Copy Scene
   writes it where it isn't 4), `Scene::Settings::giCacheWarmRayCount`; 4 by default, as it was
   (`temp/review/research-issues/s12-indirect-lighting-panel.png`). veach-bidir's GI pass over its first 96 updates
   at 1440p: 3.7 ms with 4, 4.1 with 8, 5.0 with 16. The specialization constant: possible (the one the layout has,

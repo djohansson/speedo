@@ -4,7 +4,7 @@ A note of CLAUDE.md (its index names each): the probes, the voxel clipmap, the s
 
 ## Indirect lighting: irradiance probes over a voxel clipmap
 
-View > Rendering Features > Indirect Lighting (on by default since 2026-10-22, the user's call once the artifacts that followed the camera
+View > Rendering Features > Global Illumination... > Indirect Lighting (on by default since 2026-10-22, the user's call once the artifacts that followed the camera
 were gone; `SPEEDO_GI=0` to start without it, and per frame:
 `FrameInputs::indirectLighting`, off drops the volumes, on voxelizes again) gives the diffuse ambient term from world
 space irradiance probes (`gfx/indirectlight.h`, `gi.slang`; `GiData` in `capi.h`), as DDGI (Majercik et al. 2019, RTXGI)
@@ -35,7 +35,7 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   probes (40 rays each rather than 128). The resolve's volumes stack the clips' slabs along z, in columns along x where a
   column would pass the device's largest 3D image (`DeviceLimits::maxImageDimension3d`, 2048 on KosmicKrisp;
   `GiData::volumeImageX`). The last is over the scene's bounds (`SPEEDO_GI_RESOLUTION`, 128 by default, voxels along its
-  longest axis; View > Rendering Features > Indirect Lighting... > Resolution offers `gi::kResolutions`, 64 to 384, and a change makes the clipmap
+  longest axis; View > Rendering Features > Global Illumination... > Resolution offers `gi::kResolutions`, 64 to 384, and a change makes the clipmap
   again, `FrameInputs::giResolution`. Finer resolves light through narrower openings: the sky under Sponza's curtains,
   a gap of a few tens of centimetres, which 128 drew as spots at the corridor's end that faded into longer, dimmer
   patches as the eye neared them (the coarser clips' probes, 1.8 m apart, giving way to the finer's; the surface
@@ -649,7 +649,7 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
   skipping, Bistro's street 17.5 and 16.0), the environment past the last clip (`EnvironmentRadiance` at
   roughness 0.6, without the dominant lights, which light the voxels themselves), and to the first occupied voxel as
   far as the depth map reaches (`SHADER_TYPES_GI_DEPTH_REACH`, 3 spacings: the points a probe is tested for are within
-  its cell), into `gGiRays` (rgba16f: radiance, distance in spacings). Where emissive surfaces aren't lights (View > Rendering Features > Emissive Lights off), a probe's ray that meets an emitter nearer than `SPEEDO_GI_EMISSION_REACH` spacings (0.5; 0 for none:
+  its cell), into `gGiRays` (rgba16f: radiance, distance in spacings). Where emissive surfaces aren't lights (View > Rendering Features > Global Illumination... > Emissive Lights off), a probe's ray that meets an emitter nearer than `SPEEDO_GI_EMISSION_REACH` spacings (0.5; 0 for none:
   `GiData::emissionReach`, `GiMarch`'s `emissionReach`) takes its emission as from that far away (scaled by the square
   of the distance over it, as a small source's irradiance falls), since what the probe holds lights the points of its
   cell, mostly about half a spacing from it, where a source beside the probe is that far (instant radiosity clamps a
@@ -861,7 +861,7 @@ clients start together, found later the same day: see "Hangs" in docs/notes/rhi.
   8 probes around a point as they hold them, trilinear, without the resolve's weights). The kernels dispatch rows of
   `SHADER_TYPES_GI_ROW` threads (`GiThread`), so a volume's size isn't capped by a dispatch.
 
-**Tracing the triangles** (the default since 2026-10-21, the user's choice; View > Rendering Features > Indirect Lighting... > Rays switches between
+**Tracing the triangles** (the default since 2026-10-21, the user's choice; View > Rendering Features > Global Illumination... > Rays switches between
 the triangles and the voxels at run time, `Scene::Settings::traceTriangles`, `FrameInputs::traceTriangles`;
 `SPEEDO_GI_TRACE=voxels` starts with the voxels, and Edit > Copy Scene writes it): a model loaded gets a BVH of what the voxels hold of it (`gfx::bvh::Build`, `gfx/bvh.h`: its static triangle lists that aren't
 blended or transmissive, at each instance, in world space), tinybvh's compressed wide BVH (CWBVH; the `ports/tinybvh`
@@ -1112,7 +1112,7 @@ written in order with the frames and the top level structures built again (lavap
 for DiffuseTransmissionPlant). Not yet: measured on a desktop gpu (NVIDIA: Bistro, San Miguel and BrainStem against
 `SPEEDO_RAY_QUERY=0`, and the structures' memory against the BVHs'), a structure per model instanced into a scene.
 
-**The surface cache** (View > Rendering Features > Indirect Lighting... > Surface Cache, on by default since 2026-10-23, the user's call; `SPEEDO_GI_CACHE=0`
+**The surface cache** (View > Rendering Features > Global Illumination... > Surface Cache, on by default since 2026-10-23, the user's call; `SPEEDO_GI_CACHE=0`
 to start without it, `FrameInputs::giSurfaceCache`; `gGiCache`, `GiData::cache*`, the cache section of `gi.slang`): the
 probes, 8 voxels apart (1.8 m in Sponza's last clip), spread the light through a gap of a few tens of centimetres (the sky
 under Sponza's curtains, at the user's pose `7.7949,0.8419,-3.7077,0.531,-91.763`) into spots a probe cell wide, which
@@ -1145,7 +1145,7 @@ probes' rays are traced, into a running mean of at
 most `SPEEDO_GI_CACHE_SAMPLES` (4096 since 2026-11-19, 1024 before; 32 where something moves), and at most half the frames since it started over
 (at least 32; `SPEEDO_GI_TIME_BASED=0` without), tracing 4 rays a voxel for its first 256 frames
 (`kGiCacheWarmFrameCount`, then `SPEEDO_GI_CACHE_RAYS`; the 4 are the user's to raise since 2026-11-24, View >
-Rendering Features > Indirect Lighting... > Warm-Up Rays, `SPEEDO_GI_CACHE_WARM_RAYS`, `FrameInputs::giCacheWarmRayCount`:
+Rendering Features > Global Illumination... > Warm-Up Rays, `SPEEDO_GI_CACHE_WARM_RAYS`, `FrameInputs::giCacheWarmRayCount`:
 with 16 the first seconds are 25 to 45% less blotched, the glTF research set's veach-bidir's left wall smooth at 2
 seconds rather than at 6 to 10, for 0.8 to 3.4 ms a frame more of the GI pass in that set's interiors while they last,
 12 more in Sponza and 33 more in Bistro; 4 by default, the user's call. The count is the clip's data's, not the
@@ -1231,14 +1231,14 @@ reference (the user, 2026-10-24: too slow, and it doesn't look like one): second
 (the voxels' starts after 32 frames), noisier than the cache; judge by A/B captures instead, until a real one exists
 (settled, accumulated over frames, or path traced).
 
-**The near field** (View > Rendering Features > Indirect Lighting... > Near Field, on by default since 2026-10-24; `SPEEDO_GI_NEAR=0` to start without
+**The near field** (View > Rendering Features > Global Illumination... > Near Field, on by default since 2026-10-24; `SPEEDO_GI_NEAR=0` to start without
 it, `FrameInputs::giNearField`; `ginear.slang`, `GiData::near*`; where the rays trace the BVHs): where a solid rests on a
 surface, the surface's voxels at the contact are also the solid's never drawn inside, which gets no light (see the
 resolve), and the gap beside it is thinner than a voxel, all its surfaces lit by the gap's own unlit voxels, so the
 volume's lookups there found no light, in blocks a voxel wide (the user's CornellBox poses, the 11 models side by side:
 `0.0062,-2.2486,1.2961,23.077,13.130`, black rectangles under the spheres; `0.1488,-1.1952,0.7514,12.998,14.697` at
 resolution 192, red and black blocks where the sphere touches the green wall). Every 4th pixel each way of the
-pre-pass's depth (View > Rendering Features > Indirect Lighting... > Near Field Rays, `FrameInputs::giNearStride`, `SPEEDO_GI_NEAR_STRIDE`, `gi::kDefaultNearStride`:
+pre-pass's depth (View > Rendering Features > Global Illumination... > Near Field Rays, `FrameInputs::giNearStride`, `SPEEDO_GI_NEAR_STRIDE`, `gi::kDefaultNearStride`:
 a sixteenth of the pixels, the default since 2026-10-31, the user's call; 2 traces a quarter, finer at thin features'
 contacts and 1.3 to 3.2 ms more at the benchmark poses (Sponza 19.90 to 18.62, Bistro 37.06 to 33.86,
 San Miguel 43.79 to 40.92, balanced; 4 to 11 ms before the filter took the traced pixels alone), docs/performance-plan.md, where moving the traced pixels within
@@ -1283,7 +1283,7 @@ main pass's upsampling taking some back, and differ from before by about twice t
 wide a little lighter), over the traced pixels within 16 along rows, then columns, on the pixel's surface (by the plane and the
 normal, as the traced shadows' filter), by a tent of the distance (a box of the 17 traced pixels around a traced one and
 the 16 around the others drew stripes a pixel wide and a bright ray as a square). GI Near Temporal
-(`ComputeGiNearTemporal`; `SPEEDO_GI_NEAR_TEMPORAL=0` without it, View > Rendering Features > Indirect Lighting... > Near Field Over Frames),
+(`ComputeGiNearTemporal`; `SPEEDO_GI_NEAR_TEMPORAL=0` without it, View > Rendering Features > Global Illumination... > Near Field Over Frames),
 at every pixel of the pre-pass's depth, upsamples that from the traced pixels (`GiNearUpsample`: bilinear over the 2x2
 around, each by how much it is on the pixel's surface, as the emitters' light, with their fallbacks) and blends it into a
 history reprojected by the pixel's point through the view's last view projection (`ViewData::previousViewProjection`,
@@ -1316,7 +1316,7 @@ near field's light alone (the indirect diffuse debug view with `SPEEDO_GI_NEAR_S
 by more than 32 of 255 to 447, and by more than 64 from 200 to 41, and its leaves and branches came out crisper. Main's
 opaque fragments (`PushConstants::prepassImages`' `PREPASS_IMAGE_GI_NEAR`) take what the rays gathered at their pixel
 (the frames' pass runs whether or not over frames, blending by 1 without), by how many met another surface nearer than a
-contact (`FrameInputs::giNearContact`: View > Rendering Features > Indirect Lighting... > Near Field Contact, `SPEEDO_GI_NEAR_CONTACT`, 2.5 voxels), the
+contact (`FrameInputs::giNearContact`: View > Rendering Features > Global Illumination... > Near Field Contact, `SPEEDO_GI_NEAR_CONTACT`, 2.5 voxels), the
 volume's lookup by the square of the share that met none (`SPEEDO_GI_NEAR_POWER`) and by how far it is trusted
 (`GiLookupTrust`: its weight, how much its voxels see of their probes, over a fifth, `kGiNearTrustedWeight`; none where
 it sees no probe), so the rays' light alone where the lookup saw no probe (`GiNearIrradiance`), whose second try, twice
@@ -1369,7 +1369,7 @@ reference.
 
 ## Emissive surfaces as lights
 
-View > Rendering Features > Emissive Lights (on by default; `SPEEDO_EMISSIVE_LIGHTS=0` to start without, `FrameInputs::emissiveLights`,
+View > Rendering Features > Global Illumination... > Emissive Lights (on by default; `SPEEDO_EMISSIVE_LIGHTS=0` to start without, `FrameInputs::emissiveLights`,
 Copy Scene writes it): the model's emissive triangles light the scene as area lights, at the first hit and in the
 indirect lighting's voxels, with soft shadows traced through the BVHs (`emitters.slang`, `gfx/emitters.h`). Before, an
 emitter's light reached anything only through the indirect lighting's rays meeting it by chance: spread over its voxels
@@ -2191,7 +2191,7 @@ corridor that travel with the camera walking forward (the user's pose `3.9845,1.
   `SPEEDO_GI_CACHE_LIT=0`, `GiData::cacheAnchor` and `cacheLit`, kept through steps 1 to 3 to compare against. Where the
   rays trace the triangles the cache's entries are the light at the surface (`GiCacheAnchored` is `GiTracesBvh`) and
   their rays' hits take the lights' light at the hit, always. The code of a voxel's light at the voxel is not gone
-  with them: it is what runs where the rays walk the voxels (View > Rendering Features > Indirect Lighting... > Rays: Voxels,
+  with them: it is what runs where the rays walk the voxels (View > Rendering Features > Global Illumination... > Rays: Voxels,
   `SPEEDO_GI_TRACE=voxels`, a model without a BVH), which finds no surface to anchor at, with the probes' depth maps
   and the resolve by them (`ComputeGiResolve`). Removing that is removing the voxel walk, a decision of its own.
 - **A neural radiance cache in plain compute is affordable, and learns too slowly for this** (`tools/neuralbench.cpp`,

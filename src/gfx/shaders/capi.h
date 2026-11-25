@@ -392,7 +392,7 @@ extern "C"
 #define DEBUG_VIEW_INDIRECT 13u // the ambient light alone: diffuse and specular (the environment's or the indirect lighting's)
 #define DEBUG_VIEW_INDIRECT_DIFFUSE 14u // the ambient irradiance over pi, a white surface's (whatever lights it)
 #define DEBUG_VIEW_INDIRECT_SPECULAR 15u // the ambient specular alone
-// the indirect lighting's (View > Rendering Features > Indirect Lighting), up to DEBUG_VIEW_GI_END: GiData::debug is the view - DEBUG_VIEW_GI_FIRST + 1 (see
+// the indirect lighting's (View > Rendering Features > Global Illumination... > Indirect Lighting), up to DEBUG_VIEW_GI_END: GiData::debug is the view - DEBUG_VIEW_GI_FIRST + 1 (see
 // GiData::debug)
 #define DEBUG_VIEW_GI_FIRST 16u
 #define DEBUG_VIEW_GI_IRRADIANCE 16u // its indirect diffuse alone, a white surface's (magenta where no clip covers it)
@@ -910,7 +910,7 @@ struct EmitterNode
 // the frame's emitters (gEmitterData[frame])
 struct EmitterData
 {
-	// the triangles in gEmitters: 0 where emissive surfaces aren't lights (none, or View > Rendering Features > Emissive Lights off), and then
+	// the triangles in gEmitters: 0 where emissive surfaces aren't lights (none, or View > Rendering Features > Global Illumination... > Emissive Lights off), and then
 	// the indirect lighting's rays take the emission of what they meet
 	alignas(4) UINT1(count);
 	// the candidates a traced pixel resamples each frame (SPEEDO_EMITTER_CANDIDATE_COUNT), and a voxel's for each of
@@ -1408,7 +1408,7 @@ struct CullView
 #define SHADER_TYPES_GI_FLAG_WORD_COUNT 3u
 // how the indirect lighting's rays find what they meet (GiData::trace): traversing the model's BVHs (gBvhNodes of what
 // doesn't move, gBvhMovingNodes of what does, see bvh.slang; the default), reading the voxels' radiance where they hit,
-// or walking the voxels (View > Rendering Features > Indirect Lighting... > Rays, SPEEDO_GI_TRACE=voxels; see GiMarch)
+// or walking the voxels (View > Rendering Features > Global Illumination... > Rays, SPEEDO_GI_TRACE=voxels; see GiMarch)
 #define GI_TRACE_VOXELS 0u
 #define GI_TRACE_BVH 1u
 // the BVH (gBvhNodes and gBvhTriangles, see gfx/bvh.h): tinybvh's CWBVH, a node 5 float4, a triangle 4 (Baldwin and

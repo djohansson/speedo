@@ -20,8 +20,8 @@ namespace gfx::inline SPEEDO_GRAPHICS_API_NAMESPACE::gi
 // snap of 4, so the finest clips lit nothing there)
 inline constexpr uint32_t kSnapProbes = SHADER_TYPES_GI_SNAP_PROBE_COUNT;
 
-// the last clip's voxels along the scene's longest axis (see MakeClipmap): by default, and what View > Rendering Features > Indirect Lighting
-// Resolution offers. finer resolves light through narrower openings (the sky under Sponza's curtains, which 128 drew as
+// the last clip's voxels along the scene's longest axis (see MakeClipmap): by default, and what View > Rendering Features > Global Illumination...
+// > Resolution offers. finer resolves light through narrower openings (the sky under Sponza's curtains, which 128 drew as
 // spots at the corridor's end that faded as the eye neared them: the coarser clips' probes, 1.8 m apart; the surface
 // cache resolves it at the voxels' size, see ComputeGiCacheFilter) at a steep cost: Sponza's corridor without the cache
 // 2.1 ms a frame at 64, 2.6 at 96, 3.5 at 128, 5.4 at 192, 8.2 at 256, 11.9 at 320, 17.8 at 384 (RTX 4070 Ti SUPER,
@@ -34,19 +34,19 @@ inline constexpr uint32_t kMinResolution = 8;
 inline constexpr uint32_t kMaxResolution = 512;
 
 // the near field (see GiData::nearContact): how near what a pixel's ray meets is a contact, in voxels of the clips that
-// light the point, by default and at most (View > Rendering Features > Indirect Lighting... > Near Field Contact, SPEEDO_GI_NEAR_CONTACT). 1.5 left
+// light the point, by default and at most (View > Rendering Features > Global Illumination... > Near Field Contact, SPEEDO_GI_NEAR_CONTACT). 1.5 left
 // the edges of the blocks under CornellBox's spheres faintly; wider takes more of the rays' light along every
 // junction (Sponza's columns between the curtains lit a little more at 2.5)
 inline constexpr float kDefaultNearContact = 2.5F;
 inline constexpr float kMaxNearContact = 8.0F;
 // every how many pixels each way the near field's rays are traced by default, 2 or 4 (see GiData::nearStride; View >
-// Indirect Lighting Near Field Rays, SPEEDO_GI_NEAR_STRIDE): 4, a sixteenth of the pixels, since 2026-10-31, the user's
+// Rendering Features > Global Illumination... > Near Field Rays, SPEEDO_GI_NEAR_STRIDE): 4, a sixteenth of the pixels, since 2026-10-31, the user's
 // call: 1.3 to 3.2 ms less a frame at the benchmark poses than 2's quarter (Sponza 19.90 to 18.62, Bistro 37.06
 // to 33.86, San Miguel 43.79 to 40.92), coarser at thin features' contacts
 inline constexpr uint32_t kDefaultNearStride = 4;
 // the rays a voxel of the surface cache traces an update while its cache warms up (its first updates after it starts
 // over: a load, a light switched; see GiData::cacheRayCount, FrameInputs::giCacheWarmRayCount; View > Rendering
-// Features > Indirect Lighting... > Warm-Up Rays, SPEEDO_GI_CACHE_WARM_RAYS), by default, the counts the menu offers,
+// Features > Global Illumination... > Warm-Up Rays, SPEEDO_GI_CACHE_WARM_RAYS), by default, the counts the menu offers,
 // and at most. 4 by default (the user's call, 2026-11-24): with 16 the first seconds are 25 to 45% less blotched (the
 // glTF research set's veach-bidir's left wall smooth at 2 seconds rather than at 6 to 10), and while they last the
 // indirect lighting takes 0.8 to 3.4 ms a frame more in that set's interiors at 1440p, 12 more in Sponza and 33 more

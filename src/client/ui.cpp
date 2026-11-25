@@ -95,7 +95,7 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kSurface, {"material", "Material", DEBUG_VIEW_MATERIAL, "A color per material."}},
 	DebugViewEntry{DebugViewGroup::kSurface, {"texcoord", "Texcoord", DEBUG_VIEW_TEXCOORD, "Texcoord set 0 (u red, v green), repeated."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"emissive", "Emissive", DEBUG_VIEW_EMISSIVE, "The light the surfaces give off."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"direct", "Direct Light", DEBUG_VIEW_DIRECT, "The direct light alone: the punctual lights' (with their shadows) and the emissive surfaces' (View > Rendering Features > Emissive Lights)."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"direct", "Direct Light", DEBUG_VIEW_DIRECT, "The direct light alone: the punctual lights' (with their shadows) and the emissive surfaces' (View > Rendering Features > Global Illumination... > Emissive Lights)."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect", "Ambient Light", DEBUG_VIEW_INDIRECT, "The ambient light alone, diffuse and specular: the indirect lighting's where it covers a point, else the environment's."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-diffuse", "Ambient Diffuse (white)", DEBUG_VIEW_INDIRECT_DIFFUSE, "The ambient irradiance over pi: what a white surface would reflect of it."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-specular", "Ambient Specular", DEBUG_VIEW_INDIRECT_SPECULAR, "The ambient light's specular reflection alone."}},
@@ -104,7 +104,7 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow", "Traced Shadow", DEBUG_VIEW_TRACED_SHADOW, "The first traced light's shadow (View > Rendering Features > Ray Traced Shadows), as the main pass takes it: a ray a pixel through the BVH, filtered over the penumbra's width. Magenta where none is traced."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-raw", "Traced Shadow (rays)", DEBUG_VIEW_TRACED_SHADOW_RAW, "The first traced light's shadow rays as traced, before the filter: a ray a pixel toward a point of the light's disk, the 16 points over each 4x4 pixels."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-reference", "Traced Shadow (reference)", DEBUG_VIEW_TRACED_SHADOW_REFERENCE, "The first traced light's shadow where the shadow atlas isn't sure, by 256 rays a pixel over the light's disk, unfiltered: what the filtered shadow should look like. Slow."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"emitters", "Emissive Light (white)", DEBUG_VIEW_EMITTERS, "The emissive surfaces' light (View > Rendering Features > Emissive Lights) a white surface reflects, as the main pass takes it: sampled at every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE), filtered and accumulated over frames, and upsampled. Magenta where it isn't gathered."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"emitters", "Emissive Light (white)", DEBUG_VIEW_EMITTERS, "The emissive surfaces' light (View > Rendering Features > Global Illumination... > Emissive Lights) a white surface reflects, as the main pass takes it: sampled at every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE), filtered and accumulated over frames, and upsampled. Magenta where it isn't gathered."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-raw", "Emissive Light (rays)", DEBUG_VIEW_EMITTERS_RAW, "The emissive surfaces' light as the traced pixels' rays gathered it this frame, a point and its shadow ray every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE), before the filter and the frames."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-reference", "Emissive Light (reference)", DEBUG_VIEW_EMITTERS_REFERENCE, "The emissive surfaces' light by 64 independent estimates every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE; accumulated while the camera is still), each its own candidates and shadow ray, nothing reused or filtered: what the filtered light should look like. Slow."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"light-count", "Light Count", DEBUG_VIEW_LIGHT_COUNT, "The lights each pixel loops over (its cluster's): blue 1, cyan to green about 15, red 255 or more."}},
@@ -1228,7 +1228,7 @@ void WindowedApplication::PrepareDraw()
 			PopTextWrapPos();
 			if (debugView->view >= DEBUG_VIEW_GI_FIRST && debugView->view < DEBUG_VIEW_GI_END &&
 				!App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed))
-				TextColored(ImVec4(1.0F, 0.6F, 0.2F, 1.0F), "Indirect lighting is off (View > Rendering Features > Indirect Lighting)");
+				TextColored(ImVec4(1.0F, 0.6F, 0.2F, 1.0F), "Indirect lighting is off (View > Rendering Features > Global Illumination... > Indirect Lighting)");
 			TextDisabled(SHORTCUT_LABEL("0") " to go back to the light, " SHORTCUT_LABEL("[") " and " SHORTCUT_LABEL("]") " to step");
 		}
 		End();
@@ -1567,7 +1567,7 @@ void WindowedApplication::PrepareDraw()
 					if (CollapsingHeader("Indirect Lighting", ImGuiTreeNodeFlags_DefaultOpen))
 					{
 						if (!frame.indirectLighting)
-							TextDisabled("Off (View > Rendering Features > Indirect Lighting)");
+							TextDisabled("Off (View > Rendering Features > Global Illumination... > Indirect Lighting)");
 						else
 						{
 							Text(
@@ -2367,26 +2367,39 @@ void WindowedApplication::PrepareDraw()
 		End();
 	}
 
-	// the indirect lighting's options (View > Rendering Features > Indirect Lighting...): what its rays meet, its surface
-	// cache, its near field and its resolution, out of View's menu (the user's ask, 2026-11-18)
-	static bool gShowIndirectLighting = []
+	// the global illumination's switches and options (View > Rendering Features > Global Illumination...): the emissive
+	// lights, the indirect lighting and its options (what its rays meet, its surface cache, its near field and its
+	// resolution), out of View's menu (the user's asks, 2026-11-18; the switches with them, 2026-11-25)
+	static bool gShowGlobalIllumination = []
 	{
-		const char* show = std::getenv("SPEEDO_SHOW_INDIRECT_LIGHTING");
+		const char* show = std::getenv("SPEEDO_SHOW_GLOBAL_ILLUMINATION");
 		return show != nullptr && std::string_view(show) == "1";
 	}();
-	if (gShowIndirectLighting)
+	if (gShowGlobalIllumination)
 	{
 		{
 			const auto* viewport = GetMainViewport();
 			// (beside the Cameras window)
 			SetNextWindowPos(ImVec2(viewport->WorkPos.x + (GetFontSize() * 22.0F), viewport->WorkPos.y + (GetFontSize() * 1.5F)), ImGuiCond_FirstUseEver);
 		}
-		if (Begin("Indirect Lighting", &gShowIndirectLighting, ImGuiWindowFlags_AlwaysAutoResize))
+		if (Begin("Global Illumination", &gShowGlobalIllumination, ImGuiWindowFlags_AlwaysAutoResize))
 		{
-			CloseOnEscape(gShowIndirectLighting);
+			CloseOnEscape(gShowGlobalIllumination);
 			PushItemWidth(GetFontSize() * 12.0F);
-			if (!App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed))
-				TextDisabled("Off: View > Rendering Features > Indirect Lighting.");
+			bool emissiveLights = App().GetScene().GetSettings().emissiveLights.load(std::memory_order_relaxed);
+			if (SmallCheckbox("Emissive Lights", &emissiveLights))
+				App().GetScene().GetSettings().emissiveLights.store(emissiveLights, std::memory_order_relaxed);
+			SetItemTooltip(
+				"Emissive surfaces light the scene as area lights: points of them picked through a tree of them by how much each may give, at every 4th pixel each way by default (and in the indirect lighting's voxels), shadowed by rays through the model's BVH. Off, the indirect lighting's rays take their emission as they meet them.");
+			SeparatorText("Indirect Lighting");
+			bool indirectLighting = App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed);
+			if (SmallCheckbox("Indirect Lighting", &indirectLighting))
+				App().GetScene().GetSettings().indirectLighting.store(indirectLighting, std::memory_order_relaxed);
+			SetItemTooltip(
+				"Diffuse ambient light from irradiance probes over a voxel clipmap (on by default, SPEEDO_GI=0 to start without it): "
+				"bounced light, colour bleeding, and the sky occluded indoors. Turned on, the scene is voxelized again.");
+			// its options, greyed out while it is off
+			BeginDisabled(!indirectLighting);
 			{
 				// how the probes' rays (and the voxels' shadow rays) find what they meet: the model's triangles through its
 				// BVHs, or the voxels (see GiData::trace)
@@ -2538,6 +2551,7 @@ void WindowedApplication::PrepareDraw()
 					"On by default (SPEEDO_GI_NEAR_TEMPORAL=0 to start without; SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT, 16, how "
 					"many frames it remembers).");
 			}
+			EndDisabled();
 			PopItemWidth();
 		}
 		End();
@@ -3919,8 +3933,8 @@ void WindowedApplication::PrepareDraw()
 			SetItemTooltip("Lists the lights, and draws them over the views: where they are (a directional light outside the scene, shining in), spot cones, point light ranges and the shadow views' frusta.");
 			SeparatorText("Rendering");
 			{
-				// the rendering's features, each switched on or off (their options in windows of their own: the indirect
-				// lighting's), the user's ask (2026-11-18), out of View itself
+				// the rendering's features, each switched on or off (some in windows of their own with their options: the
+				// global illumination's, the ray tracing's), the user's ask (2026-11-18), out of View itself
 				bool indirectLighting = App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed);
 				if (ui::BeginMenu("Rendering Features"))
 				{
@@ -3935,20 +3949,12 @@ void WindowedApplication::PrepareDraw()
 					if (MenuItem("Ray Tracing...", nullptr, gShowRayTracing))
 						gShowRayTracing = !gShowRayTracing;
 					SetItemTooltip("The ray traced features' options: each one's ray budget, and what is traced.");
-					SeparatorText("Light");
-					bool emissiveLights = App().GetScene().GetSettings().emissiveLights.load(std::memory_order_relaxed);
-					if (SmallCheckbox("Emissive Lights", &emissiveLights))
-						App().GetScene().GetSettings().emissiveLights.store(emissiveLights, std::memory_order_relaxed);
-					SetItemTooltip(
-						"Emissive surfaces light the scene as area lights: points of them picked through a tree of them by how much each may give, at every 4th pixel each way by default (and in the indirect lighting's voxels), shadowed by rays through the model's BVH. Off, the indirect lighting's rays take their emission as they meet them.");
-					if (SmallCheckbox("Indirect Lighting", &indirectLighting))
-						App().GetScene().GetSettings().indirectLighting.store(indirectLighting, std::memory_order_relaxed);
-					SetItemTooltip(
-						"Diffuse ambient light from irradiance probes over a voxel clipmap (on by default, SPEEDO_GI=0 to start without it): "
-						"bounced light, colour bleeding, and the sky occluded indoors. Turned on, the scene is voxelized again.");
-					if (MenuItem("Indirect Lighting...", nullptr, gShowIndirectLighting))
-						gShowIndirectLighting = !gShowIndirectLighting;
-					SetItemTooltip("The indirect lighting's options: what its rays meet, its surface cache, its near field and its resolution.");
+					// the emissive lights and the indirect lighting, switched and set in their window (the user's ask, 2026-11-25):
+					// View > Rendering Features > Global Illumination...
+					SeparatorText("Global Illumination");
+					if (MenuItem("Global Illumination...", nullptr, gShowGlobalIllumination))
+						gShowGlobalIllumination = !gShowGlobalIllumination;
+					SetItemTooltip("The emissive lights and the indirect lighting: each switched on or off, and the indirect lighting's options.");
 					// what changes no picture, only how fast it is drawn
 					SeparatorText("Performance");
 					bool culling = App().GetScene().GetSettings().culling.load(std::memory_order_relaxed);
@@ -4025,7 +4031,7 @@ void WindowedApplication::PrepareDraw()
 					group(ui::DebugViewGroup::kLighting, "Lighting", true);
 					group(ui::DebugViewGroup::kIndirectLighting, "Indirect Lighting", indirectLighting);
 					if (!indirectLighting)
-						TextDisabled("Turn on View > Rendering Features > Indirect Lighting for these.");
+						TextDisabled("Turn on View > Rendering Features > Global Illumination... > Indirect Lighting for these.");
 					ImGui::EndMenu();
 				}
 			}

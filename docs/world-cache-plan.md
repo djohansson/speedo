@@ -63,7 +63,7 @@ clipmap's probes stay, beside the grid.
 ## Side by side
 
 `SPEEDO_GI_WORLD` (0, the default again since step 5's measures of 2026-11-20: the clipmap as before; 1: the grid's
-light where its step has it; the default from 0b7fd5ba to then), and a row in View > Rendering Features > Indirect Lighting...
+light where its step has it; the default from 0b7fd5ba to then), and a row in View > Rendering Features > Global Illumination...
 (Light Store: Clipmap or World Grid, a scene setting since 2026-11-24). The clipmap stays built and run whatever the switch says until step 5, so that
 an A/B is one variable and a capture of either is the same build. The grid's passes run only with the switch on, and its
 memory is allocated only then.
@@ -446,7 +446,7 @@ BVH), which find no surface to anchor at, unless the grid is made to serve them 
     frame without a slot over its first 1500 frames (those of its start, before the turns); veach-bidir at resolution 256, which wants 5.9
     million cells' slots in its first frames and more cells than the table's million, at every eighth update and
     166 thousand samples a frame left out: it needs more cells (`SPEEDO_GI_WORLD_CELLS`), and runs.
-  - *The switch.* View > Rendering Features > Indirect Lighting... > Light Store: Clipmap (the default) or World Grid
+  - *The switch.* View > Rendering Features > Global Illumination... > Light Store: Clipmap (the default) or World Grid
     (`Scene::Settings::giWorldGrid`, `FrameInputs::giWorldGrid`; `SPEEDO_GI_WORLD=1` is the scene variable of it now,
     and Copy Scene writes it). The grid's cells and slots (176 MB) and its passes are there only while it is chosen:
     switched every 150 frames in a run, validated, on Vulkan and D3D12, the storage comes and goes and the clipmap's

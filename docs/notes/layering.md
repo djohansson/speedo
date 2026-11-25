@@ -195,8 +195,8 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   The menus (reorganized 2026-11-18, the user's asks): File (Open, Open Recent; Download Test Assets, About Speedo;
   Exit), Edit (Copy and Paste Scene: a pose is more than the camera) and View under headings by what they are about:
   Window (Layout, Presentation), Scene (Scene, Animation with its time as a slider, Environment, Units with the move
-  speed in the scene's unit, Cameras..., Lights...), Rendering (Rendering Features: the switches under Shadows, Ray
-  Traced, Light and Performance, and Indirect Lighting...; Tonemapper, Upscaling) and Diagnostics (Debug View,
+  speed in the scene's unit, Cameras..., Lights...), Rendering (Rendering Features: the switches under Shadows and
+  Performance, Ray Tracing... and Global Illumination...; Tonemapper, Upscaling) and Diagnostics (Debug View,
   Statistics..., whose window holds Show FPS: in a build without it, View holds it). The menus hold what is picked or
   switched; what has many settings is a window a menu item opens, as Lights... is: Cameras... (the model's cameras,
   the sensor, lens, focus, motion blur, grain, focal length and the exposure with its compensation, each list a combo
@@ -204,8 +204,10 @@ A note of CLAUDE.md (its index names each): the layers in full, where CLAUDE.md 
   environment; every setting of the sky's: its intensity, rotation and backdrop, the sun's, the dominant lights and
   the air's; it switches a panorama back to the sky; where a panorama is the environment the window offers the sky
   alone, and the menu shows the panorama's intensity, rotation, backdrop and dominant lights instead, so that the sky's
-  are never in two places) and Rendering Features > Indirect Lighting... (its rays, resolution, surface cache and near
-  field). `SPEEDO_SHOW_CAMERAS=1`, `SPEEDO_SHOW_SKY=1` and `SPEEDO_SHOW_INDIRECT_LIGHTING=1` open them at startup, for
+  are never in two places) and Rendering Features > Global Illumination... (the emissive lights' and the indirect lighting's
+  switches, moved out of the menu on 2026-11-25, the user's ask, and the indirect lighting's rays, resolution, surface
+  cache and near field, greyed out while it is off). `SPEEDO_SHOW_CAMERAS=1`, `SPEEDO_SHOW_SKY=1` and
+  `SPEEDO_SHOW_GLOBAL_ILLUMINATION=1` open them at startup, for
   screenshots (`SPEEDO_SHOW_RAY_TRACING=1` for Rendering Features > Ray Tracing..., the traced features' options, see rendering.md). A checkbox of what can't run now (the traced shadows and the
   caustics without shadows, the near field with the voxels' rays, the light shafts and fog without the aerial
   perspective, a real lens's glare, blur and grain with the pinhole) is greyed out and unchecked, its setting kept
