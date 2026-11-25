@@ -37,6 +37,9 @@ tracks its progress by (docs/research-scenes-plan.md).
 -Reuse runs no client: it measures, sheets and charts what -Work holds from an earlier run (its captures, and with
 -Timings its timing logs).
 
+-KeepCaptures captures only the scenes without a capture in -Work (<scene>/capture.bmp, at the reference's size, made by
+an earlier run or put there by hand) and measures the rest as -Reuse does; the timings still run for every scene.
+
 .EXAMPLE
 pwsh scripts/researchcompare.ps1 -Preset x64-windows-clang-profile -Work build/researchcompare
 
@@ -61,7 +64,8 @@ param(
 	[int] $TimingFrames = 1000,
 	[string] $Chart,
 	[string] $Device,
-	[switch] $Reuse
+	[switch] $Reuse,
+	[switch] $KeepCaptures
 )
 if ($Timings -and $Validate) { [Console]::Error.WriteLine('-Timings without -Validate: the layer would be timed too'); exit 2 }
 if (-not $env:SPEEDO_TRACY) { $env:SPEEDO_TRACY = '0' }
@@ -280,7 +284,8 @@ function Complete-Scene($Run, [bool] $TimedOut)
 
 # the runs, -Jobs at a time, each in a user directory of its slot's (-Reuse: none, what -Work holds measured as if each
 # had just run)
-$queue = [Collections.Generic.Queue[object]]::new([object[]]@($(if (-not $Reuse) { $scenes })))
+$kept = @($scenes | Where-Object { $Reuse -or ($KeepCaptures -and (Test-Path -LiteralPath (Join-Path $_.Directory 'capture.bmp'))) })
+$queue = [Collections.Generic.Queue[object]]::new([object[]]@($scenes | Where-Object { $_ -notin $kept }))
 $running = [Collections.Generic.List[object]]::new()
 $results = [Collections.Generic.List[object]]::new()
 $free = [Collections.Generic.Queue[int]]::new([int[]](1..$Jobs))
@@ -306,16 +311,15 @@ while ($queue.Count -gt 0 -or $running.Count -gt 0)
 		}
 	}
 }
-if ($Reuse)
+# the scenes not run (-Reuse, or -KeepCaptures with a capture already there): what -Work holds measured as if each had
+# just run
+foreach ($scene in $kept)
 {
-	foreach ($scene in $scenes)
-	{
-		$run = [pscustomobject]@{
-			Scene = $scene; Process = [pscustomobject]@{ ExitCode = 0 }; Start = Get-Date
-			Log = Join-Path $scene.Directory 'capture.log'; Capture = Join-Path $scene.Directory 'capture.bmp'
-		}
-		$results.Add((Complete-Scene $run $false))
+	$run = [pscustomobject]@{
+		Scene = $scene; Process = [pscustomobject]@{ ExitCode = 0 }; Start = Get-Date
+		Log = Join-Path $scene.Directory 'capture.log'; Capture = Join-Path $scene.Directory 'capture.bmp'
 	}
+	$results.Add((Complete-Scene $run $false))
 }
 
 # the timings (-Timings): each scene again, one client at a time in the first slot's user directory (its pipelines warm
