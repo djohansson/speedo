@@ -20,9 +20,11 @@ Two scenes are also held by checks in `scripts/visualtest.ps1`, which CI runs on
 
 ## Where it stands
 
-![Every scene of the set, its reference beside speedo's render, the most unlike first, each labelled with its blurred measure, its light's ratio and its frame time](research-scenes/overview.jpg)
+![Every scene of the set, its reference beside speedo's render, the most unlike first, each labelled with how much brighter or darker speedo's image is and its frame time, under a line naming the platform, graphics api, gpu and ray tracing they were made with](research-scenes/overview.jpg)
 
-Every scene is closer to its reference than at the baseline. glass-of-water, the worst at the baseline, is the one scene over 60 Hz (its glass, water and ice in Main Transmissive). Some scenes are now slightly brighter than their references, and vintage-car's single sheet windows refract as solids under the set's conditions.
+The measures in full, with the same platform line: [research-scenes/overview.md](research-scenes/overview.md).
+
+Every scene is closer to its reference than at the baseline. glass-of-water is still the least like its reference and the slowest (its glass, water and ice in Main Transmissive); frame times depend on the gpu, so the chart's are those of the platform it names. Some scenes are now slightly brighter than their references, and vintage-car's single sheet windows refract as solids under the set's conditions.
 
 ## How it is judged (every step)
 
