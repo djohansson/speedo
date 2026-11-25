@@ -89,6 +89,23 @@ struct MaterialLayers
 	return std::bit_floor(std::clamp<uint32_t>(setting, 1, 4));
 }
 
+// whether the shaders trace through the device's ray queries (see Scene::Settings::hardwareRayQueries): the setting's where
+// the device has them, or with -1 the default: the ray queries, but on macOS only with SPEEDO_RAY_QUERY=1 (Metal's ray
+// tracing restarts the gpu now and then; the device enables them anyway, so that the ray tracing panel can choose them)
+[[nodiscard]] static bool HardwareRayQueriesOf(int32_t setting, bool supported)
+{
+	if (!supported)
+		return false;
+	if (setting >= 0)
+		return setting != 0;
+#if defined(__APPLE__)
+	const char* rayQuery = std::getenv("SPEEDO_RAY_QUERY");
+	return rayQuery != nullptr && std::string_view(rayQuery) == "1";
+#else
+	return true;
+#endif
+}
+
 // whether a ray traced feature whose default goes by the device is on (Scene::Settings::fragmentReflections,
 // tracedRefractions, caustics): the setting's (1 or 0), or with -1 the device's, on with ray queries and off through the
 // BVHs, where it can still be turned on
@@ -726,6 +743,37 @@ struct Scene::Impl
 	std::unique_ptr<AccelerationStructures> myDefaultAccelerationStructures;
 	// diagnostic, bound as gRayQueryWatch (SPEEDO_RAY_QUERY_WATCH=1, see gfx/rayquerywatch.h): null without it
 	std::unique_ptr<RayQueryWatch> myRayQueryWatch;
+	// the shaders' variant in use: the device's ray queries' (HARDWARE_RAY_QUERY) or the BVHs' (see
+	// Scene::Settings::hardwareRayQueries), chosen as the scene is made and switched while it runs (InternalFollowRayQueries)
+	std::atomic_bool myHardwareRayQueries = false;
+	// a switch of it under way (draw thread): the other variant's layouts compiling (future), then compiled; and whether
+	// it waits for the model to load again with its structures, which switches the layouts with it as it installs (else
+	// Prepare switches them alone: no model, or one without structures)
+	struct RayQuerySwitch
+	{
+		bool hardware = false;
+		std::unique_ptr<ShaderCompileSet> compiles;
+		std::vector<std::pair<std::string, std::expected<rhi::ShaderSet, std::string>>> layouts;
+		core::Future<void> future;
+		bool waitsForModel = false;
+	};
+	std::unique_ptr<RayQuerySwitch> myRayQuerySwitch;
+	// the variant a switch has compiled (0, 1) while it waits to be applied, -1 for none: what a load of that variant's
+	// structures waits for before it queues its install (any thread)
+	std::atomic_int8_t myRayQuerySwitchCompiled = -1;
+	std::atomic_bool mySwitchingRayQueries = false;
+	std::atomic_bool myModelReloadWanted = false;
+	// how the installed model was last loaded, to load it again for the other variant (LoadModelAgain)
+	struct LastModelLoad
+	{
+		std::vector<std::string> filePaths;
+		mesh::ImportOptions options;
+		ModelArrangement arrangement = ModelArrangement::kSideBySide;
+		ModelGround ground = ModelGround::kNone;
+		std::vector<mesh::ImportOptions> fileOptions;
+	};
+	std::mutex myLastModelLoadMutex;
+	std::optional<LastModelLoad> myLastModelLoad; // guarded by myLastModelLoadMutex
 	bool myMovingPlaced = false; // whether this frame's Update placed what moves, for the rays (see Model::Animate)
 	// what the last Update posed the model with (the model, its pose, the one crossfaded from and the weight), and whether
 	// this frame's is the same: what may move is then where the last frame had it (see FrameInputs::modelStill)
@@ -1803,6 +1851,37 @@ struct Scene::Impl
 				frameIt);
 	}
 
+	// an install's bind (draw thread), after the shaders' switch to the variant its model was loaded for (hardware: its
+	// structures', see LoadAndInstallModels; none: either), where that isn't the one in use: no frame draws the one with
+	// the other's structures. while pipelines are being made (KosmicKrisp's cold ray query kernels: a minute) it is kept,
+	// and Prepare tries it again next frame, the installed model drawn meanwhile: waiting for them, the draw thread stopped
+	// for longer than the crash watch's 20 s, and queued again as a draw call, it ran again in the same drain of them
+	// (WindowedApplication's, until the queue is empty), as long as they were made; dropped where the switch was (the
+	// settings chose the variant in use again before it installed)
+	struct DeferredBind
+	{
+		std::optional<bool> hardware;
+		std::string name;
+		DrawCall bind;
+	};
+	std::vector<DeferredBind> myDeferredBinds; // draw thread
+	void BindAfterRayQuerySwitch(QueueTimelineContextData& graphics, std::optional<bool> hardware, std::string name, DrawCall bind)
+	{
+		if (hardware && *hardware != myHardwareRayQueries.load(std::memory_order_relaxed))
+			switch (InternalApplyRayQuerySwitch(graphics))
+			{
+			case RayQuerySwitchResult::kApplied:
+				break;
+			case RayQuerySwitchResult::kBusy:
+				myDeferredBinds.push_back({.hardware = hardware, .name = std::move(name), .bind = std::move(bind)});
+				return;
+			case RayQuerySwitchResult::kNone:
+				std::println("{}: not installed, loaded for the ray queries' other variant than is now chosen", name);
+				return;
+			}
+		bind(graphics);
+	}
+
 	// makes an uploaded model the one being drawn, with its materials and their textures (by material), retiring the
 	// previous ones. call on the draw thread.
 	// an install a load queued to the draw thread and not yet bound (see Scene::HasPendingInstalls): counted while one is
@@ -1833,6 +1912,7 @@ struct Scene::Impl
 		std::vector<MaterialTextures> textures,
 		std::vector<std::string> filePaths,
 		ModelArrangement arrangement,
+		std::optional<bool> hardware,
 		std::shared_ptr<PendingInstall> pending)
 	{
 		ZoneScopedN("WindowedApplication::InstallModel");
@@ -1856,7 +1936,8 @@ struct Scene::Impl
 
 		// everything is switched at once, after the textures are readable: one descriptor set update, and no frame draws
 		// the new model with the old materials or the other way around
-		TransitionThenBind(rhi, graphics, uploads, [this, &rhi, model, textures = std::move(textures), filePaths = std::move(filePaths), arrangement, pending = std::move(pending)](QueueTimelineContextData& graphics) mutable
+		// (after the shaders' switch to its variant, where it was loaded for the other: see BindAfterRayQuerySwitch)
+		DrawCall bind = [this, &rhi, model, textures = std::move(textures), filePaths = std::move(filePaths), arrangement, pending = std::move(pending)](QueueTimelineContextData& graphics) mutable
 		{
 			auto& device = rhi.GetPrimaryDevice();
 			auto& pipeline = myPipeline;
@@ -2255,7 +2336,7 @@ struct Scene::Impl
 				RetireAfterGraphicsWork(graphics, std::move(scratch));
 				BindAccelerationStructures(*structures);
 			}
-			else if (myDefaultAccelerationStructures)
+			else if (myDefaultAccelerationStructures && myHardwareRayQueries.load(std::memory_order_relaxed))
 				BindAccelerationStructures(*myDefaultAccelerationStructures);
 
 			{
@@ -2320,7 +2401,11 @@ struct Scene::Impl
 				model->GetGround() == ModelGround::kPlane ? kGroundFramePitch : 0.0F,
 				model->GetGround() == ModelGround::kPlane,
 				!model->GetLayout().empty());
-		});
+		};
+		TransitionThenBind(
+			rhi, graphics, uploads,
+			[this, hardware, name = model->GetDesc().name, bind = std::move(bind)](QueueTimelineContextData& graphics) mutable
+			{ BindAfterRayQuerySwitch(graphics, hardware, std::move(name), std::move(bind)); });
 	}
 
 
@@ -2380,7 +2465,24 @@ struct Scene::Impl
 		core::CancelledFn cancelled = core::NeverCancelled,
 		std::span<const mesh::ImportOptions> fileOptions = {}) // several files' each (see Model::Load of several)
 	{
-		auto bvh = mySettings.modelBvhs.load(std::memory_order_relaxed) ? ModelBvh::kBuild : ModelBvh::kNone;
+		// its structures the shaders' variant's being switched to, or in use (see Settings::hardwareRayQueries): which the
+		// install switches the shaders to, where they differ (see InstallModel). none without the BVHs: either variant's
+		std::optional<bool> hardware;
+		auto bvh = ModelBvh::kNone;
+		if (mySettings.modelBvhs.load(std::memory_order_relaxed))
+		{
+			hardware = InternalWantsHardwareRayQueries();
+			bvh = *hardware ? ModelBvh::kRayQueries : ModelBvh::kBuild;
+		}
+		{
+			std::scoped_lock lock(myLastModelLoadMutex);
+			myLastModelLoad = LastModelLoad{
+				.filePaths = filePaths,
+				.options = options,
+				.arrangement = arrangement,
+				.ground = ground,
+				.fileOptions = std::vector<mesh::ImportOptions>(fileOptions.begin(), fileOptions.end())};
+		}
 		auto model = (options.scene || options.variant) && filePaths.size() == 1
 						 ? Model::Load(filePaths.front(), progress, options, bvh, ground, cancelled)
 						 : Model::Load(
@@ -2525,13 +2627,21 @@ struct Scene::Impl
 			loaded.size(),
 			kModelTextureMaxCount);
 
-		// installed once the scene is (the import ran meanwhile: during a first launch's compile, see WaitUntilReady)
+		// installed once the scene is (the import ran meanwhile: during a first launch's compile, see WaitUntilReady), and
+		// with structures of the other variant once its shaders have compiled (InternalFollowRayQueries), which the
+		// install switches to; dropped if the settings chose the variant in use again meanwhile
 		if (!WaitUntilReady(cancelled))
 			return std::nullopt;
+		if (hardware && !WaitForRayQueries(*hardware, cancelled))
+		{
+			if (!cancelled() && !core::Application::Get()->IsExitRequested())
+				std::println("{}: not installed, loaded for the ray queries' other variant than is now chosen", filePath);
+			return std::nullopt;
+		}
 		rhi.drawCalls.enqueue(
-			[this, &rhi, model, textures = std::move(textures), filePaths, arrangement, pending = std::make_shared<PendingInstall>(myPendingInstallCount)](
+			[this, &rhi, model, textures = std::move(textures), filePaths, arrangement, hardware, pending = std::make_shared<PendingInstall>(myPendingInstallCount)](
 				QueueTimelineContextData& graphics) mutable
-			{ InstallModel(rhi, graphics, model, std::move(textures), std::move(filePaths), arrangement, std::move(pending)); });
+			{ InstallModel(rhi, graphics, model, std::move(textures), std::move(filePaths), arrangement, hardware, std::move(pending)); });
 		return filePath;
 	}
 
@@ -2972,7 +3082,12 @@ struct Scene::Impl
 			myDefaultMorphWeightsUuid = morphWeights->GetUuid();
 			timelineCallbacks.emplace_back(morphWeightTransfersDone.handle);
 
-			if (device.GetLimits().rayQuery)
+			// the shaders' variant, as the settings choose it (see InternalFollowRayQueries for a change), and the
+			// acceleration structures of nothing, bound where a model has none (made where the variant is the ray queries': on
+			// macOS, where the device's are enabled but not used by default, no Metal ray tracing is touched)
+			myHardwareRayQueries.store(
+				HardwareRayQueriesOf(mySettings.hardwareRayQueries.load(std::memory_order_relaxed), device.GetLimits().rayQuery), std::memory_order_relaxed);
+			if (myHardwareRayQueries.load(std::memory_order_relaxed))
 			{
 				myDefaultAccelerationStructures = std::make_unique<AccelerationStructures>(device, "Default", AccelerationStructures::Inputs{});
 				ENSURE(myDefaultAccelerationStructures->RecordBuild(cmd) == nullptr); // nothing static: no scratch
@@ -2994,6 +3109,7 @@ struct Scene::Impl
 
 		// the shaders compile in the background (see InternalStartShaderCompiles), and the rest is made from them once they
 		// have (InternalFinishInitialization, on the draw thread): the first frames draw the ui alone (see Record)
+		std::println("ray queries: {}", myHardwareRayQueries.load(std::memory_order_relaxed) ? "the hardware's" : "software (the shaders traverse gfx's BVHs)");
 		InternalStartShaderCompiles();
 	}
 
@@ -3015,13 +3131,13 @@ struct Scene::Impl
 	Impl& operator=(const Impl&) = delete;
 
 	// the layouts the scene compiles (see SceneShaderLayouts), for this device: with its ray queries where it has them
-	[[nodiscard]] static ShaderCompileSet ShaderCompiles(Device& device)
+	[[nodiscard]] static ShaderCompileSet ShaderCompiles(bool hardwareRayQueries)
 	{
 		auto& variables = core::Application::Get()->GetEnv().variables;
 		ShaderCompileSet compiles;
 		compiles.includePath = std::get<std::filesystem::path>(variables["ShaderPath"]);
 		compiles.intermediatePath = std::get<std::filesystem::path>(variables["UserProfilePath"]) / ".slang.intermediate";
-		auto layouts = SceneShaderLayouts(compiles.includePath, device.GetLimits().rayQuery, RayQueryWatchOn());
+		auto layouts = SceneShaderLayouts(compiles.includePath, hardwareRayQueries, RayQueryWatchOn());
 		ENSURE(layouts.size() == 4);
 		compiles.zPrepass = {.file = layouts[0].file, .config = layouts[0].config};
 		compiles.main = {.file = layouts[1].file, .config = layouts[1].config};
@@ -3037,7 +3153,7 @@ struct Scene::Impl
 	// the time taken against the last cold compile's (see ShaderProgress)
 	void InternalStartShaderCompiles()
 	{
-		myShaderCompiles = std::make_unique<ShaderCompileSet>(ShaderCompiles(myRHI.GetPrimaryDevice()));
+		myShaderCompiles = std::make_unique<ShaderCompileSet>(ShaderCompiles(myHardwareRayQueries.load(std::memory_order_relaxed)));
 		myShaderCompileStart = std::chrono::steady_clock::now();
 		myShaderCompileSeconds = kDefaultShaderCompileSeconds;
 		if (auto file = core::file::Map(myShaderCompiles->intermediatePath / kShaderCompileSecondsFile); file && file->size() == sizeof(float))
@@ -3089,6 +3205,7 @@ struct Scene::Impl
 				InternalWatchShaders();
 			else if (myShaderSource != nullptr)
 				InternalFollowShaders();
+			InternalFollowRayQueries();
 			return true;
 		}
 		if (!myShaderCompileFuture.IsReady())
@@ -3478,6 +3595,201 @@ struct Scene::Impl
 		myFollowedGeneration = reloaded->generation;
 	}
 
+	// the shaders' variant the settings choose (see Scene::Settings::hardwareRayQueries): the device's ray queries' where
+	// it has them and they are chosen. any thread
+	[[nodiscard]] bool InternalWantsHardwareRayQueries() const
+	{
+		return HardwareRayQueriesOf(
+			mySettings.hardwareRayQueries.load(std::memory_order_relaxed), myRHI.GetPrimaryDevice().GetLimits().rayQuery);
+	}
+
+	// the layouts whose resources the variant changes: those of shaders.slang, which declares the ray queries' bindings
+	// (bindings.slang) where it traces with them (the flare's and the environment's are the same in both)
+	static constexpr std::array kRayQueryLayouts{std::pair{"VertexZPrepass", &ShaderCompileSet::zPrepass}, std::pair{"Main", &ShaderCompileSet::main}};
+
+	// a change of the shaders' variant (see Scene::Settings::hardwareRayQueries), between frames (in Prepare): its layouts
+	// compiled on the executor; then, with no model installed or one without structures, switched to at once
+	// (InternalApplyRayQuerySwitch); else the model is loaded again with the variant's structures (Scene::TakeModelReload:
+	// the client starts the load), and its install switches them, so that no frame draws the one with the other's. a
+	// change back while the layouts compile drops them (but not once a load waits to install with them). a layout that
+	// doesn't compile leaves the variant as it was, the setting with it
+	void InternalFollowRayQueries()
+	{
+		// the installs kept while their switch was busy, tried again (see BindAfterRayQuerySwitch: kept again if it still is)
+		if (!myDeferredBinds.empty())
+		{
+			auto deferred = std::exchange(myDeferredBinds, {});
+			auto graphics = myRHI.GetPrimaryDevice().GetQueue(kQueueTypeGraphics).Write();
+			for (auto& [hardware, name, bind] : deferred)
+				BindAfterRayQuerySwitch(*graphics, hardware, std::move(name), std::move(bind));
+			return;
+		}
+		bool wanted = InternalWantsHardwareRayQueries();
+		bool current = myHardwareRayQueries.load(std::memory_order_relaxed);
+		if (!myRayQuerySwitch)
+		{
+			if (wanted == current)
+				return;
+			auto& sw = *(myRayQuerySwitch = std::make_unique<RayQuerySwitch>());
+			sw.hardware = wanted;
+			sw.compiles = std::make_unique<ShaderCompileSet>(ShaderCompiles(wanted));
+			sw.waitsForModel = myModel && myModel->HasBvh();
+			mySwitchingRayQueries.store(true, std::memory_order_relaxed);
+			if (sw.waitsForModel)
+				myModelReloadWanted.store(true, std::memory_order_release);
+			std::println(
+				"ray queries: compiling the shaders for {}{}", wanted ? "the device's ray queries" : "the BVHs",
+				sw.waitsForModel ? ", and loading the model again with their structures" : "");
+			std::fflush(stdout);
+			auto task = core::CreateTask(
+				[&sw]
+				{
+					ZoneScopedN("Scene::RayQuerySwitch");
+					const auto& compiles = *sw.compiles;
+					ShaderLoader loader({std::filesystem::path(compiles.includePath)}, std::filesystem::path(compiles.intermediatePath));
+					for (auto [name, compile] : kRayQueryLayouts)
+						sw.layouts.emplace_back(name, loader.TryLoad((compiles.*compile).file, (compiles.*compile).config));
+				});
+			sw.future = std::move(task.future);
+			core::Application::Get()->GetExecutor().Submit(std::span(&task.handle, 1));
+			return;
+		}
+		auto& sw = *myRayQuerySwitch;
+		if (!sw.future.IsReady())
+			return;
+		if (sw.hardware != wanted)
+		{
+			if (myPendingInstallCount.load(std::memory_order_acquire) != 0)
+				return; // (a load may be about to install with them)
+			std::println("ray queries: the switch to {} dropped, chosen back", sw.hardware ? "the device's ray queries" : "the BVHs");
+			myRayQuerySwitchCompiled.store(-1, std::memory_order_release);
+			myRayQuerySwitch.reset();
+			mySwitchingRayQueries.store(wanted != current, std::memory_order_relaxed);
+			return;
+		}
+		if (myRayQuerySwitchCompiled.load(std::memory_order_relaxed) < 0)
+		{
+			std::string failures;
+			for (const auto& [name, shaderSet] : sw.layouts)
+				if (!shaderSet)
+					failures += std::format("{}{}:\n{}", failures.empty() ? "" : "\n", name, shaderSet.error());
+			if (!failures.empty())
+			{
+				std::println(stderr, "ray queries: the shaders for {} didn't compile, kept as they were:\n{}", sw.hardware ? "the device's ray queries" : "the BVHs", failures);
+				mySettings.hardwareRayQueries.store(current ? 1 : 0, std::memory_order_relaxed);
+				myRayQuerySwitch.reset();
+				myModelReloadWanted.store(false, std::memory_order_relaxed);
+				mySwitchingRayQueries.store(false, std::memory_order_relaxed);
+				return;
+			}
+			myRayQuerySwitchCompiled.store(sw.hardware ? 1 : 0, std::memory_order_release);
+		}
+		// (a model with structures switches them as its reload installs)
+		if (sw.waitsForModel && myModel && myModel->HasBvh())
+			return;
+		auto graphics = myRHI.GetPrimaryDevice().GetQueue(kQueueTypeGraphics).Write();
+		(void)InternalApplyRayQuerySwitch(*graphics);
+	}
+
+	// waits (from a load) until the shaders may be of the variant whose structures a model was loaded with: the variant in
+	// use, or a switch to it compiled (whose install switches them, see InstallModel). false where the settings chose the
+	// other meanwhile (the load is then dropped), or the load was cancelled. it runs the executor's other tasks meanwhile,
+	// as WaitUntilReady does
+	[[nodiscard]] bool WaitForRayQueries(bool hardware, core::CancelledFn cancelled) const
+	{
+		constexpr auto kPollInterval = std::chrono::milliseconds(10);
+		auto& executor = core::Application::Get()->GetExecutor();
+		while (myHardwareRayQueries.load(std::memory_order_relaxed) != hardware)
+		{
+			if (InternalWantsHardwareRayQueries() != hardware || core::Application::Get()->IsExitRequested() || cancelled())
+				return false;
+			if (myRayQuerySwitchCompiled.load(std::memory_order_acquire) == (hardware ? 1 : 0))
+				return true;
+			if (!executor.JoinOne())
+				core::SleepUntil(std::chrono::steady_clock::now() + kPollInterval);
+		}
+		return true;
+	}
+
+	// a compiled switch of the shaders' variant applied (draw thread, graphics the queue's context, held): the layouts
+	// whose resources it changes made again from its sets (Pipeline::ReplaceLayout, which carries what was bound into
+	// them), the gpu idle, the ray queries' structures of nothing made and bound where it is theirs, and the compute
+	// pipelines asked for again. busy while pipelines are being made, nothing changed (again next frame: waiting here, the
+	// draw thread stopped for KosmicKrisp's cold ray query kernels, a minute, and the crash watch reported a hang); none
+	// where no switch is compiled (it was dropped)
+	enum class RayQuerySwitchResult : uint8_t
+	{
+		kApplied,
+		kBusy,
+		kNone,
+	};
+	[[nodiscard]] RayQuerySwitchResult InternalApplyRayQuerySwitch(QueueTimelineContextData& graphics)
+	{
+		if (!myRayQuerySwitch || myRayQuerySwitchCompiled.load(std::memory_order_acquire) != (myRayQuerySwitch->hardware ? 1 : 0))
+			return RayQuerySwitchResult::kNone;
+		auto& sw = *myRayQuerySwitch;
+		auto& device = myRHI.GetPrimaryDevice();
+		auto& pipeline = myPipeline;
+		if (std::ranges::any_of(myPipelineFutures, [](const auto& future) { return !future.IsReady(); }))
+			return RayQuerySwitchResult::kBusy;
+		myPipelineFutures.clear();
+		for (auto& [queue, submits] : graphics.queues)
+			queue.WaitIdle();
+		for (const auto& [name, shaderSet] : sw.layouts)
+		{
+			if (!pipeline.ReplaceLayout(name, *shaderSet))
+			{
+				// (only the first can find a pipeline being made, before anything changed: it destroys them all, and the
+				// draw thread, here, asks for none)
+				ENSURE(name == sw.layouts.front().first);
+				return RayQuerySwitchResult::kBusy;
+			}
+			myShaderLayoutResources[name] = ShaderLoader::SerializedResources(*shaderSet);
+		}
+		bool hardware = sw.hardware;
+		myShaderCompiles = std::move(sw.compiles);
+		myRayQuerySwitch.reset();
+		myRayQuerySwitchCompiled.store(-1, std::memory_order_release);
+		myHardwareRayQueries.store(hardware, std::memory_order_release);
+		if (hardware)
+		{
+			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+			if (!myDefaultAccelerationStructures)
+			{
+				myDefaultAccelerationStructures = std::make_unique<AccelerationStructures>(device, "Default", AccelerationStructures::Inputs{});
+				RecordOnGraphics(graphics, [this](CommandBufferHandle cmd) { ENSURE(myDefaultAccelerationStructures->RecordBuild(cmd) == nullptr); });
+			}
+			// (the installed model's, where it has them, its install binds next: see InstallModel)
+			BindAccelerationStructures(*myDefaultAccelerationStructures);
+			if (RayQueryWatchOn() && !myRayQueryWatch)
+				myRayQueryWatch = std::make_unique<RayQueryWatch>(device);
+			if (myRayQueryWatch)
+			{
+				pipeline.SetDescriptorData("gRayQueryWatch", BufferBinding{.buffer = myRayQueryWatch->GetBuffer(), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+				pipeline.SetDescriptorData(
+					"gRayQueryReplay", BufferBinding{.buffer = myRayQueryWatch->GetReplayBuffer(), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+			}
+		}
+		InternalRequestPipelines();
+		mySwitchingRayQueries.store(false, std::memory_order_relaxed);
+		std::println("ray queries: the shaders switched to {}", hardware ? "the device's ray queries" : "the BVHs");
+		std::fflush(stdout);
+		return RayQuerySwitchResult::kApplied;
+	}
+
+	// the installed model loaded again as it was last loaded, for the variant switched to (see Scene::LoadModelAgain)
+	std::optional<std::string> LoadModelAgain(std::atomic_uint8_t& progress, core::CancelledFn cancelled)
+	{
+		std::optional<LastModelLoad> last;
+		{
+			std::scoped_lock lock(myLastModelLoadMutex);
+			last = myLastModelLoad;
+		}
+		if (!last)
+			return std::nullopt;
+		return LoadAndInstallModels(myRHI, last->filePaths, progress, last->options, last->arrangement, last->ground, cancelled, last->fileOptions);
+	}
+
 	// how far the compiles are, 0 to 1 (see Scene::GetShaderProgress): the entry points of the layouts done, or the time
 	// taken against how long the last cold compile took, whichever is further (slang says nothing of a compile's progress,
 	// and the main layout is most of it); kShaderProgressCap until it is done
@@ -3649,7 +3961,7 @@ struct Scene::Impl
 			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 		if (myDefaultAccelerationStructures)
 			BindAccelerationStructures(*myDefaultAccelerationStructures);
-		if (device.GetLimits().rayQuery && RayQueryWatchOn())
+		if (myHardwareRayQueries.load(std::memory_order_relaxed) && RayQueryWatchOn())
 		{
 			myRayQueryWatch = std::make_unique<RayQueryWatch>(device);
 			pipeline.SetDescriptorData(
@@ -3788,7 +4100,7 @@ struct Scene::Impl
 			// the moving BVH only where rays trace it: the indirect lighting's, the traced shadows', the emitters', the traced
 			// reflections' and refractions', or the caustics' photons' (through the device's ray queries, whose structures hold
 			// the glass that moves too, or the BVHs: see BvhTraceInstances)
-			bool rayQueries = myRHI.GetPrimaryDevice().GetLimits().rayQuery;
+			bool rayQueries = myHardwareRayQueries.load(std::memory_order_relaxed);
 			myMovingPlaced =
 				(mySettings.indirectLighting.load(std::memory_order_relaxed) && mySettings.traceTriangles.load(std::memory_order_relaxed)) ||
 				(mySettings.shadows.load(std::memory_order_relaxed) && mySettings.tracedShadows.load(std::memory_order_relaxed)) ||
@@ -3908,12 +4220,12 @@ struct Scene::Impl
 				.tracedShadows = mySettings.tracedShadows.load(std::memory_order_relaxed),
 				.tracedShadowsEverywhere = mySettings.tracedShadowsEverywhere.load(std::memory_order_relaxed),
 				.tracedReflections = mySettings.tracedReflections.load(std::memory_order_relaxed),
-				.tracedRefractions = RayTracedOn(mySettings.tracedRefractions.load(std::memory_order_relaxed), myRHI.GetPrimaryDevice().GetLimits().rayQuery),
-				.reflectionStride = ReflectionStrideOf(mySettings.reflectionStride.load(std::memory_order_relaxed), myRHI.GetPrimaryDevice().GetLimits().rayQuery),
-				.fragmentReflections = RayTracedOn(mySettings.fragmentReflections.load(std::memory_order_relaxed), myRHI.GetPrimaryDevice().GetLimits().rayQuery),
-				.glassSurfaceCount = GlassSurfaceCountOf(mySettings.glassSurfaceCount.load(std::memory_order_relaxed), myRHI.GetPrimaryDevice().GetLimits().rayQuery),
+				.tracedRefractions = RayTracedOn(mySettings.tracedRefractions.load(std::memory_order_relaxed), myHardwareRayQueries.load(std::memory_order_relaxed)),
+				.reflectionStride = ReflectionStrideOf(mySettings.reflectionStride.load(std::memory_order_relaxed), myHardwareRayQueries.load(std::memory_order_relaxed)),
+				.fragmentReflections = RayTracedOn(mySettings.fragmentReflections.load(std::memory_order_relaxed), myHardwareRayQueries.load(std::memory_order_relaxed)),
+				.glassSurfaceCount = GlassSurfaceCountOf(mySettings.glassSurfaceCount.load(std::memory_order_relaxed), myHardwareRayQueries.load(std::memory_order_relaxed)),
 				.solidTransmission = mySettings.solidTransmission.load(std::memory_order_relaxed),
-				.caustics = RayTracedOn(mySettings.caustics.load(std::memory_order_relaxed), myRHI.GetPrimaryDevice().GetLimits().rayQuery),
+				.caustics = RayTracedOn(mySettings.caustics.load(std::memory_order_relaxed), myHardwareRayQueries.load(std::memory_order_relaxed)),
 				.exposure = exposures[0],
 				.emissiveLights = mySettings.emissiveLights.load(std::memory_order_relaxed),
 				.aerialPerspective = mySettings.aerialPerspective.load(std::memory_order_relaxed) && mySkyInstalled.load(std::memory_order_relaxed) && !SkyReplaced(),
@@ -4091,7 +4403,14 @@ Scene::Settings& Scene::GetSettings() noexcept { return myImpl->mySettings; }
 core::ConcurrentAccess<Scene::AnimationState>& Scene::GetAnimation() noexcept { return myImpl->myAnimation; }
 core::ConcurrentAccess<Scene::SceneState>& Scene::GetScenes() noexcept { return myImpl->myScenes; }
 bool Scene::IsSkyInstalled() const noexcept { return myImpl->mySkyInstalled.load(std::memory_order_relaxed); }
-bool Scene::HasRayQueries() const noexcept { return myImpl->myRHI.GetPrimaryDevice().GetLimits().rayQuery; }
+bool Scene::HasRayQueries() const noexcept { return myImpl->myHardwareRayQueries.load(std::memory_order_relaxed); }
+bool Scene::SupportsHardwareRayQueries() const noexcept { return myImpl->myRHI.GetPrimaryDevice().GetLimits().rayQuery; }
+bool Scene::IsSwitchingRayQueries() const noexcept { return myImpl->mySwitchingRayQueries.load(std::memory_order_relaxed); }
+bool Scene::TakeModelReload() noexcept { return myImpl->myModelReloadWanted.exchange(false, std::memory_order_acq_rel); }
+std::optional<std::string> Scene::LoadModelAgain(std::atomic_uint8_t& progress, core::CancelledFn cancelled)
+{
+	return myImpl->LoadModelAgain(progress, cancelled);
+}
 uint32_t Scene::GetReflectionStride() const noexcept
 {
 	return ReflectionStrideOf(myImpl->mySettings.reflectionStride.load(std::memory_order_relaxed), HasRayQueries());

@@ -504,7 +504,7 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 
 #if defined(__APPLE__)
 	// KosmicKrisp has ray queries behind its experimental flags (MESA_KK_EXPERIMENTAL=ray_query), which it reads once, as
-	// its instance is created: asked for where ray queries are wanted (SPEEDO_RAY_QUERY=1 on macOS, see
+	// its instance is created: asked for where ray queries are wanted (unless SPEEDO_RAY_QUERY=0, see
 	// RayQueriesEnabled) and the flags aren't set (an empty value: none). no other driver reads them
 	if (RayQueriesEnabled())
 		setenv("MESA_KK_EXPERIMENTAL", "ray_query", 0);

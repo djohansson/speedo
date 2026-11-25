@@ -778,7 +778,7 @@ struct BvhCacheHeader
 		.vertexStaging = std::move(vertexStaging),
 		.skinStaging = std::move(skinStaging),
 		.morphStaging = std::move(morphStaging),
-		.bvh = bvh == ModelBvh::kBuild ? std::move(bvhData) : bvh::Data{}};
+		.bvh = bvh != ModelBvh::kNone ? std::move(bvhData) : bvh::Data{}};
 }
 
 // what offsets a model's indices by in a set (see MergeAnimation): what the set held before it
@@ -1251,7 +1251,7 @@ static void MergeAnimation(
 	desc.bounds.Merge(patch);
 	desc.indexCount += indexCount;
 	desc.vertexCount += vertexCount;
-	if (bvh == ModelBvh::kBuild)
+	if (bvh != ModelBvh::kNone)
 		staged.bvh.reset();
 
 	return FitsDevice(device, desc, desc.name);
@@ -1284,7 +1284,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 	std::string filePath = desc.name; // for the buffers' names: desc is moved into the model
 	bool moves = !desc.animation.Empty();
 	// the device's ray queries trace the triangles themselves where it has them (see AccelerationStructures), else gfx's BVHs
-	bool rayQueries = bvh == ModelBvh::kBuild && device.GetLimits().rayQuery;
+	bool rayQueries = bvh == ModelBvh::kRayQueries && device.GetLimits().rayQuery;
 	std::optional<ModelRayQueries> rayQueryGeometries;
 	std::vector<bvh::RayQueryGeometry> movingRayQueryGeometries; // their entries in the shaders' table, after what doesn't move's
 	std::vector<bvh::RayQueryGeometry> movingGlassRayQueryGeometries; // and the glass that moves', after the glass's
@@ -1329,7 +1329,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 		// until Animate places it, start there; and for the device's ray queries' paths through the glass, the transmissive
 		// surfaces that move, their corners after what moves' in the same buffers
 		// (none without the BVHs, see ModelBvh: what moves would then be traced alone)
-		if (bvh == ModelBvh::kBuild)
+		if (bvh != ModelBvh::kNone)
 		{
 			std::vector<ModelInstance> restInstances(desc.instances.size());
 			WriteRestInstances(desc, std::as_writable_bytes(std::span(restInstances)));

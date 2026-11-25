@@ -2169,6 +2169,26 @@ void WindowedApplication::PrepareDraw()
 		const char* show = std::getenv("SPEEDO_SHOW_RAY_TRACING");
 		return show != nullptr && std::string_view(show) == "1";
 	}();
+	// a switch of the ray queries' variant with a model installed (see gfx::Scene::Settings::hardwareRayQueries): the model
+	// loaded again with the variant's structures, whose install switches the shaders with it
+	if (App().GetScene().TakeModelReload())
+		(void)gLoads.Enqueue("Ray queries", [](std::atomic_uint8_t& progress) { (void)App().GetScene().LoadModelAgain(progress); });
+	// diagnostic: the variant switched once, the n-th frame after the scene is ready with nothing loading
+	// (SPEEDO_RAY_QUERY_SWITCH_FRAME=<n>), to test the switch without the ui
+	{
+		static const int64_t kSwitchFrame = []
+		{
+			const char* frame = std::getenv("SPEEDO_RAY_QUERY_SWITCH_FRAME");
+			return frame != nullptr ? std::strtoll(frame, nullptr, 10) : int64_t{-1};
+		}();
+		static int64_t gSwitchFrames = 0;
+		if (kSwitchFrame >= 0 && App().GetScene().IsReady() && gLoads.Empty() && !App().GetScene().HasPendingInstalls() && gSwitchFrames++ == kSwitchFrame)
+		{
+			bool hardware = !App().GetScene().HasRayQueries() && App().GetScene().SupportsHardwareRayQueries();
+			std::println("ray queries: switching to {} (SPEEDO_RAY_QUERY_SWITCH_FRAME)", hardware ? "hardware" : "software");
+			App().GetScene().GetSettings().hardwareRayQueries.store(hardware ? 1 : 0, std::memory_order_relaxed);
+		}
+	}
 	if (gShowRayTracing)
 	{
 		{
@@ -2182,8 +2202,28 @@ void WindowedApplication::PrepareDraw()
 			auto& settings = App().GetScene().GetSettings();
 			bool rayQueries = App().GetScene().HasRayQueries();
 			constexpr const char* kBvhGlass = "Off by default through the BVHs, for its cost there: a glass of water with the refractions and the caustics on took 240 ms a frame at 720p (M4 Pro).";
-			TextDisabled("%s", rayQueries ? "Rays: the device's ray queries." : "Rays: through the BVHs (this device has no ray queries), on smaller budgets.");
 
+			{
+				// how the rays are traced: the device's ray tracing hardware (its ray queries, where it has them) or gfx's
+				// BVHs (see gfx::Scene::Settings::hardwareRayQueries). a change compiles the shaders' other variant and loads
+				// the model again with its structures
+				bool supported = App().GetScene().SupportsHardwareRayQueries();
+				bool switching = App().GetScene().IsSwitchingRayQueries();
+				BeginDisabled(switching);
+				if (BeginCombo("Ray Queries", switching ? "Switching..." : (rayQueries ? "Hardware" : "Software")))
+				{
+					BeginDisabled(!supported);
+					if (Selectable("Hardware", rayQueries))
+						settings.hardwareRayQueries.store(1, std::memory_order_relaxed);
+					EndDisabled();
+					SetItemTooltip("%s", supported ? "The device's ray tracing hardware." : "This device has no ray tracing hardware.");
+					if (Selectable("Software", !rayQueries))
+						settings.hardwareRayQueries.store(0, std::memory_order_relaxed);
+					SetItemTooltip("The BVHs, traversed in the shaders.");
+					EndCombo();
+				}
+				EndDisabled();
+			}
 			SeparatorText("Reflections");
 			bool reflections = settings.tracedReflections.load(std::memory_order_relaxed);
 			if (SmallCheckbox("Ray Traced Reflections", &reflections))
@@ -3889,37 +3929,9 @@ void WindowedApplication::PrepareDraw()
 					if (SmallCheckbox("Shadows", &shadows))
 						App().GetScene().GetSettings().shadows.store(shadows, std::memory_order_relaxed);
 					SetItemTooltip("The lights' shadows: cascades for directional lights, cubes for point lights, a view per spot light.");
-					bool tracedShadows = App().GetScene().GetSettings().tracedShadows.load(std::memory_order_relaxed);
-					if (SmallCheckbox("Ray Traced Shadows", &tracedShadows, shadows))
-						App().GetScene().GetSettings().tracedShadows.store(tracedShadows, std::memory_order_relaxed);
-					SetItemTooltip(
-						"The brightest lights' shadows (the directional ones, then up to 4 in all) traced through the model's BVH, soft by each light's size (View > Lights), rather than looked up in the shadow atlas.");
-					// the traced features: through the device's ray queries, or gfx's BVHs where it has none (their budgets and
-					// what is on by default then: View > Rendering Features > Ray Tracing...)
-					SeparatorText("Ray Traced");
-					bool tracedReflections = App().GetScene().GetSettings().tracedReflections.load(std::memory_order_relaxed);
-					if (SmallCheckbox("Ray Traced Reflections", &tracedReflections))
-						App().GetScene().GetSettings().tracedReflections.store(tracedReflections, std::memory_order_relaxed);
-					SetItemTooltip(
-						"What smooth and glossy surfaces reflect, traced and shaded where the rays meet something, fading into the indirect lighting's glossy reflection by a roughness of 0.6. Off, the indirect lighting's and the environment's alone.");
-					bool tracedRefractions = App().GetScene().GetTracedRefractions();
-					if (SmallCheckbox("Ray Traced Refractions", &tracedRefractions))
-						App().GetScene().GetSettings().tracedRefractions.store(tracedRefractions ? 1 : 0, std::memory_order_relaxed);
-					SetItemTooltip(
-						"What transmissive surfaces show behind them, traced along the refracted ray (behind them or out of the view alike), rather than looked up in the frame drawn so far. On by default with ray queries.");
-					bool solidTransmission = App().GetScene().GetSettings().solidTransmission.load(std::memory_order_relaxed);
-					if (SmallCheckbox("Solid Transmission", &solidTransmission))
-						App().GetScene().GetSettings().solidTransmission.store(solidTransmission, std::memory_order_relaxed);
-					SetItemTooltip(
-						"Transmissive materials without a volume (KHR_materials_volume) refract as solids, into them and out of them, "
-						"rather than as glTF's infinitely thin walls, which bend nothing. On for the glTF research scenes, whose glass "
-						"and water are solids.");
-					bool caustics = App().GetScene().GetCaustics();
-					// (traced from the lights' shadow views: none without the shadows)
-					if (SmallCheckbox("Caustics", &caustics, shadows))
-						App().GetScene().GetSettings().caustics.store(caustics ? 1 : 0, std::memory_order_relaxed);
-					SetItemTooltip(
-						"The lights' light refracted through transmissive surfaces that don't move, traced as photons from the lights' shadow views (with the shadows). Off, it goes straight through them, tinted. On by default with ray queries.");
+					// the traced features' options, each one's (the shadows', reflections', refractions' and caustics') and how the
+					// rays are traced: View > Rendering Features > Ray Tracing...
+					SeparatorText("Ray Tracing");
 					if (MenuItem("Ray Tracing...", nullptr, gShowRayTracing))
 						gShowRayTracing = !gShowRayTracing;
 					SetItemTooltip("The ray traced features' options: each one's ray budget, and what is traced.");

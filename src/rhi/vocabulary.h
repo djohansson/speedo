@@ -496,7 +496,7 @@ struct DeviceLimits
 	// shader compiler names the values per entry point
 	bool specializationConstants = false;
 	// ray queries against acceleration structures (VK_KHR_ray_query, see AccelerationStructure), where the device has them
-	// and SPEEDO_RAY_QUERY isn't 0 (on macOS, where it is 1: opt in, see rhi::vk RayQueriesEnabled)
+	// and SPEEDO_RAY_QUERY isn't 0 (see rhi::vk RayQueriesEnabled): whether the shaders use them is the scene's choice
 	bool rayQuery = false;
 	uint32_t accelerationStructureScratchAlignment = 0; // of a build's scratch address, in bytes
 };

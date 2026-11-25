@@ -104,6 +104,12 @@ public:
 		// View > Ray Tracing..., SPEEDO_REFLECTION_STRIDE), or 0 for the device's: every pixel with ray queries, every 4th
 		// through the BVHs (Scene::GetReflectionStride)
 		std::atomic<uint32_t> reflectionStride = 0;
+		// how the rays are traced: the device's ray queries (1, where it has them: Scene::SupportsHardwareRayQueries), gfx's
+		// BVHs (0), or -1 the default: the ray queries where the device has them, but on macOS, where they are opt in
+		// (SPEEDO_RAY_QUERY=1: Metal's ray tracing restarts the gpu now and then). View > Rendering Features > Ray
+		// Tracing..., Ray Queries. a change compiles the shaders' other variant and loads the model again with its
+		// structures (Scene::TakeModelReload), then switches both at once (see Scene::IsSwitchingRayQueries)
+		std::atomic<int32_t> hardwareRayQueries = -1;
 		// whether the fragments' sharp reflections are traced too, a ray every pixel of the blended and transmissive
 		// surfaces (FrameInputs::fragmentReflections; View > Ray Tracing..., SPEEDO_FRAGMENT_REFLECTIONS=0 or 1): 1, 0, or
 		// -1 for the device's: on with ray queries, off through the BVHs (Bistro's windows at night: 19 ms a frame there)
@@ -465,9 +471,21 @@ public:
 	[[nodiscard]] core::ConcurrentAccess<SceneState>& GetScenes() noexcept;
 	// whether the installed environment is the sky (which the time of day moves the sun of, see Settings::timeOfDay)
 	[[nodiscard]] bool IsSkyInstalled() const noexcept;
-	// whether the shaders trace through the device's ray queries (DeviceLimits::rayQuery) rather than gfx's BVHs: what the
-	// ray budgets' and the traced features' defaults go by
+	// whether the shaders trace through the device's ray queries rather than gfx's BVHs (the variant in use, see
+	// Settings::hardwareRayQueries): what the ray budgets' and the traced features' defaults go by
 	[[nodiscard]] bool HasRayQueries() const noexcept;
+	// whether the device has ray queries to trace with (DeviceLimits::rayQuery): what Settings::hardwareRayQueries may choose
+	[[nodiscard]] bool SupportsHardwareRayQueries() const noexcept;
+	// whether a change of Settings::hardwareRayQueries is being carried out (the other variant compiling, the model loading
+	// again with its structures)
+	[[nodiscard]] bool IsSwitchingRayQueries() const noexcept;
+	// whether the installed model should be loaded again (LoadModelAgain), for the ray queries' variant being switched to:
+	// true once a switch has started with a model that has structures to trace, then false until the next. any thread
+	[[nodiscard]] bool TakeModelReload() noexcept;
+	// loads the installed model again as it was last loaded (its files, scene, variants, arrangement and ground), with the
+	// structures of the ray queries' variant switched to, and installs it, switching the shaders with it. call from a load
+	// (see LoadModels). its path, or none where nothing was loaded or it was cancelled
+	std::optional<std::string> LoadModelAgain(std::atomic_uint8_t& progress, core::CancelledFn cancelled = core::NeverCancelled);
 	// the glossy reflections' stride in effect (Settings::reflectionStride, or the device's where that is 0: 1 with ray
 	// queries, 4 through the BVHs)
 	[[nodiscard]] uint32_t GetReflectionStride() const noexcept;

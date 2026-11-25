@@ -82,8 +82,8 @@ void InitDeviceExtensions(VkDevice device);
 
 [[nodiscard]] bool SupportsExtension(const char* extensionName, VkInstance device);
 [[nodiscard]] bool SupportsExtension(const char* extensionName, VkPhysicalDevice device);
-// whether the application asks for ray queries: unless SPEEDO_RAY_QUERY=0; on macOS only with SPEEDO_RAY_QUERY=1 (Metal's
-// ray tracing restarts the gpu now and then, see utils.cpp)
+// whether the application asks for ray queries: unless SPEEDO_RAY_QUERY=0 (whether the shaders use them is the scene's
+// choice: the BVHs by default on macOS, where Metal's ray tracing restarts the gpu now and then, see utils.cpp)
 [[nodiscard]] bool RayQueriesEnabled();
 // whether a device is made with ray queries (VK_KHR_ray_query, its acceleration structures and their deferred host
 // operations, see DeviceLimits::rayQuery): where it has the extensions and they are asked for (RayQueriesEnabled)

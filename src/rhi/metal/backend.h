@@ -265,8 +265,8 @@ void UseBottomLevels(MTL::ComputeCommandEncoder* encoder);
 void UseBottomLevels(MTL::RenderCommandEncoder* encoder);
 void UseBottomLevels(MTL::AccelerationStructureCommandEncoder* encoder);
 
-// whether the application asks for ray queries: opt in (SPEEDO_RAY_QUERY=1), as Vulkan's backend's on macOS
-// (rhi::vk::RayQueriesEnabled: Apple's gpu restarts with ray tracing beside other gpu work)
+// whether the application asks for ray queries: unless SPEEDO_RAY_QUERY=0, as Vulkan's backend's (rhi::vk::RayQueriesEnabled;
+// whether the shaders use them is the scene's choice, the BVHs by default on macOS: Apple's gpu restarts with ray tracing)
 [[nodiscard]] bool RayQueriesEnabled();
 
 // a memory block's allocation: a placement heap, resources placed at offsets in it (see MemoryBlock)

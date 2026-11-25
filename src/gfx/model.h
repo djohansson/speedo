@@ -214,10 +214,13 @@ constexpr float kGroundChecker = 1.0F / 9.0F;
 // and the indirect lighting's (the renderer leaves out what needs them where a model has none). none for a scene that
 // traces no rays (the file browser's preview): a file's isn't read from its cache, nor a set's built (seconds for San
 // Miguel's archive, which a preview given up kept building)
+// kRayQueries: for the device's ray queries, which then trace its triangles in place of the BVHs (see
+// AccelerationStructures), where it has them: the scene's choice (Scene::Settings::hardwareRayQueries)
 enum class ModelBvh : uint8_t
 {
 	kBuild,
 	kNone,
+	kRayQueries,
 };
 
 // a mesh on the gpu: its index, vertex and instance buffers, drawn a submesh (material, topology and instances) at a time

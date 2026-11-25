@@ -378,7 +378,7 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 	VK_CHECK(vkCreateDevice(GetDesc().physicalDevice, &deviceCreateInfo, &instance.GetHostAllocationCallbacks(), &myDevice));
 
 	InitDeviceExtensions(myDevice);
-	std::println("ray queries: {}", GetLimits().rayQuery ? "yes" : "no (the shaders traverse gfx's BVHs)");
+	std::println("ray tracing hardware: {}", GetLimits().rayQuery ? "yes" : "no");
 
 	Track(myDevice, VK_OBJECT_TYPE_DEVICE, myDevice, GetName());
 	NameInstanceObjects<kVk>(myDevice, GetDesc().physicalDevice); // the instance, our physical device and surface, tracked before there was a device

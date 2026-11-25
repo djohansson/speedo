@@ -60,7 +60,7 @@ Device<kMetal>::Device(CreateDescType&& desc, const Instance<kMetal>& /*instance
 		});
 	std::println("\"{}\" is selected as primary graphics device (Metal)", myDevice->name()->utf8String());
 	SetCrashReportDevice(std::format("{} (Metal)", myDevice->name()->utf8String()));
-	std::println("ray queries: {}", device::RayQueries(myDevice) ? "yes" : "no (the shaders traverse gfx's BVHs)");
+	std::println("ray tracing hardware: {}", device::RayQueries(myDevice) ? "yes" : "no");
 }
 
 template <>

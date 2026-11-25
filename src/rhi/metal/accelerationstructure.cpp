@@ -67,8 +67,10 @@ bool RayQueriesEnabled()
 {
 	static const bool kEnabled = []
 	{
+		// (as Vulkan's backend's, rhi::vk::RayQueriesEnabled: enabled unless SPEEDO_RAY_QUERY=0; the scene's choice whether
+		// the shaders use them, starting with the BVHs on macOS)
 		const char* rayQuery = std::getenv("SPEEDO_RAY_QUERY");
-		return rayQuery != nullptr && std::string_view(rayQuery) == "1";
+		return rayQuery == nullptr || std::string_view(rayQuery) != "0";
 	}();
 	return kEnabled;
 }
