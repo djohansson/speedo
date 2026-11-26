@@ -5580,6 +5580,17 @@ static const uint kGiSidesStepShift = 11u;
 // a mask that leaves nothing out (GiSidesPlain): the clip is one of the two the pass looked at, which GiSampleAt keeps
 // to where it has any
 static const uint kGiSidesNothing = 1u << 14;
+// and in the six bits from here, the first of the 8 voxels modulo 4 along each axis: with the level, which voxels a
+// mask is about (GiSidesKey), by which a pixel finds its point's masks of the last frame (ComputeGiSides). the lookups
+// don't read them. a clip scrolls by whole probe cells of 8 voxels, which leaves them as they were
+static const uint kGiSidesKeyShift = 15u;
+static const uint kGiSidesKeyMask = (1u << 29) | (3u << 27u) | (0x3Fu << 15u);
+
+uint GiSidesKey(GiClipView clip, int3 base)
+{
+	uint3 low = uint3(base) & 3u;
+	return (1u << 29) | ((clip.level & 3u) << 27u) | ((low.x | (low.y << 2u) | (low.z << 4u)) << kGiSidesKeyShift);
+}
 // the least share of a lookup a voxel its mask says nothing about is to have, to be read (see GiSidesHidden)
 static const float kGiSidesStrayShare = 1.0 / 32.0;
 // how far off the surface, in voxels, the point whose voxel's 27 are looked through for marks is: as far as the point

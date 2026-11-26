@@ -280,6 +280,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
 		myGiNearHistory[historyIt] = myGraph.ImportImage(std::format("GI Near History {}", historyIt));
+		myGiSidesHistory[historyIt] = myGraph.ImportImage(std::format("GI Sides History {}", historyIt));
 		myGiNearHistoryDistance[historyIt] = myGraph.ImportImage(std::format("GI Near History Distance {}", historyIt));
 	}
 	// the traced glossy reflections (see SHADER_TYPES_REFLECTION_RAW_TEXTURE): the visibility buffer's shading's
@@ -1734,6 +1735,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			for (auto volume : myGiVolumes)
 				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiSides, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			for (auto image : myGiSidesHistory)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{
@@ -2846,6 +2849,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myGiAdapt = adapt != nullptr && std::string_view(adapt) == "1";
 	if (const char* freeze = std::getenv("SPEEDO_GI_PROBE_FREEZE"); freeze != nullptr)
 		myGiProbeFreeze = std::string_view(freeze) != "0";
+	if (const char* keep = std::getenv("SPEEDO_GI_SIDES_KEEP_FRAME_COUNT"); keep != nullptr && *keep != '\0')
+		myGiSidesKeepFrameCount = static_cast<uint32_t>(std::clamp(std::atoi(keep), 0, 1024));
 	if (const char* stagger = std::getenv("SPEEDO_GI_STAGGER"); stagger != nullptr)
 	{
 		myGiStagger = std::string_view(stagger) != "0";
@@ -3619,6 +3624,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		// next frame checks its history by
 		myGiNearHistoryDistanceImages[historyIt] =
 			screenImage(std::format("GI Near Surface {}", historyIt), Format::kR32G32B32A32Sfloat, extent);
+		// and the lookups' sides with their pixels' surfaces (see SHADER_TYPES_GI_SIDES_HISTORY_TEXTURE)
+		myGiSidesHistoryImages[historyIt] = screenImage(std::format("GI Sides History {}", historyIt), Format::kR32G32B32A32Sfloat, extent);
 		// and the emitters' light's per pixel and the pixels' surfaces (distance and packed normal), and the traced
 		// pixels' surfaces (see SHADER_TYPES_EMITTER_SURFACE_TEXTURE)
 		myEmitterHistoryImages[historyIt] = screenImage(std::format("Emitter History {}", historyIt), Format::kR32G32B32A32Sfloat, extent);
@@ -3628,6 +3635,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		myEmitterSpecularImages[historyIt] = screenImage(std::format("Emitter Specular {}", historyIt), Format::kR32G32B32A32Sfloat, extent);
 		for (auto [image, slot, rwSlot] : std::array{
 				 std::tuple{&myGiNearHistoryImages[historyIt], SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE, SHADER_TYPES_GI_NEAR_HISTORY_RW_TEXTURE},
+				 std::tuple{&myGiSidesHistoryImages[historyIt], SHADER_TYPES_GI_SIDES_HISTORY_TEXTURE, SHADER_TYPES_GI_SIDES_HISTORY_RW_TEXTURE},
 				 std::tuple{
 					 &myGiNearHistoryDistanceImages[historyIt],
 					 SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE,
@@ -3792,6 +3800,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	}
 	myUpscaleHistoryValid = false;
 	myGiNearHistoryValid = false;
+	myGiSidesHistoryValid = false;
 	myEmitterHistoryValid = false;
 	myReflectionHistoryValid = false;
 	myGlassHistoryValid = false;
@@ -3887,6 +3896,7 @@ void Renderer::RestartSequences()
 	// what the passes keep from frame to frame, none of it kept
 	myUpscaleHistoryValid = false;
 	myGiNearHistoryValid = false;
+	myGiSidesHistoryValid = false;
 	myEmitterHistoryValid = false;
 	myReflectionHistoryValid = false;
 	myGlassHistoryValid = false;
@@ -4765,6 +4775,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
 		myGraph.Bind(myGiNearHistory[historyIt], *myGiNearHistoryImages[historyIt].image);
+		myGraph.Bind(myGiSidesHistory[historyIt], *myGiSidesHistoryImages[historyIt].image);
 		myGraph.Bind(myGiNearHistoryDistance[historyIt], *myGiNearHistoryDistanceImages[historyIt].image);
 		myGraph.Bind(myEmitterHistory[historyIt], *myEmitterHistoryImages[historyIt].image);
 		myGraph.Bind(myEmitterSurfaces[historyIt], *myEmitterSurfaceImages[historyIt].image);
@@ -5349,6 +5360,11 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	// GiCacheAnchored), whose apexes the voxels' marks are of
 	myGiSidesOn = enabled && frame.giSurfaceCache && frame.traceTriangles && hasBvh;
 	myGraph.SetEnabled(myGiSidesPass, myGiSidesOn);
+	// and kept over frames: last frame's count if the pass ran then (at this size: Resize clears it)
+	myGiSidesKeptFrameCount = myGiSidesHistoryValid && myGiSidesOn ? myGiSidesKeepFrameCount : 0;
+	myGiSidesHistoryValid = myGiSidesOn;
+	if (myGiSidesOn)
+		myGiSidesFrame++;
 	// and over frames: last frame's history counts if the frames are on and it ran then (at this size: Resize clears it),
 	// else this frame's rays alone start it over. the pass runs with the near field whether or not (the frame's alone:
 	// blended by 1), since the main pass upsamples its traced pixels' surfaces
@@ -6036,6 +6052,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		bool settled = frame.model != nullptr && !frame.model->Moves() && !myGiLightsChanged && myGiLightsFollowFrames == 0;
 		clip.nearStillBlend = settled ? std::min(myGiNearStillBlend, myGiNearFrameBlend) : myGiNearFrameBlend;
 		clip.nearFrame = myGiNearFrame;
+		clip.sidesFrame = myGiSidesFrame;
+		// (none kept across a reset or a cache made anew: the voxels' marks start over)
+		clip.sidesKeepFrameCount = myGiReset || myGiCacheInit ? 0U : myGiSidesKeptFrameCount;
 		clip.nearStride = myGiNearStride;
 		if (myGiDump)
 		{

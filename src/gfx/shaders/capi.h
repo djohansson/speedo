@@ -783,6 +783,12 @@ struct FlareConstants
 // a clip's mask as a float's bits, see GiSidesMask), which the main pass's opaque fragments' lookups take (GiSidesHidden)
 #define SHADER_TYPES_GI_SIDES_TEXTURE 89u
 #define SHADER_TYPES_GI_SIDES_RW_TEXTURE 78u
+// and the sides kept from frame to frame (ComputeGiSides; RGBA32F: the two masks, the pixel's surface's distance from
+// the eye, -1 where there is none, and its normal packed as the emitters'), two, the frame's written while the last
+// frame's is read, by GiData::sidesFrame's parity: a pixel takes the masks its point had the last frame, where they are
+// of the same voxels (GiSidesKey), and traces only what it finds none for
+#define SHADER_TYPES_GI_SIDES_HISTORY_TEXTURE 95u // and 96
+#define SHADER_TYPES_GI_SIDES_HISTORY_RW_TEXTURE 83u // and 84
 // the emissive surfaces' highlights on the visibility buffer's untraced specular over frames, at every pixel (Main
 // Visibility's, see EmitterSpecularOverFrames; RGBA16F: the light, and the frames it holds, -1 where none), the frame's
 // and the last's by EmitterData::frame's parity
@@ -1791,9 +1797,13 @@ struct GiData
 	// frame's slots are a budget, a quarter of the cells, and where the frames take most of them the cells take turns
 	// (Renderer, from the counters: GI_WORLD_COUNTER_SLOTS)
 	alignas(4) UINT1(worldStride);
+	// the frames the GI Sides pass has run, whose parity says which of its history's images is the frame's
+	// (SHADER_TYPES_GI_SIDES_HISTORY_TEXTURE), and every how many frames a pixel's masks are made again whatever the
+	// history holds, a tile of 8 by 8 pixels at a time (SPEEDO_GI_SIDES_KEEP_FRAME_COUNT, 16; 0: none kept, the last
+	// frame's history holding nothing or the frames off)
+	alignas(4) UINT1(sidesFrame);
+	alignas(4) UINT1(sidesKeepFrameCount);
 	alignas(4) UINT1(worldPadding0); // std430's tail, to the struct's 16 byte alignment, explicit (see the top of the file)
-	alignas(4) UINT1(worldPadding1);
-	alignas(4) UINT1(worldPadding2);
 };
 
 struct PushConstants

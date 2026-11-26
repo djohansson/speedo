@@ -196,27 +196,92 @@ void ComputeGiNear(uint3 dispatchThreadId : SV_DispatchThreadID)
 }
 
 // the lookups' sides at every pixel of the pre-pass's depth (see GiSidesMask), for the main pass's opaque fragments'
-// lookups (GiSidesHidden): rays only where a voxel around the pixel's point is marked apart
+// lookups (GiSidesHidden): rays only where a voxel around the pixel's point is marked apart, and only for the masks the
+// last frame doesn't hold. a mask is a sight ray to each of a lookup's voxels, of geometry that doesn't move, and made at
+// every pixel every frame they were 1.7 to 7.2 million rays a frame in the glTF research set's scenes at 2560x1440
+// balanced, 7 to 62 times the probes' (a thread group paid for about a third more: little to gain by keeping its
+// threads busy). so a pixel takes the masks its point had the last frame (SHADER_TYPES_GI_SIDES_HISTORY_TEXTURE: found
+// through the view's last view projection, on the same surface by its distance and normal, of the same voxels by
+// GiSidesKey), which most have: the bathroom's 7.2 million rays a frame came to 0.5 million, the pass's 6.7 ms to 2.2,
+// classroom's 8.0 to 1.9. see the tiles' turns below for what keeps them fresh
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void ComputeGiSides(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
+	GiData gi = GiClip(0);
+	uint current = gi.sidesFrame & 1u;
 	RWTexture2D sides = gRWTextures[SHADER_TYPES_GI_SIDES_RW_TEXTURE];
+	RWTexture2D history = gRWTextures[SHADER_TYPES_GI_SIDES_HISTORY_RW_TEXTURE + current];
 	uint2 extent;
 	sides.GetDimensions(extent.x, extent.y);
 	int2 pixel = int2(dispatchThreadId.xy);
-	if (any(pixel >= int2(extent)))
-		return;
-	uint masks[2] = {0u, 0u};
-	ViewData view;
-	ShadowSurface surface;
-	if (ViewAt(pixel, view) && ShadowSurfaceAt(pixel, view, surface))
+	float4 kept = float4(0.0, 0.0, -1.0, 0.0);
+	if (all(pixel < int2(extent)))
 	{
-		GiSeen seen = GiSeenFacingAt(surface.position, surface.normal);
-		masks[0] = seen.masks[0];
-		masks[1] = seen.masks[1];
+		ViewData view;
+		ShadowSurface surface;
+		if (ViewAt(pixel, view) && ShadowSurfaceAt(pixel, view, surface))
+		{
+			uint clips[2];
+			GiSidesClips(surface.position, surface.normal, clips);
+			uint masks[2] = {0u, 0u};
+			uint keys[2] = {0u, 0u};
+			bool found[2] = {clips[0] == ~0u, clips[1] == ~0u};
+			for (uint keyIt = 0; keyIt < 2u; keyIt++)
+			{
+				if (found[keyIt])
+					continue;
+				GiClipView clip = GiClipViewAt(clips[keyIt]);
+				keys[keyIt] = GiSidesKey(clip, int3(floor(GiSidesTap(clip, surface.position, surface.normal))));
+			}
+			float3 toEye = view.eyePosition.xyz - surface.position;
+			// (a tile of 8 by 8 pixels makes its masks again every sidesKeepFrameCount-th frame whatever it holds, a
+			// diagonal of tiles a frame: what a mask goes by changes as the cache settles, the voxels' marks and where
+			// their light is gathered, and a thread group traces as one)
+			uint2 tile = uint2(pixel) >> 3u;
+			bool keep = gi.sidesKeepFrameCount != 0u && (tile.x + tile.y * 3u + gi.sidesFrame) % gi.sidesKeepFrameCount != 0u;
+			float4 was = mul(view.previousViewProjection, float4(surface.position, 1.0));
+			if (keep && view.previousEyePosition.w > 0.0 && was.w > 0.0)
+			{
+				// (the last frame's pixels around where the point was then, the nearest first: one whose surface is the
+				// point's, as the near field's history tells, ComputeGiNearTemporal, holds its masks, and where the point
+				// is by a voxel's face the pixel beside it does)
+				float2 at = PixelHistoryAt(view, was);
+				float expected = distance(surface.position, view.previousEyePosition.xyz);
+				float slant = abs(dot(surface.normal, normalize(toEye)));
+				float tolerance = 0.002 * expected + 2.0 * surface.metersPerPixel * sqrt(max(1.0 - slant * slant, 0.0)) / max(slant, 0.05);
+				Texture2D last = gTextures[SHADER_TYPES_GI_SIDES_HISTORY_TEXTURE + (current ^ 1u)];
+				int2 nearest = int2(floor(at + 0.5));
+				static const int2 kTaps[9] = {int2(0, 0), int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1), int2(1, 1), int2(-1, 1), int2(1, -1), int2(-1, -1)};
+				for (uint tapIt = 0; tapIt < 9u && !(found[0] && found[1]); tapIt++)
+				{
+					int2 tap = nearest + kTaps[tapIt];
+					if (any(float2(tap) < view.viewport.xy) || any(float2(tap) >= view.viewport.xy + view.viewport.zw))
+						continue;
+					float4 then = last.Load(int3(tap, 0));
+					if (then.b < 0.0 || abs(then.b - expected) > tolerance || dot(EmitterUnpackNormal(then.a), surface.normal) < 0.9)
+						continue;
+					uint old[2] = {asuint(then.r), asuint(then.g)};
+					for (uint slotIt = 0; slotIt < 2u; slotIt++)
+						for (uint oldIt = 0; oldIt < 2u; oldIt++)
+							if (!found[slotIt] && (old[oldIt] & kGiSidesKeyMask) == keys[slotIt])
+							{
+								masks[slotIt] = old[oldIt];
+								found[slotIt] = true;
+							}
+				}
+			}
+			for (uint slotIt = 0; slotIt < 2u; slotIt++)
+			{
+				if (found[slotIt])
+					continue;
+				masks[slotIt] = (GiSidesMaskFacing(GiClipViewAt(clips[slotIt]), surface.position, surface.normal) & ~(0x3Fu << kGiSidesKeyShift)) | keys[slotIt];
+			}
+			kept = float4(asfloat(masks[0]), asfloat(masks[1]), length(toEye), EmitterPackNormal(surface.normal));
+		}
+		sides[pixel] = float4(kept.rg, 0.0, 0.0);
+		history[pixel] = kept;
 	}
-	sides[pixel] = float4(asfloat(masks[0]), asfloat(masks[1]), 0.0, 0.0);
 }
 
 // a pass of the near field's filter: the rays' radiance and whether they met no contact (or the rows' result) averaged

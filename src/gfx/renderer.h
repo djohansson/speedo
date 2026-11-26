@@ -921,6 +921,15 @@ private:
 	};
 	std::array<ScreenImage, 2> myGiNearHistoryImages;
 	std::array<ScreenImage, 2> myGiNearHistoryDistanceImages;
+	// the lookups' sides kept from frame to frame (see SHADER_TYPES_GI_SIDES_HISTORY_TEXTURE), as the near field's history:
+	// whether last frame's holds anything (the pass ran, at this size), the frames it has run (GiData::sidesFrame), and
+	// every how many frames a tile's are made again (SPEEDO_GI_SIDES_KEEP_FRAME_COUNT; 0: none kept)
+	std::array<ScreenImage, 2> myGiSidesHistoryImages;
+	std::array<FrameGraph::ImageId, 2> myGiSidesHistory{};
+	bool myGiSidesHistoryValid = false;
+	uint32_t myGiSidesFrame = 0;
+	uint32_t myGiSidesKeepFrameCount = 16;
+	uint32_t myGiSidesKeptFrameCount = 0; // this frame's (GiData::sidesKeepFrameCount)
 	// what temporal upscaling keeps from frame to frame (see myUpscaleLuma and the rest), whether the last frame's hold a
 	// frame at this size, and the frames upscaled (their parity)
 	struct UpscaleImages

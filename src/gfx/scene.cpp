@@ -194,7 +194,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 95; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's, the motion blur's, the starburst's, the anamorphic streaks' (SHADER_TYPES_STREAK_SUM_TEXTURE), the indirect lighting's lookups' sides (SHADER_TYPES_GI_SIDES_TEXTURE) the emitters' highlights' histories (SHADER_TYPES_EMITTER_SPECULAR_TEXTURE) and their caustics' light (SHADER_TYPES_EMITTER_CAUSTIC_TEXTURE), and the rough glass's light and its history (SHADER_TYPES_GLASS_LIGHT_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 97; // after the sky's tables, its views, its view by the moon, the lens pass's image, the glare's, the depth of field's, the motion blur's, the starburst's, the anamorphic streaks' (SHADER_TYPES_STREAK_SUM_TEXTURE), the indirect lighting's lookups' sides (SHADER_TYPES_GI_SIDES_TEXTURE) the emitters' highlights' histories (SHADER_TYPES_EMITTER_SPECULAR_TEXTURE) and their caustics' light (SHADER_TYPES_EMITTER_CAUSTIC_TEXTURE), and the rough glass's light and its history (SHADER_TYPES_GLASS_LIGHT_TEXTURE), and the lookups' sides' histories (SHADER_TYPES_GI_SIDES_HISTORY_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -219,6 +219,10 @@ static_assert(
 	SHADER_TYPES_ENVIRONMENT_TEXTURE >= SHADER_TYPES_FRAME_COUNT && SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE >= SHADER_TYPES_FRAME_COUNT &&
 	kMaterialTextureId < kModelTextureFirstSlot);
 static_assert(SHADER_TYPES_GI_SIDES_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_GI_SIDES_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
+static_assert(
+	SHADER_TYPES_GI_SIDES_HISTORY_TEXTURE > SHADER_TYPES_GLASS_LIGHT_TEXTURE && SHADER_TYPES_GI_SIDES_HISTORY_TEXTURE + 1 < kModelTextureFirstSlot &&
+	SHADER_TYPES_GI_SIDES_HISTORY_RW_TEXTURE > SHADER_TYPES_GLASS_HISTORY_RW_TEXTURE &&
+	SHADER_TYPES_GI_SIDES_HISTORY_RW_TEXTURE + 1 < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(
 	SHADER_TYPES_EMITTER_SPECULAR_TEXTURE == SHADER_TYPES_GI_SIDES_TEXTURE + 1 && SHADER_TYPES_EMITTER_SPECULAR_TEXTURE + 1 < kModelTextureFirstSlot &&
 	SHADER_TYPES_EMITTER_SPECULAR_RW_TEXTURE == SHADER_TYPES_GI_SIDES_RW_TEXTURE + 1 &&
