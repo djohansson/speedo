@@ -188,7 +188,7 @@ The same rules in a hard case: a box of double sided sheets standing into a brig
 
 ### Debug views and diagnostics
 
-View > Debug View > Indirect Lighting (`SPEEDO_GI_DEBUG=<n>`) shows the indirect diffuse, the resolved weight, voxel radiance and albedo, which clip lights a point, the probes' state, the world cache's light (`gi-world`) and references (`GiPixelReference`, seconds a frame: capture after a few frames). The group is greyed out while the indirect lighting is off. `SPEEDO_GI_DUMP=<x,y,z>` or `pixel:<x>,<y>` prints the probe, volume and cache entry values at a point at exit. Edit > Copy Scene writes the view as reproducing `SPEEDO_*` variables; an artifact report is a pose first.
+View > Debug View > Indirect Lighting (`SPEEDO_GI_DEBUG=<n>`) shows the indirect diffuse, the resolved weight, voxel radiance and albedo, which clip lights a point, the probes' state, the world cache's light (`gi-world`) and references (`GiPixelReference`, seconds a frame: capture after a few frames). The group is greyed out while the indirect lighting is off. `SPEEDO_GI_DUMP=<x,y,z>` or `pixel:<x>,<y>` prints the probe, volume and cache entry values at a point at exit, and per clip the 27 voxels around it (what wrote each, its normal, its light along each face, its marks, its own radiance): what a lookup or a hit there reads. Edit > Copy Scene writes the view as reproducing `SPEEDO_*` variables; an artifact report is a pose first.
 
 ### A neural radiance cache
 

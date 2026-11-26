@@ -2934,6 +2934,42 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 52 + stepIt * 3] = asuint(gGiVolumeImages[0][texel].x);
 			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 53 + stepIt * 3] = asuint(gGiVolumeImages[4][texel].w);
 		}
+		// and the 27 voxels around the point's (GI_DUMP_AROUND_FIRST): what wrote each, its normal, the volumes' light along
+		// each face (luminance, by its weight), the share of far sides and the weight: what a lookup there reads
+		for (uint aroundIt = 0; aroundIt < 27u; aroundIt++)
+		{
+			int3 at = int3(floor(GiVoxelCoordinate(gi, gi.dumpPoint.xyz, 0))) + int3(aroundIt % 3u, (aroundIt / 3u) % 3u, aroundIt / 9u) - 1;
+			float around[GI_DUMP_AROUND_FLOAT_COUNT];
+			for (uint valueIt = 0; valueIt < GI_DUMP_AROUND_FLOAT_COUNT; valueIt++)
+				around[valueIt] = 0.0;
+			if (GiInside(at, GiLevelSize(gi, 0)))
+			{
+				GiVoxel voxel = GiVoxelAt(gi, uint3(at));
+				float3 voxelNormal = (voxel.albedo >> 24) != 0u ? GiVoxelNormal(voxel.normal) : float3(0.0, 0.0, 0.0);
+				uint3 texel = uint3(at) + uint3(gi.volumeImageX, 0, gi.volumeImage.w);
+				float4 red = gGiVolumeImages[0][texel];
+				float4 green = gGiVolumeImages[1][texel];
+				float4 blue = gGiVolumeImages[2][texel];
+				float4 along = gGiVolumeImages[3][texel];
+				float4 last = gGiVolumeImages[4][texel];
+				float scale = last.w > 1e-7 ? 1.0 / last.w : 0.0;
+				around[0] = float(voxel.emissionB >> 16);
+				around[1] = voxelNormal.x;
+				around[2] = voxelNormal.y;
+				around[3] = voxelNormal.z;
+				for (uint faceIt = 0; faceIt < 4u; faceIt++)
+					around[4 + faceIt] = dot(float3(red[faceIt], green[faceIt], blue[faceIt]), kLuminance) * scale;
+				around[8] = dot(float3(along.x, along.z, last.x), kLuminance) * scale;
+				around[9] = dot(float3(along.y, along.w, last.y), kLuminance) * scale;
+				around[10] = last.z * scale;
+				around[11] = last.w;
+				float4 lit = GiRadianceAt(gi, at);
+				around[12] = dot(lit.rgb, kLuminance);
+				around[13] = lit.a;
+			}
+			for (uint valueIt = 0; valueIt < GI_DUMP_AROUND_FLOAT_COUNT; valueIt++)
+				gGiStatistics[gPushConstants.frameIndex][dumpFirst + GI_DUMP_AROUND_FIRST + aroundIt * GI_DUMP_AROUND_FLOAT_COUNT + valueIt] = asuint(around[valueIt]);
+		}
 		// and after the depth map, the first 16 rays' directions' y and depths
 		for (uint rayIt = 0; rayIt < 16u && rayIt < gi.rayCount; rayIt++)
 		{

@@ -3056,6 +3056,17 @@ Renderer::~Renderer()
 					line += std::format(" {}:{:x}/{:.3f}/{:.2f}", stepIt, static_cast<uint32_t>(values[16 + 256 + 51 + stepIt * 3]), static_cast<double>(values[16 + 256 + 52 + stepIt * 3]), static_cast<double>(values[16 + 256 + 53 + stepIt * 3]));
 				std::println("{}", line);
 			}
+			// the 27 voxels around the point's (see GI_DUMP_AROUND_FIRST): what a lookup there reads
+			std::println("  the voxels around the point's (offset: what wrote it, its normal; the volumes' light along +x -x +y -y +z -z, the marks, the weight; the voxel's own radiance and its fourth component):");
+			for (int aroundIt = 0; aroundIt < 27; aroundIt++)
+			{
+				const float* v = &values[GI_DUMP_AROUND_FIRST + static_cast<size_t>(aroundIt) * GI_DUMP_AROUND_FLOAT_COUNT];
+				auto d = [](float value) { return static_cast<double>(value); };
+				std::println(
+					"    ({:+d}, {:+d}, {:+d}): {:5x} ({:+.2f}, {:+.2f}, {:+.2f}); {:.3f} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f}, {:.2f}, {:.3f}; {:.4f} {:.3f}",
+					aroundIt % 3 - 1, (aroundIt / 3) % 3 - 1, aroundIt / 9 - 1, static_cast<uint32_t>(v[0]), d(v[1]), d(v[2]), d(v[3]),
+					d(v[4]), d(v[5]), d(v[6]), d(v[7]), d(v[8]), d(v[9]), d(v[10]), d(v[11]), d(v[12]), d(v[13]));
+			}
 			for (int cornerIt = 0; cornerIt < 8; cornerIt++)
 			{
 				const float* v = &values[16 + 256 + 99 + cornerIt * 10];

@@ -1529,9 +1529,14 @@ struct CullView
 // gGiStatistics[frame]'s statistics, GI_DUMP_FLOAT_COUNT floats per clip: its position (3), offset (3), age, inside, the
 // rays that met a surface's back, the rays, then its depth map's texels' means; the resolve at the point's voxel; and
 // from GI_DUMP_CACHE_FIRST the point's voxel's surface cache entry, see GiCacheUpdate: its samples and inside rays, its
-// rays' origin, the voxel's center, open side and light per face, and the frame's first 8 rays)
-#define GI_DUMP_FLOAT_COUNT 540u
+// rays' origin, the voxel's center, open side and light per face, and the frame's first 8 rays; and from
+// GI_DUMP_AROUND_FIRST the 27 voxels around the point's, x then y then z, GI_DUMP_AROUND_FLOAT_COUNT floats each: what
+// wrote it, its normal (3), the volumes' light along +x, -x, +y, -y, +z, -z (luminance, by its weight), the share of
+// far sides and the weight, and the voxel's own radiance (luminance) and its fourth component)
+#define GI_DUMP_FLOAT_COUNT 918u
 #define GI_DUMP_CACHE_FIRST 451u
+#define GI_DUMP_AROUND_FIRST 540u
+#define GI_DUMP_AROUND_FLOAT_COUNT 14u
 
 struct GiVoxel
 {
