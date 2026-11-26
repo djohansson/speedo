@@ -5643,11 +5643,15 @@ int3 GiSidesStep(uint step)
 // of the 8 voxels from base (a bit each, x then y then z), for a lookup of a surface at position: those it leaves out
 // (returned: the ones that hold a surface facing across its normal or against it, kGiFacingCosine, and, where marked,
 // the ones that don't see the point, GiClipSees), those of surfaces beside its own (facing further from its normal
-// than kGiOwnCosine) and those of its own
-uint GiSidesBlock(GiClipView clip, float3 position, float3 normal, int3 base, bool facings, bool marked, out uint besideBits, out uint ownBits)
+// than kGiOwnCosine) and those of its own. needOwn: the sight tests only where the 8 hold one of its own (a block a
+// step along the surface, of no use without one: its rays, traced for every block looked at, took GI Sides from 6.7 to
+// 18.1 ms a frame in the research set's classroom at 1440p; 12.4 with it, 11.7 with its own tested first). knownBits: the voxels whose sight test was made already,
+// knownHidden its results (the half of such a block that is the lookup's own block's: 11.7 to 11.0)
+uint GiSidesBlock(GiClipView clip, float3 position, float3 normal, int3 base, bool facings, bool marked, bool needOwn, uint knownBits, uint knownHidden, out uint besideBits, out uint ownBits)
 {
 	uint3 size = clip.volumeSize.xyz;
 	uint hiddenBits = 0u;
+	uint insideBits = 0u;
 	besideBits = 0u;
 	ownBits = 0u;
 	for (uint cornerIt = 0; cornerIt < 8u; cornerIt++)
@@ -5655,6 +5659,7 @@ uint GiSidesBlock(GiClipView clip, float3 position, float3 normal, int3 base, bo
 		int3 at = base + int3(cornerIt & 1u, (cornerIt >> 1) & 1u, cornerIt >> 2);
 		if (!GiInside(at, size))
 			continue;
+		insideBits |= 1u << cornerIt;
 		if (facings)
 		{
 			GiVoxel held = gGiVoxels[clip.voxelFirst + GiVoxelIndex(uint3(at), size)];
@@ -5691,7 +5696,29 @@ uint GiSidesBlock(GiClipView clip, float3 position, float3 normal, int3 base, bo
 					besideBits |= 1u << cornerIt;
 			}
 		}
-		if (marked && !GiClipSees(clip, position, normal, at))
+	}
+	if (!marked || (needOwn && ownBits == 0u))
+		return hiddenBits;
+	// (its own first, then the rest, in one loop, the rays' one place in the code: none of the rest where the caller
+	// wants one of its own and none sees the point, nor those beside where one does, which GiSidesMaskFacing leaves out
+	// then whatever they see)
+	uint restBits = insideBits & ~hiddenBits & ~ownBits;
+	hiddenBits |= knownHidden & knownBits & insideBits;
+	for (uint testIt = 0; testIt < 16u; testIt++)
+	{
+		if (testIt == 8u)
+		{
+			bool ownSeen = (ownBits & ~hiddenBits) != 0u;
+			if (needOwn && !ownSeen)
+				break;
+			if (ownSeen)
+				restBits &= ~besideBits;
+		}
+		uint cornerIt = testIt & 7u;
+		if (((testIt < 8u ? ownBits : restBits) & ~knownBits & (1u << cornerIt)) == 0u)
+			continue;
+		int3 at = base + int3(cornerIt & 1u, (cornerIt >> 1) & 1u, cornerIt >> 2);
+		if (!GiClipSees(clip, position, normal, at))
 			hiddenBits |= 1u << cornerIt;
 	}
 	return hiddenBits;
@@ -5757,7 +5784,7 @@ uint GiSidesMaskFacing(GiClipView clip, float3 position, float3 normal)
 	// without it the band was a bright line along the casing, as wide as the lookup has no voxel of the wall
 	uint besideBits;
 	uint ownBits;
-	uint hiddenBits = GiSidesBlock(clip, position, normal, base, facings, marked, besideBits, ownBits);
+	uint hiddenBits = GiSidesBlock(clip, position, normal, base, facings, marked, false, 0u, 0u, besideBits, ownBits);
 	uint step = 0u;
 	if (facings && (ownBits & ~hiddenBits) == 0u && (hiddenBits | besideBits) != 0u)
 	{
@@ -5778,7 +5805,14 @@ uint GiSidesMaskFacing(GiClipView clip, float3 position, float3 normal)
 			uint candidate = 1u + axis * 2u + (fraction[axis] >= 0.5 ? 0u : 1u);
 			uint candidateBeside;
 			uint candidateOwn;
-			uint candidateHidden = GiSidesBlock(clip, position, normal, base + GiSidesStep(candidate), facings, marked, candidateBeside, candidateOwn);
+			// (the half of its 8 that are the lookup's own block's, a voxel over: tested with that block, all of them, since
+			// it has none of its own that sees the point)
+			uint shift = 1u << axis;
+			uint low = axis == 0u ? 0x55u : (axis == 1u ? 0x33u : 0x0Fu);
+			bool up = fraction[axis] >= 0.5;
+			uint knownBits = up ? low : (low << shift);
+			uint knownHidden = up ? (hiddenBits >> shift) : (hiddenBits << shift);
+			uint candidateHidden = GiSidesBlock(clip, position, normal, base + GiSidesStep(candidate), facings, marked, true, knownBits, knownHidden, candidateBeside, candidateOwn);
 			if ((candidateOwn & ~candidateHidden) == 0u)
 				continue;
 			step = candidate;
