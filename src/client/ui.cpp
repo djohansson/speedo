@@ -95,18 +95,18 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kSurface, {"material", "Material", DEBUG_VIEW_MATERIAL, "A color per material."}},
 	DebugViewEntry{DebugViewGroup::kSurface, {"texcoord", "Texcoord", DEBUG_VIEW_TEXCOORD, "Texcoord set 0 (u red, v green), repeated."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"emissive", "Emissive", DEBUG_VIEW_EMISSIVE, "The light the surfaces give off."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"direct", "Direct Light", DEBUG_VIEW_DIRECT, "The direct light alone: the punctual lights' (with their shadows) and the emissive surfaces' (View > Rendering Features > Global Illumination... > Emissive Lights)."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"direct", "Direct Light", DEBUG_VIEW_DIRECT, "The direct light alone: the lights' (with their shadows) and the emissive surfaces'."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect", "Ambient Light", DEBUG_VIEW_INDIRECT, "The ambient light alone, diffuse and specular: the indirect lighting's where it covers a point, else the environment's."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-diffuse", "Ambient Diffuse (white)", DEBUG_VIEW_INDIRECT_DIFFUSE, "The ambient irradiance over pi: what a white surface would reflect of it."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-diffuse", "Ambient Diffuse (white)", DEBUG_VIEW_INDIRECT_DIFFUSE, "The ambient light a white surface would reflect."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-specular", "Ambient Specular", DEBUG_VIEW_INDIRECT_SPECULAR, "The ambient light's specular reflection alone."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"traced-reflections", "Traced Reflections", DEBUG_VIEW_TRACED_REFLECTIONS, "What the surfaces' reflections see where they are traced (View > Rendering Features > Ray Traced Reflections), before the specular takes its share of it. Magenta where they aren't: too rough, or nothing traced."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"traced-reflections", "Traced Reflections", DEBUG_VIEW_TRACED_REFLECTIONS, "What the ray traced reflections see. Magenta where none is traced (too rough)."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"shadows", "Shadows", DEBUG_VIEW_SHADOWS, "The share of the direct light that reaches a point unshadowed: white lit, black shadowed, dark blue where no light faces it."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow", "Traced Shadow", DEBUG_VIEW_TRACED_SHADOW, "The first traced light's shadow (View > Rendering Features > Ray Traced Shadows), as the main pass takes it: a ray a pixel through the BVH, filtered over the penumbra's width. Magenta where none is traced."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-raw", "Traced Shadow (rays)", DEBUG_VIEW_TRACED_SHADOW_RAW, "The first traced light's shadow rays as traced, before the filter: a ray a pixel toward a point of the light's disk, the 16 points over each 4x4 pixels."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-reference", "Traced Shadow (reference)", DEBUG_VIEW_TRACED_SHADOW_REFERENCE, "The first traced light's shadow where the shadow atlas isn't sure, by 256 rays a pixel over the light's disk, unfiltered: what the filtered shadow should look like. Slow."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"emitters", "Emissive Light (white)", DEBUG_VIEW_EMITTERS, "The emissive surfaces' light (View > Rendering Features > Global Illumination... > Emissive Lights) a white surface reflects, as the main pass takes it: sampled at every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE), filtered and accumulated over frames, and upsampled. Magenta where it isn't gathered."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-raw", "Emissive Light (rays)", DEBUG_VIEW_EMITTERS_RAW, "The emissive surfaces' light as the traced pixels' rays gathered it this frame, a point and its shadow ray every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE), before the filter and the frames."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-reference", "Emissive Light (reference)", DEBUG_VIEW_EMITTERS_REFERENCE, "The emissive surfaces' light by 64 independent estimates every 4th pixel each way by default (SPEEDO_EMITTER_STRIDE; accumulated while the camera is still), each its own candidates and shadow ray, nothing reused or filtered: what the filtered light should look like. Slow."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow", "Traced Shadow", DEBUG_VIEW_TRACED_SHADOW, "The first ray traced light's shadow, filtered. Magenta where none is traced."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-raw", "Traced Shadow (rays)", DEBUG_VIEW_TRACED_SHADOW_RAW, "The first ray traced light's shadow before it is filtered: noisy."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-reference", "Traced Shadow (reference)", DEBUG_VIEW_TRACED_SHADOW_REFERENCE, "The first ray traced light's shadow with many rays a pixel: what the filtered shadow should look like. Slow."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"emitters", "Emissive Light (white)", DEBUG_VIEW_EMITTERS, "The emissive surfaces' light a white surface would reflect. Magenta where it isn't gathered."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-raw", "Emissive Light (rays)", DEBUG_VIEW_EMITTERS_RAW, "The emissive surfaces' light as gathered this frame, before it is filtered: noisy."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-reference", "Emissive Light (reference)", DEBUG_VIEW_EMITTERS_REFERENCE, "The emissive surfaces' light with many rays a pixel, refined while the camera is still: what the filtered light should look like. Slow."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"light-count", "Light Count", DEBUG_VIEW_LIGHT_COUNT, "The lights each pixel loops over (its cluster's): blue 1, cyan to green about 15, red 255 or more."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-irradiance", "Irradiance", DEBUG_VIEW_GI_IRRADIANCE, "The indirect lighting's diffuse alone, a white surface's. Magenta where no clip covers a point."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-visibility", "Probe Visibility", DEBUG_VIEW_GI_VISIBILITY, "The weight of the probes around a point: how much of them it sees (by their depth maps). Dark where it sees little (inside walls, in corners)."}},
@@ -115,14 +115,14 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-albedo", "Voxel Albedo", DEBUG_VIEW_GI_VOXEL_ALBEDO, "The albedo voxelized behind a point. Magenta where there is none, cyan outside the clip."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-clip", "Clips", DEBUG_VIEW_GI_CLIP, "Which clip lights a point, finest first: red, green, blue, yellow (blended where they meet). Dark outside them all."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-grid", "Voxel and Probe Grid", DEBUG_VIEW_GI_GRID, "The irradiance with the finest clip's voxels (thin lines, in its color) and probe cells (white) drawn over it."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world", "Voxel World", DEBUG_VIEW_GI_VOXEL_WORLD, "The voxels themselves, as the probes' rays see them: each pixel's ray from the eye through the clips, and the radiance of the first voxel it meets (the sky where it meets none)."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world", "Voxel World", DEBUG_VIEW_GI_VOXEL_WORLD, "The voxels themselves, lit, as the indirect lighting's rays see them."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world-albedo", "Voxel World Albedo", DEBUG_VIEW_GI_VOXEL_WORLD_ALBEDO, "The albedo of the first voxel each pixel's ray meets (dark blue where it meets none)."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world-normal", "Voxel World Normal", DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL, "The normal of the first voxel each pixel's ray meets, dimmed where it faces away from the eye (lit from behind what is seen)."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-surface-reference", "Surface Reference (slow)", DEBUG_VIEW_GI_SURFACE_REFERENCE, "The irradiance at each point itself, from 256 rays through the voxels by default (SPEEDO_GI_REFERENCE_RAYS): what the probes' lookups should come to there (the probe reference is at the probes, a probe spacing off a surface). Seconds a frame."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-probe-state", "Probe State", DEBUG_VIEW_GI_PROBE_STATE, "The 8 probes around a point, trilinear: red the share marked inside something, green the share behind a surface's back, blue the share a surface's front hides (rays tracing voxels: green the share whose depth map toward the point is empty, blue the share that fail its visibility test). Black: every probe sees the point."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-world", "World Cache", DEBUG_VIEW_GI_WORLD, "The world cache's light as a white surface reflects it (SPEEDO_GI_WORLD=1; docs/world-cache-plan.md): the finest of its cells about the point that holds enough samples, by distance; magenta where none does."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-probes", "Probes (unmasked)", DEBUG_VIEW_GI_PROBES, "The irradiance of the 8 probes around a point as they hold it, trilinear: without their visibility and the resolve into the voxels, to tell what the probes see from what the lookups make of it."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-reference", "Reference (slow)", DEBUG_VIEW_GI_REFERENCE, "Each probe's light from 512 rays through the voxels straight to the environment, nothing blended: what the probes' rays converge to. Seconds a frame."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-surface-reference", "Surface Reference (slow)", DEBUG_VIEW_GI_SURFACE_REFERENCE, "The indirect light at each point with many rays a pixel: what the probes should give there. Seconds a frame."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-probe-state", "Probe State", DEBUG_VIEW_GI_PROBE_STATE, "Why the probes around a point don't light it: red inside something, green behind a surface, blue hidden by one. Black where every probe sees the point."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-world", "World Cache", DEBUG_VIEW_GI_WORLD, "The world grid's light a white surface would reflect (Light Store: World Grid). Magenta where it has none yet."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-probes", "Probes (unmasked)", DEBUG_VIEW_GI_PROBES, "The light of the probes around a point, blended without regard to what they can see of it."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-reference", "Reference (slow)", DEBUG_VIEW_GI_REFERENCE, "Each probe's light with many rays: what the probes should settle to. Seconds a frame."}},
 };
 
 [[nodiscard]] const DebugView* FindDebugView(uint32_t view)
@@ -1848,7 +1848,7 @@ void WindowedApplication::PrepareDraw()
 							myViews->SetSensorHeight(gfx::camera::SensorSizeOf(preset).height);
 					EndCombo();
 				}
-				SetItemTooltip("The sensor's size: with the focal length it gives the field of view (a smaller sensor's is narrower, as a lens's is).");
+				SetItemTooltip("The sensor's size: with the focal length it sets the field of view (smaller is narrower).");
 				// the lens: the pinhole shows the frame as it is at any focal length; a prime pins its own, and the Lens pass
 				// draws its vignetting, aberration and distortion
 				const auto& lenses = gfx::lens::Lenses();
@@ -1861,17 +1861,17 @@ void WindowedApplication::PrepareDraw()
 							settings.lens.store(static_cast<uint32_t>(lensIt), std::memory_order_relaxed);
 					EndCombo();
 				}
-				SetItemTooltip("The lens the camera takes the frame through. The pinhole shows it as it is, at any focal length. A real lens has its own focal length and aperture range, and shows the frame as it does: darker toward the corners (vignetting, most wide open), its red and blue images a little larger or smaller than its green (lateral chromatic aberration) and barrel or pincushion distorted.");
+				SetItemTooltip("The pinhole is a perfect lens at any focal length. A real lens has its own focal length and aperture range, and its vignetting, color fringes and distortion.");
 				bool glare = settings.lensGlare.load(std::memory_order_relaxed);
 				if (SmallCheckbox("Lens Glare", &glare, prime))
 					settings.lensGlare.store(glare, std::memory_order_relaxed);
-				SetItemTooltip("The lens's glare: the light it veils the frame with, and the ghosts and starburst of the bright things in view (the sun, lamps): each pair of its surfaces reflects a ghost onto the sensor, and the aperture's blades diffract a starburst.");
+				SetItemTooltip("The lens flares, ghosts and starbursts of bright lights in view, such as the sun or lamps.");
 				// the focus (the depth of field): a system camera's modes
 				auto focusMode = static_cast<gfx::FocusMode>(settings.focusMode.load(std::memory_order_relaxed));
 				static constexpr std::array kFocusModes{
 					std::tuple{"Spot", gfx::FocusMode::kSpot, "A single point: what is under the view's center."},
 					std::tuple{"Zone", gfx::FocusMode::kZone, "A zone around the view's center (a fifth of the view)."},
-					std::tuple{"Wide", gfx::FocusMode::kWide, "The whole view: the nearest thing in it, as an auto area picks the nearest subject."},
+					std::tuple{"Wide", gfx::FocusMode::kWide, "The nearest thing in the whole view."},
 					std::tuple{"Manual", gfx::FocusMode::kManual, "The distance set below."}};
 				const char* focusShown = "?";
 				for (auto [name, mode, tip] : kFocusModes)
@@ -1893,7 +1893,7 @@ void WindowedApplication::PrepareDraw()
 					}
 					EndCombo();
 				}
-				SetItemTooltip("What the lens focuses at: a point or a zone at the view's center, the nearest thing in view, or a distance; what is nearer or farther blurs by the aperture (wider open, shallower).");
+				SetItemTooltip("What the lens focuses on. What is nearer or farther blurs, more with a wider aperture.");
 				bool continuous = settings.focusContinuous.load(std::memory_order_relaxed);
 				BeginDisabled(focusMode == gfx::FocusMode::kManual);
 				if (SmallCheckbox("Continuous", &continuous, prime && focusMode != gfx::FocusMode::kManual))
@@ -1918,10 +1918,10 @@ void WindowedApplication::PrepareDraw()
 				bool grain = settings.grain.load(std::memory_order_relaxed);
 				if (SmallCheckbox("Motion Blur", &motionBlur, prime))
 					settings.motionBlur.store(motionBlur, std::memory_order_relaxed);
-				SetItemTooltip("What moves while the shutter is open smears along its way: the shutter's share of a frame's motion (a slower shutter, a longer smear). With a real lens.");
+				SetItemTooltip("What moves while the shutter is open blurs: the slower the shutter, the longer the blur. With a real lens.");
 				if (SmallCheckbox("Grain", &grain, prime))
 					settings.grain.store(grain, std::memory_order_relaxed);
-				SetItemTooltip("The sensor's shot noise at the ISO: the photons a pixel counts, fewer the higher the ISO (a night at ISO 40000 is grainy, a day at ISO 100 isn't). With a real lens.");
+				SetItemTooltip("The sensor's noise: grainier the higher the ISO. With a real lens.");
 				auto first = myViews->GetCamera(0);
 				bool orthographic = first && first->GetDesc().viewport.type == ViewType::Orthographic;
 				BeginDisabled(orthographic || prime);
@@ -1930,9 +1930,9 @@ void WindowedApplication::PrepareDraw()
 					myViews->SetFocalLength(focalLength);
 				EndDisabled();
 				if (prime)
-					SetItemTooltip("The lens's focal length on the sensor: the vertical field of view is %.1f degrees. A prime's is its own: choose the pinhole to change it.", static_cast<double>(glm::degrees(myViews->GetFieldOfView())));
+					SetItemTooltip("A vertical field of view of %.1f degrees. A real lens's is fixed: choose the pinhole to change it.", static_cast<double>(glm::degrees(myViews->GetFieldOfView())));
 				else
-					SetItemTooltip("The lens's focal length on the sensor: the vertical field of view is %.1f degrees. Drag, or double-click to type.", static_cast<double>(glm::degrees(myViews->GetFieldOfView())));
+					SetItemTooltip("A vertical field of view of %.1f degrees. Drag, or double-click to type.", static_cast<double>(glm::degrees(myViews->GetFieldOfView())));
 			}
 			SeparatorText("Exposure");
 			{
@@ -1961,11 +1961,11 @@ void WindowedApplication::PrepareDraw()
 						}
 					EndCombo();
 				}
-				SetItemTooltip("Program: the camera chooses its aperture, shutter and ISO for the scene's brightness, along a line from sunny sixteen (narrower and faster where it is brighter, wider and slower where darker, the ISO for the rest). A priority pins one of them. Manual pins all three. A mode other than program keeps the exposure the camera had chosen, to set by hand.");
+				SetItemTooltip("Program: the camera picks the aperture, shutter and ISO for the scene's brightness. A priority mode lets you set one of them, Manual all three.");
 				float stops = settings.exposureStops.load(std::memory_order_relaxed);
 				if (DragFloat("Compensation", &stops, 0.05F, -16.0F, 16.0F, "%+.2f EV", ImGuiSliderFlags_AlwaysClamp))
 					settings.exposureStops.store(stops, std::memory_order_relaxed);
-				SetItemTooltip("An exposure compensation: scales the image by 2^EV on top of the camera's exposure. Drag, or double-click to type.");
+				SetItemTooltip("Brightens or darkens the camera's exposure, in stops. Drag, or double-click to type.");
 				// within the lens's aperture range (see Scene::GetExposureLimits)
 				const auto limits = App().GetScene().GetExposureLimits();
 				bool apertureSet = mode == gfx::camera::ExposureMode::kManual || mode == gfx::camera::ExposureMode::kAperturePriority;
@@ -1976,7 +1976,7 @@ void WindowedApplication::PrepareDraw()
 				if (DragFloat("Aperture", &aperture, 0.02F, limits.widestAperture, limits.narrowestAperture, "f/%.3g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
 					settings.aperture.store(aperture, std::memory_order_relaxed);
 				EndDisabled();
-				SetItemTooltip("The f-number: a stop of exposure per factor of the square root of 2 (wider open, more light). Drag, or double-click to type.");
+				SetItemTooltip("The f-number: lower is wider open, more light and a shallower focus. Drag, or double-click to type.");
 				BeginDisabled(!shutterSet);
 				float shutter = shutterSet ? settings.shutter.load(std::memory_order_relaxed) : chosen.shutter;
 				if (DragFloat("Shutter", &shutter, 0.01F, limits.fastestShutter, limits.slowestShutter, "%.5g s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
@@ -1988,7 +1988,7 @@ void WindowedApplication::PrepareDraw()
 				if (DragFloat("ISO", &iso, 1.0F, limits.lowestIso, limits.highestIso, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
 					settings.iso.store(iso, std::memory_order_relaxed);
 				EndDisabled();
-				SetItemTooltip("The sensor's sensitivity: a stop per doubling. Drag, or double-click to type.");
+				SetItemTooltip("The sensor's sensitivity: higher is brighter and grainier. Drag, or double-click to type.");
 				TextDisabled("EV100 %.2f, %+.2f EV", static_cast<double>(chosen.Ev100()), static_cast<double>(chosen.Stops()));
 			}
 			PopItemWidth();
@@ -2126,8 +2126,7 @@ void WindowedApplication::PrepareDraw()
 				if (DragFloat("Visibility", &visibility, 0.5F, ui::kMinVisibility, gfx::environment::kSkyClearestVisibility, "%.3g km", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
 					settings.visibility.store(visibility, std::memory_order_relaxed);
 				SetItemTooltip(
-					"How clear the air is: how far one sees through it (217 km a very clear day, from 288 km the air alone, "
-					"20 km a hazy day, 2 km mist). The sky, the sun's light, the haze and the light shafts all go by it. "
+					"How far one sees through the air: about 200 km on a very clear day, 20 km on a hazy one, 2 km in mist. "
 					"Drag, or double-click to type.");
 				bool aerial = settings.aerialPerspective.load(std::memory_order_relaxed);
 				if (SmallCheckbox("Aerial Perspective", &aerial))
@@ -2152,7 +2151,7 @@ void WindowedApplication::PrepareDraw()
 				float fogHeight = settings.fogHeight.load(std::memory_order_relaxed);
 				if (DragFloat("Fog Height", &fogHeight, 1.0F, ui::kMinFogHeight, ui::kMaxFogHeight, "%.3g m", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
 					settings.fogHeight.store(fogHeight, std::memory_order_relaxed);
-				SetItemTooltip("How thick the layer is: this high up it is a third as dense as at the ground (its scale height). Drag, or double-click to type.");
+				SetItemTooltip("How high the fog reaches. Drag, or double-click to type.");
 				EndDisabled();
 			}
 			PopItemWidth();
@@ -2201,7 +2200,8 @@ void WindowedApplication::PrepareDraw()
 			PushItemWidth(GetFontSize() * 12.0F);
 			auto& settings = App().GetScene().GetSettings();
 			bool rayQueries = App().GetScene().HasRayQueries();
-			constexpr const char* kBvhGlass = "Off by default through the BVHs, for its cost there: a glass of water with the refractions and the caustics on took 240 ms a frame at 720p (M4 Pro).";
+			// (through the BVHs a glass of water with the refractions and the caustics on took 240 ms a frame at 720p, M4 Pro)
+			constexpr const char* kBvhGlass = "Off by default with software ray queries, where it is slow.";
 
 			{
 				// how the rays are traced: the device's ray tracing hardware (its ray queries, where it has them) or gfx's
@@ -2216,10 +2216,10 @@ void WindowedApplication::PrepareDraw()
 					if (Selectable("Hardware", rayQueries))
 						settings.hardwareRayQueries.store(1, std::memory_order_relaxed);
 					EndDisabled();
-					SetItemTooltip("%s", supported ? "The device's ray tracing hardware." : "This device has no ray tracing hardware.");
+					SetItemTooltip("%s", supported ? "The gpu's ray tracing hardware." : "This gpu has no ray tracing hardware.");
 					if (Selectable("Software", !rayQueries))
 						settings.hardwareRayQueries.store(0, std::memory_order_relaxed);
-					SetItemTooltip("The BVHs, traversed in the shaders.");
+					SetItemTooltip("Traced in the shaders: works on any gpu, more slowly.");
 					EndCombo();
 				}
 				EndDisabled();
@@ -2228,16 +2228,17 @@ void WindowedApplication::PrepareDraw()
 			bool reflections = settings.tracedReflections.load(std::memory_order_relaxed);
 			if (SmallCheckbox("Ray Traced Reflections", &reflections))
 				settings.tracedReflections.store(reflections, std::memory_order_relaxed);
-			SetItemTooltip(
-				"What smooth and glossy surfaces reflect, traced and shaded where the rays meet something: a ray of each "
-				"pixel's lobe up to a roughness of 0.45, fading into the indirect lighting's glossy reflection by 0.6 "
-				"(SPEEDO_TRACED_REFLECTIONS=0 to start without).");
+			// (a ray of each pixel's lobe up to a roughness of 0.45, fading into the indirect lighting's glossy reflection by
+			// 0.6; SPEEDO_TRACED_REFLECTIONS=0 to start without)
+			SetItemTooltip("Sharp reflections on shiny surfaces. Rougher surfaces use the indirect lighting's softer reflection.");
 			{
-				// a ray every how many pixels each way (see Scene::Settings::reflectionStride; 0 the device's)
+				// a ray every how many pixels each way (see Scene::Settings::reflectionStride; 0 the device's; SPEEDO_REFLECTION_STRIDE).
+				// through the BVHs, Bistro at night at 1440p took 64 ms a frame with every pixel, 14 with 1 in 4, 5 with 1 in
+				// 16 (M4 Pro)
 				static constexpr std::array kStrides{
-					std::tuple{"Every pixel", 1U, "A ray every pixel (SPEEDO_REFLECTION_STRIDE=1): the default with ray queries. Through the BVHs, 64 ms a frame in Bistro at night at 1440p (M4 Pro)."},
-					std::tuple{"1 in 4 pixels", 2U, "A ray every 2nd pixel each way, another of each four every frame (SPEEDO_REFLECTION_STRIDE=2). Through the BVHs, 14 ms there."},
-					std::tuple{"1 in 16 pixels", 4U, "A ray every 4th pixel each way, another of each sixteen every frame (SPEEDO_REFLECTION_STRIDE=4): the default through the BVHs, 5 ms there. A mirror's image is soft while the view moves, and sharpens over the frames after."}};
+					std::tuple{"Every pixel", 1U, "The sharpest, and the slowest."},
+					std::tuple{"1 in 4 pixels", 2U, "About a quarter of the cost."},
+					std::tuple{"1 in 16 pixels", 4U, "The fastest. A mirror's image is soft while the view moves, and sharpens when it stops."}};
 				uint32_t setting = settings.reflectionStride.load(std::memory_order_relaxed);
 				uint32_t stride = App().GetScene().GetReflectionStride();
 				const char* shown = "?";
@@ -2250,7 +2251,7 @@ void WindowedApplication::PrepareDraw()
 				{
 					if (Selectable("The device's default", setting == 0))
 						settings.reflectionStride.store(0, std::memory_order_relaxed);
-					SetItemTooltip("Every pixel with ray queries, 1 in 16 pixels through the BVHs.");
+					SetItemTooltip("Every pixel with hardware ray queries, 1 in 16 pixels with software.");
 					for (auto [label, value, tooltip] : kStrides)
 					{
 						if (Selectable(label, setting == value))
@@ -2261,17 +2262,17 @@ void WindowedApplication::PrepareDraw()
 				}
 				EndDisabled();
 				SetItemTooltip(
-					"The glossy reflections' ray budget: how many of the pixels trace a ray each frame. The pixels between take "
-					"the traced ones' around them, and every pixel is traced in turn, so a still view ends as sharp as a ray "
-					"every pixel. A clear coat's own sharp reflection is traced with a ray every pixel alone.");
+					"How many pixels trace a reflection ray each frame. Fewer is faster; a still view sharpens to the same "
+					"result.");
 			}
 			{
 				int32_t setting = settings.fragmentReflections.load(std::memory_order_relaxed);
 				bool traced = App().GetScene().GetFragmentReflections();
+				// (SPEEDO_FRAGMENT_REFLECTIONS; through the BVHs Bistro's windows at night took 19 ms a frame at 1440p, M4 Pro)
 				static constexpr std::array kChoices{
-					std::tuple{"The device's default", -1, "Traced with ray queries, not through the BVHs."},
-					std::tuple{"Traced", 1, "A sharp ray every pixel of them (SPEEDO_FRAGMENT_REFLECTIONS=1). Through the BVHs, 19 ms a frame for Bistro's windows at night at 1440p (M4 Pro)."},
-					std::tuple{"Not traced", 0, "The indirect lighting's and the environment's reflection alone (SPEEDO_FRAGMENT_REFLECTIONS=0)."}};
+					std::tuple{"The device's default", -1, "Traced with hardware ray queries, not with software."},
+					std::tuple{"Traced", 1, "Sharp reflections on glass and other transparent surfaces."},
+					std::tuple{"Not traced", 0, "The indirect lighting's and the environment's softer reflection."}};
 				auto preview = std::format("{}{}", traced ? "Traced" : "Not traced", setting < 0 ? " (default)" : "");
 				BeginDisabled(!reflections);
 				if (BeginCombo("Transparent Surfaces", preview.c_str()))
@@ -2285,9 +2286,7 @@ void WindowedApplication::PrepareDraw()
 					EndCombo();
 				}
 				EndDisabled();
-				SetItemTooltip(
-					"Whether what glass and blended surfaces reflect is traced too: sharp, a ray every pixel of them along the "
-					"reflection, up to a roughness of 0.15 and fading out by 0.4.");
+				SetItemTooltip("Whether glass and other transparent surfaces get ray traced reflections too.");
 			}
 
 			SeparatorText("Refractions");
@@ -2295,9 +2294,7 @@ void WindowedApplication::PrepareDraw()
 			if (SmallCheckbox("Ray Traced Refractions", &refractions))
 				settings.tracedRefractions.store(refractions ? 1 : 0, std::memory_order_relaxed);
 			SetItemTooltip(
-				"What transmissive surfaces show behind them, traced along the refracted ray (behind them or out of the view "
-				"alike), a ray every pixel of them, rather than looked up in the frame drawn so far (SPEEDO_TRACED_REFRACTIONS=0 "
-				"or 1). On by default with ray queries. %s",
+				"What glass and water show behind them, bent by refraction, including what is out of view. %s",
 				rayQueries ? "" : kBvhGlass);
 			bool shadows = settings.shadows.load(std::memory_order_relaxed);
 			bool caustics = App().GetScene().GetCaustics();
@@ -2311,7 +2308,7 @@ void WindowedApplication::PrepareDraw()
 				{
 					if (Selectable("The device's default", setting == 0))
 						settings.glassSurfaceCount.store(0, std::memory_order_relaxed);
-					SetItemTooltip("8 with ray queries, 4 through the BVHs.");
+					SetItemTooltip("8 with hardware ray queries, 4 with software.");
 					for (uint32_t value = 1; value <= SHADER_TYPES_CAUSTIC_SURFACE_COUNT; value++)
 						if (Selectable(std::format("{}", value).c_str(), setting == value))
 							settings.glassSurfaceCount.store(value, std::memory_order_relaxed);
@@ -2319,33 +2316,27 @@ void WindowedApplication::PrepareDraw()
 				}
 				EndDisabled();
 				SetItemTooltip(
-					"The bounces of a path through glass: how many transmissive surfaces a refraction's ray and a caustic's "
-					"photon cross at most, a ray each (SPEEDO_GLASS_SURFACE_COUNT). A glass of water takes four, into the glass "
-					"and the water and out of both; past them a refraction keeps what the frame drawn so far shows, and a "
-					"photon is dropped.");
+					"How many glass surfaces the refractions and caustics see through at most: a glass of water needs four, "
+					"into the glass and the water and out of both.");
 			}
 			bool solidTransmission = settings.solidTransmission.load(std::memory_order_relaxed);
 			if (SmallCheckbox("Solid Transmission", &solidTransmission))
 				settings.solidTransmission.store(solidTransmission, std::memory_order_relaxed);
 			SetItemTooltip(
-				"Transmissive materials without a volume (KHR_materials_volume) refract as solids, into them and out of them, "
-				"rather than as glTF's infinitely thin walls, which bend nothing (SPEEDO_SOLID_TRANSMISSION=1).");
+				"Glass the model doesn't give a thickness refracts as a solid rather than as a thin sheet, which bends "
+				"nothing.");
 			// (traced from the lights' shadow views: none without the shadows)
 			if (SmallCheckbox("Caustics", &caustics, shadows))
 				settings.caustics.store(caustics ? 1 : 0, std::memory_order_relaxed);
 			SetItemTooltip(
-				"The lights' light refracted through transmissive surfaces that don't move, traced as photons from the lights' "
-				"shadow views (with the shadows), and the emissive surfaces' through solid glass (SPEEDO_CAUSTICS=0 or 1). On "
-				"by default with ray queries. %s",
+				"Light focused through glass and water onto what is behind them. Needs the shadows. %s",
 				rayQueries ? "" : kBvhGlass);
 
 			SeparatorText("Shadows");
 			bool tracedShadows = settings.tracedShadows.load(std::memory_order_relaxed);
 			if (SmallCheckbox("Ray Traced Shadows", &tracedShadows, shadows))
 				settings.tracedShadows.store(tracedShadows, std::memory_order_relaxed);
-			SetItemTooltip(
-				"The brightest lights' shadows (the directional ones, then up to 4 in all) traced, soft by each light's size "
-				"(View > Lights), rather than looked up in the shadow atlas (SPEEDO_TRACED_SHADOWS=0 to start without).");
+			SetItemTooltip("Accurate soft shadows for the brightest lights (up to 4), softer the larger the light.");
 			{
 				bool everywhere = settings.tracedShadowsEverywhere.load(std::memory_order_relaxed);
 				BeginDisabled(!shadows || !tracedShadows);
@@ -2353,14 +2344,14 @@ void WindowedApplication::PrepareDraw()
 				{
 					if (Selectable("Where unsure (default)", !everywhere))
 						settings.tracedShadowsEverywhere.store(false, std::memory_order_relaxed);
-					SetItemTooltip("A ray only where the shadow atlas can't tell lit from shadowed: along the shadows' edges.");
+					SetItemTooltip("Rays only along the shadows' edges, where they matter.");
 					if (Selectable("Every pixel", everywhere))
 						settings.tracedShadowsEverywhere.store(true, std::memory_order_relaxed);
-					SetItemTooltip("A ray every pixel and traced light (SPEEDO_TRACED_SHADOWS=all): for comparisons.");
+					SetItemTooltip("A ray from every pixel: slower, for comparisons.");
 					EndCombo();
 				}
 				EndDisabled();
-				SetItemTooltip("The traced shadows' ray budget: which pixels trace a ray toward each traced light.");
+				SetItemTooltip("Which pixels trace shadow rays.");
 			}
 			PopItemWidth();
 		}
@@ -2389,32 +2380,26 @@ void WindowedApplication::PrepareDraw()
 			bool emissiveLights = App().GetScene().GetSettings().emissiveLights.load(std::memory_order_relaxed);
 			if (SmallCheckbox("Emissive Lights", &emissiveLights))
 				App().GetScene().GetSettings().emissiveLights.store(emissiveLights, std::memory_order_relaxed);
-			SetItemTooltip(
-				"Emissive surfaces light the scene as area lights: points of them picked through a tree of them by how much each may give, at every 4th pixel each way by default (and in the indirect lighting's voxels), shadowed by rays through the model's BVH. Off, the indirect lighting's rays take their emission as they meet them.");
+			SetItemTooltip("Glowing surfaces light the scene and cast shadows, as lights do. Off, only the indirect lighting picks up their glow.");
 			SeparatorText("Indirect Lighting");
 			bool indirectLighting = App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed);
 			if (SmallCheckbox("Indirect Lighting", &indirectLighting))
 				App().GetScene().GetSettings().indirectLighting.store(indirectLighting, std::memory_order_relaxed);
-			SetItemTooltip(
-				"Diffuse ambient light from irradiance probes over a voxel clipmap (on by default, SPEEDO_GI=0 to start without it): "
-				"bounced light, colour bleeding, and the sky occluded indoors. Turned on, the scene is voxelized again.");
+			SetItemTooltip("Light bounced off the surfaces: color bleeding, and darker interiors where the sky can't reach.");
 			// its options, greyed out while it is off
 			BeginDisabled(!indirectLighting);
 			{
 				// how the probes' rays (and the voxels' shadow rays) find what they meet: the model's triangles through its
 				// BVHs, or the voxels (see GiData::trace)
 				bool traceTriangles = App().GetScene().GetSettings().traceTriangles.load(std::memory_order_relaxed);
-				if (BeginCombo("Rays", traceTriangles ? "Triangles (BVH)" : "Voxels"))
+				if (BeginCombo("Rays", traceTriangles ? "Triangles" : "Voxels"))
 				{
-					if (Selectable("Triangles (BVH)", traceTriangles))
+					if (Selectable("Triangles", traceTriangles))
 						App().GetScene().GetSettings().traceTriangles.store(true, std::memory_order_relaxed);
-					SetItemTooltip(
-						"The rays meet the model's triangles, through its BVHs (one of what doesn't move, one of what does, "
-						"refit each frame), and take the voxels' light where they hit: no surface a voxel thick, no opening "
-						"narrowed by the voxels, light through alpha masked gaps.");
+					SetItemTooltip("The rays hit the model's own triangles: more accurate, with light through narrow openings and cut-out leaves.");
 					if (Selectable("Voxels", !traceTriangles))
 						App().GetScene().GetSettings().traceTriangles.store(false, std::memory_order_relaxed);
-					SetItemTooltip("The rays walk the voxels (SPEEDO_GI_TRACE=voxels to start with them).");
+					SetItemTooltip("The rays hit a blocky voxel copy of the scene: faster, coarser.");
 					EndCombo();
 				}
 				SetItemTooltip("What the rays meet: the model's triangles, or the voxels.");
@@ -2434,26 +2419,18 @@ void WindowedApplication::PrepareDraw()
 					}
 					EndCombo();
 				}
-				SetItemTooltip(
-					"Voxels along the scene's longest side (SPEEDO_GI_RESOLUTION to start with another). Finer resolves "
-					"light through narrower openings, at a steep cost: each step about doubles the indirect lighting's "
-					"time. Changing it voxelizes the scene again.");
+				SetItemTooltip("The detail of the indirect lighting. Higher catches light through narrower openings, but each step up about doubles its cost.");
 			}
 			bool surfaceCache = App().GetScene().GetSettings().giSurfaceCache.load(std::memory_order_relaxed);
 			if (SmallCheckbox("Surface Cache", &surfaceCache))
 				App().GetScene().GetSettings().giSurfaceCache.store(surfaceCache, std::memory_order_relaxed);
-			SetItemTooltip(
-				"Refines the probes' light at the voxels the views look up with rays from each voxel itself, one a frame, "
-				"accumulated over time and filtered along the surface: light through narrow openings resolves at the voxels' "
-				"size rather than the probes' spacing. On by default (SPEEDO_GI_CACHE=0 to start without it); its memory grows "
-				"with the resolution (0.3 GB at 384 in Sponza).");
+			SetItemTooltip("Finer indirect light on the surfaces, such as light through narrow openings. Uses more memory at higher resolutions.");
 			{
 				// where the surfaces' lookups take the surface cache's light from (see Scene::Settings::giWorldGrid)
+				// (the world grid: 176 MB more, and 1.3 to 3.4 ms a frame more at 1080p in Sponza and Bistro)
 				static constexpr std::array kLightStores{
-					std::tuple{"Clipmap (default)", false, "The clipmap's voxels: a level of them around the eye for each distance, each level its own light."},
-					std::tuple{"World Grid", true, "Cells anchored in the world at several sizes (the world cache), which the surface cache's rays fill: the same light "
-													"whatever level of the clipmap a place is in, steadier while walking. Experimental: 176 MB more, and 1.3 to 3.4 "
-													"ms a frame more at 1080p."}};
+					std::tuple{"Clipmap (default)", false, "Detail that follows the camera: finer near it, coarser farther away."},
+					std::tuple{"World Grid", true, "Detail fixed in the world: steadier light while walking. Experimental: slower, and uses more memory."}};
 				bool grid = App().GetScene().GetSettings().giWorldGrid.load(std::memory_order_relaxed);
 				BeginDisabled(!surfaceCache);
 				if (BeginCombo("Light Store", std::get<0>(kLightStores[grid ? 1 : 0])))
@@ -2467,10 +2444,7 @@ void WindowedApplication::PrepareDraw()
 					EndCombo();
 				}
 				EndDisabled();
-				SetItemTooltip(
-					"Where the surfaces take the surface cache's light from (SPEEDO_GI_WORLD=1 to start with the grid). The grid's "
-					"cells are only held while it is chosen. The clipmap's stay in use under it: their rays fill the grid, and "
-					"they light what moves, the air, what a traced ray meets and what the grid has no cell for yet.");
+				SetItemTooltip("Where the surface cache keeps its light.");
 			}
 			{
 				// the rays a voxel traces an update while its cache warms up (see gi::kDefaultCacheWarmRayCount)
@@ -2486,13 +2460,11 @@ void WindowedApplication::PrepareDraw()
 					EndCombo();
 				}
 				EndDisabled();
+				// (with 16 the first seconds are a quarter to nearly half less blotched, and the indirect lighting takes 1 to 3
+				// ms a frame more in a small interior, 12 more in Sponza and 33 more in Bistro, 11 with 8)
 				SetItemTooltip(
-					"The rays each voxel of the surface cache traces a frame for the first seconds after the scene loads or a "
-					"light is switched, while its light settles (SPEEDO_GI_CACHE_WARM_RAYS to start with another, 1 to %u). "
-					"More settle smoother: with 16 the first seconds are a quarter to nearly half less blotched. They cost "
-					"while they last: the indirect lighting takes 1 to 3 ms a frame more in a small interior with 16, 12 "
-					"more in Sponza and 33 more in Bistro (11 with 8). Takes effect the next time the light settles.",
-					gfx::gi::kMaxCacheWarmRayCount);
+					"The rays used for the first seconds after loading or changing a light, while the light settles. More "
+					"settle smoother, but slow those seconds down. Takes effect the next time the light settles.");
 			}
 			// (the near field's rays trace the triangles: with the voxels' rays it doesn't run, see Renderer's myGiNearOn)
 			bool traced = App().GetScene().GetSettings().traceTriangles.load(std::memory_order_relaxed);
@@ -2500,11 +2472,7 @@ void WindowedApplication::PrepareDraw()
 			if (SmallCheckbox("Near Field", &nearField, traced))
 				App().GetScene().GetSettings().giNearField.store(nearField, std::memory_order_relaxed);
 			bool nearOn = traced && nearField;
-			SetItemTooltip(
-				"Near other surfaces, takes the light a ray from each pixel gathers within a few voxels (filtered along the "
-				"surface) in place of the voxels' own, which can't hold what is closer than a voxel: contacts darken "
-				"smoothly, without blocks. Where the rays trace the triangles. On by default (SPEEDO_GI_NEAR=0 to start "
-				"without it).");
+			SetItemTooltip("Smooth darkening where surfaces meet, without blocky artifacts. Needs Rays: Triangles.");
 			{
 				float contact = App().GetScene().GetSettings().giNearContact.load(std::memory_order_relaxed);
 				BeginDisabled(!nearOn);
@@ -2512,16 +2480,15 @@ void WindowedApplication::PrepareDraw()
 					App().GetScene().GetSettings().giNearContact.store(contact, std::memory_order_relaxed);
 				EndDisabled();
 				SetItemTooltip(
-					"How near another surface a pixel's rays find before its light is theirs rather than the voxels', in voxels "
-					"(SPEEDO_GI_NEAR_CONTACT, %.1f by default). Wider takes the rays' light along more of every junction; "
-					"narrower leaves more of the voxels' own near contacts. Drag, or double-click to type.",
+					"How far from where surfaces meet the near field reaches (%.1f by default). Drag, or double-click to type.",
 					static_cast<double>(gfx::gi::kDefaultNearContact));
 			}
 			{
 				// every how many pixels each way the near field's rays are traced (see GiData::nearStride)
+				// (every 2nd: 1.3 to 3.2 ms more a frame at the benchmark poses)
 				static constexpr std::array kNearStrides{
-					std::tuple{"Every 2nd pixel", 2U, "A quarter of the pixels trace a ray: finer contacts at thin features, 1.3 to 3.2 ms more a frame at the benchmark poses (SPEEDO_GI_NEAR_STRIDE=2)."},
-					std::tuple{"Every 4th pixel", 4U, "A sixteenth of the pixels trace a ray (the default)."}};
+					std::tuple{"Every 2nd pixel", 2U, "Finer at thin features, slower."},
+					std::tuple{"Every 4th pixel", 4U, "Faster (the default)."}};
 				uint32_t stride = App().GetScene().GetSettings().giNearStride.load(std::memory_order_relaxed);
 				const char* shown = "?";
 				for (auto [label, value, tooltip] : kNearStrides)
@@ -2545,11 +2512,7 @@ void WindowedApplication::PrepareDraw()
 				bool temporal = App().GetScene().GetSettings().giNearTemporal.load(std::memory_order_relaxed);
 				if (SmallCheckbox("Near Field Over Frames", &temporal, nearOn))
 					App().GetScene().GetSettings().giNearTemporal.store(temporal, std::memory_order_relaxed);
-				SetItemTooltip(
-					"Accumulates the near field's rays over frames (their directions turn every frame), reprojected by the "
-					"depth: smooth rather than a grain fixed to the screen, at a lag of a few frames where the light changes. "
-					"On by default (SPEEDO_GI_NEAR_TEMPORAL=0 to start without; SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT, 16, how "
-					"many frames it remembers).");
+				SetItemTooltip("Blends the near field over several frames: smoother, but it lags a little when the light changes.");
 			}
 			EndDisabled();
 			PopItemWidth();
@@ -3685,10 +3648,10 @@ void WindowedApplication::PrepareDraw()
 		{
 			if (MenuItem("Copy Scene", SHORTCUT_LABEL("Shift+C")))
 				InternalCopyScene();
-			SetItemTooltip("Copies the camera, the model and the settings as the variables that reproduce this view (SPEEDO_CAMERA=..., SPEEDO_AUTOLOAD_MODEL=...), to paste into a report.");
+			SetItemTooltip("Copies the camera, the model and the settings as text that reproduces this view, to paste into a report or back with Paste Scene.");
 			if (MenuItem("Paste Scene", SHORTCUT_LABEL("Shift+V")))
 				InternalPasteScene();
-			SetItemTooltip("Applies what Copy Scene copied (SPEEDO_CAMERA=... SPEEDO_AUTOLOAD_MODEL=... # window ...): its settings (those it leaves out back to their defaults), its model and environment if they aren't the ones loaded, the window's size, and the camera once the model is in.");
+			SetItemTooltip("Restores a view copied with Copy Scene: its model, environment, settings, window size and camera.");
 			ImGui::EndMenu();
 		}
 		if (barMenu("View"))
@@ -3727,7 +3690,7 @@ void WindowedApplication::PrepareDraw()
 				{
 					if (MenuItem(label, nullptr, windowState.fullscreenMode == mode))
 						windowState.fullscreenMode = mode;
-					SetItemTooltip("Exclusive takes the monitor (on macOS, native too: scanned out directly); borderless is a window covering it, which stays composited. Takes effect the next time the window goes fullscreen.");
+					SetItemTooltip("Exclusive takes over the monitor; borderless is a window covering it. Takes effect the next time the window goes fullscreen.");
 				}
 				// what the swapchain has, of what the surface supports (none listed until the first frame)
 				auto presentation = UnpackPresentation(myPresentation.load(std::memory_order_relaxed));
@@ -3759,7 +3722,7 @@ void WindowedApplication::PrepareDraw()
 						request.imageCount = count;
 						myPresentationRequest.store(PackPresentation(request), std::memory_order_relaxed);
 					}
-					SetItemTooltip("The swapchain is recreated before the next frame.");
+					SetItemTooltip("Takes effect on the next frame.");
 				}
 				ImGui::EndMenu();
 			}
@@ -3817,7 +3780,7 @@ void WindowedApplication::PrepareDraw()
 					if (SliderFloat("Time", &time, 0.0F, std::max(duration, 1e-3F), "%.3f s", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
 						state.time = time;
 					EndDisabled();
-					SetItemTooltip("Where the animation is, of its %.3g s: drag to move it (Ctrl/Cmd+click to type). Edit > Copy Scene writes it.", static_cast<double>(duration));
+					SetItemTooltip("Where the animation is, of its %.3g s: drag to move it (Ctrl/Cmd+click to type).", static_cast<double>(duration));
 				}
 				Separator();
 				if (MenuItem("Rest pose", nullptr, !state.selected.has_value()))
@@ -3855,7 +3818,7 @@ void WindowedApplication::PrepareDraw()
 					else
 						gShowSky = !gShowSky;
 				}
-				SetItemTooltip("Lights the scene with Earth's sky (the default; it replaces a panorama opened) and opens its settings: its intensity, the sun by the time of day, where and when, and the air's haze and fog. Checked while the sky is the environment; with it, opens or closes its settings.");
+				SetItemTooltip("Lights the scene with a physical sky and sun, and opens its settings: the time of day, the place, and the air's haze and fog.");
 				if (MenuItem("Open Environment...", SHORTCUT_LABEL("E"), gShowBrowser && gBrowserPurpose == BrowserPurpose::kEnvironment))
 				{
 					// the file browser, listing panoramas only
@@ -3882,7 +3845,7 @@ void WindowedApplication::PrepareDraw()
 				{
 					if (MenuItem(gfx::UnitName(unit).data(), nullptr, current == unit))
 						set(gfx::MetersPerUnit(unit));
-					SetItemTooltip("What the file's coordinates are in: the lights' falloff, the ground plane's squares (a meter each) and the air go by it. Remembered for the file.");
+					SetItemTooltip("The unit of the file's coordinates, which the lights' falloff, the ground plane and the air depend on. Remembered for the file.");
 				}
 				Separator();
 				float custom = metersPerUnit;
@@ -3897,7 +3860,7 @@ void WindowedApplication::PrepareDraw()
 					windowedapplication::ForgetSceneUnit();
 				}
 				EndDisabled();
-				SetItemTooltip("Forget the unit remembered for the file: a gltf's meters, an obj's by its size (centimeters over 500 units across).");
+				SetItemTooltip("Forgets the unit chosen for the file and guesses it again.");
 				// how fast the camera moves, in the scene's units (here since 2026-11-18, the user's ask)
 				Separator();
 				{
@@ -3930,7 +3893,7 @@ void WindowedApplication::PrepareDraw()
 			SetItemTooltip("The model's cameras, and the physical camera: its sensor, lens, focus, focal length and exposure.");
 			if (MenuItem("Lights...", nullptr, gShowLights))
 				gShowLights = !gShowLights;
-			SetItemTooltip("Lists the lights, and draws them over the views: where they are (a directional light outside the scene, shining in), spot cones, point light ranges and the shadow views' frusta.");
+			SetItemTooltip("Lists the lights, and shows them in the view: where they are, spot cones, point light ranges and shadow frusta.");
 			SeparatorText("Rendering");
 			{
 				// the rendering's features, each switched on or off (some in windows of their own with their options: the
@@ -3942,7 +3905,7 @@ void WindowedApplication::PrepareDraw()
 					bool shadows = App().GetScene().GetSettings().shadows.load(std::memory_order_relaxed);
 					if (SmallCheckbox("Shadows", &shadows))
 						App().GetScene().GetSettings().shadows.store(shadows, std::memory_order_relaxed);
-					SetItemTooltip("The lights' shadows: cascades for directional lights, cubes for point lights, a view per spot light.");
+					SetItemTooltip("The lights' shadows.");
 					// the traced features' options, each one's (the shadows', reflections', refractions' and caustics') and how the
 					// rays are traced: View > Rendering Features > Ray Tracing...
 					SeparatorText("Ray Tracing");
@@ -3960,21 +3923,21 @@ void WindowedApplication::PrepareDraw()
 					bool culling = App().GetScene().GetSettings().culling.load(std::memory_order_relaxed);
 					if (SmallCheckbox("Culling", &culling))
 						App().GetScene().GetSettings().culling.store(culling, std::memory_order_relaxed);
-					SetItemTooltip("Skips the chunks of the model outside each view's frustum, and each shadow view's.");
+					SetItemTooltip("Skips drawing what is out of view: faster, the same picture.");
 					bool clusteredLights = App().GetScene().GetSettings().clusteredLights.load(std::memory_order_relaxed);
 					if (SmallCheckbox("Clustered Lights", &clusteredLights))
 						App().GetScene().GetSettings().clusteredLights.store(clusteredLights, std::memory_order_relaxed);
-					SetItemTooltip("Shades each pixel with only the lights that may reach its cluster (a tile of the view and a slice of depth), not all of them.");
+					SetItemTooltip("Shades each pixel with only the lights near it: faster with many lights, the same picture.");
 					ImGui::EndMenu();
 				}
 				if (ui::BeginMenu("Tonemapper"))
 				{
 					// (as tonemap.slang has them)
 					static constexpr std::array<std::tuple<const char*, uint32_t, const char*>, 5> kTonemappers{{
-						{"Khronos PBR Neutral", TONEMAPPER_PBR_NEUTRAL, "Leaves colors up to about 0.76 nearly as they are, so that base colors show as themselves under a white light, and compresses brighter ones toward white (the default)."},
-						{"ACES", TONEMAPPER_ACES, "The film industry's filmic look (Stephen Hill's fit of ACES): more contrast and saturation, bright colors shifting toward white."},
-						{"AgX", TONEMAPPER_AGX, "A filmic curve over a wide range of stops that desaturates bright colors smoothly toward white, without their hues shifting (Blender's)."},
-						{"Reinhard", TONEMAPPER_REINHARD, "Each color divided by one plus its luminance: simple, and flat in the highlights."},
+						{"Khronos PBR Neutral", TONEMAPPER_PBR_NEUTRAL, "Keeps colors true, compressing only the brightest toward white (the default)."},
+						{"ACES", TONEMAPPER_ACES, "The film industry's look: more contrast and saturation."},
+						{"AgX", TONEMAPPER_AGX, "A filmic look that fades bright colors smoothly to white without shifting their hues."},
+						{"Reinhard", TONEMAPPER_REINHARD, "Simple, and flat in the highlights."},
 						{"Linear (clamped)", TONEMAPPER_LINEAR, "No curve: what is brighter than 1 clips, to judge the exposure itself."},
 					}};
 					auto current = App().GetScene().GetSettings().tonemapper.load(std::memory_order_relaxed);
@@ -3991,11 +3954,11 @@ void WindowedApplication::PrepareDraw()
 					// temporal upscaling (FSR 3.1's, see upscale.slang): the render size a share of the output's, reconstructed at it over frames
 					auto current = App().GetScene().GetSettings().upscaling.load(std::memory_order_relaxed);
 					for (auto [label, upscaling, tooltip] : std::array{
-							 std::tuple{"Off", gfx::Upscaling::kOff, "Rendered at the output's size, without a history (SPEEDO_UPSCALING=off)."},
-							 std::tuple{"Native", gfx::Upscaling::kNative, "Rendered at the output's size and reconstructed over frames by FSR 3.1: its antialiasing alone (SPEEDO_UPSCALING=native)."},
-							 std::tuple{"Quality (77%)", gfx::Upscaling::kQuality, "Rendered at 77% of the output's size each way, 59% of its pixels, and upscaled over frames (SPEEDO_UPSCALING=quality)."},
-							 std::tuple{"Balanced (67%)", gfx::Upscaling::kBalanced, "Rendered at 67% of the output's size each way, 45% of its pixels, and upscaled over frames (the default)."},
-							 std::tuple{"Performance (50%)", gfx::Upscaling::kPerformance, "Rendered at half the output's size each way, a quarter of its pixels, and upscaled over frames (SPEEDO_UPSCALING=performance)."}})
+							 std::tuple{"Off", gfx::Upscaling::kOff, "Rendered at full size, without antialiasing."},
+							 std::tuple{"Native", gfx::Upscaling::kNative, "Rendered at full size, antialiased by FSR 3.1."},
+							 std::tuple{"Quality (77%)", gfx::Upscaling::kQuality, "Rendered at 77% size and upscaled by FSR 3.1."},
+							 std::tuple{"Balanced (67%)", gfx::Upscaling::kBalanced, "Rendered at 67% size and upscaled by FSR 3.1 (the default)."},
+							 std::tuple{"Performance (50%)", gfx::Upscaling::kPerformance, "Rendered at half size and upscaled by FSR 3.1: the fastest."}})
 					{
 						if (MenuItem(label, nullptr, current == upscaling))
 							App().GetScene().GetSettings().upscaling.store(upscaling, std::memory_order_relaxed);
@@ -4038,7 +4001,7 @@ void WindowedApplication::PrepareDraw()
 #if (SPEEDO_PROFILING_LEVEL > 0)
 			if (MenuItem("Statistics...", nullptr, gShowStatistics))
 				gShowStatistics = !gShowStatistics;
-			SetItemTooltip("The passes' gpu timings (where the driver writes them), submits, transient memory, and in debug builds the vulkan objects.");
+			SetItemTooltip("The frame's timings and memory.");
 #else
 			// (the Statistics window holds it where there is one)
 			SmallCheckbox("Show FPS", &gShowFps);

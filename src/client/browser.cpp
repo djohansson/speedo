@@ -961,7 +961,7 @@ void WindowedApplication::InternalDrawBrowser()
 					names[unitIt + 1] = gfx::UnitName(gfx::kSceneUnits[unitIt]).data();
 				SetNextItemWidth(GetFontSize() * 9.0F);
 				Combo("##units", &state.unit, names.data(), static_cast<int>(names.size()));
-				SetItemTooltip("What the files' coordinates are in: as remembered for the file or guessed (a gltf's meters, an obj's by its size, centimeters over 500 units across), or chosen here and remembered. View > Units changes it later.");
+				SetItemTooltip("The unit of the files' coordinates: guessed, or chosen here, and remembered for the file. View > Units changes it later.");
 				SameLine();
 			}
 		}
