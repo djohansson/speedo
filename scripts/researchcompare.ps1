@@ -68,7 +68,7 @@ param(
 	[switch] $Validate,
 	[switch] $Timings,
 	[string] $TimingSize = '2560x1440',
-	[int] $TimingFrames = 600,
+	[int] $TimingFrames = 900,
 	[string] $Chart,
 	[string] $Device,
 	[switch] $Reuse,
