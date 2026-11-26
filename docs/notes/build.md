@@ -100,7 +100,7 @@ Every preset builds a client for every graphics api the platform has (Vulkan; Me
 | `ktx` | `0007-version-without-bash.patch` (IT policy blocks msys2's `bash.exe`; do not add ports that need an msys2 shell without patching that out); built without KTX's ETC decoder (see "Licenses"); `0008` SSE kernels with AVX2 |
 | `glfw3` | lists Cocoa's HiDPI display modes so full screen on a Retina display can use them; retire when upstream does |
 | `mimalloc` | macOS: dyld frees thread-local blocks through the interposed `free` that mimalloc does not own; the patch forwards foreign pointers to `malloc_zone_from_ptr`; retire when upstream fixes it |
-| `tracy` | libc++ includes (`0005`, `0006`), generator pitfalls (`0007`, `0008`), and `0010`: the UDP broadcast's socket without `getaddrinfo`, whose `dlopen` could deadlock with dyld before `main` on macOS; retire when upstream has it |
+| `tracy` | libc++ includes (`0005`, `0006`), generator pitfalls (`0007`, `0008`), and `0010`: the UDP broadcast's socket without `getaddrinfo`, whose `dlopen` could deadlock with dyld before `main` on macOS (wolfpld/tracy#1528's diff); retire when a release has it |
 | `draco` | Ninja, link groups, `<iterator>` include |
 | `ppqsort` | libc++ include |
 | `glslang` | no PCH (see the FASTBuild section) |

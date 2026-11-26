@@ -1,8 +1,26 @@
+diff --git a/public/client/TracyProfiler.cpp b/public/client/TracyProfiler.cpp
+index 90ff8ea0..d51df1b2 100644
+--- a/public/client/TracyProfiler.cpp
++++ b/public/client/TracyProfiler.cpp
+@@ -1925,7 +1925,7 @@ void Profiler::Worker()
+ #  else
+     const char* addr = "255.255.255.255";
+ #  endif
+-    if( !m_broadcast->Open( addr, broadcastPort ) )
++    if( !m_broadcast->Open( addr ) )
+     {
+         m_broadcast->~UdpBroadcast();
+         tracy_free( m_broadcast );
 diff --git a/public/common/TracySocket.cpp b/public/common/TracySocket.cpp
-index 1deae49..af81f7b 100644
+index 1deae496..ac3c3c3c 100644
 --- a/public/common/TracySocket.cpp
 +++ b/public/common/TracySocket.cpp
-@@ -545,47 +545,36 @@ bool UdpBroadcast::Open( const char* addr, uint16_t port )
+@@ -541,51 +541,35 @@ UdpBroadcast::~UdpBroadcast()
+     if( m_sock != -1 ) Close();
+ }
+ 
+-bool UdpBroadcast::Open( const char* addr, uint16_t port )
++bool UdpBroadcast::Open( const char* addr )
  {
      TRACY_ASSERT( m_sock == -1 );
  
@@ -12,7 +30,8 @@ index 1deae49..af81f7b 100644
 -    memset( &hints, 0, sizeof( hints ) );
 -    hints.ai_family = AF_INET;
 -    hints.ai_socktype = SOCK_DGRAM;
--
++    if( inet_pton( AF_INET, addr, &m_addr ) != 1 ) return false;
+ 
 -    char portbuf[32];
 -    sprintf( portbuf, "%" PRIu16, port );
 -
@@ -21,13 +40,6 @@ index 1deae49..af81f7b 100644
 -    for( ptr = res; ptr; ptr = ptr->ai_next )
 -    {
 -        if( ( sock = socket( ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol ) ) == -1 ) continue;
-+    // The broadcast address is a numeric IPv4 address (Send sends to the address parsed here), so the socket is created
-+    // directly rather than through getaddrinfo, which resolved nothing more. On macOS the first getaddrinfo with a host
-+    // name loads libnetwork (dlopen); called from the profiler's worker thread, which starts during static
-+    // initialization, it can deadlock with dyld while the main thread is still running image initializers.
-+    (void)port;
-+    if( inet_pton( AF_INET, addr, &m_addr ) != 1 ) return false;
-+
 +    int sock = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
 +    if( sock == -1 ) return false;
  #if defined __APPLE__
@@ -69,3 +81,16 @@ index 1deae49..af81f7b 100644
      return true;
  }
  
+diff --git a/public/common/TracySocket.hpp b/public/common/TracySocket.hpp
+index 26e12cec..55d29522 100644
+--- a/public/common/TracySocket.hpp
++++ b/public/common/TracySocket.hpp
+@@ -113,7 +113,7 @@ public:
+     UdpBroadcast();
+     ~UdpBroadcast();
+ 
+-    bool Open( const char* addr, uint16_t port );
++    bool Open( const char* addr );
+     void Close();
+ 
+     int Send( uint16_t port, const void* data, int len );
