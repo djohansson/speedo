@@ -1,6 +1,6 @@
 # Research scenes: measures
 
-speedo (extended) against the glTF research set's path traced references, written by scripts/researchcompare.ps1 with the chart beside it (overview.jpg). Captured and timed on macOS 27.2.1, Metal, Apple M4 Pro, hardware ray tracing; 2026-11-25, commit 5030a883.
+speedo (extended) against the glTF research set's path traced references, written by scripts/researchcompare.ps1 with the chart beside it (overview.jpg). Captured and timed on macOS 27.2.1, Metal, Apple M4 Pro, hardware ray tracing; 2026-11-26, commit 2b893c74.
 
 - **Blurred** and **sharp**: the mean |log2| difference of the two images' linear luminances, in stops (1 is twice or half the light), blurred over 8 pixels (the lighting's error rather than its noise) and per pixel. The scenes are ordered by the blurred one, the most unlike first.
 - **Light**: log2 of speedo's mean linear luminance over the reference's, in stops: the light overall (+1 twice as bright, -1 half). The chart shows it as a share brighter or darker.
@@ -9,31 +9,31 @@ speedo (extended) against the glTF research set's path traced references, writte
 
 | Scene | Blurred | Sharp | Light | Mean | Frame | Costliest passes |
 |---|---:|---:|---:|---:|---:|---|
-| glass-of-water | 0.743 | 0.923 | -0.250 | 25.59 | 142.71 | Main Transmissive 100.72, Reflection Trace 15.67, GI 4.49 |
-| crown | 0.509 | 0.728 | -0.498 | 16.43 | 77.03 | Main Transmissive 25.61, GI 15.55, Reflection Trace 9.66 |
-| cornell-caustic | 0.473 | 0.476 | +0.075 | 14.81 | 52.06 | Main Transmissive 28.05, GI 12.84, Main Visibility 1.93 |
-| bmw-m6 | 0.394 | 0.429 | -0.217 | 7.53 | 85.31 | Reflection Trace 26.63, Main Transmissive 23.49, Main Visibility 7.03 |
-| coffee-maker | 0.354 | 0.405 | +0.059 | 10.08 | 64.30 | Main Transmissive 28.91, Reflection Trace 7.58, GI 5.60 |
-| classroom2 | 0.331 | 0.482 | -0.015 | 14.17 | 67.28 | Reflection Trace 18.81, GI 11.99, Main Visibility 8.84 |
-| breakfast-room | 0.319 | 0.531 | -0.046 | 8.26 | 31.93 | GI 12.19, Reflection Trace 5.19, GI Sides 3.18 |
-| living-room | 0.292 | 0.358 | -0.015 | 9.91 | 58.89 | Reflection Trace 16.74, Main Transmissive 11.70, GI 10.47 |
-| classroom | 0.272 | 0.401 | +0.006 | 12.79 | 39.02 | Reflection Trace 16.15, GI Sides 3.48, Main Visibility 3.44 |
-| pontiac-gto | 0.253 | 0.282 | -0.197 | 5.29 | 43.36 | Main Transmissive 19.10, Reflection Trace 5.96, GI Sides 3.94 |
-| bathroom | 0.242 | 0.378 | -0.050 | 11.62 | 53.22 | Reflection Trace 18.30, GI 7.78, Main Transmissive 4.96 |
-| veach-mis | 0.242 | 0.268 | -0.086 | 6.15 | 26.77 | Reflection Trace 6.64, GI 3.42, Main Visibility 3.17 |
-| kitchen | 0.226 | 0.302 | -0.034 | 8.27 | 46.10 | Reflection Trace 10.00, GI 9.89, Main Transmissive 6.97 |
-| veach-bidir | 0.226 | 0.243 | -0.107 | 6.44 | 28.18 | GI 14.97, Main Transmissive 3.06, Main Visibility 2.11 |
-| living-room-2 | 0.220 | 0.253 | +0.133 | 9.06 | 53.33 | Reflection Trace 17.89, GI 10.18, Main Visibility 4.18 |
-| veach-ajar | 0.213 | 0.224 | +0.142 | 12.26 | 33.76 | Main Transmissive 14.47, GI 3.55, Main Visibility 3.28 |
-| teapot-full | 0.206 | 0.250 | +0.026 | 9.92 | 55.16 | Main Transmissive 39.02, Main Visibility 3.26, Shadow Classify 2.42 |
-| dragon | 0.204 | 0.352 | +0.076 | 2.09 | 18.52 | GI 11.18, GI Sides 1.87, Upscale Accumulate 1.08 |
-| spaceship | 0.194 | 0.217 | -0.233 | 3.65 | 48.89 | Main Transmissive 13.13, GI 8.26, Reflection Trace 6.67 |
-| lamp | 0.185 | 0.228 | +0.050 | 6.86 | 33.13 | Main Transmissive 4.33, Main Visibility 4.23, Reflection Trace 3.92 |
-| vintage-car | 0.179 | 0.225 | -0.163 | 5.52 | 67.85 | Main Transmissive 35.87, Reflection Trace 6.84, Main Visibility 4.52 |
-| bathroom2 | 0.171 | 0.209 | -0.074 | 8.77 | 47.41 | Reflection Trace 10.72, GI 8.38, Main Transmissive 8.08 |
-| modern-hall | 0.169 | 0.199 | -0.103 | 7.04 | 31.29 | Reflection Trace 6.11, GI 5.46, Main Visibility 3.91 |
-| staircase | 0.122 | 0.185 | +0.025 | 4.90 | 50.96 | Reflection Trace 13.77, GI 11.61, Main Transmissive 6.36 |
-| house | 0.114 | 0.183 | -0.023 | 6.37 | 22.75 | Main Transmissive 5.06, GI 4.13, GI Sides 2.77 |
-| material-testball | 0.078 | 0.091 | -0.043 | 3.47 | 21.61 | GI Sides 3.22, Main Visibility 3.18, GI 3.13 |
-| teapot | 0.077 | 0.083 | -0.051 | 4.83 | 22.09 | GI Sides 3.85, Main Visibility 3.40, Reflection Trace 2.80 |
-| cornell-box | 0.058 | 0.066 | -0.011 | 1.12 | 21.89 | GI 14.03, Main Visibility 1.90, GI Sides 1.87 |
+| glass-of-water | 0.738 | 0.931 | -0.242 | 25.82 | 127.26 | Main Transmissive 83.49, Reflection Trace 15.71, GI 4.53 |
+| classroom2 | 0.652 | 0.830 | -0.182 | 21.43 | 71.08 | Reflection Trace 19.06, GI 12.66, Main Transmissive 6.64 |
+| crown | 0.488 | 0.743 | -0.447 | 16.77 | 95.95 | Main Transmissive 36.98, GI 16.82, Reflection Trace 11.85 |
+| cornell-caustic | 0.471 | 0.474 | +0.074 | 14.76 | 55.23 | Main Transmissive 29.20, GI 12.89, Main Visibility 1.93 |
+| bmw-m6 | 0.389 | 0.433 | -0.217 | 7.63 | 87.08 | Reflection Trace 27.64, Main Transmissive 22.49, Main Visibility 6.58 |
+| coffee-maker | 0.353 | 0.404 | +0.059 | 10.08 | 66.50 | Main Transmissive 28.53, Reflection Trace 7.69, GI 5.67 |
+| breakfast-room | 0.310 | 0.520 | -0.036 | 8.20 | 32.70 | GI 12.34, Reflection Trace 5.12, GI Sides 4.01 |
+| classroom | 0.305 | 0.459 | -0.059 | 14.03 | 48.37 | Reflection Trace 19.38, GI Sides 7.77, GI 3.80 |
+| living-room | 0.297 | 0.375 | -0.030 | 9.72 | 62.19 | Reflection Trace 17.36, Main Transmissive 11.90, GI 10.51 |
+| bathroom | 0.259 | 0.404 | -0.075 | 12.06 | 55.42 | Reflection Trace 18.26, GI 8.00, GI Sides 6.68 |
+| kitchen | 0.257 | 0.335 | -0.059 | 9.19 | 48.26 | GI 9.97, Reflection Trace 9.94, Main Transmissive 7.01 |
+| veach-mis | 0.243 | 0.267 | -0.087 | 6.13 | 27.45 | Reflection Trace 6.81, GI 3.48, Main Visibility 3.21 |
+| teapot-full | 0.206 | 0.250 | +0.026 | 9.92 | 59.70 | Main Transmissive 42.94, Main Visibility 3.57, Shadow Classify 2.42 |
+| dragon | 0.201 | 0.353 | +0.070 | 2.07 | 19.35 | GI 11.27, GI Sides 2.41, Upscale Accumulate 1.09 |
+| modern-hall | 0.200 | 0.230 | -0.129 | 8.10 | 32.66 | Reflection Trace 6.24, GI 5.79, Main Visibility 3.95 |
+| lamp | 0.186 | 0.229 | +0.047 | 6.90 | 35.85 | GI Sides 4.77, Main Transmissive 4.63, Main Visibility 4.37 |
+| spaceship | 0.182 | 0.221 | -0.196 | 3.73 | 56.77 | Main Transmissive 17.42, GI 8.74, Reflection Trace 8.37 |
+| pontiac-gto | 0.178 | 0.219 | -0.121 | 4.91 | 39.82 | Main Transmissive 13.39, GI Sides 5.73, Reflection Trace 5.43 |
+| staircase | 0.177 | 0.249 | -0.008 | 5.81 | 52.25 | Reflection Trace 13.50, GI 11.91, Main Transmissive 6.39 |
+| bathroom2 | 0.172 | 0.212 | -0.062 | 8.84 | 48.99 | Reflection Trace 10.63, GI 8.54, Main Transmissive 7.52 |
+| vintage-car | 0.171 | 0.218 | -0.151 | 5.33 | 87.27 | Main Transmissive 48.65, Reflection Trace 8.07, GI Sides 5.53 |
+| veach-bidir | 0.171 | 0.189 | -0.077 | 5.08 | 28.85 | GI 15.01, Main Transmissive 3.23, Main Visibility 2.13 |
+| living-room-2 | 0.122 | 0.171 | -0.042 | 6.08 | 56.96 | Reflection Trace 18.17, GI 10.40, GI Sides 5.58 |
+| house | 0.094 | 0.168 | +0.004 | 5.71 | 22.82 | GI Sides 4.13, GI 4.10, Main Transmissive 3.84 |
+| veach-ajar | 0.093 | 0.111 | +0.009 | 5.77 | 35.23 | Main Transmissive 14.74, GI 3.61, Main Visibility 3.28 |
+| teapot | 0.078 | 0.084 | -0.049 | 4.75 | 23.69 | GI Sides 4.89, Main Visibility 3.60, Reflection Trace 2.87 |
+| material-testball | 0.070 | 0.083 | -0.039 | 3.20 | 23.03 | GI Sides 4.00, Main Visibility 3.33, GI 3.18 |
+| cornell-box | 0.060 | 0.068 | -0.006 | 1.16 | 22.80 | GI 14.06, GI Sides 2.29, Main Visibility 1.87 |
