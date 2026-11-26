@@ -517,8 +517,22 @@ void TracedIndirect(
 	float voxel = nearBias > 0.0 && gi.enabled != 0u && gi.nearReach > 0.0 && GiTracesBvh(gi) ? GiNearVoxelSize(position) : 0.0;
 	// (the clipmap's light alone, not the world cache's: at the reflections' and the refractions' hits its lookups took
 	// 0.6 and 0.9 ms more a frame in Bistro at night, for a light they show blurred; docs/world-cache-plan.md, step 5)
-	bool moving;
-	GiSample sample = GiSampleSurface(position, normal, -direction, GiSeenAt(position, normal), voxel <= 0.0, moving, false);
+	bool moving = false;
+	// (the Reflection Trace pass's hits, where the surface cache lights the voxels: the light of the one voxel that
+	// stands for the hit, GiHitSample, and where none does the lookup's 8 without their sides' masks. a mask is a sight
+	// ray for each of a lookup's voxels in each of two clips, GiSeenAt: at every hit they were most of the pass, in the
+	// glTF research set's bathroom 18.3 ms a frame at 1440p balanced for 10.2, in its classroom 19.4 for 17.5, where
+	// choosing the voxel traces as much, and the lookup without them alone showed what is behind the hit's surface, the
+	// window's casing in the bathroom's mirror blown out. the fragments' hits as they were, by the masks)
+	bool single = TracedGlossyHere() && gi.enabled != 0u && gi.trace == GI_TRACE_BVH && gi.cacheRayCount != 0u;
+	GiSample sample;
+	if (!(single && GiHitSample(gi, position, nearNormal, position - direction, sample)))
+	{
+		GiSeen seen = GiSeenNone();
+		if (!single)
+			seen = GiSeenAt(position, normal);
+		sample = GiSampleSurface(position, normal, -direction, seen, voxel <= 0.0, moving, false);
+	}
 	// (and the blocks it reads are the cache's to trace and filter, as those the view's pixels read: GiMarkSeenHit;
 	// width: the ray's cone's at the hit, negative for none. the visibility buffer's reflections' alone: in the
 	// transmissive fragments' shader the stamps cost Bistro's Main Transmissive 1.7 ms a frame at 1440p, 5.7 to 7.4)

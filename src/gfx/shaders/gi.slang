@@ -955,8 +955,9 @@ bool GiHitVoxel<let kThorough : bool>(GiClipView clip, float3 coordinate, float3
 // the ceiling, lost a third of the room's light that way: 0.6 stops under the last clip's alone, the room darker the
 // nearer the eye came to the corner, and lighter again for seconds after it left (the user's report, 2026-11-26: the
 // clip levels of another brightness, moving with the view)
-bool GiHitVoxelFrom<let kThorough : bool>(uint first, uint clipCount, float3 position, float3 normal, float3 from, out uint index, out float4 radiance, out GiVoxel voxel)
+bool GiHitVoxelFrom<let kThorough : bool>(uint first, uint clipCount, float3 position, float3 normal, float3 from, out uint index, out float4 radiance, out GiVoxel voxel, out uint clipIndex)
 {
+	clipIndex = first;
 	index = 0u;
 	radiance = 0.0;
 	voxel = (GiVoxel)0;
@@ -990,6 +991,7 @@ bool GiHitVoxelFrom<let kThorough : bool>(uint first, uint clipCount, float3 pos
 		index = foundIndex;
 		radiance = foundRadiance;
 		voxel = foundVoxel;
+		clipIndex = clipIt;
 		any = true;
 		if (!last)
 			break;
@@ -1209,7 +1211,8 @@ float3 GiHitLitAt<let kThorough : bool>(GiData walk, float3 position, float3 lig
 	uint index;
 	float4 radiance;
 	GiVoxel voxel;
-	if (!GiHitVoxelFrom<kThorough>(walk.clip, walk.clipCount, position, hit.normal, from, index, radiance, voxel))
+	uint clipIndex;
+	if (!GiHitVoxelFrom<kThorough>(walk.clip, walk.clipCount, position, hit.normal, from, index, radiance, voxel, clipIndex))
 		return kGiHitUnknown;
 	float3 voxelEmission = float3(GiUnpackHalf2(voxel.emissionRG), GiUnpackHalf2(voxel.emissionB).x);
 	float3 voxelAlbedo = GiUnpackRgba8(voxel.albedo).rgb;
@@ -6091,6 +6094,50 @@ GiSample GiSampleClipWithout(GiClipView gi, float3 coordinate, uint without)
 	result.inside = true;
 	result.held = 1.0;
 	return result;
+}
+
+// one voxel's light in a clip's volumes, as a lookup that read it alone would have it (GiSampleClipWithout)
+GiSample GiSampleVoxel(GiClipView gi, int3 at)
+{
+	int4 texel = int4(at.x + int(gi.volumeImageX), at.y, at.z + int(gi.volumeImage.w), 0);
+	GiSample result;
+	float4 last = gGiVolumes[4].Load(texel);
+	result.valid = last.w > 1e-7;
+	float scale = result.valid ? 1.0 / last.w : 0.0;
+	result.r = gGiVolumes[0].Load(texel) * scale;
+	result.g = gGiVolumes[1].Load(texel) * scale;
+	result.b = gGiVolumes[2].Load(texel) * scale;
+	result.z = gGiVolumes[3].Load(texel) * scale;
+	result.last = float4(last.xyz * scale, result.valid ? last.w : 0.0);
+	result.inside = true;
+	result.held = 1.0;
+	return result;
+}
+
+// the indirect light at a traced ray's hit (position; normal: its triangle's, toward the side the ray came from), from
+// the one voxel that stands for it, chosen as the indirect lighting's own rays choose theirs (GiHitVoxelFrom, the plain
+// test), in place of a lookup's 8 voxels blended; false where none stands for it, where that voxel holds no light, and
+// on what moves, whose voxels the cache doesn't light (GiMovingSurface): the lookup's then. the 8 blended take in the
+// voxels of what is beside and behind the hit's surface, which a lookup keeps out by a sight ray to each (GiSidesMask),
+// most of the Reflection Trace pass's time (see TracedIndirect): one voxel of the surface's own needs none. its light
+// is flat across the voxel, which a mirror near a wall may show as blocks
+bool GiHitSample(GiData walk, float3 position, float3 normal, float3 from, out GiSample sample)
+{
+	sample = (GiSample)0;
+	uint index;
+	float4 radiance;
+	GiVoxel voxel;
+	uint clipIndex;
+	if (!GiHitVoxelFrom<false>(walk.clip, walk.clipCount, position, normal, from, index, radiance, voxel, clipIndex))
+		return false;
+	GiVoxel kept = gGiStaticVoxels[index];
+	if (kept.albedo != voxel.albedo || kept.normal != voxel.normal)
+		return false;
+	GiClipView clip = GiClipViewAt(clipIndex);
+	uint3 size = clip.volumeSize.xyz;
+	uint local = index - clip.voxelFirst;
+	sample = GiSampleVoxel(clip, int3(local % size.x, (local / size.x) % size.y, local / (size.x * size.y)));
+	return sample.valid;
 }
 
 // a clip's voxels' resolved probes around the point offset along its normal (see GiIrradianceResolved), normalized by
