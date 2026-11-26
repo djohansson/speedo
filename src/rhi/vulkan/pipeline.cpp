@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <format>
 #include <memory>
+#include <mutex>
 #include <print>
 #include <string_view>
 
@@ -32,6 +33,10 @@ static bool KeepsBinaries(const Device<kVk>& device, const Instance<kVk>& instan
 {
 	return !cachePath.empty() && device.SupportsFeature(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_BINARY_FEATURES_KHR, instance);
 }
+
+// held by a graphics pipeline's creation where the device creates them one at a time (DeviceLimits::
+// graphicsPipelinesSerial): the others' tasks wait on it, for as long as a compile takes
+static std::mutex gGraphicsCreationMutex;
 
 } // namespace pipeline
 
@@ -365,6 +370,9 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(
 	pipelineInfo.basePipelineIndex = -1;
 
 	VkPipeline pipelineHandle;
+	std::unique_lock<std::mutex> serial(pipeline::gGraphicsCreationMutex, std::defer_lock);
+	if (GetDevice().GetLimits().graphicsPipelinesSerial)
+		serial.lock();
 	auto creationStart = std::chrono::steady_clock::now();
 	if (const auto* binaries = static_cast<const pipeline::BinaryStore*>(myBinaryStore.get()))
 		pipelineHandle = binaries->Create(pipelineInfo);

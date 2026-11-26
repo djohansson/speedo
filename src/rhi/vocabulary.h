@@ -489,6 +489,11 @@ struct DeviceLimits
 	// the count is emulated, at a cost per call and per slot of its maxDrawCount rather than per draw made (KosmicKrisp:
 	// Metal has no draw count indirect, see CLAUDE.md, "The gpu's culling")
 	bool drawIndirectCountEmulated = false;
+	// graphics pipelines are created one at a time (KosmicKrisp: a creation compiles its kernels' Metal source in the
+	// process's one Metal compiler service, which fails past about 8 GB, and each of the forward fragment kernels takes
+	// over 4 GB of it: FragmentMain and FragmentTransparent created side by side lost the service, and the pipelines
+	// with it, VK_ERROR_INVALID_SHADER_NV. compute pipelines' kernels are smaller, and created side by side as elsewhere)
+	bool graphicsPipelinesSerial = false;
 	// the shaders' specialization constant takes any value at a pipeline's creation (Vulkan's specialization constants,
 	// Metal's function constants). without (D3D12: DXIL has none), each value is code compiled ahead for every entry
 	// point that reads the constant, and only the values a layout's configuration names exist (rhi::ShaderSet::

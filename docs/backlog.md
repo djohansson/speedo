@@ -24,6 +24,7 @@ Open work across the plans and the notes. Each item points to where its detail i
 ## Testing and performance
 
 - **Visual testing's open steps**: a reference for the indirect lighting (likely a progressive path tracer), golden images on lavapipe in CI, more known answers, CI additions; open calls: where stored references live, CI's time budget, which reference. docs/visual-testing-plan.md.
+- **The forward fragment kernels' size.** On KosmicKrisp, where NIR inlines every call, `FragmentMain` and `FragmentTransparent` are each a Metal function too large for Metal's compiler service to compile two of at once, and a cold start compiles them for minutes. Graphics pipelines are created one at a time there meanwhile (`DeviceLimits::graphicsPipelinesSerial`). Shrink them: the shading and the traced rays are about half each, and the lookups (`GiSampleAt`), the hits' voxel choice, the BVH traversal and the sky are each inlined at many call sites; the reference view could leave the forward shaders. Measure with `MESA_KK_DEBUG=msl` and `SPEEDO_LOG_PIPELINES=1`. docs/notes/layering.md, "Pipelines made without waiting".
 - **Performance**: static casters' shadow maps cached (virtual shadow maps longer term), and rich worlds: model instances, streaming and level of detail, async compute, recording on several threads, quality presets aimed at a frame time. docs/performance-plan.md.
 
 ## Assets
