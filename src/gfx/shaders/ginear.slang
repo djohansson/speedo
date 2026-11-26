@@ -4,7 +4,7 @@
 // gap's own unlit voxels: the volume's lookups there find no light, in blocks a voxel wide (the user's CornellBox poses,
 // black rectangles under the spheres). per pixel of the pre-pass's depth, a ray from the surface through the BVHs, as far
 // as GiData::nearReach voxels of the clips that light the point (GI Near, ComputeGiNear), its direction one of 16 over
-// the 4x4 tile it is in (cosine distributed): the radiance of what it meets (the voxels' there, see GiRadianceAtHit), or
+// the 4x4 tile it is in (cosine distributed): the radiance of what it meets (the voxels' there, see GiHitLitAt), or
 // where it meets nothing, the volume's light along it from its end; filtered over the pixels around on the same surface
 // (GI Near X and Y, ComputeGiNearX and Y): the light the pixel gathers, and the share of its rays that met nothing near;
 // upsampled to every pixel and accumulated over frames there (GI Near Temporal), which the main pass's opaque fragments
@@ -96,7 +96,7 @@ float4 GiNearTrace<let kThorough : bool>(GiData gi, float3 position, float3 norm
 			return float4(0.0, 0.0, 0.0, clear);
 		if (gi.nearShow == 4u)
 			return float4(0.0, 0.0, 0.0, clear);
-		// the radiance of what it met, the voxels' there (see GiRadianceAtHit). within a voxel and a half of the pixel's
+		// the radiance of what it met, the voxels' there (see GiHitLitAt). within a voxel and a half of the pixel's
 		// tangent plane, the voxels at the hit are the pixel's surface's too (a contact, a corner), holding whichever's
 		// light won them (the floor's, lit, under a sphere resting on it): read a voxel and a half off the plane instead,
 		// along the hit's surface (the pixel's normal in its tangent plane), as far as it takes to get there (the reads
@@ -123,10 +123,10 @@ float4 GiNearTrace<let kThorough : bool>(GiData gi, float3 position, float3 norm
 			if (alongLength > 1e-3)
 				point += along * (move / alongLength);
 		}
-		// the light it reflects alone (GiHitReflected): an emitter's is the volume's, which averages it over its probes'
+		// the light it reflects alone (GiHitLitAt): an emitter's is the volume's, which averages it over its probes'
 		// rays and frames. a small one met by one ray in four pixels is a firefly: Bistro's lantern bulbs, a few
 		// centimetres of 3.5, speckled the walls around them white, where they give a hundredth of the daylight
-		// and its lights' light taken at the point itself, by a shadow ray from it (GiHitLit, as the surface cache's rays'
+		// and its lights' light taken at the point itself, by a shadow ray from it (GiHitLitAt, as the surface cache's rays'
 		// hits): a voxel's own takes it from a voxel out along its open side, which the sun coming down through
 		// MovingInterior's window lit higher up the walls than their sunlit band reaches (by about a fifth of the room's
 		// height), and the rays from either wall by the corner, meeting the other at once, read those voxels: a bright
@@ -141,6 +141,9 @@ float4 GiNearTrace<let kThorough : bool>(GiData gi, float3 position, float3 norm
 		// room saw the sun from behind the wall, white speckles a few voxels apart along the edge that never settled, the
 		// user's report, 2026-11-21)
 		float3 lit = GiHitLitAt<kThorough>(gi, point, origin + direction * hit.t, hit, origin, float(seed & 0xFFFFFFu) / 16777216.0, emission, false);
+		// (what it met has no voxel to stand for it, kGiHitUnknown: nothing known of the pixel by this ray)
+		if (!GiHitKnown(lit))
+			return kGiNearUnknown;
 		return float4(max(lit - emission, 0.0), clear);
 	}
 	if (gi.nearShow == 3u)

@@ -3,7 +3,7 @@
 // through the BVHs. an emitter met by the probes', the cache's or the near field's rays was light by chance: a small
 // bright one, a lantern's bulb, lit a wall in the few places some ray met it (blotches that followed the camera, and
 // fireflies), and spread over the voxels it was in it lit as if it were a voxel big (Bistro's square yellow, a hundred
-// times the bulbs' light); so those rays take only the light what they meet reflects (GiHitRadiance), and what the
+// times the bulbs' light); so those rays take only the light what they meet reflects (GiHitLitAt), and what the
 // emitters give arrives through these. per traced pixel (every EmitterData::stride-th pixel each way), resampled
 // importance sampling (RIS, Talbot et al. 2005) over candidates picked down a tree of the emitters by how much each part
 // of it may light the pixel (EmitterPick, a light BVH; Emitter Sample, then Emitter Shade, which traces the chosen
