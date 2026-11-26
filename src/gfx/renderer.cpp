@@ -2847,7 +2847,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	if (const char* freeze = std::getenv("SPEEDO_GI_PROBE_FREEZE"); freeze != nullptr)
 		myGiProbeFreeze = std::string_view(freeze) != "0";
 	if (const char* stagger = std::getenv("SPEEDO_GI_STAGGER"); stagger != nullptr)
+	{
 		myGiStagger = std::string_view(stagger) != "0";
+		myGiStaggerFinest = std::string_view(stagger) != "coarser";
+	}
 	myGiRelightPhaseCount = kGiRelightPhaseCount;
 	if (const char* phases = std::getenv("SPEEDO_GI_RELIGHT_PHASE_COUNT"); phases != nullptr && *phases != '\0')
 		myGiRelightPhaseCount = static_cast<uint32_t>(std::clamp(std::strtol(phases, nullptr, 10), 1L, 64L));
@@ -5768,7 +5771,21 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	if (myGiClipClocks.size() != myGiClipmap.clips.size())
 		myGiClipClocks.assign(myGiClipmap.clips.size(), GiClipClock{});
 	uint32_t coarseLevelCount = std::max(myGiClipmap.clips.back().data.level, 1U);
-	myGiStaggerFrame = (myGiStaggerFrame + 1) % coarseLevelCount;
+	// and once every clip's surface cache is warm (kGiCacheWarmFrameCount updates each), the finest level in turn with
+	// the others, a level a frame: a frame then updates one level's clips where it updated two, the finest's and a
+	// coarser's (the glTF research set at 2560x1440 balanced on the M4 Pro, Metal: the bathroom's frame 47.2 ms to 44.4,
+	// cornell-box's 22.3 to 17.7, breakfast-room's 31.1 to 27.0, classroom's 47.2 to 45.6; with the levels in turn from
+	// the cache's 96th update, the GI pass's median 8.1 ms to 4.2, 14.1 to 4.1, 12.6 to 2.8 and 4.4 to 2.7). the picture
+	// as it was, measured with the levels in turn from the 96th update: the still images 0.6, 0.1, 0.4 and 1.0 of 255
+	// from those of the finest every frame (two runs alike 0.3, 0.04, 0.25 and 0.16), and in a walk and a turn through
+	// the bathroom the moving frames as far from their poses' settled images either way (2.3 to 5.0 of 255). until every
+	// cache is warm as before, so a start settles as it did: the cache's first means are of as many rays in as many
+	// frames. SPEEDO_GI_STAGGER=coarser: the finest every frame
+	bool warm = frame.giSurfaceCache && myGiTimeBased &&
+				std::ranges::all_of(myGiClipClocks, [](const auto& clock) { return !clock.cacheReset && clock.updatesSinceCacheReset >= kGiCacheWarmFrameCount; });
+	bool everyLevel = myGiStaggerFinest && warm;
+	uint32_t turnCount = everyLevel ? myGiClipmap.clips.back().data.level + 1U : coarseLevelCount;
+	myGiStaggerFrame = (myGiStaggerFrame + 1) % turnCount;
 	// and every clip while something moves: a coarser clip's light then changed in steps on the frames it was updated, a
 	// flicker at half the frame rate (CommercialRefrigerator's interior as its door swung). BrainStem's frame 4.6 to 5.2 ms
 	// (2560x1440, RTX 4070 Ti SUPER); the refrigerator's 18.0 to 5.9 with the voxelizing it took (kGiVoxelizeSampledSteps)
@@ -5789,7 +5806,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clock.relightAll = clock.relightAll || (myGiLightsChanged && !myGiLightsGradual);
 		clock.emittersToggled = clock.emittersToggled || myGiEmittersToggled;
 		clock.cacheReset = clock.cacheReset || (myGiLightsChanged && !myGiLightsGradual) || myGiCacheInit;
-		clock.updated = everyClip || level == 0 || (level - 1) % coarseLevelCount == myGiStaggerFrame || myGiClipJobs[clipIt].voxelize;
+		bool turn = everyLevel ? level == myGiStaggerFrame : level == 0 || (level - 1) % coarseLevelCount == myGiStaggerFrame;
+		clock.updated = everyClip || turn || myGiClipJobs[clipIt].voxelize;
 		clock.relight = false;
 		if (!clock.updated)
 			continue;
@@ -5824,9 +5842,11 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clock.relightAll = false;
 	}
 	myGraph.SetEnabled(myGiLightStaticPass, voxelize || std::ranges::any_of(myGiClipClocks, [](const auto& clock) { return clock.relight; }));
-	// (while the finest clips' cache warms up, see IsLightingWarmingUp and the cache's rays below)
-	myGiCacheWarming = frame.giSurfaceCache && myGiTimeBased && myGiClipClocks.front().updatesSinceCacheReset < kGiCacheWarmFrameCount &&
-					   myGiCacheRayCount < 4;
+	// (while any clip's cache warms up, see IsLightingWarmingUp and the cache's rays below: the coarser levels, updated
+	// in turn, take their warm-up rays for longer than the finest, and by the finest's alone a run of 600 frames timed
+	// them as settled, a millisecond over a run of 1000)
+	myGiCacheWarming = frame.giSurfaceCache && myGiTimeBased && myGiCacheRayCount < 4 &&
+					   std::ranges::any_of(myGiClipClocks, [](const auto& clock) { return clock.updatesSinceCacheReset < kGiCacheWarmFrameCount; });
 	// the rays per probe this frame: the budget over the probes every clip traced the last time it was updated (at least
 	// 16, at most the count, in eights): the coarser clips updated in turn trace as many rays a probe as every frame
 	myGiRayCountThisFrame = myGiRayCount;
@@ -5848,7 +5868,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.rayPhase = clock.rayPhase;
 		clip.rayPhaseCount = myGiRayPhaseCount;
 		// still for two laps of its own phases
-		uint32_t interval = myGiStagger && clip.level > 0 ? coarseLevelCount : 1U;
+		uint32_t interval = !myGiStagger ? 1U : everyLevel ? turnCount : clip.level > 0 ? coarseLevelCount : 1U;
 		clip.probeFreeze = myGiProbeFreeze && myGiStillFrameCount >= 2 * myGiRayPhaseCount * interval && !myGiDump ? 1U : 0U;
 		clip.frameStamp = clock.frameStamp;
 		clip.restoreStamp = clock.restoreStamp;

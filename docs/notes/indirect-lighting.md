@@ -8,7 +8,7 @@ This note describes the indirect lighting (global illumination): diffuse ambient
   - [The clipmap](#the-clipmap)
   - [Moving clips](#moving-clips)
   - [Voxelizing](#voxelizing)
-  - [The coarser clips in turn](#the-coarser-clips-in-turn)
+  - [The clips in turn](#the-clips-in-turn)
   - [Lighting the voxels](#lighting-the-voxels)
   - [The flags](#the-flags)
   - [The probes](#the-probes)
@@ -59,9 +59,9 @@ GI Shift (`ComputeGiShift`) gives each voxel the static one kept at its place be
 - Static voxels are kept (GI Keep) and lit (GI Light Static). While something moves (skinned, morphed or animated nodes) they are copied back (GI Restore) and overwritten by GI Voxelize Moving (placed by `WorldPosition`); what moves occludes, is lit and bounces light. With a paused animation (`FrameInputs::modelStill`) no clip is voxelized and light settles.
 - Both faces always write (`GiVoxelFaces`, `kGiVoxelDoubleSided`; a drawn side's normal wins, `GiPackVoxelNormal`). A voxel only a single sided triangle's front face wrote holds a never drawn side and gets no light. For voxel walking rays a voxel only a back face wrote is passed unless its twin behind is hit within two voxels. What moves is not lit by the surface cache (`GiMovingSurface` is looked up as without it).
 
-### The coarser clips in turn
+### The clips in turn
 
-The finest level's clips update every frame, coarser levels one level a frame (`GiData::updated`, `Renderer::InternalPlanGi`; `SPEEDO_GI_STAGGER=0` for all). All update in a frame that resets, starts the cache or dumps, while something moves, and for a while after a cache starts over. A clip not updated keeps all it holds. Each clip has a clock (`Renderer::GiClipClock`) advancing only on its updates (ray phase, probe halves, cache window), and what changed while it waited is taken at its next update (`relight`). A probe or entry new to a finer clip starts from the coarser clip's light (`GiCoarserHalf`).
+Once every clip's surface cache is warm, the levels take turns, one level's clips a frame (`GiData::updated`, `Renderer::InternalPlanGi`; `SPEEDO_GI_STAGGER=0` for all every frame). Until then, and without the cache, the finest level's clips update every frame and the coarser levels take turns, so the cache's first means are of as many rays in as many frames (`SPEEDO_GI_STAGGER=coarser` keeps that pattern). A clip costs about as much as another, so a frame's GI pass is one clip's where it was two's. The lighting counts as warming up while any clip's cache does (`Renderer::IsLightingWarmingUp`, which the client's frame times go by). All update in a frame that resets, starts the cache or dumps, while something moves, and for a while after a cache starts over. A clip not updated keeps all it holds. Each clip has a clock (`Renderer::GiClipClock`) advancing only on its updates (ray phase, probe halves, cache window), and what changed while it waited is taken at its next update (`relight`). A probe or entry new to a finer clip starts from the coarser clip's light (`GiCoarserHalf`).
 
 ### Lighting the voxels
 

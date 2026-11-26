@@ -237,7 +237,7 @@ Variables marked Scene are View settings; the rest is the renderer's tuning ([in
 | `SPEEDO_GI_TIME_BASED` | `0` off. On. | Blends by elapsed time, not per frame, and lets the surface cache window grow and settle. |
 | `SPEEDO_GI_ADAPT` | Exactly `1` on. Off. | Probes blend faster through large light changes. |
 | `SPEEDO_GI_PROBE_FREEZE` | `0` off. On. | After the scene is still a while, settled probes keep their light, every second cycle. |
-| `SPEEDO_GI_STAGGER` | `0` off. On. | Finest clips update every frame, coarser ones take turns; off updates all every frame. |
+| `SPEEDO_GI_STAGGER` | `0` off, `coarser`. On. | The clip levels take turns, one a frame, once every clip's surface cache is warm; until then, and with `coarser`, the finest clips update every frame and the coarser ones take turns; off updates all every frame. |
 | `SPEEDO_GI_RELIGHT_PHASE_COUNT` | 1 to 64. 4. | Updates over which static voxels are relit when lights change gradually. |
 | `SPEEDO_GI_CACHE` | `0` off. On. | Scene. Surface cache: voxel rays accumulated and filtered along surfaces. |
 | `SPEEDO_GI_CACHE_RAYS` | 1 to 64 per voxel. 1. | The cache's rays per update. |

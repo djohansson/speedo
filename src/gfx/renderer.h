@@ -688,6 +688,9 @@ private:
 	// and every clip in a frame that resets, starts the surface cache or dumps, and a clip voxelized (moved) whenever:
 	// SPEEDO_GI_STAGGER=0 updates every clip every frame
 	bool myGiStagger = true;
+	// whether the finest level takes its turn with the coarser ones once every clip's surface cache is warm (see
+	// InternalPlanGi): SPEEDO_GI_STAGGER=coarser keeps its clips updated every frame
+	bool myGiStaggerFinest = true;
 	uint32_t myGiStaggerFrame = 0;
 	uint32_t myGiRelightPhaseCount = 4; // see kGiRelightPhaseCount
 	// a clip's clock, which advances only in the frames it is updated, and what changed since it was last updated, which
