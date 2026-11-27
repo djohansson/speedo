@@ -114,11 +114,13 @@ struct PipelineGraphicsState;
 namespace rhi
 {
 
-// the most a pipeline cache keeps on disk (the user's call, 2026-11-22): each backend's kept only grew (a pipeline once
-// made stayed), 240 to 460 MB in the GI experiments' profile slots after a day's shader variants, loaded and saved by
-// every run (1.3 s a run at 458 MB). past it a backend keeps what the run used (D3D12's library, made again from them)
-// or the most recently used (Vulkan's pipeline binaries), else starts over (Vulkan's pipeline cache)
-inline constexpr uint64_t kPipelineCacheByteCount = 256ULL << 20U;
+// the most a pipeline cache keeps on disk (the user's calls: 256 MB, 2026-11-22, and 512 since 2026-11-27): each
+// backend's kept only grew (a pipeline once made stayed), 240 to 460 MB in the GI experiments' profile slots after a
+// day's shader variants, loaded and saved by every run (1.3 s a run at 458 MB). past it a backend keeps what the run
+// used (D3D12's library, made again from them) or the most recently used (Vulkan's pipeline binaries), else starts over
+// (Vulkan's pipeline cache). at 256 MB the quick tier's Vulkan profiles on KosmicKrisp started over within a run (299
+// and 301 MB), and the clients after compiled every kernel cold again, the forward fragment ones minutes each
+inline constexpr uint64_t kPipelineCacheByteCount = 512ULL << 20U;
 
 template <GraphicsApi G>
 struct PipelineCreateDesc final : DeviceObjectCreateDesc<G>
