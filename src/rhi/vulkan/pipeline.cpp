@@ -379,7 +379,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(
 	else
 		VK_CHECK(vkCreateGraphicsPipelines(
 			GetDevice(),
-			myCache,
+			InternalCacheNow(),
 			1,
 			&pipelineInfo,
 			&GetInstance().GetHostAllocationCallbacks(),
@@ -419,7 +419,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(
 	else
 		VK_CHECK(vkCreateComputePipelines(
 			GetDevice(),
-			myCache,
+			InternalCacheNow(),
 			1,
 			&pipelineInfo,
 			&GetInstance().GetHostAllocationCallbacks(),
@@ -576,11 +576,12 @@ Pipeline<kVk>::Pipeline(CreateDescType&& desc)
 
 			return outDescriptorPool;
 		}())
-	// none where the pipelines are kept as their binaries (pipeline creation with them takes none)
+	// none where the pipelines are kept as their binaries (pipeline creation with them takes none); else empty until the
+	// layouts' shaders are known, whose version's file it then holds (InternalSetCacheVersion)
 	, myCache(
 		  pipeline::KeepsBinaries(GetDevice(), GetInstance(), GetDesc().cachePath)
 			  ? VK_NULL_HANDLE
-			  : pipeline::LoadPipelineCache(GetDesc().cachePath, GetDevice(), GetInstance()))
+			  : pipeline::LoadPipelineCache({}, GetDevice(), GetInstance()))
 {
 	InternalResetGraphicsState();
 	InternalResetComputeState();
@@ -588,6 +589,11 @@ Pipeline<kVk>::Pipeline(CreateDescType&& desc)
 	if (myCache != VK_NULL_HANDLE)
 	{
 		Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE_CACHE, myCache, std::format("{} PipelineCache", GetName()));
+		// the one file of every version from before the files per version, read no more: removed (hundreds of MB)
+		std::error_code error;
+		if (const std::filesystem::path cachePath(GetDesc().cachePath); !cachePath.empty())
+			if (auto size = std::filesystem::file_size(cachePath, error); !error && std::filesystem::remove(cachePath, error))
+				std::println("Removed the pipeline cache {} ({} MB): a file per version of the shaders is kept beside it", cachePath.string(), size >> 20U);
 		return;
 	}
 	if (GetDesc().cachePath.empty())
@@ -624,6 +630,56 @@ void Pipeline<kVk>::InternalDestroyPipelines()
 	myPipelineMap.clear();
 }
 
+// the cache's data to its version's file (see rhi/vulkan/pipelinecache.h), where it has a version and holds anything: a
+// cache no pipeline was made with has a header alone, and the layouts made one after the other at a start each name a
+// version on the way to the one with all of them
+template <>
+void Pipeline<kVk>::InternalSaveCache()
+{
+	constexpr size_t kEmptyCacheByteCount = 4096;
+	if (myCache == VK_NULL_HANDLE || GetDesc().cachePath.empty() || myCacheVersion.empty() ||
+		pipeline::PipelineCacheByteCount(GetDevice(), myCache) <= kEmptyCacheByteCount)
+		return;
+	if (auto fileInfo = pipeline::SavePipelineCache(
+			pipeline::VersionedPipelineCachePath(GetDesc().cachePath, myCacheVersion),
+			GetDevice(),
+			GetInstance().GetPhysicalDeviceInfo(GetDevice().GetPhysicalDevice()).deviceProperties,
+			myCache);
+		fileInfo)
+	{
+		std::println("Saved pipeline cache to {}", fileInfo.value().path);
+		core::RunTiming(std::format("rhi: the pipeline cache saved ({})", std::filesystem::path(fileInfo.value().path).filename().string()));
+	}
+	else
+	{
+		std::println("Failed to save pipeline cache, error: {}", fileInfo.error().message());
+	}
+}
+
+// the layouts' shaders are of another version: the cache as it is goes to the file of the version it was of, and the
+// file of the new one is loaded in its place (none yet: empty). with the pipelines being created done first, which name
+// the cache they are created in (InternalCreateGraphicsPipeline, InternalCreateComputePipeline, under the same lock)
+template <>
+void Pipeline<kVk>::InternalSetCacheVersion(const std::string& version)
+{
+	if (version == myCacheVersion)
+		return;
+	if (myCache == VK_NULL_HANDLE || GetDesc().cachePath.empty())
+	{
+		myCacheVersion = version;
+		return;
+	}
+	auto& sync = *myPipelineMapSync;
+	std::unique_lock lock(sync.mutex);
+	sync.created.wait(lock, [this] { return std::ranges::none_of(myPipelineMap, [](const auto& entry) { return entry.second == VK_NULL_HANDLE; }); });
+	InternalSaveCache();
+	Untrack(VK_OBJECT_TYPE_PIPELINE_CACHE, myCache);
+	vkDestroyPipelineCache(GetDevice(), myCache, &GetInstance().GetHostAllocationCallbacks());
+	myCacheVersion = version;
+	myCache = pipeline::LoadPipelineCache(pipeline::VersionedPipelineCachePath(GetDesc().cachePath, version), GetDevice(), GetInstance());
+	Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE_CACHE, myCache, std::format("{} PipelineCache", GetName()));
+}
+
 template <>
 Pipeline<kVk>::~Pipeline()
 {
@@ -637,19 +693,13 @@ Pipeline<kVk>::~Pipeline()
 		std::println("Pipeline binaries in {}: {} MB", binaries->GetDirectory().string(), byteCount >> 20U);
 		core::RunTiming(std::format("rhi: the pipeline binaries kept ({})", binaries->GetDirectory().filename().string()));
 	}
-	else if (auto fileInfo = pipeline::SavePipelineCache(
-				 GetDesc().cachePath,
-				 GetDevice(),
-				 GetInstance().GetPhysicalDeviceInfo(GetDevice().GetPhysicalDevice()).deviceProperties,
-				 myCache);
-			 fileInfo)
-	{
-		std::println("Saved pipeline cache to {}", fileInfo.value().path);
-		core::RunTiming(std::format("rhi: the pipeline cache saved ({})", std::filesystem::path(fileInfo.value().path).filename().string()));
-	}
 	else
 	{
-		std::println("Failed to save pipeline cache, error: {}", fileInfo.error().message());
+		// its version's file saved, and the versions least recently written gone past kPipelineCacheByteCount
+		InternalSaveCache();
+		if (!GetDesc().cachePath.empty() && !myCacheVersion.empty())
+			pipeline::EvictPipelineCaches(
+				GetDesc().cachePath, kPipelineCacheByteCount, pipeline::VersionedPipelineCachePath(GetDesc().cachePath, myCacheVersion));
 	}
 
 	InternalDestroyPipelines();

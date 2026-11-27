@@ -357,7 +357,7 @@ The debug views, by name (and number): `base-color` (1), `normal` (2), `geometry
 | `SPEEDO_D3D12_VALIDATION` | Exactly `1` on. Off (on in debug builds). | D3D12 debug layer; errors print as `D3D12 Validation Error`. Needs Windows' Graphics Tools (`SPEEDO_D3D12_DEBUG_LAYER`). |
 | `SPEEDO_D3D12_GPU_VALIDATION` | Exactly `1` on. Off. | With `SPEEDO_D3D12_VALIDATION`, gpu based validation (much slower). |
 | `SPEEDO_D3D12_WARP` | `1` Windows' WARP, or a `d3d10warp.dll` path (`scripts/fetch-warp.ps1` prints it). Off. | D3D12 on WARP, the software adapter, for machines without a gpu. A path loads the NuGet WARP (testing only), which runs ray queries that crash Windows' ([backends plan](backends-plan.md)). |
-| `SPEEDO_PIPELINE_BINARIES` | `0` off. On where the device has `VK_KHR_pipeline_binary`. | Vulkan: per-pipeline binary files (the profile's `pipeline.binaries/`, least recently used dropped past 512 MB) instead of one pipeline cache file ([rhi](notes/rhi.md), "Pipeline caches"). |
+| `SPEEDO_PIPELINE_BINARIES` | `0` off. On where the device has `VK_KHR_pipeline_binary`. | Vulkan: per-pipeline binary files (the profile's `pipeline.binaries/`, least recently used dropped past 512 MB) instead of a pipeline cache file per version of the shaders ([rhi](notes/rhi.md), "Pipeline caches"). |
 | `SPEEDO_D3D12_DRED` | `0` off. On. | D3D12 device removed reports (DRED breadcrumbs, contexts, page faults) for crash reports. |
 
 ## The scripts and the build

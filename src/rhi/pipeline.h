@@ -376,6 +376,25 @@ private:
 	// a backend's store of its pipelines' binaries, where it keeps them so (Vulkan's: see rhi/vulkan/pipelinebinaries.h),
 	// in place of myCache
 	std::shared_ptr<void> myBinaryStore;
+	// the version of the shaders the layouts hold: a hash of each layout's shaders (by its name, as CreateLayout,
+	// ReplaceShaders and ReplaceLayout were given them), and of all of them together, in hex. a backend whose pipeline
+	// cache only grows keeps a file per version (InternalSetCacheVersion; Vulkan's, see rhi/vulkan/pipelinecache.h)
+	std::vector<std::pair<std::string, uint64_t>> myLayoutShaderHashes;
+	std::string myCacheVersion;
+	void InternalNoteLayoutShaders(std::string_view name, const ShaderSet& shaderSet);
+	void InternalUpdateCacheVersion();
+	// the layouts' shaders are of another version: the backend's cache is that version's from here on. no pipeline is
+	// being created by then, or it waits for them
+	void InternalSetCacheVersion(const std::string& version);
+	// (Vulkan's: its cache's data to its version's file)
+	void InternalSaveCache();
+	// the cache to create a pipeline in: read under the pipelines' lock, since a change of the shaders' version puts
+	// another in its place (which waits for the pipelines being created: theirs is this one until they are)
+	[[nodiscard]] PipelineCacheHandle<G> InternalCacheNow() const
+	{
+		std::scoped_lock lock(myPipelineMapSync->mutex);
+		return myCache;
+	}
 
 	// auto api shared state
 	PipelineBindPoint myBindPoint{};

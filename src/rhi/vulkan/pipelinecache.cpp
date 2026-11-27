@@ -42,6 +42,72 @@ static bool IsCacheValid(
 			std::size(header.pipelineCacheUUID)) == 0);
 }
 
+std::filesystem::path VersionedPipelineCachePath(const std::filesystem::path& cacheFilePath, std::string_view version)
+{
+	auto path = cacheFilePath;
+	path.replace_filename(std::format("{}.{}{}", cacheFilePath.stem().string(), version, cacheFilePath.extension().string()));
+	return path;
+}
+
+uint64_t EvictPipelineCaches(const std::filesystem::path& cacheFilePath, uint64_t byteCount, const std::filesystem::path& keep)
+{
+	// the versions' files: <stem>.<16 hex digits><extension>
+	constexpr size_t kVersionLength = 16;
+	auto stem = cacheFilePath.stem().string() + ".";
+	auto extension = cacheFilePath.extension().string();
+	struct Entry
+	{
+		std::filesystem::path path;
+		std::filesystem::file_time_type written;
+		uint64_t size = 0;
+	};
+	std::vector<Entry> entries;
+	std::error_code error;
+	for (const auto& file : std::filesystem::directory_iterator(cacheFilePath.parent_path(), error))
+	{
+		auto name = file.path().filename().string();
+		if (name.size() != stem.size() + kVersionLength + extension.size() || !name.starts_with(stem) || !name.ends_with(extension))
+			continue;
+		auto version = std::string_view(name).substr(stem.size(), kVersionLength);
+		if (!std::ranges::all_of(version, [](char digit) { return (digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f'); }))
+			continue;
+		std::error_code fileError;
+		Entry entry{.path = file.path(), .written = file.last_write_time(fileError)};
+		if (fileError)
+			continue;
+		entry.size = file.file_size(fileError);
+		if (!fileError)
+			entries.push_back(std::move(entry));
+	}
+	// the latest first, keep before all
+	std::ranges::sort(entries, [&](const Entry& lhs, const Entry& rhs) {
+		bool lhsKept = lhs.path == keep;
+		bool rhsKept = rhs.path == keep;
+		return lhsKept != rhsKept ? lhsKept : lhs.written > rhs.written;
+	});
+	uint64_t kept = 0;
+	for (const auto& entry : entries)
+	{
+		if (entry.path == keep || kept + entry.size <= byteCount)
+		{
+			kept += entry.size;
+			continue;
+		}
+		if (std::filesystem::remove(entry.path, error))
+			std::println("Removed the pipeline cache {} ({} MB): its version's the least recently used past {} MB", entry.path.string(), entry.size >> 20U, byteCount >> 20U);
+		else
+			kept += entry.size;
+	}
+	return kept;
+}
+
+size_t PipelineCacheByteCount(DeviceHandle<kVk> device, PipelineCacheHandle<kVk> pipelineCache)
+{
+	size_t byteCount = 0;
+	VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &byteCount, nullptr));
+	return byteCount;
+}
+
 PipelineCacheHandle<kVk> LoadPipelineCache(const std::filesystem::path& cacheFilePath, Device<kVk>& device, const Instance<kVk>& instance)
 {
 	std::vector<char> cacheData;

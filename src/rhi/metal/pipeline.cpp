@@ -395,6 +395,13 @@ void Pipeline<kMetal>::InternalDestroyPipelines()
 	myPipelineMap.clear();
 }
 
+// (Metal keeps what it compiled itself: there is no cache of the pipeline's to keep a file of per version)
+template <>
+void Pipeline<kMetal>::InternalSetCacheVersion(const std::string& version)
+{
+	myCacheVersion = version;
+}
+
 template <>
 Pipeline<kMetal>::~Pipeline()
 {

@@ -591,6 +591,13 @@ void Pipeline<kD3D12>::InternalDestroyPipelines()
 	myPipelineMap.clear();
 }
 
+// (the library is made again from what a run used once it is over its size, see pipelinecache::Close: no file per version)
+template <>
+void Pipeline<kD3D12>::InternalSetCacheVersion(const std::string& version)
+{
+	myCacheVersion = version;
+}
+
 template <>
 Pipeline<kD3D12>::~Pipeline()
 {

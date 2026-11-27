@@ -307,7 +307,44 @@ PipelineLayoutHandle<G> Pipeline<G>::CreateLayout(std::string_view name, const S
 
 	auto handle = static_cast<PipelineLayoutHandle<G>>(*layoutIt);
 	myLayoutNames.emplace(std::string(name), handle);
+	InternalNoteLayoutShaders(name, shaderSet);
+	InternalUpdateCacheVersion();
 	return handle;
+}
+
+template <GraphicsApi G>
+void Pipeline<G>::InternalNoteLayoutShaders(std::string_view name, const ShaderSet& shaderSet)
+{
+	// the layout's: its shaders' code and entry points' names, and the code of their specializations
+	uint64_t hash = 0;
+	for (const auto& [code, entryPoint] : shaderSet.shaders)
+	{
+		hash = XXH3_64bits_withSeed(code.data(), code.size(), hash);
+		const auto& entryName = std::get<0>(entryPoint);
+		hash = XXH3_64bits_withSeed(entryName.data(), entryName.size(), hash);
+	}
+	for (const auto& specialization : shaderSet.specializations)
+		hash = XXH3_64bits_withSeed(specialization.code.data(), specialization.code.size(), hash);
+	auto noted = std::ranges::find(myLayoutShaderHashes, name, [](const auto& entry) { return std::string_view(entry.first); });
+	if (noted != myLayoutShaderHashes.end())
+		noted->second = hash;
+	else
+		myLayoutShaderHashes.emplace_back(std::string(name), hash);
+}
+
+template <GraphicsApi G>
+void Pipeline<G>::InternalUpdateCacheVersion()
+{
+	// every layout's together, whatever order they were made in
+	auto sorted = myLayoutShaderHashes;
+	std::ranges::sort(sorted);
+	uint64_t version = 0;
+	for (const auto& [layoutName, layoutHash] : sorted)
+	{
+		version = XXH3_64bits_withSeed(layoutName.data(), layoutName.size(), version);
+		version = XXH3_64bits_withSeed(&layoutHash, sizeof(layoutHash), version);
+	}
+	InternalSetCacheVersion(std::format("{:016x}", version));
 }
 
 template <GraphicsApi G>
@@ -326,7 +363,9 @@ bool Pipeline<G>::ReplaceShaders(std::span<const std::pair<std::string, ShaderSe
 		ENSURE(layoutIt != myPipelineLayouts.end());
 		// (the set's elements are hashed and compared by the layout's handle, which this keeps)
 		const_cast<PipelineLayout<G>&>(*layoutIt).ReplaceShaders(shaderSet);
+		InternalNoteLayoutShaders(name, shaderSet);
 	}
+	InternalUpdateCacheVersion();
 	// (the bound layout's stages name its modules: bound again, to the new ones)
 	if (auto bound = GetLayout())
 		BindLayoutAuto(bound, myBindPoint);
@@ -410,6 +449,8 @@ bool Pipeline<G>::ReplaceLayout(std::string_view name, const ShaderSet& shaderSe
 	myLayoutNames[std::string(name)] = newHandle;
 	if (bound)
 		BindLayoutAuto(bound == oldHandle ? newHandle : bound, bindPoint);
+	InternalNoteLayoutShaders(name, shaderSet);
+	InternalUpdateCacheVersion();
 	return true;
 }
 
@@ -430,8 +471,11 @@ void Pipeline<G>::Swap(Pipeline& rhs) noexcept
 	std::swap(myDescriptorPoolMutex, rhs.myDescriptorPoolMutex);
 	std::swap(myPipelineMap, rhs.myPipelineMap);
 	std::swap(myPipelineMapSync, rhs.myPipelineMapSync);
+	std::swap(myGraphicsSpecializations, rhs.myGraphicsSpecializations);
 	std::swap(myCache, rhs.myCache);
 	std::swap(myBinaryStore, rhs.myBinaryStore);
+	std::swap(myLayoutShaderHashes, rhs.myLayoutShaderHashes);
+	std::swap(myCacheVersion, rhs.myCacheVersion);
 	std::swap(myBindPoint, rhs.myBindPoint);
 	std::swap(myRenderTarget, rhs.myRenderTarget);
 	std::swap(myPipelineLayouts, rhs.myPipelineLayouts);
