@@ -72,15 +72,17 @@ public:
 
 	// the installed model's bounds, those the views frame (without its ground, see Model::GetFramedBounds) and cameras
 	// (see ModelDesc::cameras): sets the views to its first camera, or frames them if it has none, from framePitch above
-	// (see FrameBounds; horizon: it reaches the horizon, so no far plane where a camera leaves it out). call on the draw
-	// thread.
+	// (see FrameBounds; horizon: it reaches the horizon, so no far plane where a camera leaves it out). keepViews: the
+	// views stay where they are, looking through the camera they did (the installed model loaded again, see
+	// Scene::LoadModelAgain). call on the draw thread.
 	void SetScene(
 		const Bounds3f& bounds,
 		const Bounds3f& framed,
 		std::vector<SceneCamera> cameras,
 		float framePitch = 0.0F,
 		bool horizon = false,
-		bool frameWhole = false);
+		bool frameWhole = false,
+		bool keepViews = false);
 	// sets every view to one of the scene's cameras (its projection too: field of view, orthographic, near and far
 	// planes; not its roll, which the views don't have), or frames the scene's bounds (nullopt). call on the draw thread.
 	void UseSceneCamera(std::optional<size_t> camera);

@@ -254,15 +254,25 @@ void Views::Orbit(float yaw, float pitch, std::optional<size_t> view)
 	}
 }
 
-void Views::SetScene(const Bounds3f& bounds, const Bounds3f& framed, std::vector<SceneCamera> cameras, float framePitch, bool horizon, bool frameWhole)
+void Views::SetScene(
+	const Bounds3f& bounds, const Bounds3f& framed, std::vector<SceneCamera> cameras, float framePitch, bool horizon, bool frameWhole, bool keepViews)
 {
 	bool hasCameras = !cameras.empty();
 	{
 		auto scene = myScene.Write();
+		auto current = keepViews && scene.Get().current && *scene.Get().current < cameras.size() ? scene.Get().current : std::nullopt;
 		scene.Get() = Scene{
-			.bounds = bounds, .framed = framed, .framePitch = framePitch, .horizon = horizon, .frameWhole = frameWhole, .cameras = std::move(cameras)};
+			.bounds = bounds,
+			.framed = framed,
+			.framePitch = framePitch,
+			.horizon = horizon,
+			.frameWhole = frameWhole,
+			.cameras = std::move(cameras),
+			.current = current,
+		};
 	}
-	UseSceneCamera(hasCameras ? std::optional<size_t>(0) : std::nullopt);
+	if (!keepViews)
+		UseSceneCamera(hasCameras ? std::optional<size_t>(0) : std::nullopt);
 }
 
 void Views::UseSceneCamera(std::optional<size_t> cameraIndex)

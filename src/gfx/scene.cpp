@@ -1917,6 +1917,7 @@ struct Scene::Impl
 		std::vector<std::string> filePaths,
 		ModelArrangement arrangement,
 		std::optional<bool> hardware,
+		bool again,
 		std::shared_ptr<PendingInstall> pending)
 	{
 		ZoneScopedN("WindowedApplication::InstallModel");
@@ -1941,7 +1942,7 @@ struct Scene::Impl
 		// everything is switched at once, after the textures are readable: one descriptor set update, and no frame draws
 		// the new model with the old materials or the other way around
 		// (after the shaders' switch to its variant, where it was loaded for the other: see BindAfterRayQuerySwitch)
-		DrawCall bind = [this, &rhi, model, textures = std::move(textures), filePaths = std::move(filePaths), arrangement, pending = std::move(pending)](QueueTimelineContextData& graphics) mutable
+		DrawCall bind = [this, &rhi, model, textures = std::move(textures), filePaths = std::move(filePaths), arrangement, again, pending = std::move(pending)](QueueTimelineContextData& graphics) mutable
 		{
 			auto& device = rhi.GetPrimaryDevice();
 			auto& pipeline = myPipeline;
@@ -2359,7 +2360,9 @@ struct Scene::Impl
 			}
 
 			// its first animation plays, from the start (SPEEDO_ANIMATION=<index>: that one, or none: the rest pose;
-			// SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests and for a pose reported, see Copy Scene)
+			// SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests and for a pose reported, see Copy Scene). the
+			// installed model loaded again (again) plays on as it did
+			if (!again)
 			{
 				auto animation = myAnimation.Write();
 				auto& state = animation.Get();
@@ -2404,7 +2407,8 @@ struct Scene::Impl
 				model->GetDesc().cameras,
 				model->GetGround() == ModelGround::kPlane ? kGroundFramePitch : 0.0F,
 				model->GetGround() == ModelGround::kPlane,
-				!model->GetLayout().empty());
+				!model->GetLayout().empty(),
+				again);
 		};
 		TransitionThenBind(
 			rhi, graphics, uploads,
@@ -2467,7 +2471,8 @@ struct Scene::Impl
 		ModelArrangement arrangement = ModelArrangement::kSideBySide,
 		ModelGround ground = ModelGround::kNone,
 		core::CancelledFn cancelled = core::NeverCancelled,
-		std::span<const mesh::ImportOptions> fileOptions = {}) // several files' each (see Model::Load of several)
+		std::span<const mesh::ImportOptions> fileOptions = {}, // several files' each (see Model::Load of several)
+		bool again = false) // the installed model as it was last loaded: the views and its animation stay as they are
 	{
 		// its structures the shaders' variant's being switched to, or in use (see Settings::hardwareRayQueries): which the
 		// install switches the shaders to, where they differ (see InstallModel). none without the BVHs: either variant's
@@ -2643,9 +2648,9 @@ struct Scene::Impl
 			return std::nullopt;
 		}
 		rhi.drawCalls.enqueue(
-			[this, &rhi, model, textures = std::move(textures), filePaths, arrangement, hardware, pending = std::make_shared<PendingInstall>(myPendingInstallCount)](
-				QueueTimelineContextData& graphics) mutable
-			{ InstallModel(rhi, graphics, model, std::move(textures), std::move(filePaths), arrangement, hardware, std::move(pending)); });
+			[this, &rhi, model, textures = std::move(textures), filePaths, arrangement, hardware, again,
+			 pending = std::make_shared<PendingInstall>(myPendingInstallCount)](QueueTimelineContextData& graphics) mutable
+			{ InstallModel(rhi, graphics, model, std::move(textures), std::move(filePaths), arrangement, hardware, again, std::move(pending)); });
 		return filePath;
 	}
 
@@ -3791,7 +3796,7 @@ struct Scene::Impl
 		}
 		if (!last)
 			return std::nullopt;
-		return LoadAndInstallModels(myRHI, last->filePaths, progress, last->options, last->arrangement, last->ground, cancelled, last->fileOptions);
+		return LoadAndInstallModels(myRHI, last->filePaths, progress, last->options, last->arrangement, last->ground, cancelled, last->fileOptions, true);
 	}
 
 	// how far the compiles are, 0 to 1 (see Scene::GetShaderProgress): the entry points of the layouts done, or the time
