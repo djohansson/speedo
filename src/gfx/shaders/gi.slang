@@ -1205,7 +1205,11 @@ uint GiPackAhead(float lead, bool known, float plane)
 // (salle_de_bain's walls)
 // (lightAt: where the shadow ray leaves from, the hit itself, where position is a point read beside it: the near
 // field's, moved along the hit's surface off a corner, see GiNearTrace)
-float3 GiHitLitAt<let kThorough : bool>(GiData walk, float3 position, float3 lightAt, BvhHit hit, float3 from, float random, out float3 emission, bool lead = true, bool lit = true)
+// (bounce off: what the lights and the emitters give the hit alone, none of what its voxel holds bounced: the final
+// gather's hits across a gap thinner than the voxels, see GiNearTrace)
+float3 GiHitLitAt<let kThorough : bool>(
+	GiData walk, float3 position, float3 lightAt, BvhHit hit, float3 from, float random, out float3 emission, bool lead = true, bool lit = true,
+	bool bounce = true)
 {
 	emission = 0.0;
 	uint index;
@@ -1234,8 +1238,12 @@ float3 GiHitLitAt<let kThorough : bool>(GiData walk, float3 position, float3 lig
 		// lead further below 0 than that light was dropped and a lead above kept: with the bounce off, where that light
 		// is none, the far wall of MovingInterior's room came out 23.4 of 255 with the fast mean and 13.5 without it,
 		// 12.9 with it since; with the bounce, the same)
-		reflected = max(reflected - lights - emitters, 0.0) + voxelAlbedo * ahead +
+		reflected = (bounce ? max(reflected - lights - emitters, 0.0) + voxelAlbedo * ahead : float3(0.0)) +
 					albedo * (GiHitIrradiance(walk, lightAt, hit.normal, random) + GiKeptIrradiance(keptLight, hit.normal));
+	}
+	else if (!bounce)
+	{
+		reflected = 0.0;
 	}
 	emission = GiHitEmission(hit);
 	// (all of it by the triangle's share of what the voxel reflects, see GiHitShare)

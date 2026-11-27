@@ -1748,6 +1748,11 @@ struct GiData
 	// the pixels whose rays are traced, every nearStride-th each way (SPEEDO_GI_NEAR_STRIDE, 2 or 4): the filter takes the
 	// traced pixels within its reach, and each traced pixel's ray is one of 16 directions over the 4x4 of them it is in
 	alignas(4) UINT1(nearStride);
+	// the final gather (View > Rendering Features > Global Illumination... > Final Gather, SPEEDO_GI_GATHER=1; see
+	// GiNearRay): the near field's rays go as far as there is anything to meet, and what they gather is all of the main
+	// pass's opaque fragments' indirect light, in place of the volumes' lookup (see Shade), which those fragments then
+	// make only where the rays know nothing; the stride is then the gather's (SPEEDO_GI_GATHER_STRIDE: 1, 2 or 4)
+	alignas(4) UINT1(nearGather);
 	// the finest level the lookups take, + 1 (SPEEDO_GI_LOOKUP_LEVEL, to judge how the levels agree: the same frame shaded
 	// through each level's light, see GiClipWeight); 0: every level, as shaded
 	alignas(4) UINT1(lookupLevel);
@@ -1803,7 +1808,6 @@ struct GiData
 	// frame's history holding nothing or the frames off)
 	alignas(4) UINT1(sidesFrame);
 	alignas(4) UINT1(sidesKeepFrameCount);
-	alignas(4) UINT1(worldPadding0); // std430's tail, to the struct's 16 byte alignment, explicit (see the top of the file)
 };
 
 struct PushConstants

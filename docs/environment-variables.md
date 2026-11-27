@@ -262,6 +262,8 @@ Variables marked Scene are View settings; the rest is the renderer's tuning ([in
 | `SPEEDO_GI_NEAR_TEMPORAL` | `0` off. On. | Scene. Accumulates near field rays over frames, reprojected. |
 | `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` | 1 to 1024. 16. | Frames the near field history holds. |
 | `SPEEDO_GI_NEAR_STILL_FRAME_COUNT` | 1 to 2048. 256. | Longer history while view, model and lights are still. |
+| `SPEEDO_GI_GATHER` | `1` on. Off. | Scene. Final gather: opaque surfaces' indirect light gathered by rays from each pixel instead of looked up in the voxels. Needs triangles. |
+| `SPEEDO_GI_GATHER_STRIDE` | `1`, `2`, `4`. 2. | Scene. Final gather from every pixel, or every 2nd or 4th each way. |
 | `SPEEDO_GI_DEBUG` | 1 to 15. None. | Diagnostic. Starts in that indirect lighting debug view; `SPEEDO_DEBUG_VIEW` wins. |
 | `SPEEDO_GI_REFERENCE_RAYS` | 16 to 4096 per pixel. 256. | Diagnostic. Rays of the Surface Reference view; lower if a frame times the gpu out. |
 | `SPEEDO_GI_CACHE_SHOW` | Exactly `1` on. Off. | Diagnostic. Voxels show the surface cache's light alone. |
@@ -269,7 +271,7 @@ Variables marked Scene are View settings; the rest is the renderer's tuning ([in
 | `SPEEDO_GI_CACHE_THIN` | `0` off, `1` single sided boards, `2` double sided sheets too. `2`. | To compare. Lookups beside something thinner than a voxel skip voxels of its other side. |
 | `SPEEDO_GI_PROBES` | `0` none, `1` where they show, `2` every voxel. `1`. | To compare. Which voxels get probe light each frame: `1` only those it can change, `2` all near surfaces, `0` none (probes don't trace). Without the surface cache, or when rays walk voxels, all voxels regardless. |
 | `SPEEDO_GI_PROBE_AIR_INTERVAL` | 1 to 255. 8. | Updates between resolving probe light into air-only voxels, while lights are still. |
-| `SPEEDO_GI_NEAR_SHOW` | 0 to 4. 0. | Diagnostic. Near field: 1 ray light, 2 share without contact, 3 light of contact rays, 4 of the others. |
+| `SPEEDO_GI_NEAR_SHOW` | 0 to 4. 0. | Diagnostic. Near field: 1 ray light, 2 share without contact, 3 light of contact rays, 4 of the others. With the final gather: 1 the rays' light, 2 the share of rays whose hits are known. |
 | `SPEEDO_GI_DUMP` | `x,y,z` or `pixel:x,y`. Off. | Diagnostic. At exit prints each clip's probe nearest the point; clips then update every frame. |
 | `SPEEDO_GI_EYE_PATH` | Points `x,y,z[,lx,ly,lz]` separated by `;` or new lines, or `@<file>`. The camera. | Diagnostic. Centers clips on these points, one a frame, then the last. |
 | `SPEEDO_GI_EYE_LOG` | Exactly `1` on. Off. | Diagnostic. Prints each frame's clip center and look, and clip scrolls. |

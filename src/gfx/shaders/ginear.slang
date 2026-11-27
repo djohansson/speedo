@@ -46,6 +46,31 @@ float3 GiNearDirection(int2 pixel, float3 normal, uint turn, uint stride)
 	return normalize(disk.x * t + disk.y * b + sqrt(max(1.0 - dot(disk, disk), 0.0)) * normal);
 }
 
+// which pixel of each stride's square is traced this frame (ComputeGiNear, the filter's passes, GiNearUpsample): the
+// first, but the final gather's (GiData::nearGather) another every frame, in an order that puts a frame's far from the
+// last's (a Bayer matrix's, as the reflections' ReflectionOffset), so that every pixel has rays of its own within 4
+// frames at a stride of 2 and 16 at 4. on a fixed grid a pixel between the traced ones only ever took its neighbours',
+// and where those are other surfaces every time (a blind's slats a few pixels apart, the bathroom's of the glTF
+// research set) what it took depended on where it lay among them: a moiré over the blind, fixed to the screen
+int2 GiNearOffset(GiData gi)
+{
+	static const uint kOrder4[16] = { 0u, 10u, 2u, 8u, 5u, 15u, 7u, 13u, 1u, 11u, 3u, 9u, 4u, 14u, 6u, 12u };
+	static const uint kOrder2[4] = { 0u, 3u, 1u, 2u };
+	if (gi.nearGather == 0u || gi.nearTemporal == 0u)
+		return int2(0, 0);
+	if (gi.nearStride == 4u)
+	{
+		uint index = kOrder4[gi.nearFrame & 15u];
+		return int2(index & 3u, index >> 2u);
+	}
+	if (gi.nearStride == 2u)
+	{
+		uint index = kOrder2[gi.nearFrame & 3u];
+		return int2(index & 1u, index >> 1u);
+	}
+	return int2(0, 0);
+}
+
 // a pixel's ray (see ComputeGiNear): rgb its radiance, a 0 where it met something nearer than a contact
 // (GiData::nearContact), else how far the volume's lookup at the pixel is to be taken (GiLookupTrust), -1 where there is
 // nothing to know (no surface, outside the clips, or the volume's lookup at its end saw no probe). the filter and the
@@ -60,7 +85,10 @@ float4 GiNearRay(int2 pixel)
 	if (!ViewAt(pixel, view) || !ShadowSurfaceAt(pixel, view, surface))
 		return kGiNearUnknown;
 	GiData gi = GiClip(0);
-	if (gi.enabled == 0u || gi.nearReach <= 0.0 || !GiTracesBvh(gi))
+	// the final gather (GiData::nearGather): the same ray as far as there is anything to meet, whose light the shading
+	// takes whole (see Shade), so nothing is asked of the volume's lookup at the pixel
+	bool gather = gi.nearGather != 0u;
+	if (gi.enabled == 0u || (gi.nearReach <= 0.0 && !gather) || !GiTracesBvh(gi))
 		return kGiNearUnknown;
 	float voxel = GiNearVoxelSize(surface.position);
 	if (voxel <= 0.0)
@@ -69,8 +97,8 @@ float4 GiNearRay(int2 pixel)
 	// off the surface by a pixel and a half (more far from the eye), as the traced shadows' rays, against the depth's
 	// and the BVH's rounding
 	float bias = max(1.5 * surface.metersPerPixel, 1e-4 * distance(surface.position, view.eyePosition.xyz));
-	float4 ray = GiNearTrace<true>(gi, surface.position, surface.normal, direction, bias, voxel);
-	if (ray.a > 0.0)
+	float4 ray = GiNearTrace<true>(gi, surface.position, surface.normal, direction, bias, voxel, gather);
+	if (ray.a > 0.0 && !gather)
 	{
 		bool moving;
 		GiSample lookup = GiSampleSurface(surface.position, surface.normal, normalize(view.eyePosition.xyz - surface.position), GiSeenNone(), false, moving);
@@ -82,18 +110,24 @@ float4 GiNearRay(int2 pixel)
 // a near field ray from a surface at position (its normal toward the side the ray goes) along direction, off it by bias,
 // in the clips whose voxels are voxel big there: as GiNearRay's (the traced reflections' and refractions' hits trace
 // them too, see TracedNearIrradiance). kThorough: the voxels its hits take light from tested further (GiHitVoxel: the main
-// pass's, GiNearRay)
-float4 GiNearTrace<let kThorough : bool>(GiData gi, float3 position, float3 normal, float3 direction, float bias, float voxel)
+// pass's, GiNearRay). gather (the final gather's, GiData::nearGather): as far as there is anything to meet, and where there
+// is nothing the environment along the ray, as the probes' and the cache's rays take it (prefiltered: a sharp sky's
+// bright spots are a few rays')
+static const float kGiGatherReach = 60000.0;
+
+float4 GiNearTrace<let kThorough : bool>(GiData gi, float3 position, float3 normal, float3 direction, float bias, float voxel, bool gather = false)
 {
-	float reach = gi.nearReach * voxel;
+	float reach = gather ? kGiGatherReach : gi.nearReach * voxel;
 	float3 origin = position + normal * bias;
 	BvhHit hit = GiTraceTriangles(gi, origin, direction, reach, false, true, false);
 	if (BvhHitSomething(hit))
 	{
-		float clear = hit.t < gi.nearContact * voxel ? 0.0 : 1.0;
-		// a single sided surface seen from behind: the ray is inside what it bounds, where no light is
+		// (the gather's: 1 where what the ray met is known, 0 where it isn't, see below)
+		float clear = gather || hit.t >= gi.nearContact * voxel ? 1.0 : 0.0;
+		// a single sided surface seen from behind: the ray is inside what it bounds, where no light is. the gather's: not
+		// known, as the surface cache's rays leave such a hit out (GiCacheUpdate)
 		if (!hit.frontFace && (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) == 0u)
-			return float4(0.0, 0.0, 0.0, clear);
+			return float4(0.0, 0.0, 0.0, gather ? 0.0 : clear);
 		if (gi.nearShow == 4u)
 			return float4(0.0, 0.0, 0.0, clear);
 		// the radiance of what it met, the voxels' there (see GiHitLitAt). within a voxel and a half of the pixel's
@@ -109,6 +143,13 @@ float4 GiNearTrace<let kThorough : bool>(GiData gi, float3 position, float3 norm
 		// contact
 		float3 point = origin + direction * hit.t;
 		float needed = max(1.5 * voxel - dot(point - position, normal), 0.0);
+		// (the gather's rays, whose light is all of the pixel's: what faces it across such a gap reflects what the lights
+		// and the emitters give it at the hit itself, GiHitLitAt's bounce off, and none of what its voxel holds bounced.
+		// with none at all, the slats of the bathroom's blind in the glTF research set, a few centimetres apart before an
+		// emissive panel, were lit by the few rays that pass between them into the room: grey where the reference has them
+		// white, the scene 0.21 stops under its reference for the lookups' 0.07; and with the hit's voxel read as any
+		// other's, the gaps between the vanity's drawers lit up)
+		bool gap = false;
 		if (needed > 0.0)
 		{
 			float3 along = normal - hit.normal * dot(normal, hit.normal);
@@ -117,10 +158,14 @@ float4 GiNearTrace<let kThorough : bool>(GiData gi, float3 position, float3 norm
 			if (move > 3.0 * voxel)
 			{
 				if (dot(hit.normal, normal) < 0.0)
-					return float4(0.0, 0.0, 0.0, clear);
+				{
+					if (!gather)
+						return float4(0.0, 0.0, 0.0, clear);
+					gap = true;
+				}
 				move = 3.0 * voxel;
 			}
-			if (alongLength > 1e-3)
+			if (alongLength > 1e-3 && !gap)
 				point += along * (move / alongLength);
 		}
 		// the light it reflects alone (GiHitLitAt): an emitter's is the volume's, which averages it over its probes'
@@ -140,16 +185,23 @@ float4 GiNearTrace<let kThorough : bool>(GiData gi, float3 position, float3 norm
 		// a surface sloping into the corner can pass the other surface, the rays by the ceiling's edges of MovingInterior's
 		// room saw the sun from behind the wall, white speckles a few voxels apart along the edge that never settled, the
 		// user's report, 2026-11-21)
-		float3 lit = GiHitLitAt<kThorough>(gi, point, origin + direction * hit.t, hit, origin, float(seed & 0xFFFFFFu) / 16777216.0, emission, false);
+		float3 lit = GiHitLitAt<kThorough>(gi, point, origin + direction * hit.t, hit, origin, float(seed & 0xFFFFFFu) / 16777216.0, emission, false, true, !gap);
 		// (what it met has no voxel to stand for it, kGiHitUnknown: nothing known of the pixel by this ray)
+		// (the gather's rays keep count of them: no light, and none known, so that what the filter and the frames make of
+		// the pixel's rays is their light with the share of them that is known beside it, which the shading divides by, and
+		// where few are known takes the volume's lookup instead, see Shade. left out, as the near field's, what a thing
+		// thinner than the voxels reflects onto itself went missing without a trace: the slats of the bathroom's blind,
+		// whose rays mostly meet the next slat, were lit by the few that pass between them into the room alone)
 		if (!GiHitKnown(lit))
-			return kGiNearUnknown;
+			return gather ? float4(0.0, 0.0, 0.0, 0.0) : kGiNearUnknown;
 		return float4(max(lit - emission, 0.0), clear);
 	}
 	if (gi.nearShow == 3u)
 		return float4(0.0, 0.0, 0.0, 1.0);
 	if (hit.capped)
 		return float4(0.0, 0.0, 0.0, 0.0); // in something its traversal couldn't get through
+	if (gather)
+		return float4(EnvironmentRadiance(gEnvironment[0], direction, 0.6), 1.0);
 	// nothing near: the light the volume holds along the ray where it ends (the irradiance over pi of a surface facing
 	// back along it, see GiEvaluate), the environment's outside every clip
 	GiSample far = GiSampleAt(origin + direction * reach, direction, float3(0.0), GiSeenNone());
@@ -189,7 +241,8 @@ void ComputeGiNear(uint3 dispatchThreadId : SV_DispatchThreadID)
 	RWTexture2D raw = gRWTextures[SHADER_TYPES_GI_NEAR_RAW_RW_TEXTURE];
 	uint2 extent;
 	raw.GetDimensions(extent.x, extent.y);
-	int2 pixel = int2(dispatchThreadId.xy) * int(max(GiClip(0).nearStride, 1u));
+	GiData gi = GiClip(0);
+	int2 pixel = int2(dispatchThreadId.xy) * int(max(gi.nearStride, 1u)) + GiNearOffset(gi);
 	if (any(pixel >= int2(extent)))
 		return;
 	raw[pixel] = GiNearRay(pixel);
@@ -304,8 +357,10 @@ float4 GiNearFilter(int2 pixel, int2 step, uint source)
 	int axis = dot(pixel, step);
 	// the traced pixels along the axis within 16: every stride-th, so the first is the one at or past -16 congruent to the
 	// pixel's place
-	int stride = int(max(GiClip(0).nearStride, 1u));
-	int first = -16 + ((16 - axis) % stride + stride) % stride;
+	// (the frame's of each stride's square, GiNearOffset)
+	GiData gi = GiClip(0);
+	int stride = int(max(gi.nearStride, 1u));
+	int first = -16 + ((16 - axis + dot(GiNearOffset(gi), step)) % stride + stride) % stride;
 	for (int offset = first; offset <= 16; offset += stride)
 	{
 		int2 at = pixel + step * offset;
@@ -336,7 +391,8 @@ void ComputeGiNearX(uint3 dispatchThreadId : SV_DispatchThreadID)
 	gRWTextures[SHADER_TYPES_GI_NEAR_ROWS_RW_TEXTURE].GetDimensions(extent.x, extent.y);
 	// the traced pixels only (a thread each): the columns' pass, the frames' and the main pass's upsampling read nothing
 	// else. at every pixel, as they were, the filter and the frames cost 5 to 9 ms of Bistro's and San Miguel's frames
-	int2 pixel = int2(dispatchThreadId.xy) * int(max(GiClip(0).nearStride, 1u));
+	GiData gi = GiClip(0);
+	int2 pixel = int2(dispatchThreadId.xy) * int(max(gi.nearStride, 1u)) + GiNearOffset(gi);
 	if (any(pixel >= int2(extent)))
 		return;
 	gRWTextures[SHADER_TYPES_GI_NEAR_ROWS_RW_TEXTURE][pixel] = GiNearFilter(pixel, int2(1, 0), SHADER_TYPES_GI_NEAR_RAW_TEXTURE);
@@ -348,7 +404,8 @@ void ComputeGiNearY(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
 	uint2 extent;
 	gRWTextures[SHADER_TYPES_GI_NEAR_RW_TEXTURE].GetDimensions(extent.x, extent.y);
-	int2 pixel = int2(dispatchThreadId.xy) * int(max(GiClip(0).nearStride, 1u));
+	GiData gi = GiClip(0);
+	int2 pixel = int2(dispatchThreadId.xy) * int(max(gi.nearStride, 1u)) + GiNearOffset(gi);
 	if (any(pixel >= int2(extent)))
 		return;
 	gRWTextures[SHADER_TYPES_GI_NEAR_RW_TEXTURE][pixel] = GiNearFilter(pixel, int2(0, 1), SHADER_TYPES_GI_NEAR_ROWS_TEXTURE);
@@ -358,14 +415,15 @@ void ComputeGiNearY(uint3 dispatchThreadId : SV_DispatchThreadID)
 // surfaces from the pre-pass's depth and normals there): bilinear over the 2x2 of them around, each by how much it is on
 // the pixel's surface (its distance off the pixel's tangent plane and its normal's agreement, as EmitterUpsample), else
 // the 3x3 by that alone, else (thin geometry between the traced pixels) by how their normals agree; kGiNearUnknown where
-// none is known
-float4 GiNearUpsample(int2 pixel, ShadowSurface surface, ViewData view, int stride)
+// none is known. first: the traced pixel of each stride's square (GiNearOffset). own: how much of it is the pixel's own
+// surface's (the bilinear weights of the traced pixels that are on it: 1 at a traced pixel, 0 where it took the others)
+float4 GiNearUpsample(int2 pixel, ShadowSurface surface, ViewData view, int stride, int2 first, out float own)
 {
 	Texture2D light = gTextures[SHADER_TYPES_GI_NEAR_TEXTURE];
 	float2 low = view.viewport.xy;
 	float2 high = view.viewport.xy + view.viewport.zw;
 	float scale = max(0.01 * distance(surface.position, view.eyePosition.xyz), 1e-6);
-	float2 at = float2(pixel) / float(stride);
+	float2 at = float2(pixel - first) / float(stride);
 	int2 base = int2(floor(at));
 	float2 f = at - float2(base);
 	float4 total = 0.0;
@@ -373,7 +431,7 @@ float4 GiNearUpsample(int2 pixel, ShadowSurface surface, ViewData view, int stri
 	for (int corner = 0; corner < 4; corner++)
 	{
 		int2 offset = int2(corner & 1, corner >> 1);
-		int2 tap = (base + offset) * stride;
+		int2 tap = (base + offset) * stride + first;
 		if (any(float2(tap) < low) || any(float2(tap) >= high))
 			continue;
 		float4 value = light.Load(int3(tap, 0));
@@ -387,6 +445,7 @@ float4 GiNearUpsample(int2 pixel, ShadowSurface surface, ViewData view, int stri
 		total += w * value;
 		weights += w;
 	}
+	own = saturate(weights);
 	if (weights < 1e-4)
 	{
 		total = 0.0;
@@ -397,7 +456,7 @@ float4 GiNearUpsample(int2 pixel, ShadowSurface surface, ViewData view, int stri
 		for (int y = -1; y <= 1; y++)
 			for (int x = -1; x <= 1; x++)
 			{
-				int2 tap = (nearest + int2(x, y)) * stride;
+				int2 tap = (nearest + int2(x, y)) * stride + first;
 				if (any(float2(tap) < low) || any(float2(tap) >= high))
 					continue;
 				float4 value = light.Load(int3(tap, 0));
@@ -509,8 +568,10 @@ void ComputeGiNearTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		return;
 	}
 	float3 toEye = view.eyePosition.xyz - surface.position;
-	float4 now = GiNearUpsample(pixel, surface, view, int(max(gi.nearStride, 1u)));
-	float count = 1.0; // the frames the history holds
+	float own;
+	float4 now = GiNearUpsample(pixel, surface, view, int(max(gi.nearStride, 1u)), GiNearOffset(gi), own);
+	// the frames the history holds (the gather's: as much as this one is of the pixel's own surface, see below)
+	float count = gi.nearGather != 0u ? max(own, 0.02) : 1.0;
 	float4 result = now;
 	bool moves = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
 	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
@@ -553,8 +614,12 @@ void ComputeGiNearTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 			float4 kept = total / weights;
 			// (what moves never by the still blend: its light changes as it moves)
 			float least = EmitterViewStill(view) && !moves ? gi.nearStillBlend : gi.nearBlend;
-			count = min(max(held / weights, 1.0) + 1.0, 1.0 / least);
-			result = lerp(kept, float4(HistoryFireflyClamp(now.rgb, kept.rgb, view.exposure), now.a), max(1.0 / count, least));
+			// (the gather's frames count by how much of the frame is the pixel's own surface's, GiNearUpsample's own: its rays
+			// move over the pixels, GiNearOffset, so a pixel between surfaces, whose neighbours' light is another surface's,
+			// keeps what the frames with rays of its own gave it)
+			float sample = gi.nearGather != 0u ? max(own, 0.02) : 1.0;
+			count = min(max(held / weights, gi.nearGather != 0u ? 0.02 : 1.0) + sample, 1.0 / least);
+			result = lerp(kept, float4(HistoryFireflyClamp(now.rgb, kept.rgb, view.exposure), now.a), max(sample / count, least * sample));
 		}
 	}
 	history[pixel] = result;

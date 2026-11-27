@@ -4222,6 +4222,8 @@ struct Scene::Impl
 				.giNearContact = mySettings.giNearContact.load(std::memory_order_relaxed),
 				.giNearStride = mySettings.giNearStride.load(std::memory_order_relaxed),
 				.giNearTemporal = mySettings.giNearTemporal.load(std::memory_order_relaxed),
+				.giGather = mySettings.giGather.load(std::memory_order_relaxed),
+				.giGatherStride = mySettings.giGatherStride.load(std::memory_order_relaxed),
 				.lights = myLightData,
 				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),
 				.captureLights = mySettings.captureLights.load(std::memory_order_relaxed),

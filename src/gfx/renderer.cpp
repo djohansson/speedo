@@ -4477,7 +4477,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		uint64_t key = (uint64_t{frame.pushConstants.debugView} << 32) |
 					   (frame.pushConstants.traced & (TRACED_REFLECTIONS | TRACED_REFRACTIONS | TRACED_SOLID_TRANSMISSION)) |
 					   (frame.indirectLighting ? 1U << 8 : 0U) | (frame.caustics ? 1U << 9 : 0U) | (frame.emissiveLights ? 1U << 10 : 0U) |
-					   (frame.shadows ? 1U << 11 : 0U) | (frame.giSurfaceCache ? 1U << 12 : 0U) | (frame.giNearField ? 1U << 13 : 0U);
+					   (frame.shadows ? 1U << 11 : 0U) | (frame.giSurfaceCache ? 1U << 12 : 0U) | (frame.giNearField ? 1U << 13 : 0U) |
+					   (frame.giGather ? 1U << 14 : 0U);
 		bool still = myTwoPhases && myGlassHistoryValid && myGraph.IsPersistentValid(myGlassHistory) && key == myGlassHistoryKey &&
 					 frame.model != nullptr && !frame.model->Moves() && !myGiLightsChanged && myGiLightsFollowFrames == 0;
 		if (still)
@@ -5346,10 +5347,19 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		myGraph.SetEnabled(pass, enabled && frame.giSurfaceCache && myGiWorldOn);
 	// the near field (see GiData::nearReach), where the rays trace the model's BVHs
 	bool hasBvh = frame.model != nullptr && frame.model->HasBvh();
-	myGiNearOn = enabled && frame.giNearField && frame.traceTriangles && hasBvh && myGiNearReach > 0.0F;
-	// every how many pixels its rays are traced (FrameInputs::giNearStride): a change starts the frames over, their history
-	// being laid out on the traced pixels
-	if (uint32_t stride = frame.giNearStride == 4 ? 4U : 2U; stride != myGiNearStride)
+	// the final gather (see GiData::nearGather): the near field's passes, whether or not the near field is on, their rays
+	// as far as they go. a switch starts the frames over: the history's light is the other's
+	bool gather = enabled && frame.giGather && frame.traceTriangles && hasBvh;
+	if (gather != myGiGatherOn)
+	{
+		myGiGatherOn = gather;
+		myGiNearHistoryValid = false;
+	}
+	myGiNearOn = enabled && frame.traceTriangles && hasBvh && (myGiGatherOn || (frame.giNearField && myGiNearReach > 0.0F));
+	// every how many pixels its rays are traced (FrameInputs::giNearStride, the gather's FrameInputs::giGatherStride): a
+	// change starts the frames over, their history being laid out on the traced pixels
+	if (uint32_t stride = myGiGatherOn ? (frame.giGatherStride == 1 ? 1U : frame.giGatherStride == 4 ? 4U : 2U) : (frame.giNearStride == 4 ? 4U : 2U);
+		stride != myGiNearStride)
 	{
 		myGiNearStride = stride;
 		myGiNearHistoryValid = false;
@@ -5358,7 +5368,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		myGraph.SetEnabled(pass, myGiNearOn);
 	// the lookups' sides, where the surface cache's entries are anchored (its rays trace the model's BVHs: see
 	// GiCacheAnchored), whose apexes the voxels' marks are of
-	myGiSidesOn = enabled && frame.giSurfaceCache && frame.traceTriangles && hasBvh;
+	// (not with the final gather, whose pixels read no voxels around them: the few it knows nothing of take the lookup
+	// without sides)
+	myGiSidesOn = enabled && frame.giSurfaceCache && frame.traceTriangles && hasBvh && !myGiGatherOn;
 	myGraph.SetEnabled(myGiSidesPass, myGiSidesOn);
 	// and kept over frames: last frame's count if the pass ran then (at this size: Resize clears it)
 	myGiSidesKeptFrameCount = myGiSidesHistoryValid && myGiSidesOn ? myGiSidesKeepFrameCount : 0;
@@ -6056,6 +6068,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// (none kept across a reset or a cache made anew: the voxels' marks start over)
 		clip.sidesKeepFrameCount = myGiReset || myGiCacheInit ? 0U : myGiSidesKeptFrameCount;
 		clip.nearStride = myGiNearStride;
+		clip.nearGather = myGiGatherOn ? 1U : 0U;
 		if (myGiDump)
 		{
 			// the probe nearest the dump point: by its lattice (the offsets are small)

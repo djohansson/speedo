@@ -90,6 +90,11 @@ struct FrameInputs
 	uint32_t giNearStride = gi::kDefaultNearStride;
 	// and whether the near field is accumulated over frames (see GiData::nearTemporal)
 	bool giNearTemporal = true;
+	// whether the main pass's opaque fragments' indirect light is what rays from their pixels gather, as far as they go,
+	// instead of the volumes' lookup (see GiData::nearGather), where the rays trace the BVHs, and every how many pixels
+	// each way those rays are traced (1, 2 or 4)
+	bool giGather = false;
+	uint32_t giGatherStride = gi::kDefaultGatherStride;
 	// the lights (gLights, as the shader sees them), and whether they cast shadows: fitted to the camera (the first view)
 	// and the scene's bounds
 	std::span<const LightData> lights;
@@ -905,6 +910,9 @@ private:
 	float myGiNearPower = 2.0F;
 	uint32_t myGiNearShow = 0;
 	bool myGiNearOn = false;
+	// whether the near field's passes gather the opaque surfaces' indirect light this frame (FrameInputs::giGather, where
+	// the rays trace the BVHs: see GiData::nearGather)
+	bool myGiGatherOn = false;
 	// whether the lookups' sides are found this frame (the GI Sides pass), where the surface cache's entries are anchored
 	bool myGiSidesOn = false;
 	FrameGraph::PassId myGiNearPass;

@@ -184,9 +184,22 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 	// what the near field's rays gathered at the pixel (the main pass's opaque fragments, see GiNearIrradiance), which
 	// stands in for the lookup's second try where the first sees no probe
 	float4 near = GiNearAtFragment();
-	bool giMoving;
-	GiSample gi = GiSampleSurface(position, normal, view, GiSeenFragment(), near.a < 0.0, giMoving);
-	float giTrust = near.a >= 0.0 ? GiLookupTrust(gi, giMoving) : 1.0;
+	// the final gather (GiData::nearGather): what the pixel's rays gathered, as far as they go, is its indirect light
+	// whole, and the volumes are not looked up at all (their light reaches it through what the rays met, GiHitLitAt): no
+	// voxel around the point is read, so none of the rules about which of them a point may take light from apply (the
+	// lookups' sides, their masks, the GI Sides pass). the rough specular takes the same light (the trust 0)
+	// of the rays whose hits are known (near.a: their share, GiNearTrace): where most are, their light alone; where few
+	// are (a thing thinner than the voxels among its like, whose hits no voxel stands for), the lookup's by as much
+	bool gather = near.a >= 0.0 && gGi[gPushConstants.frameIndex][0].nearGather != 0u;
+	float gatherShare = gather ? smoothstep(0.25, 0.75, near.a) : 0.0;
+	bool gathered = gatherShare >= 1.0;
+	bool giMoving = false;
+	GiSample gi = (GiSample)0;
+	gi.inside = true;
+	gi.held = 1.0;
+	if (!gathered)
+		gi = GiSampleSurface(position, normal, view, GiSeenFragment(), near.a < 0.0 || gather, giMoving);
+	float giTrust = gather ? 1.0 - gatherShare : (near.a >= 0.0 ? GiLookupTrust(gi, giMoving) : 1.0);
 	// where a clip holds the point but no probe is seen around it, none of its light: the environment's there (the sky
 	// unoccluded) shone into dark interiors along their edges
 	float3 indirect = gi.valid ? GiEvaluate(gi, normal) : (gi.inside ? 0.0 : -1.0);
@@ -194,7 +207,20 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 	// the light changed from the clips' to the environment's at once, a seam around the model)
 	if (gi.inside && gi.held < 1.0)
 		indirect = lerp(EnvironmentIrradiance(environment, normal), indirect, gi.held);
-	indirect = GiNearIrradiance(near, indirect, giTrust);
+	if (gather)
+	{
+		uint show = gGi[gPushConstants.frameIndex][0].nearShow;
+		float3 light = near.rgb / max(near.a, 1e-3);
+		// (SPEEDO_GI_NEAR_SHOW: 1 the rays' light alone, 2 the share of them that is known)
+		if (show == 2u)
+			indirect = float3(pow(saturate(near.a), 2.2));
+		else
+			indirect = show == 1u || indirect.x < 0.0 ? light : lerp(indirect, light, gatherShare);
+	}
+	else
+	{
+		indirect = GiNearIrradiance(near, indirect, giTrust);
+	}
 	// the emissive surfaces' light (the main pass's opaque fragments, see EmitterIrradiance): what a white surface reflects
 	// of it, -1 where it isn't gathered
 	float3 emitted = EmitterIrradiance();

@@ -15,6 +15,7 @@ This note describes the indirect lighting (global illumination): diffuse ambient
   - [The resolve and the shading](#the-resolve-and-the-shading)
   - [The surface cache](#the-surface-cache)
   - [The near field](#the-near-field)
+  - [The final gather](#the-final-gather)
   - [Emissive surfaces as lights](#emissive-surfaces-as-lights)
   - [The world cache](#the-world-cache)
 - [Tracing](#tracing)
@@ -39,7 +40,7 @@ This note describes the indirect lighting (global illumination): diffuse ambient
 
 Per frame: voxelize the static geometry (only when something changed), light the voxels, trace rays from the probes, update the probes, resolve their light into the voxels, update and filter the surface cache, then look the result up per pixel in the main pass. The passes, in order: GI Seen, GI Shift and GI Voxelize (when a clip moved or the scene changed), GI Keep, GI Light Static, GI Restore and GI Voxelize Moving (when something moves), GI Light, the flags, GI Trace, GI Probe Update, GI Resolve, the cache's passes (and the world cache's, GI World Clear and GI World Fold, where it is chosen), GI Sides, and the near field's (GI Near, GI Near X, GI Near Y, GI Near Temporal). The pre-pass is recorded before them since GI Seen reads its depth.
 
-The Global Illumination window (View > Rendering Features > Global Illumination...) holds the switches and options: Emissive Lights, then under Indirect Lighting its checkbox and its options, greyed out while it is off: Rays (triangles or voxels), Resolution, Surface Cache, Light Store, Warm-Up Rays, Near Field, Near Field Contact, Near Field Rays and Near Field Over Frames. Light Store and Warm-Up Rays are greyed out without the surface cache, the near field's options without the near field (which runs only where rays trace triangles). Each option names its `SPEEDO_*` start value in its tooltip, listed in docs/environment-variables.md.
+The Global Illumination window (View > Rendering Features > Global Illumination...) holds the switches and options: Emissive Lights, then under Indirect Lighting its checkbox and its options, greyed out while it is off: Rays (triangles or voxels), Resolution, Surface Cache, Light Store, Warm-Up Rays, Near Field, Near Field Contact, Near Field Rays, Near Field Over Frames, Final Gather and Final Gather Rays. Light Store and Warm-Up Rays are greyed out without the surface cache, the near field's options without the near field and the final gather's without it (both run only where rays trace triangles). Each option names its `SPEEDO_*` start value in its tooltip, listed in docs/environment-variables.md.
 
 ### The clipmap
 
@@ -105,6 +106,15 @@ View > Rendering Features > Global Illumination... > Near Field, on by default (
 - **Rays.** Every `SPEEDO_GI_NEAR_STRIDE`-th pixel each way (4; Near Field Rays offers 2 or 4) of the pre-pass's depth traces a ray through the BVHs (GI Near) up to `SPEEDO_GI_NEAR_REACH` (8) voxels, in one of 16 cosine distributed directions over a 4x4 tile, turned every frame. The light is what the hit reflects with the lights' light taken at the hit by a shadow ray (`GiHitLitAt`), or the volume's light from the ray's end where it meets nothing (`GiNearTrace`).
 - **Filter and frames.** GI Near X and Y filter at the traced pixels. GI Near Temporal runs at every pixel: it upsamples and blends into a history reprojected by the depth, in the images the frame's parity says (Near Field Over Frames, on by default, `SPEEDO_GI_NEAR_TEMPORAL=0` without; `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` frames, 16, and `SPEEDO_GI_NEAR_STILL_FRAME_COUNT`, 256, while the view, model and lights are still).
 - **Use.** Main's opaque fragments take the rays' light by how many met another surface nearer than a contact (Near Field Contact, `SPEEDO_GI_NEAR_CONTACT`, 2.5 voxels) and by how far the volume lookup is trusted (`GiLookupTrust`), so the rays' light alone stands in where the lookup sees no probe. `SPEEDO_GI_NEAR_SHOW` shows its parts.
+
+### The final gather
+
+View > Rendering Features > Global Illumination... > Final Gather, off by default (`SPEEDO_GI_GATHER=1`; `GiData::nearGather`; where rays trace the BVHs). An experiment to compare with the lookups: the main pass's opaque fragments take their indirect light from rays of their own pixels instead of from the voxels around them, so none of the rules about which voxel a point may take light from applies to them, and GI Sides does not run. The voxels, probes and surface cache stay: they are what a ray's hit reads.
+
+- **The near field's passes, with other rays.** GI Near's rays go as far as there is anything to meet (`GiNearTrace`'s `gather`), every `SPEEDO_GI_GATHER_STRIDE`-th pixel each way (2; Final Gather Rays offers 1, 2 or 4), and a ray that meets nothing takes the environment along it. The traced pixel of each stride's square is another every frame (`GiNearOffset`), so every pixel has rays of its own within a few frames, and GI Near Temporal counts a frame by how much of it is the pixel's own surface's.
+- **A hit's light** is the near field's (`GiHitLitAt`). A ray that meets a single sided surface's back, or what no voxel stands for, counts as not known, and the filter carries the share of known rays beside their light (`SPEEDO_GI_NEAR_SHOW=2` shows it). What faces the pixel across a gap thinner than the voxels gives what the lights and emitters give it at the hit, without its voxel's bounced light.
+- **Use.** `Shade` takes the rays' light over the known share as the diffuse indirect light and as the rough specular's, and makes the volume's lookup only where under three quarters of the rays are known, blended in by that share, without the lookups' sides.
+- **Known limits.** The light is flat across a normal map (one value a pixel, by the geometry's normal). It is noisier than the lookups while the view moves, and costs more where hits are costly (the sight rays where a hit's voxel is chosen: docs/backlog.md). The transmissive and blended fragments and the traced reflections' hits keep the lookups.
 
 ### Emissive surfaces as lights
 

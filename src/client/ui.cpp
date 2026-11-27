@@ -448,6 +448,18 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 		kDefaults.giNearStride,
 		"SPEEDO_GI_NEAR_STRIDE",
 		[](const char* value) { return std::optional<uint32_t>(std::string_view(value) == "2" ? 2U : 4U); });
+	// (and the final gather, SPEEDO_GI_GATHER=1: the opaque surfaces' indirect light gathered by rays a pixel, every
+	// SPEEDO_GI_GATHER_STRIDE-th pixel each way, 1, 2 or 4)
+	apply(settings.giGather, kDefaults.giGather, "SPEEDO_GI_GATHER", [](const char* value) { return std::optional<bool>(std::string_view(value) == "1"); });
+	apply(
+		settings.giGatherStride,
+		kDefaults.giGatherStride,
+		"SPEEDO_GI_GATHER_STRIDE",
+		[](const char* value) -> std::optional<uint32_t>
+		{
+			std::string_view text(value);
+			return text == "1" ? 1U : text == "2" ? 2U : text == "4" ? std::optional<uint32_t>(4U) : std::nullopt;
+		});
 	apply(
 		settings.giResolution,
 		kDefaults.giResolution,
@@ -1134,6 +1146,10 @@ void WindowedApplication::InternalCopyScene()
 		text += std::format(" SPEEDO_GI_NEAR_CONTACT={:.2f}", static_cast<double>(contact));
 	if (uint32_t stride = settings.giNearStride.load(std::memory_order_relaxed); stride != gfx::gi::kDefaultNearStride)
 		text += std::format(" SPEEDO_GI_NEAR_STRIDE={}", stride);
+	if (settings.giGather.load(std::memory_order_relaxed))
+		text += " SPEEDO_GI_GATHER=1";
+	if (uint32_t stride = settings.giGatherStride.load(std::memory_order_relaxed); stride != gfx::gi::kDefaultGatherStride)
+		text += std::format(" SPEEDO_GI_GATHER_STRIDE={}", stride);
 	if (auto upscaling = settings.upscaling.load(std::memory_order_relaxed); upscaling != gfx::kDefaultUpscaling)
 		text += std::format(" SPEEDO_UPSCALING={}", gfx::UpscalingName(upscaling));
 	if (auto resolution = settings.giResolution.load(std::memory_order_relaxed); resolution != gfx::gi::kDefaultResolution)
@@ -2513,6 +2529,38 @@ void WindowedApplication::PrepareDraw()
 				if (SmallCheckbox("Near Field Over Frames", &temporal, nearOn))
 					App().GetScene().GetSettings().giNearTemporal.store(temporal, std::memory_order_relaxed);
 				SetItemTooltip("Blends the near field over several frames: smoother, but it lags a little when the light changes.");
+			}
+			{
+				// the final gather (see GiData::nearGather): the near field's passes with rays as far as they go, their light
+				// all of the opaque surfaces' indirect light; it traces the triangles as the near field does
+				bool gather = App().GetScene().GetSettings().giGather.load(std::memory_order_relaxed);
+				if (SmallCheckbox("Final Gather", &gather, traced))
+					App().GetScene().GetSettings().giGather.store(gather, std::memory_order_relaxed);
+				SetItemTooltip(
+					"Experimental. Each pixel gathers its indirect light with rays instead of reading the light stored around it: "
+					"no blocky patches or light leaking at junctions, but noisier while moving. Needs Rays: Triangles.");
+				static constexpr std::array kGatherStrides{
+					std::tuple{"Every pixel", 1U, "Finest, slowest."},
+					std::tuple{"Every 2nd pixel", 2U, "The default."},
+					std::tuple{"Every 4th pixel", 4U, "Fastest, coarsest."}};
+				uint32_t stride = App().GetScene().GetSettings().giGatherStride.load(std::memory_order_relaxed);
+				const char* shown = "?";
+				for (auto [label, value, tooltip] : kGatherStrides)
+					if (value == stride)
+						shown = label;
+				BeginDisabled(!(traced && gather));
+				if (BeginCombo("Final Gather Rays", shown))
+				{
+					for (auto [label, value, tooltip] : kGatherStrides)
+					{
+						if (Selectable(label, stride == value))
+							App().GetScene().GetSettings().giGatherStride.store(value, std::memory_order_relaxed);
+						SetItemTooltip("%s", tooltip);
+					}
+					EndCombo();
+				}
+				EndDisabled();
+				SetItemTooltip("How many of the pixels trace the final gather's rays.");
 			}
 			EndDisabled();
 			PopItemWidth();
