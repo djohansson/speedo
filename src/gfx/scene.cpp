@@ -3337,8 +3337,10 @@ struct Scene::Impl
 	// the graphics pipelines kept in myGraphicsPipelinesPath (see Scene::KeepGraphicsPipelines): a header line, then one
 	// a line, the variant's fields as numbers (the topology, each color attachment's blend mode, the fragment shader, the
 	// depth test, the specialization), a tab and its pass's name. what doesn't read as one (a value another version's
-	// enums have) is left out: asked for ahead is only sooner, the passes ask for what they draw with anyway
-	static constexpr std::string_view kKeptGraphicsPipelinesHeader = "speedo graphics pipelines 1";
+	// enums have) is left out: asked for ahead is only sooner, the passes ask for what they draw with anyway.
+	// (2: a list of the first kind names the generic variants the passes asked for beside their draws' own, the forward
+	// fragments' largest kernels, which no pass asks for any more unless it draws with one: not asked for ahead either)
+	static constexpr std::string_view kKeptGraphicsPipelinesHeader = "speedo graphics pipelines 2";
 
 	[[nodiscard]] std::vector<Renderer::RequestedGraphicsPipeline> InternalReadKeptGraphicsPipelines() const
 	{

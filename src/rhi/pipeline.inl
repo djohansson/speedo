@@ -155,6 +155,8 @@ typename Pipeline<G>::GraphicsPipelineRequest Pipeline<G>::RequestGraphicsPipeli
 		auto [it, inserted] = myPipelineMap.try_emplace(key, PipelineHandle<G>{});
 		if (!inserted)
 			return {.handle = it->second};
+		if (std::ranges::find(myGraphicsSpecializations, variant.specialization) == myGraphicsSpecializations.end())
+			myGraphicsSpecializations.push_back(variant.specialization);
 	}
 
 	// the first ask: a task creating it from the state as it is now
@@ -169,6 +171,41 @@ typename Pipeline<G>::GraphicsPipelineRequest Pipeline<G>::RequestGraphicsPipeli
 				myPipelineMap.at(key) = handle;
 				sync.created.notify_all();
 			}).handle};
+}
+
+template <GraphicsApi G>
+std::optional<GraphicsPipelineVariant> Pipeline<G>::FindGraphicsPipelineStandIn(GraphicsPipelineVariant variant)
+{
+	ENSURE(myBindPoint == PipelineBindPoint::kGraphics);
+	std::vector<uint16_t> specializations;
+	{
+		std::unique_lock lock(myPipelineMapSync->mutex);
+		specializations = myGraphicsSpecializations;
+	}
+	// the generic one too, whether or not it was asked for by name
+	if (std::ranges::find(specializations, uint16_t{0}) == specializations.end())
+		specializations.push_back(0);
+	std::optional<GraphicsPipelineVariant> best;
+	int bestMissing = std::numeric_limits<int>::max();
+	for (auto it = specializations.rbegin(); it != specializations.rend(); ++it)
+	{
+		if (*it == variant.specialization)
+			continue;
+		// (what it leaves out that the variant has: its specialization's bits the variant's hasn't)
+		int missing = std::popcount(static_cast<uint16_t>(*it & ~variant.specialization));
+		if (missing >= bestMissing)
+			continue;
+		auto candidate = variant;
+		candidate.specialization = *it;
+		auto key = InternalCalculateHashKey(candidate);
+		std::unique_lock lock(myPipelineMapSync->mutex);
+		if (auto found = myPipelineMap.find(key); found != myPipelineMap.end() && found->second != nullptr)
+		{
+			best = candidate;
+			bestMissing = missing;
+		}
+	}
+	return best;
 }
 
 template <GraphicsApi G>

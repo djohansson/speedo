@@ -303,9 +303,12 @@ float4 TracedSample(uint viewId, float4 texCoords[3], float3 weights, float worl
 // shadow ray; every light where the indirect lighting is off) and by the indirect lighting at it (the probes' diffuse,
 // and the environment's specular as much as they see of it, as Shade's), plus its emission. not the emissive surfaces'
 // light where they are lights (see EmitterIrradiance, a screen's worth of traced pixels). a double sided triangle's back
-// face as its front (see TracedRadiance for a single sided one's). coneWidth: the ray's cone's width at the hit
-float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float coneWidth)
+// face as its front (see TracedRadiance for a single sided one's). coneWidth: the ray's cone's width at the hit.
+// the indirect lighting at it is not in the result but asked for (indirect: TracedIndirectRequest), for the path to take
+// with what else it asks for there (TracedPath)
+float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float coneWidth, out TracedIndirectRequest indirect)
 {
+	indirect = TracedIndirectNone();
 	uint frameIndex = gPushConstants.frameIndex;
 	MaterialData material = gMaterialData[hit.flags >> BVH_TRIANGLE_MATERIAL_SHIFT];
 	VertexP3fN3fTa4fT014fC4f corners[3] = {
@@ -490,12 +493,47 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 		}
 	}
 
-	float3 indirect;
-	float3 specularRadiance;
-	TracedIndirect(position, normal, direction, surface.roughness, hit.normal, push, coneWidth, indirect, specularRadiance);
-	radiance += surface.diffuseColor * indirect +
-				EnvironmentBrdfApprox(surface.f0, surface.f90, surface.roughness, nDotV) * specularRadiance;
+	indirect.wanted = true;
+	indirect.position = position;
+	indirect.normal = normal;
+	indirect.direction = direction;
+	indirect.roughness = surface.roughness;
+	indirect.nearNormal = hit.normal;
+	indirect.nearBias = push;
+	indirect.width = coneWidth;
+	indirect.diffuse = surface.diffuseColor;
+	indirect.specular = EnvironmentBrdfApprox(surface.f0, surface.f90, surface.roughness, nDotV);
 	return radiance;
+}
+
+// the indirect lighting a path is still to take at a point it met (TracedIndirect's arguments), and by how much: its
+// diffuse and its specular radiance, each by a weight (the hit's diffuse color and specular share, a glass surface's
+// specular share alone). a path asks for it at up to two points, the first glass surface a reflection meets and what it
+// meets of the opaque scene in the end, and takes both through one call after its queries (TracedPath). called where
+// each was met, TracedIndirect was in the kernels twice, and it is half of what a traced hit's code is: the lookup of
+// the hit's voxel and its sight rays, the lookup with masks, the near field's rays with their own hits' voxels and
+// shadow rays, five copies of the BVHs' traversal each time. KosmicKrisp inlines every call, and the forward fragment
+// kernels, which hold all of it, were 12 MB of Metal source with the default's groups skipped and 18 without, a minute
+// or two to compile cold each (docs/backlog.md, "The forward fragment kernels' size")
+struct TracedIndirectRequest
+{
+	bool wanted;
+	float3 position;
+	float3 normal;
+	float3 direction;
+	float roughness;
+	float3 nearNormal;
+	float nearBias;
+	float width;
+	float3 diffuse;
+	float3 specular;
+};
+
+TracedIndirectRequest TracedIndirectNone()
+{
+	TracedIndirectRequest request = (TracedIndirectRequest)0;
+	request.wanted = false;
+	return request;
 }
 
 // the indirect lighting at a hit at position (normal, met along direction, of a roughness), as Shade takes it: the probes'
@@ -797,6 +835,9 @@ float3 TracedPath(
 	bool reached = false; // whether the last query met the opaque scene or nothing (hit), which is shaded after the loop
 	bool going = true;
 	bool crossedGlass = false; // whether the path has met a transmissive surface (see TracedShade's fromGlass)
+	// the indirect lighting asked for along the way (TracedIndirectRequest): at a reflection's first glass surface, and at
+	// what the path met in the end, both taken after the queries, through one call
+	TracedIndirectRequest requests[2] = {TracedIndirectNone(), TracedIndirectNone()};
 	BvhHit hit = BvhNothing(kTracedFar);
 	gTracedHitEmission = 0.0;
 	gTracedHitEmitter = false;
@@ -831,11 +872,17 @@ float3 TracedPath(
 						TextureView textureView = gTextureViews[surface.material.metallicRoughnessView];
 						glassRoughness *= SampleViewLevel(textureView, ViewTexCoord(textureView, surface.texCoord01), 0.0).r;
 					}
-					float3 indirect;
-					float3 specularRadiance;
-					TracedIndirect(surface.position, surface.normal, path.direction, glassRoughness, surface.normal, 0.0, -1.0, indirect, specularRadiance);
 					float nDotV = max(dot(surface.normal, -path.direction), 1e-4);
-					light += EnvironmentBrdfApprox(float3(surface.f0), 1.0, glassRoughness, nDotV) * specularRadiance;
+					requests[0].wanted = true;
+					requests[0].position = surface.position;
+					requests[0].normal = surface.normal;
+					requests[0].direction = path.direction;
+					requests[0].roughness = glassRoughness;
+					requests[0].nearNormal = surface.normal;
+					requests[0].nearBias = 0.0;
+					requests[0].width = -1.0;
+					requests[0].diffuse = 0.0;
+					requests[0].specular = EnvironmentBrdfApprox(float3(surface.f0), 1.0, glassRoughness, nDotV);
 				}
 			}
 			traveled += hit.t;
@@ -852,10 +899,25 @@ float3 TracedPath(
 		float shadedT;
 		bool shadedMoving;
 		float3 radiance =
-			TracedShade(hit, path.origin, path.direction, cone, roughness, !reflection || crossedGlass, shadedT, valid, shadedMoving);
+			TracedShade(hit, path.origin, path.direction, cone, roughness, !reflection || crossedGlass, shadedT, valid, shadedMoving, requests[1]);
 		moving = moving || shadedMoving;
 		light += path.throughput * radiance;
 		gTracedHitEmission *= path.throughput;
+		requests[1].diffuse *= path.throughput;
+		requests[1].specular *= path.throughput;
+	}
+	[loop]
+	for (uint requestIt = 0; requestIt < 2u; requestIt++)
+	{
+		TracedIndirectRequest request = requests[requestIt];
+		if (!request.wanted)
+			continue;
+		float3 indirect;
+		float3 specularRadiance;
+		TracedIndirect(
+			request.position, request.normal, request.direction, request.roughness, request.nearNormal, request.nearBias, request.width, indirect,
+			specularRadiance);
+		light += request.diffuse * indirect + request.specular * specularRadiance;
 	}
 	return light;
 }
@@ -870,8 +932,9 @@ float3 TracedPath(
 // something
 float3 TracedShade(
 	BvhHit hit, float3 origin, float3 direction, TracedCone cone, float roughness, bool fromGlass, out float t, out bool valid,
-	out bool moving)
+	out bool moving, out TracedIndirectRequest indirect)
 {
+	indirect = TracedIndirectNone();
 	valid = true;
 	moving = false;
 	// (a BVH's traversal that ran into its step cap: what the ray would have met isn't known)
@@ -897,7 +960,7 @@ float3 TracedShade(
 		valid = false;
 		return 0.0;
 	}
-	return TracedHitRadiance(direction, hit, origin + direction * hit.t, cone.width + cone.spread * hit.t);
+	return TracedHitRadiance(direction, hit, origin + direction * hit.t, cone.width + cone.spread * hit.t, indirect);
 }
 
 // a reflection a normal map turned below the geometry, turned to skim it instead (see TracedReflection)

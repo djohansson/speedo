@@ -333,7 +333,9 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 	float3 diffuseEnvironment = surface.diffuseColor * (indirect.x >= 0.0 ? indirect : EnvironmentIrradiance(environment, normal));
 	if (surface.diffuseTransmission > 0.0)
 	{
-		float3 behind = GiIrradiance(position, -normal);
+		// (without the debug views, which returned above: asked for with them, the kernel held their traced ones a second
+		// time, the reference view's rays and the probes' state's, 4 more copies of the BVHs' traversal)
+		float3 behind = GiIrradiance(position, -normal, 0u);
 		diffuseEnvironment = lerp(
 			diffuseEnvironment,
 			surface.diffuseTransmissionColor * (behind.x >= 0.0 ? behind : EnvironmentIrradiance(environment, -normal)),

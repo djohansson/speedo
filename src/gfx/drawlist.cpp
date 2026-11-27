@@ -335,7 +335,10 @@ public:
 			{
 				if (request.create)
 					myExecutor->Submit({&request.create, 1});
-				myVariant.specialization = 0;
+				// (another that exists meanwhile, the generic one first: see RequestDrawListPipelines, which a pass that
+				// records has asked: there is one. else the generic one, made here)
+				auto standIn = myPipeline.FindGraphicsPipelineStandIn(myVariant);
+				myVariant.specialization = standIn ? standIn->specialization : uint16_t{0};
 			}
 		}
 		return myBound != myVariant || myCullMode != item.cullMode || myFrontFace != item.frontFace || myMoves != item.moves;
@@ -464,6 +467,43 @@ void RecordDrawList(
 	flush();
 }
 
+std::optional<GraphicsPipelineVariant> FirstDrawVariant(
+	Pipeline& pipeline,
+	const DrawList& list,
+	core::TaskExecutor* executor,
+	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include)
+{
+	const DrawItem* first = nullptr;
+	auto takes = [&](const DrawItem& item) { return !include || (*include)(item); };
+	if (list.runs.empty())
+	{
+		if (auto it = std::ranges::find_if(list.items, takes); it != list.items.end())
+			first = &*it;
+	}
+	else
+	{
+		for (const auto& run : list.runs)
+			if (takes(list.items[run.first]))
+			{
+				first = &list.items[run.first];
+				break;
+			}
+	}
+	if (first == nullptr)
+		return std::nullopt;
+	// (as DrawState::Changes binds it)
+	auto variant = first->variant;
+	if (variant.specialization != 0 && executor != nullptr)
+		if (auto request = pipeline.RequestGraphicsPipeline(variant); request.handle == nullptr)
+		{
+			if (request.create)
+				executor->Submit({&request.create, 1});
+			auto standIn = pipeline.FindGraphicsPipelineStandIn(variant);
+			variant.specialization = standIn ? standIn->specialization : uint16_t{0};
+		}
+	return variant;
+}
+
 uint32_t RequestDrawListPipelines(
 	Pipeline& pipeline,
 	const DrawList& list,
@@ -483,10 +523,8 @@ uint32_t RequestDrawListPipelines(
 	{
 		if (include && !(*include)(item))
 			return;
-		auto variant = item.variant;
-		variant.specialization = 0;
-		if (std::ranges::find(needed, variant) == needed.end())
-			needed.push_back(variant);
+		if (std::ranges::find(needed, item.variant) == needed.end())
+			needed.push_back(item.variant);
 	};
 	if (list.runs.empty())
 		std::ranges::for_each(list.items, add);
@@ -501,9 +539,11 @@ uint32_t RequestDrawListPipelines(
 		auto request = pipeline.RequestGraphicsPipeline(variant);
 		if (request.handle != nullptr)
 			continue;
-		missingCount++;
 		if (request.create)
 			creates.push_back(request.create);
+		// (missing only where nothing can draw in its place meanwhile: see Pipeline::FindGraphicsPipelineStandIn)
+		if (!pipeline.FindGraphicsPipelineStandIn(variant))
+			missingCount++;
 	}
 	if (!creates.empty())
 		executor->Submit(creates);

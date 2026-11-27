@@ -237,6 +237,11 @@ public:
 		core::TaskHandle create{};
 	};
 	[[nodiscard]] GraphicsPipelineRequest RequestGraphicsPipeline(GraphicsPipelineVariant variant);
+	// a variant that exists to draw with while this one is being made, for the bound layout and render target: the same
+	// but for its specialization, the one that leaves out least of what this one has (the generic one, of specialization
+	// 0, leaves out nothing), the latest asked for among equals; none if no other exists. what it draws is what its own
+	// specialization says, not this one's: for the frames until this one is there
+	[[nodiscard]] std::optional<GraphicsPipelineVariant> FindGraphicsPipelineStandIn(GraphicsPipelineVariant variant);
 	// compute pipelines for the bound compute layout, as BindPipelineAuto would create them, without waiting: for each
 	// variant not created (nor being created), a task that creates it from the layout and its entry point as they are
 	// now, for the caller to submit (any thread, several at once: until one has run, BindPipelineAuto for its variant
@@ -356,6 +361,9 @@ private:
 
 	// todo: move pipeline map & cache to its own class, and pass in reference to it.
 	PipelineMapType myPipelineMap; // a null handle while it is being created
+	// the specializations graphics pipelines were asked for with, each once, in the order they first were (under
+	// myPipelineMapSync's mutex): a handful, the candidates to stand in for one being made (FindGraphicsPipelineStandIn)
+	std::vector<uint16_t> myGraphicsSpecializations;
 	// guards myPipelineMap: draw threads and creation jobs (see RequestGraphicsPipeline) use it. created signals a handle
 	// stored
 	struct PipelineMapSync

@@ -348,7 +348,7 @@ private:
 		const FrameGraph::PassContext& context,
 		Pipeline& pipeline,
 		const DrawList& list,
-		rhi::GraphicsPipelineVariant variant,
+		std::span<const rhi::GraphicsPipelineVariant> variants,
 		core::TaskExecutor* executor,
 		std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include = std::nullopt);
 

@@ -241,13 +241,27 @@ void RecordCulledDrawList(
 	core::TaskExecutor* executor = nullptr,
 	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include = std::nullopt);
 
-// asks for the graphics pipelines recording a list would bind first, for the pipeline's bound layout and render target,
-// without waiting (see Pipeline::RequestGraphicsPipeline): the caller's own variants and the generic ones of the items
-// include takes (a run by its first item, where planned; the specialized ones are made in the background as they are
-// drawn, see RecordDrawList). those never asked for are created on executor; returns how many don't exist yet, and a
-// pass records the list only once none is missing, so the draw thread never waits for the driver's compile (a cold first
-// launch's generic main pass pipeline took 16.5 s on KosmicKrisp, the window frozen meanwhile). without an executor,
-// none: they are made on first use, the draw thread waiting. requested, if given, gets the variants asked for
+// asks for the graphics pipelines recording a list binds, for the pipeline's bound layout and render target, without
+// waiting (see Pipeline::RequestGraphicsPipeline): the caller's own variants and those of the items include takes (a run
+// by its first item, where planned), each as it is, specialized or not. those never asked for are created on executor;
+// returns how many are missing, which is those that don't exist yet and that nothing else can draw in the place of
+// meanwhile (Pipeline::FindGraphicsPipelineStandIn: a specialized one's generic one, or the one drawn with before a
+// setting changed what it is specialized without). a pass records the list only once none is missing, so the draw
+// thread never waits for the driver's compile (a cold first launch's generic main pass pipeline took 16.5 s on
+// KosmicKrisp, the window frozen meanwhile). the generic ones are not asked for beside the specialized: at a cold start
+// they were made first and waited for, the largest there are, and then the specialized ones the frames draw with
+// (KosmicKrisp: 102 s and 50 s for the forward fragments'). without an executor, none: they are made on first use, the
+// draw thread waiting. requested, if given, gets the variants asked for
+// the variant recording a list binds first, as it binds it now: that of the first item include takes (a run by its
+// first item), its own once its pipeline exists, else the one drawn with in its place meanwhile (see RecordDrawList);
+// none where the list has no such item. for a pass to bind ahead of its views' state without asking for a pipeline none
+// of its draws use
+[[nodiscard]] std::optional<rhi::GraphicsPipelineVariant> FirstDrawVariant(
+	Pipeline& pipeline,
+	const DrawList& list,
+	core::TaskExecutor* executor,
+	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include = std::nullopt);
+
 [[nodiscard]] uint32_t RequestDrawListPipelines(
 	Pipeline& pipeline,
 	const DrawList& list,

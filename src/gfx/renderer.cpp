@@ -956,8 +956,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		pipeline.SetRenderTarget(*context.target);
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 		// drawn once the pipelines it binds exist (see InternalDrawViews), its tiles cleared meanwhile
-		const GraphicsPipelineVariant shadowVariant{.blend = kOpaqueBlend};
-		auto missingCount = InternalRequestDrawListPipelines(context, pipeline, myShadowDrawList, shadowVariant, inputs.executor);
+		// (the shadows' own fragment shader, as its draws': without one named it was the main pass's, FragmentMain, the
+		// largest kernel there is made for a bind no draw used, and on KosmicKrisp the atlas stayed cleared for the minute
+		// or two it took to compile cold)
+		const GraphicsPipelineVariant shadowVariant{.blend = kOpaqueBlend, .fragmentShader = kShadowFragmentShader};
+		auto missingCount = InternalRequestDrawListPipelines(context, pipeline, myShadowDrawList, {&shadowVariant, 1}, inputs.executor);
 		myMissingGraphicsPipelineCountThisFrame.fetch_add(missingCount, std::memory_order_relaxed);
 		// tiles cleared rather than drawn: none of them may be kept (see InternalPlanShadowCache)
 		if (missingCount > 0)
@@ -1070,7 +1073,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 			// drawn once the pipelines it binds exist (see InternalDrawViews), its tiles cleared meanwhile
 			const GraphicsPipelineVariant transmittanceVariant{.blend = kShadowTransmittanceBlend, .fragmentShader = kShadowTransmittanceFragmentShader};
-			auto missingCount = InternalRequestDrawListPipelines(context, pipeline, myShadowTransmittanceList, transmittanceVariant, inputs.executor);
+			auto missingCount = InternalRequestDrawListPipelines(context, pipeline, myShadowTransmittanceList, {&transmittanceVariant, 1}, inputs.executor);
 			myMissingGraphicsPipelineCountThisFrame.fetch_add(missingCount, std::memory_order_relaxed);
 			if (missingCount > 0)
 				myShadowCacheStale = true; // its tiles cleared too (see InternalPlanShadowCache)
@@ -3303,12 +3306,12 @@ uint32_t Renderer::InternalRequestDrawListPipelines(
 	const FrameGraph::PassContext& context,
 	Pipeline& pipeline,
 	const DrawList& list,
-	GraphicsPipelineVariant variant,
+	std::span<const GraphicsPipelineVariant> variants,
 	core::TaskExecutor* executor,
 	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include)
 {
 	std::vector<GraphicsPipelineVariant> requested;
-	auto missingCount = RequestDrawListPipelines(pipeline, list, {&variant, 1}, executor, include, &requested);
+	auto missingCount = RequestDrawListPipelines(pipeline, list, variants, executor, include, &requested);
 	// (each pass asks every frame: noted once, the lock taken only for one not noted yet)
 	auto noted = [&](const GraphicsPipelineVariant& requestedVariant)
 	{
@@ -4199,11 +4202,16 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 
 	// the scene's draws: in two phases if it has transmissive materials
 	myTwoPhases = false;
+	// (and whether any is glass to the traced rays: transmissive and not blended, as bvh::Triangles flags them)
+	bool glass = false;
 	if (frame.model != nullptr)
 	{
 		const auto& materials = frame.model->GetDesc().materials;
 		for (size_t materialIt = 0; materialIt < materials.size(); materialIt++)
+		{
 			myTwoPhases |= !materials[materialIt].blend && frame.transmissive(materialIt);
+			glass |= !materials[materialIt].blend && materials[materialIt].transmission > 0.0F;
+		}
 	}
 	// what the frame as it is set leaves unused, which the main pass's shading is specialized without (see
 	// myShadingSkipped): where the device's shaders have specialization constants and the materials' pipelines are
@@ -4214,10 +4222,18 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGiWorldOn = frame.giWorldGrid;
 	bool worldOff = !(myGiWorldOn && frame.giSurfaceCache);
 	myShadingSkipped = specializes && worldOff && frame.pushConstants.debugView == DEBUG_VIEW_NONE ? kShadingSkipped : uint16_t{0};
+	// and the fragments' pipelines alone without what their traced rays do at glass where the model has none, and without
+	// the emissive surfaces as lights where none lights the scene (as the resolve's kernel, myResolveSkipped). each is
+	// code a fragment's rays never reach then, and a copy or several of the BVHs' traversal with what shades its hit: the
+	// forward kernels are the largest there are (KosmicKrisp inlines every call: 12 MB of Metal source each with the
+	// default's groups skipped, minutes to compile cold), and most models have neither
+	bool emitters = frame.emissiveLights && frame.model != nullptr && frame.model->HasBvh() && frame.model->GetEmitterCount() > 0;
+	uint16_t fragmentSkipped =
+		specializes ? static_cast<uint16_t>((glass ? 0U : SHADER_TYPES_LAYERS_GLASS) | (emitters ? 0U : SHADER_TYPES_LAYERS_EMITTERS) | myFragmentHitSkipped)
+					: uint16_t{0};
 	auto shadingSpecialization = [&](size_t material)
 	{
-		return static_cast<uint16_t>(
-			(frame.specialization ? (*frame.specialization)(material) : uint16_t{0}) | myShadingSkipped | (specializes ? myFragmentHitSkipped : uint16_t{0}));
+		return static_cast<uint16_t>((frame.specialization ? (*frame.specialization)(material) : uint16_t{0}) | myShadingSkipped | fragmentSkipped);
 	};
 	for (auto phase : {MainPassPhase::kOpaque, MainPassPhase::kTransmissive})
 		myDrawLists[std::to_underlying(phase)] = frame.model != nullptr
@@ -6238,11 +6254,6 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 
 	ZoneScopedN("Renderer::drawViews");
 
-	// the variant most of its draws bind (the main list's opaque ones shade over the pre-pass's depth)
-	const GraphicsPipelineVariant variant{
-		.blend = prepass ? kPrepassBlend : (listId == ListId::kMainTransmissive ? kTransmissiveBlend : kOpaqueBlend),
-		.fragmentShader = prepass ? kPrepassFragmentShader : uint8_t{0},
-		.depthTest = !prepass && listId == ListId::kMain ? DepthTest::kEqual : DepthTest::kNearer};
 	// the pre-pass skips the blended draws (the main list's, left as they are in myPrepassList)
 	auto prepassed = [](const DrawItem& item) { return item.variant.fragmentShader == kPrepassFragmentShader; };
 	// and the main pass, where the visibility buffer's shading shades its opaque triangles, the rest
@@ -6253,11 +6264,18 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	else if (listId == ListId::kMain && myVisibilityBuffer)
 		include = unshaded;
 	// drawn once the pipelines it binds exist, made meanwhile on the executor (a first launch's, cold, take seconds each)
-	if (auto missingCount = InternalRequestDrawListPipelines(context, pipeline, list, variant, inputs.executor, include); missingCount > 0)
+	if (auto missingCount = InternalRequestDrawListPipelines(context, pipeline, list, {}, inputs.executor, include); missingCount > 0)
 	{
 		myMissingGraphicsPipelineCountThisFrame.fetch_add(missingCount, std::memory_order_relaxed);
 		return;
 	}
+	// the variant its first draw binds, bound ahead of the views' state below (none: it draws nothing). a variant of the
+	// pass's own, the generic one most of its draws were of, was bound here, and so asked for and made whether or not a
+	// draw used it: the forward fragments' largest, made cold before the specialized ones the frames draw with
+	auto first = FirstDrawVariant(pipeline, list, inputs.executor, include);
+	if (!first)
+		return;
+	const GraphicsPipelineVariant variant = *first;
 
 	const auto grid = inputs.grid;
 	uint32_t viewCount = grid.x * grid.y;
