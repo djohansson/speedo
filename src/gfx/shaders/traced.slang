@@ -1357,10 +1357,18 @@ void ComputeReflectionY(uint3 dispatchThreadId : SV_DispatchThreadID)
 // the glossy reflections' history where what a pixel reflects was seen last frame (virtual motion, as NVIDIA's ReBLUR has
 // it): at the image of what the reflection met, the hit distance behind the surface along the view, through the view's
 // last view projection, which is exact for a flat mirror; bilinear over the 4 pixels there, each only if its surface faced
-// as this one's does and what its reflection met was about as far (else the image was another surface's, or of something
-// else)
+// as this one's does and its own image was the same point (else the image was another surface's, or of something else):
+// what its reflection met was about as far (within a fifth of hitDistance), and its image as far from the last eye as
+// this pixel's is (expected: the pixel's surface's distance and its image's depth behind it, its hit distance by the
+// surface's curvature as the pixel's own). by the hit distances alone, what a thing had hidden took the thing's
+// reflection as it came into sight, and kept it for the history's frames: a mirror showed a trail of the ceiling lamps
+// beside each of them after a move aside, a stripe a frame (the glTF research set's bathroom, the user's report), most
+// on a ray budget, whose pixels between keep what they hold. by the image alone, a small sphere's reflections of the sky
+// and of the sphere beside it passed for each other, their images both under half its radius deep
+// (MetalRoughSpheresNoTextures: streaks beside the highlights)
 float4 ReflectionVirtualHistory(
-	Texture2D last, Texture2D lastSurfaces, ViewData view, float2 at, float3 normal, float hitDistance, out float weights, out float held)
+	Texture2D last, Texture2D lastSurfaces, ViewData view, float2 at, float3 normal, float hitDistance, float curvature, float expected,
+	float tolerance, out float weights, out float held)
 {
 	int2 base = int2(floor(at));
 	float2 f = at - float2(base);
@@ -1376,6 +1384,9 @@ float4 ReflectionVirtualHistory(
 		float4 value = last.Load(int3(tap, 0));
 		float3 seen = lastSurfaces.Load(int3(tap, 0)).xyz;
 		if (value.a < 0.0 || seen.x < 0.0 || dot(EmitterUnpackNormal(seen.y), normal) < 0.95 || abs(value.a - hitDistance) > 0.2 * hitDistance)
+			continue;
+		float focus = 1.0 + 2.0 * curvature * value.a;
+		if (focus <= 0.25 || abs(seen.x + value.a / focus - expected) > tolerance)
 			continue;
 		float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y);
 		total += w * value;
@@ -1497,23 +1508,68 @@ void ComputeReflectionTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		// focuses it in front of itself, nor where a normal map turns the normal (ReflectionPackRoughness): each cell of
 		// ChronographWatch's woven strap reflects along its own direction, the image of a mirror was another cell's, and it
 		// trailed along the move (its last frame 3.68 of 255 from a still render of its pose, 2.09 clamped)
-		float focus = clamping > 0.0 && settled && !bumpy ? 1.0 + 2.0 * ReflectionCurvature(pixel, view, surface) * hitDistance : 0.0;
-		if (focus > 0.25)
+		bool traced = ReflectionTracedAt(pixel);
+		bool imaged = clamping > 0.0 && settled && !bumpy;
+		float curvature = imaged ? ReflectionCurvature(pixel, view, surface) : 0.0;
+		// how far what the pixel reflects is, which says where its image was: its own ray's hit distance, or on a budget
+		// (ReflectionStride), for a pixel not traced this frame, whose filtered distance is a mean of those around it, each
+		// of the distances of the 4 traced pixels around it too, the nearest first (what is nearer hides what is farther).
+		// a guess that finds its own image in the last frame is right: the image is a point on the pixel's own line of
+		// sight (ReflectionVirtualHistory's test). by the mean alone, beside a lamp in front of a ceiling the image was
+		// looked for between the two, where neither was
+		float distances[5] = {hitDistance, 0.0, 0.0, 0.0, 0.0};
+		uint distanceCount = 1u;
+		if (imaged && !traced)
 		{
-			float depth = hitDistance / focus;
-			float4 clipImage = mul(view.previousViewProjection, float4(surface.position - normalize(toEye) * depth, 1.0));
+			int stride = int(ReflectionStride());
+			int2 first = int2(ReflectionOffset());
+			int2 base = ((pixel - first) & ~(stride - 1)) + first;
+			for (int corner = 0; corner < 4; corner++)
+			{
+				int2 at = base + int2(corner & 1, corner >> 1) * stride;
+				if (any(at < 0) || any(at >= int2(extent)))
+					continue;
+				float around = filtered.Load(int3(at, 0)).a;
+				if (ReflectionUnknown(around))
+					continue;
+				around = ReflectionDistance(around);
+				uint slot = distanceCount++;
+				for (; slot > 0u && distances[slot - 1u] > around; slot--)
+					distances[slot] = distances[slot - 1u];
+				distances[slot] = around;
+			}
+		}
+		bool found = false;
+		for (uint distanceIt = 0u; imaged && !found && distanceIt < distanceCount; distanceIt++)
+		{
+			float guess = distances[distanceIt];
+			float focus = 1.0 + 2.0 * curvature * guess;
+			if (focus <= 0.25 || (distanceIt > 0u && guess - distances[distanceIt - 1u] <= 0.005 * guess))
+				continue;
+			float depth = guess / focus;
+			float3 image = surface.position - normalize(toEye) * depth;
+			float4 clipImage = mul(view.previousViewProjection, float4(image, 1.0));
+			if (clipImage.w <= 0.0)
+				continue;
+			// (the same point's image: within a hundredth of its distance, and as much of its depth as the lobe is wide,
+			// a rough reflection's hit distance being a mean over its lobe)
+			float imageExpected = distance(image, view.previousEyePosition.xyz);
+			float imageTolerance = 0.01 * imageExpected + min(roughness * roughness, 0.2) * depth;
 			// 0 where there is no image to take: ReflectionVirtualHistory writes them only where there is
 			float imageWeights = 0.0;
 			float imageHeld = 0.0;
-			float4 imageTotal = clipImage.w > 0.0 ? ReflectionVirtualHistory(lastHistory, lastSurfaces, view, PixelHistoryAt(view, clipImage),
-																			 surface.normal, hitDistance, imageWeights, imageHeld)
-												 : 0.0;
-			if (clipImage.w > 0.0 && imageWeights > 1e-3)
+			float4 imageTotal = ReflectionVirtualHistory(
+				lastHistory, lastSurfaces, view, PixelHistoryAt(view, clipImage), surface.normal, guess, curvature, imageExpected, imageTolerance,
+				imageWeights, imageHeld);
+			// (a guess needs half the pixels there to hold its image: a pixel from a nearer thing's edge finds the thing's
+			// in one of them)
+			if (imageWeights > (traced ? 1e-3 : 0.5))
 			{
 				total = imageTotal;
 				weights = imageWeights;
 				held = imageHeld;
 				clamping = 0.0;
+				found = true;
 			}
 		}
 		if (weights > 1e-3)
@@ -1523,8 +1579,11 @@ void ComputeReflectionTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 			float frames = lerp(kReflectionFramesStill, lerp(kReflectionFramesSharp, kReflectionFramesRough, smoothstep(0.05, 0.5, roughness)), clamping);
 			// on a budget (ReflectionStride), a pixel not traced this frame holds the traced ones' around it
 			// (ReflectionFilter): a sample as far as its lobe blurs over the stride anyway, and nothing new to a mirror,
-			// which keeps what its own rays found
-			float sample = ReflectionTracedAt(pixel) ? 1.0 : saturate(ReflectionBlurPixels(roughness, hitDistance, surface.metersPerPixel) / float(ReflectionStride()));
+			// which keeps what its own rays found. but where what it reflects slid and no image of it was found, what it
+			// holds is of another point: the traced ones' around it are all there is, a sample as any
+			float sample = traced ? 1.0 : saturate(ReflectionBlurPixels(roughness, hitDistance, surface.metersPerPixel) / float(ReflectionStride()));
+			if (imaged && !found)
+				sample = lerp(sample, 1.0, clamping);
 			count = min(max(held / weights, 1.0) + sample, frames);
 			result = lerp(kept, now, sample / count);
 		}
