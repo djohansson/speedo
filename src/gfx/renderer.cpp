@@ -217,6 +217,66 @@ constexpr uint32_t kCullViewCount = SHADER_TYPES_VIEW_COUNT + SHADER_TYPES_SHADO
 // what the main pass's shading is specialized without where the frame is set as it is by default (see
 // Renderer::myShadingSkipped): the world cache's lookups and the debug views
 constexpr uint16_t kShadingSkipped = SHADER_TYPES_LAYERS_WORLD | SHADER_TYPES_LAYERS_DEBUG;
+// the hit test GI Near's kernel is specialized without while its rays are the final gather's (see GiData::nearGather):
+// the voxels beside looked at. far more of its hits than the near field's are where things are small, and looking beside
+// was over half of them: on the Apple M4 Pro (Metal, hardware ray queries, 2560x1440 balanced, the glTF research set)
+// GI Near 12.1 ms a frame for 5.4 in classroom, 4.2 for 2.8 in living-room and 2.4 for 1.8 in the bathroom, their
+// pictures 0.6 to 1.5 of 255 from the gather's with it. the near field's rays keep it (it saves them nothing)
+constexpr uint16_t kGatherHitSkipped = SHADER_TYPES_LAYERS_HIT_BESIDE;
+
+namespace
+{
+
+// the hit tests a kernel's pipeline is specialized without (SHADER_TYPES_LAYERS_HIT_*; see GiHitVoxel), as a variable
+// names them: far-side, apart, beside, coarser, separated by commas or plus signs. none where it isn't set
+[[nodiscard]] uint16_t HitTestsSkipped(const char* variable)
+{
+	const char* value = std::getenv(variable);
+	if (value == nullptr)
+		return 0;
+	static constexpr std::array kTests{
+		std::pair{std::string_view("far-side"), uint16_t{SHADER_TYPES_LAYERS_HIT_FAR_SIDE}},
+		std::pair{std::string_view("apart"), uint16_t{SHADER_TYPES_LAYERS_HIT_APART}},
+		std::pair{std::string_view("beside"), uint16_t{SHADER_TYPES_LAYERS_HIT_BESIDE}},
+		std::pair{std::string_view("coarser"), uint16_t{SHADER_TYPES_LAYERS_HIT_COARSER}}};
+	uint16_t skipped = 0;
+	for (std::string_view rest(value); !rest.empty();)
+	{
+		auto end = rest.find_first_of(",+");
+		auto name = rest.substr(0, end);
+		rest = end == std::string_view::npos ? std::string_view() : rest.substr(end + 1);
+		if (name.empty())
+			continue;
+		auto test = std::ranges::find(kTests, name, [](const auto& entry) { return entry.first; });
+		if (test != kTests.end())
+			skipped |= test->second;
+		else
+			std::println("{}: no hit test is named {} (far-side, apart, beside, coarser)", variable, name);
+	}
+	return skipped;
+}
+
+// each pass's (SPEEDO_GI_HIT_SKIP: the probes' and the surface cache's rays, the GI pass's trace and traced resolve;
+// SPEEDO_GI_NEAR_HIT_SKIP: the near field's and the final gather's, GI Near; SPEEDO_REFLECTION_HIT_SKIP: the Reflection
+// Trace pass's hits; SPEEDO_FRAGMENT_HIT_SKIP: the fragments' traced rays' hits, the main pass's pipelines)
+struct HitTestsSkippedByPass
+{
+	uint16_t gi = 0;
+	uint16_t near = 0;
+	uint16_t reflection = 0;
+	uint16_t fragment = 0;
+};
+
+[[nodiscard]] HitTestsSkippedByPass HitTestsSkippedOfPasses()
+{
+	return {
+		.gi = HitTestsSkipped("SPEEDO_GI_HIT_SKIP"),
+		.near = HitTestsSkipped("SPEEDO_GI_NEAR_HIT_SKIP"),
+		.reflection = HitTestsSkipped("SPEEDO_REFLECTION_HIT_SKIP"),
+		.fragment = HitTestsSkipped("SPEEDO_FRAGMENT_HIT_SKIP")};
+}
+
+} // namespace
 
 std::vector<ComputePipelineVariant> Renderer::ComputePipelineVariants(uint32_t entryPointCount, bool specializationConstants)
 {
@@ -236,6 +296,24 @@ std::vector<ComputePipelineVariant> Renderer::ComputePipelineVariants(uint32_t e
 				ComputePipelineVariant{.entryPoint = kMainVisibilityEntryPoint, .specialization = static_cast<uint16_t>(layers | kShadingSkipped)});
 		for (uint16_t skipped : {SHADER_TYPES_LAYERS_WORLD, SHADER_TYPES_LAYERS_EMITTERS, SHADER_TYPES_LAYERS_WORLD | SHADER_TYPES_LAYERS_EMITTERS})
 			variants.push_back(ComputePipelineVariant{.entryPoint = kGiResolveTracedEntryPoint, .specialization = skipped});
+		// and without the hit tests a pass is set to do without (myGiHitSkipped and its like): the same kernels again
+		auto hits = HitTestsSkippedOfPasses();
+		if (hits.gi != 0)
+		{
+			variants.push_back(ComputePipelineVariant{.entryPoint = kGiTraceEntryPoint, .specialization = hits.gi});
+			for (uint16_t skipped :
+				 {0U, SHADER_TYPES_LAYERS_WORLD, SHADER_TYPES_LAYERS_EMITTERS, SHADER_TYPES_LAYERS_WORLD | SHADER_TYPES_LAYERS_EMITTERS})
+				variants.push_back(
+					ComputePipelineVariant{.entryPoint = kGiResolveTracedEntryPoint, .specialization = static_cast<uint16_t>(skipped | hits.gi)});
+		}
+		// (GI Near's without what the final gather's rays do without too, kGatherHitSkipped)
+		variants.push_back(ComputePipelineVariant{.entryPoint = kGiNearEntryPoint, .specialization = static_cast<uint16_t>(hits.near | kGatherHitSkipped)});
+		if (hits.near != 0)
+			variants.push_back(ComputePipelineVariant{.entryPoint = kGiNearEntryPoint, .specialization = hits.near});
+		if (hits.reflection != 0)
+			for (uint16_t glass : {uint16_t{0}, uint16_t{SHADER_TYPES_LAYERS_GLASS}})
+				variants.push_back(
+					ComputePipelineVariant{.entryPoint = kReflectionTraceEntryPoint, .specialization = static_cast<uint16_t>(glass | hits.reflection)});
 	}
 	return variants;
 }
@@ -1471,7 +1549,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			computeBarrier(cmd);
 			if (myGiProbes != 0 && !Skipped("GI Trace"))
 				clips([&](uint32_t clip, const gi::Layout& layout)
-					  { giKernel(cmd, kGiTraceEntryPoint, static_cast<uint64_t>(layout.probeCount) * myGiRayCountThisFrame, clip); });
+					  {
+						  giKernel(
+							  cmd, kGiTraceEntryPoint, static_cast<uint64_t>(layout.probeCount) * myGiRayCountThisFrame, clip, 0, 0,
+							  myGiTraceBvh ? myGiHitSkipped : uint16_t{0});
+					  });
 			computeBarrier(cmd);
 			constexpr uint64_t kTexelCount = SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE;
 			if (myGiProbes != 0 && !Skipped("GI Probe Update"))
@@ -1491,7 +1573,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			{
 				// (the traced one without what the frame leaves unused, see myResolveSkipped)
 				uint8_t resolve = myGiTraceBvh ? kGiResolveTracedEntryPoint : kGiResolveEntryPoint;
-				uint16_t skipped = myGiTraceBvh ? myResolveSkipped : uint16_t{0};
+				uint16_t skipped = myGiTraceBvh ? static_cast<uint16_t>(myResolveSkipped | myGiHitSkipped) : uint16_t{0};
 				clips([&](uint32_t clip, const gi::Layout& layout)
 					  { giKernel(cmd, resolve, static_cast<uint64_t>(layout.flagCount) * SHADER_TYPES_GI_GROUP_SIZE, clip, 0, 0, skipped); });
 			}
@@ -1668,7 +1750,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			auto extent = myGraph.GetExtent();
 			kernel(
 				context.cmd,
-				ComputePipelineVariant{.entryPoint = kGiNearEntryPoint},
+				ComputePipelineVariant{
+					.entryPoint = kGiNearEntryPoint,
+					.specialization = static_cast<uint16_t>(myGiNearHitSkipped | (myGiGatherOn && mySpecializationConstants ? kGatherHitSkipped : 0U))},
 				(extent.width + myGiNearStride - 1) / myGiNearStride,
 				(extent.height + myGiNearStride - 1) / myGiNearStride);
 		});
@@ -2077,7 +2161,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				auto extent = myGraph.GetExtent();
 				kernel(
 					context.cmd,
-					ComputePipelineVariant{.entryPoint = kReflectionTraceEntryPoint, .specialization = myVisibilityNoGlass},
+					ComputePipelineVariant{
+						.entryPoint = kReflectionTraceEntryPoint, .specialization = static_cast<uint16_t>(myVisibilityNoGlass | myReflectionHitSkipped)},
 					extent.width, extent.height);
 			});
 
@@ -2702,6 +2787,16 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// compare; see myShadingSkipped)
 	const char* stateTiers = std::getenv("SPEEDO_SHADER_STATE_TIERS");
 	mySpecializationConstants = limits.specializationConstants && (stateTiers == nullptr || std::string_view(stateTiers) != "0");
+	// the hit tests each pass's kernel does without (see HitTestsSkipped): where the device's shaders have specialization
+	// constants, the kernels being asked for by their value
+	if (limits.specializationConstants)
+	{
+		auto hits = HitTestsSkippedOfPasses();
+		myGiHitSkipped = hits.gi;
+		myGiNearHitSkipped = hits.near;
+		myReflectionHitSkipped = hits.reflection;
+		myFragmentHitSkipped = hits.fragment;
+	}
 	myGiMaxVolumeSide = limits.maxImageDimension3d;
 	// the indirect lighting, when FrameInputs::indirectLighting says (View > Rendering Features > Global Illumination... > Indirect Lighting, on by default, SPEEDO_GI=0
 	// to start without it), at FrameInputs::giResolution voxels along the scene's longest axis (View > Rendering Features > Global Illumination... > Resolution,
@@ -4120,7 +4215,10 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	bool worldOff = !(myGiWorldOn && frame.giSurfaceCache);
 	myShadingSkipped = specializes && worldOff && frame.pushConstants.debugView == DEBUG_VIEW_NONE ? kShadingSkipped : uint16_t{0};
 	auto shadingSpecialization = [&](size_t material)
-	{ return static_cast<uint16_t>((frame.specialization ? (*frame.specialization)(material) : uint16_t{0}) | myShadingSkipped); };
+	{
+		return static_cast<uint16_t>(
+			(frame.specialization ? (*frame.specialization)(material) : uint16_t{0}) | myShadingSkipped | (specializes ? myFragmentHitSkipped : uint16_t{0}));
+	};
 	for (auto phase : {MainPassPhase::kOpaque, MainPassPhase::kTransmissive})
 		myDrawLists[std::to_underlying(phase)] = frame.model != nullptr
 			? BuildDrawList(

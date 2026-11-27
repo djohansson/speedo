@@ -734,7 +734,7 @@ float3 TracedNearLight(GiData gi, float3 position, float3 normal, float bias, fl
 		float2 u = frac(first + float(rayIt) * float2(0.7548776662, 0.5698402910));
 		float2 disk = sqrt(u.x) * float2(cos(6.28318530718 * u.y), sin(6.28318530718 * u.y));
 		float3 direction = normalize(disk.x * t + disk.y * b + sqrt(max(1.0 - dot(disk, disk), 0.0)) * normal);
-		float4 ray = GiNearTrace<false>(gi, position, normal, direction, bias, voxel);
+		float4 ray = GiNearTrace<kGiHitTraced>(gi, position, normal, direction, bias, voxel);
 		if (ray.a < 0.0)
 			continue;
 		light += ray.rgb;

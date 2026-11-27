@@ -268,6 +268,10 @@ Variables marked Scene are View settings; the rest is the renderer's tuning ([in
 | `SPEEDO_GI_REFERENCE_RAYS` | 16 to 4096 per pixel. 256. | Diagnostic. Rays of the Surface Reference view; lower if a frame times the gpu out. |
 | `SPEEDO_GI_CACHE_SHOW` | Exactly `1` on. Off. | Diagnostic. Voxels show the surface cache's light alone. |
 | `SPEEDO_GI_LOOKUP_LEVEL` | 0 (finest) to 3. Off. | Diagnostic. Shading ignores levels finer than this. |
+| `SPEEDO_GI_HIT_SKIP` | `far-side`, `apart`, `beside`, `coarser`, joined by `,` or `+`. None. | Diagnostic. The tests of a hit's voxel choice the probes' and the surface cache's rays do without, compiled out of their kernels. Needs specialization constants. |
+| `SPEEDO_GI_NEAR_HIT_SKIP` | As `SPEEDO_GI_HIT_SKIP`. None. | Diagnostic. The same for the near field's and the final gather's rays. |
+| `SPEEDO_REFLECTION_HIT_SKIP` | As `SPEEDO_GI_HIT_SKIP`. None. | Diagnostic. The same for the Reflection Trace pass's hits. |
+| `SPEEDO_FRAGMENT_HIT_SKIP` | As `SPEEDO_GI_HIT_SKIP`. None. | Diagnostic. The same for the fragments' traced rays' hits (sharp reflections, refractions), where the materials' pipelines are specialized. |
 | `SPEEDO_GI_CACHE_THIN` | `0` off, `1` single sided boards, `2` double sided sheets too. `2`. | To compare. Lookups beside something thinner than a voxel skip voxels of its other side. |
 | `SPEEDO_GI_PROBES` | `0` none, `1` where they show, `2` every voxel. `1`. | To compare. Which voxels get probe light each frame: `1` only those it can change, `2` all near surfaces, `0` none (probes don't trace). Without the surface cache, or when rays walk voxels, all voxels regardless. |
 | `SPEEDO_GI_PROBE_AIR_INTERVAL` | 1 to 255. 8. | Updates between resolving probe light into air-only voxels, while lights are still. |

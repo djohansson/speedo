@@ -1077,6 +1077,13 @@ struct TextureView
 #define SHADER_TYPES_LAYERS_WORLD 4u
 #define SHADER_TYPES_LAYERS_DEBUG 8u
 #define SHADER_TYPES_LAYERS_EMITTERS 16u
+// and the tests a ray's hit makes to choose the voxel that stands for it (GiHitVoxel's kGiHitTest bits, in their
+// order): a kernel's pipeline specialized without one has none of its code, whatever its calls ask for. which a
+// kernel does without is the renderer's choice per kernel (Renderer::myGiHitSkipped and its like), none by default
+#define SHADER_TYPES_LAYERS_HIT_FAR_SIDE 32u
+#define SHADER_TYPES_LAYERS_HIT_APART 64u
+#define SHADER_TYPES_LAYERS_HIT_BESIDE 128u
+#define SHADER_TYPES_LAYERS_HIT_COARSER 256u
 
 #define MATERIAL_FLAG_TEXTURE 1u // baseColorView: an srgb color (and alpha), multiplied in, and alpha tested against alphaCutoff
 #define MATERIAL_FLAG_ALPHA_TEXTURE 2u // alphaView: a mask in r, tested against alphaCutoff

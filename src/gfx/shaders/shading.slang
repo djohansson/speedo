@@ -199,7 +199,9 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 	gi.held = 1.0;
 	if (!gathered)
 		gi = GiSampleSurface(position, normal, view, GiSeenFragment(), near.a < 0.0 || gather, giMoving);
-	float giTrust = gather ? 1.0 - gatherShare : (near.a >= 0.0 ? GiLookupTrust(gi, giMoving) : 1.0);
+	// (the lookup only as far as it holds anything: where it sees no probe the rays' light stands whole, however few
+	// are known, rather than fade to none)
+	float giTrust = gather ? (gi.valid ? 1.0 - gatherShare : 0.0) : (near.a >= 0.0 ? GiLookupTrust(gi, giMoving) : 1.0);
 	// where a clip holds the point but no probe is seen around it, none of its light: the environment's there (the sky
 	// unoccluded) shone into dark interiors along their edges
 	float3 indirect = gi.valid ? GiEvaluate(gi, normal) : (gi.inside ? 0.0 : -1.0);
@@ -215,7 +217,7 @@ float3 Shade(Surface surface, float3 view, float3 position, float4 tracedBase, f
 		if (show == 2u)
 			indirect = float3(pow(saturate(near.a), 2.2));
 		else
-			indirect = show == 1u || indirect.x < 0.0 ? light : lerp(indirect, light, gatherShare);
+			indirect = show == 1u || !gi.valid ? light : lerp(indirect, light, gatherShare);
 	}
 	else
 	{

@@ -818,7 +818,7 @@ static const float kGiHitBesideReach = 0.25;
 // tried: every voxel refused whose normal is more than 60 degrees off the triangle's and whose surface the hit is
 // behind, and the voxels beside looked at wherever the first's normal was another (the same picture, and the same
 // time: not kept, the fewer refused the better where things are smaller than a voxel).
-// and kThorough (the main pass's near field, GiNearRay), a drawn voxel whose normal is more than 60 degrees
+// and kGiHitTestFarSide (the main pass's near field, GiNearRay), a drawn voxel whose normal is more than 60 degrees
 // off the triangle's is refused too where its surface the ray came from behind (from: a voxel back along the ray
 // from the hit, behind by more than kGiFarSideMargin) or its apex doesn't see the hit (GiApexSees, the marked voxels'
 // test): it stands for the other side of something the ray was on this side of; and not fallen back to: where none is
@@ -834,9 +834,42 @@ static const float kGiHitBesideReach = 0.25;
 // the probes', the reflections' and their near fields'), Bistro's frame took 0.26 to 0.30 ms more for the voxels beside
 // looked at, and looked the same. a generic parameter, so that the other passes' code has none of it: as a runtime one,
 // a literal false everywhere else, the transparent passes' shading still took 0.07 to 0.11 ms more in Bistro and the GI
-// pass 0.05 to 0.1. (from: where the ray started, in the clip's voxels; kThorough's alone)
-bool GiHitVoxel<let kThorough : bool>(GiClipView clip, float3 coordinate, float3 normal, float3 from, out uint index, out float4 radiance, out GiVoxel voxel, out bool last)
+// pass 0.05 to 0.1. (from: where the ray started, in the clip's voxels; kGiHitTestFarSide's alone)
+// which of those tests a hit makes is a mask known when its kernel is compiled, never a value at run time, twice over:
+// kTests, a generic parameter, is what the call asks for (kGiHitThorough or kGiHitPlain so far, or any set of the
+// kGiHitTest bits: a kernel may hold calls with different sets, each a copy of this code); and the kernel's pipeline may
+// be specialized without a test (Skipped, the SHADER_TYPES_LAYERS_HIT groups of specialization constant 0), which the
+// renderer chooses per kernel (Renderer's hit masks, SPEEDO_GI_HIT_SKIP and its like, to measure what a pass's test
+// costs and what leaving it out shows). a test runs where the call asks for it and the pipeline has it:
+// - kGiHitTestFarSide: a drawn voxel facing far off the triangle refused where the ray came from behind its surface or
+//   its apex doesn't see the hit (above: the main pass's near field's, the cache's and the probes' rays)
+// - kGiHitTestApart: a voxel marked apart refused where its apex doesn't see the hit (a sight ray each)
+// - kGiHitTestBeside: the six voxels beside looked at where one of the three along the normal was refused
+// - kGiHitTestCoarser: the coarser clips asked in turn where the clip holding the hit has none (GiHitVoxelFrom)
+static const int kGiHitTestFarSide = 1;
+static const int kGiHitTestApart = 2;
+static const int kGiHitTestBeside = 4;
+static const int kGiHitTestCoarser = 8;
+static const int kGiHitPlain = kGiHitTestApart | kGiHitTestBeside | kGiHitTestCoarser;
+static const int kGiHitThorough = kGiHitPlain | kGiHitTestFarSide;
+// a traced ray's hit's (GiHitSample, TracedNearLight: the Reflection Trace pass's and the fragments' sharp reflections'
+// and refractions'): the voxels marked apart tested, and no voxel looked for beside or in a coarser clip, a hit without
+// one of its own taking the lookup instead (TracedIndirect). found pass by pass with the kernels specialized without a
+// test each (SPEEDO_REFLECTION_HIT_SKIP, SPEEDO_FRAGMENT_HIT_SKIP; the Apple M4 Pro, Metal, hardware ray queries,
+// 2560x1440 balanced, the glTF research set): those two took classroom's Reflection Trace 17.9 ms a frame for 7.0, its
+// frame 40.1 for 29.2, crown's 62.8 for 52.1 (Main Transmissive 23.2 for 15.3), vintage-car's 67.4 for 51.8,
+// bmw-m6's 63.2 for 58.0 and living-room's 46.4 for 43.2, and their pictures change by 0.07 to 0.7 of 255 (two runs
+// alike 0.03 to 0.3; the bathroom's 0.8, as two runs of it differ). the marked voxels' test stays: without it
+// classroom's Reflection Trace is 5.0 ms, but the window's casing in the bathroom's mirror lights up. and it stays whole
+// in the probes' and the cache's rays, where leaving the marked voxels' out saved 0.1 ms and lit the bathroom 0.04
+// stops brighter
+static const int kGiHitTraced = kGiHitTestApart;
+
+bool GiHitVoxel<let kTests : int>(GiClipView clip, float3 coordinate, float3 normal, float3 from, out uint index, out float4 radiance, out GiVoxel voxel, out bool last)
 {
+	const bool testFarSide = (kTests & kGiHitTestFarSide) != 0 && !Skipped(SHADER_TYPES_LAYERS_HIT_FAR_SIDE);
+	const bool testApart = (kTests & kGiHitTestApart) != 0 && !Skipped(SHADER_TYPES_LAYERS_HIT_APART);
+	const bool testBeside = (kTests & kGiHitTestBeside) != 0 && !Skipped(SHADER_TYPES_LAYERS_HIT_BESIDE);
 	uint3 size = clip.volumeSize.xyz;
 	index = 0u;
 	radiance = 0.0;
@@ -856,7 +889,7 @@ bool GiHitVoxel<let kThorough : bool>(GiClipView clip, float3 coordinate, float3
 	float3 seenAt = clip.volumeOrigin.xyz + (coordinate + normal * 0.1) * clip.volumeOrigin.w;
 	// (a voxel back along the ray, or where it started if nearer: from far off, the plane of many a voxel's surface is
 	// between)
-	bool approached = kThorough;
+	bool approached = testFarSide;
 	float3 way = coordinate - from;
 	float3 approach = coordinate - way * (min(length(way), 1.0) / max(length(way), 1e-6));
 	for (uint candidateIt = 0; candidateIt < 9; candidateIt++)
@@ -870,7 +903,7 @@ bool GiHitVoxel<let kThorough : bool>(GiClipView clip, float3 coordinate, float3
 		}
 		else
 		{
-			if (!look)
+			if (!look || !testBeside)
 				break;
 			if (candidateIt == 6u)
 				nearness = abs(within);
@@ -900,7 +933,7 @@ bool GiHitVoxel<let kThorough : bool>(GiClipView clip, float3 coordinate, float3
 		bool drawn = (met.normal & kGiVoxelNormalDrawn) != 0u;
 		float3 facing = GiVoxelNormal(met.normal);
 		bool same = dot(normal, facing) >= 0.5;
-		bool apart = anchored && GiRadianceApart(found.a);
+		bool apart = testApart && anchored && GiRadianceApart(found.a);
 		bool another = approached && drawn && !same;
 		bool behind = another && dot(approach - (float3(at) + 0.5), facing) - GiVoxelPlane(met.normal) < -kGiFarSideMargin;
 		// (one ray for either test)
@@ -955,8 +988,9 @@ bool GiHitVoxel<let kThorough : bool>(GiClipView clip, float3 coordinate, float3
 // the ceiling, lost a third of the room's light that way: 0.6 stops under the last clip's alone, the room darker the
 // nearer the eye came to the corner, and lighter again for seconds after it left (the user's report, 2026-11-26: the
 // clip levels of another brightness, moving with the view)
-bool GiHitVoxelFrom<let kThorough : bool>(uint first, uint clipCount, float3 position, float3 normal, float3 from, out uint index, out float4 radiance, out GiVoxel voxel, out uint clipIndex)
+bool GiHitVoxelFrom<let kTests : int>(uint first, uint clipCount, float3 position, float3 normal, float3 from, out uint index, out float4 radiance, out GiVoxel voxel, out uint clipIndex)
 {
+	const bool testCoarser = (kTests & kGiHitTestCoarser) != 0 && !Skipped(SHADER_TYPES_LAYERS_HIT_COARSER);
 	clipIndex = first;
 	index = 0u;
 	radiance = 0.0;
@@ -969,14 +1003,15 @@ bool GiHitVoxelFrom<let kThorough : bool>(uint first, uint clipCount, float3 pos
 			break;
 	}
 	bool any = false;
-	for (; clipIt < clipCount; clipIt++)
+	uint clipEnd = testCoarser ? clipCount : min(clipIt + 1u, clipCount);
+	for (; clipIt < clipEnd; clipIt++)
 	{
 		GiClipView clip = GiClipViewAt(clipIt);
 		uint foundIndex;
 		float4 foundRadiance;
 		GiVoxel foundVoxel;
 		bool last;
-		if (!GiHitVoxel<kThorough>(clip, (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w, normal, (from - clip.volumeOrigin.xyz) / clip.volumeOrigin.w, foundIndex, foundRadiance, foundVoxel, last))
+		if (!GiHitVoxel<kTests>(clip, (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w, normal, (from - clip.volumeOrigin.xyz) / clip.volumeOrigin.w, foundIndex, foundRadiance, foundVoxel, last))
 			continue;
 		// (never one whose surface faces against the triangle's side the ray met, whatever else there is: it holds the
 		// light of the triangle's other side, or of what is behind it. taken for want of another, the last clip's voxels
@@ -1207,7 +1242,7 @@ uint GiPackAhead(float lead, bool known, float plane)
 // field's, moved along the hit's surface off a corner, see GiNearTrace)
 // (bounce off: what the lights and the emitters give the hit alone, none of what its voxel holds bounced: the final
 // gather's hits across a gap thinner than the voxels, see GiNearTrace)
-float3 GiHitLitAt<let kThorough : bool>(
+float3 GiHitLitAt<let kTests : int>(
 	GiData walk, float3 position, float3 lightAt, BvhHit hit, float3 from, float random, out float3 emission, bool lead = true, bool lit = true,
 	bool bounce = true)
 {
@@ -1216,7 +1251,7 @@ float3 GiHitLitAt<let kThorough : bool>(
 	float4 radiance;
 	GiVoxel voxel;
 	uint clipIndex;
-	if (!GiHitVoxelFrom<kThorough>(walk.clip, walk.clipCount, position, hit.normal, from, index, radiance, voxel, clipIndex))
+	if (!GiHitVoxelFrom<kTests>(walk.clip, walk.clipCount, position, hit.normal, from, index, radiance, voxel, clipIndex))
 		return kGiHitUnknown;
 	float3 voxelEmission = float3(GiUnpackHalf2(voxel.emissionRG), GiUnpackHalf2(voxel.emissionB).x);
 	float3 voxelAlbedo = GiUnpackRgba8(voxel.albedo).rgb;
@@ -1251,8 +1286,8 @@ float3 GiHitLitAt<let kThorough : bool>(
 }
 
 // (lit: 0 to 1, a random number, for the hit's lights' light taken at the hit itself, GiHitLitAt's lit; negative, by its
-// voxel's radiance. kThorough: GiHitVoxel's)
-bool GiTraceBvh<let kThorough : bool>(GiData walk, float3 origin, float3 direction, float far, float emissionReach, out GiRayHit result, bool count = true, float lit = -1.0)
+// voxel's radiance. kTests: GiHitVoxel's)
+bool GiTraceBvh<let kTests : int>(GiData walk, float3 origin, float3 direction, float far, float emissionReach, out GiRayHit result, bool count = true, float lit = -1.0)
 {
 	result.radiance = float4(0.0, 0.0, 0.0, 1.0);
 	result.distance = far;
@@ -1265,7 +1300,7 @@ bool GiTraceBvh<let kThorough : bool>(GiData walk, float3 origin, float3 directi
 		return true;
 	result.distance = hit.t;
 	float3 emission;
-	// (the voxel that stands for the hit by the thorough test, GiHitVoxel's kThorough, from where the ray started: the
+	// (the voxel that stands for the hit by the thorough test, GiHitVoxel's kGiHitThorough, from where the ray started: the
 	// cache's and the probes' rays took any drawn voxel of the three along the hit's normal, whichever way it faced, and
 	// at a thin wall with a lit space behind it, a hit beside what crosses the wall took a voxel of the wall's back. the
 	// bathroom's window wall (the glTF research set) is a sheet with the scene's emitter right behind it, its back's
@@ -1275,7 +1310,7 @@ bool GiTraceBvh<let kThorough : bool>(GiData walk, float3 origin, float3 directi
 	// GiPixelReference: its kernels are the forward fragment shaders, which hold the near field's hits by the plain test,
 	// and a second variant of the hits' code would add to kernels already as large as they can be, see GiHitLitAt)
 	float3 hitAt = origin + direction * hit.t;
-	float3 radiance = GiHitLitAt<kThorough>(walk, hitAt, hitAt, hit, origin, max(lit, 0.0), emission, true, lit >= 0.0);
+	float3 radiance = GiHitLitAt<kTests>(walk, hitAt, hitAt, hit, origin, max(lit, 0.0), emission, true, lit >= 0.0);
 	result.unknown = !GiHitKnown(radiance);
 	radiance = max(radiance, 0.0);
 	if (hit.t < emissionReach)
@@ -2545,7 +2580,7 @@ void ComputeGiTrace(uint3 dispatchId: SV_DispatchThreadID)
 	bool backface;
 	float depth;
 	GiRayHit hit;
-	if (GiTraceBvh<true>(walk, origin, direction, far, gi.emissionReach * gi.probeOrigin.w, hit))
+	if (GiTraceBvh<kGiHitThorough>(walk, origin, direction, far, gi.emissionReach * gi.probeOrigin.w, hit))
 	{
 		traced = hit.radiance;
 		backface = hit.backface && hit.distance < reach;
@@ -2823,7 +2858,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 			float phi = float(rayIt) * 2.39996323;
 			float3 direction = float3(radius * cos(phi), radius * sin(phi), z);
 			GiRayHit hit;
-			float4 traced = GiTraceBvh<true>(gi, origin, direction, far, gi.emissionReach * gi.probeOrigin.w, hit)
+			float4 traced = GiTraceBvh<kGiHitThorough>(gi, origin, direction, far, gi.emissionReach * gi.probeOrigin.w, hit)
 								? hit.radiance
 								: GiMarch(gi, origin, direction, far, false, gi.emissionReach * gi.probeOrigin.w);
 			float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(environment, direction, 0.6);
@@ -3180,7 +3215,7 @@ float3 GiPixelReference(float3 position, float3 normal, float3 view)
 			float phi = float(rayIt) * 2.39996323 + turn;
 			float3 direction = normalize(tangent * (r * cos(phi)) + bitangent * (r * sin(phi)) + normal * sqrt(max(1.0 - u, 0.0)));
 			GiRayHit hit;
-			float4 traced = GiTraceBvh<false>(gi, origin, direction, far, 0.0, hit, false) ? hit.radiance : GiMarch(gi, origin, direction, far, false);
+			float4 traced = GiTraceBvh<kGiHitPlain>(gi, origin, direction, far, 0.0, hit, false) ? hit.radiance : GiMarch(gi, origin, direction, far, false);
 			sum += traced.rgb + traced.a * EnvironmentRadiance(environment, direction, 0.6);
 		}
 		rayFirst = rayEnd;
@@ -4018,7 +4053,7 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			float3 from = origin;
 			if (gap && dot(direction, normal) < 0.0)
 				from = 0.5 * (origin + voxelCenter + normal * min(0.5 * gi.volumeOrigin.w, 0.5 * open));
-			bool bvh = GiTraceBvh<true>(walk, from, direction, far, gi.volumeOrigin.w, hit, true, lit);
+			bool bvh = GiTraceBvh<kGiHitThorough>(walk, from, direction, far, gi.volumeOrigin.w, hit, true, lit);
 			if (dumped && rayIt < 8u)
 			{
 				float3 shown = bvh ? hit.radiance.rgb + hit.radiance.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6) : 0.0;
@@ -6147,7 +6182,7 @@ bool GiHitSample(GiData walk, float3 position, float3 normal, float3 from, out G
 	float4 radiance;
 	GiVoxel voxel;
 	uint clipIndex;
-	if (!GiHitVoxelFrom<false>(walk.clip, walk.clipCount, position, normal, from, index, radiance, voxel, clipIndex))
+	if (!GiHitVoxelFrom<kGiHitTraced>(walk.clip, walk.clipCount, position, normal, from, index, radiance, voxel, clipIndex))
 		return false;
 	GiVoxel kept = gGiStaticVoxels[index];
 	if (kept.albedo != voxel.albedo || kept.normal != voxel.normal)

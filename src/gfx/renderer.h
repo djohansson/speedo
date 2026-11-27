@@ -389,6 +389,15 @@ private:
 	bool mySpecializationConstants = false;
 	uint16_t myShadingSkipped = 0;
 	uint16_t myResolveSkipped = 0;
+	// the tests of a hit's voxel choice (SHADER_TYPES_LAYERS_HIT_*, see GiHitVoxel) each pass's kernel is specialized
+	// without, none by default: the probes' and the surface cache's rays (SPEEDO_GI_HIT_SKIP), the near field's and the
+	// final gather's (SPEEDO_GI_NEAR_HIT_SKIP), the Reflection Trace pass's hits (SPEEDO_REFLECTION_HIT_SKIP) and the
+	// fragments' traced rays' hits (SPEEDO_FRAGMENT_HIT_SKIP: the main pass's pipelines, where they are specialized at
+	// all), to measure what a test costs a pass and what leaving it out shows
+	uint16_t myGiHitSkipped = 0;
+	uint16_t myGiNearHitSkipped = 0;
+	uint16_t myReflectionHitSkipped = 0;
+	uint16_t myFragmentHitSkipped = 0;
 	// the traced shadows' (see SHADER_TYPES_SHADOW_RAW_TEXTURE): the rays' visibility and blockers' distances, the
 	// visibility filtered along rows, and along columns (what the main pass takes); each a channel per traced light
 	FrameGraph::ImageId myShadowRaw;

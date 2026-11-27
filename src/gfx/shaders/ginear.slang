@@ -97,7 +97,7 @@ float4 GiNearRay(int2 pixel)
 	// off the surface by a pixel and a half (more far from the eye), as the traced shadows' rays, against the depth's
 	// and the BVH's rounding
 	float bias = max(1.5 * surface.metersPerPixel, 1e-4 * distance(surface.position, view.eyePosition.xyz));
-	float4 ray = GiNearTrace<true>(gi, surface.position, surface.normal, direction, bias, voxel, gather);
+	float4 ray = GiNearTrace<kGiHitThorough>(gi, surface.position, surface.normal, direction, bias, voxel, gather);
 	if (ray.a > 0.0 && !gather)
 	{
 		bool moving;
@@ -109,13 +109,13 @@ float4 GiNearRay(int2 pixel)
 
 // a near field ray from a surface at position (its normal toward the side the ray goes) along direction, off it by bias,
 // in the clips whose voxels are voxel big there: as GiNearRay's (the traced reflections' and refractions' hits trace
-// them too, see TracedNearIrradiance). kThorough: the voxels its hits take light from tested further (GiHitVoxel: the main
+// them too, see TracedNearIrradiance). kTests: how the voxels its hits take light from are tested (GiHitVoxel's mask: the main
 // pass's, GiNearRay). gather (the final gather's, GiData::nearGather): as far as there is anything to meet, and where there
 // is nothing the environment along the ray, as the probes' and the cache's rays take it (prefiltered: a sharp sky's
 // bright spots are a few rays')
 static const float kGiGatherReach = 60000.0;
 
-float4 GiNearTrace<let kThorough : bool>(GiData gi, float3 position, float3 normal, float3 direction, float bias, float voxel, bool gather = false)
+float4 GiNearTrace<let kTests : int>(GiData gi, float3 position, float3 normal, float3 direction, float bias, float voxel, bool gather = false)
 {
 	float reach = gather ? kGiGatherReach : gi.nearReach * voxel;
 	float3 origin = position + normal * bias;
@@ -185,7 +185,7 @@ float4 GiNearTrace<let kThorough : bool>(GiData gi, float3 position, float3 norm
 		// a surface sloping into the corner can pass the other surface, the rays by the ceiling's edges of MovingInterior's
 		// room saw the sun from behind the wall, white speckles a few voxels apart along the edge that never settled, the
 		// user's report, 2026-11-21)
-		float3 lit = GiHitLitAt<kThorough>(gi, point, origin + direction * hit.t, hit, origin, float(seed & 0xFFFFFFu) / 16777216.0, emission, false, true, !gap);
+		float3 lit = GiHitLitAt<kTests>(gi, point, origin + direction * hit.t, hit, origin, float(seed & 0xFFFFFFu) / 16777216.0, emission, false, true, !gap);
 		// (what it met has no voxel to stand for it, kGiHitUnknown: nothing known of the pixel by this ray)
 		// (the gather's rays keep count of them: no light, and none known, so that what the filter and the frames make of
 		// the pixel's rays is their light with the share of them that is known beside it, which the shading divides by, and
