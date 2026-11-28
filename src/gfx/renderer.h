@@ -93,8 +93,8 @@ struct FrameInputs
 	// whether the main pass's opaque fragments' indirect light is what rays from their pixels gather, as far as they go,
 	// instead of the volumes' lookup (see GiData::nearGather), where the rays trace the BVHs, and every how many pixels
 	// each way those rays are traced (1, 2 or 4)
-	bool giGather = false;
-	uint32_t giGatherStride = gi::kDefaultGatherStride;
+	bool giGather = true;
+	uint32_t giGatherStride = gi::kRayQueryGatherStride;
 	// the lights (gLights, as the shader sees them), and whether they cast shadows: fitted to the camera (the first view)
 	// and the scene's bounds
 	std::span<const LightData> lights;

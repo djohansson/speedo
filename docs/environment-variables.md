@@ -262,8 +262,8 @@ Variables marked Scene are View settings; the rest is the renderer's tuning ([in
 | `SPEEDO_GI_NEAR_TEMPORAL` | `0` off. On. | Scene. Accumulates near field rays over frames, reprojected. |
 | `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` | 1 to 1024. 16. | Frames the near field history holds. |
 | `SPEEDO_GI_NEAR_STILL_FRAME_COUNT` | 1 to 2048. 256. | Longer history while view, model and lights are still. |
-| `SPEEDO_GI_GATHER` | `1` on. Off. | Scene. Final gather: opaque surfaces' indirect light gathered by rays from each pixel instead of looked up in the voxels. Needs triangles. |
-| `SPEEDO_GI_GATHER_STRIDE` | `1`, `2`, `4`. 2. | Scene. Final gather from every pixel, or every 2nd or 4th each way. |
+| `SPEEDO_GI_GATHER` | `0` off. On. | Scene. Final gather: opaque surfaces' indirect light gathered by rays from each pixel instead of looked up in the voxels. Needs triangles. |
+| `SPEEDO_GI_GATHER_STRIDE` | `1`, `2`, `4`. Device's: 2 with ray queries, 4 through BVHs. | Scene (written where set). Final gather from every pixel, or every 2nd or 4th each way. |
 | `SPEEDO_GI_DEBUG` | 1 to 15. None. | Diagnostic. Starts in that indirect lighting debug view; `SPEEDO_DEBUG_VIEW` wins. |
 | `SPEEDO_GI_REFERENCE_RAYS` | 16 to 4096 per pixel. 256. | Diagnostic. Rays of the Surface Reference view; lower if a frame times the gpu out. |
 | `SPEEDO_GI_CACHE_SHOW` | Exactly `1` on. Off. | Diagnostic. Voxels show the surface cache's light alone. |

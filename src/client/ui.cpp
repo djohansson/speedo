@@ -448,9 +448,10 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 		kDefaults.giNearStride,
 		"SPEEDO_GI_NEAR_STRIDE",
 		[](const char* value) { return std::optional<uint32_t>(std::string_view(value) == "2" ? 2U : 4U); });
-	// (and the final gather, SPEEDO_GI_GATHER=1: the opaque surfaces' indirect light gathered by rays a pixel, every
-	// SPEEDO_GI_GATHER_STRIDE-th pixel each way, 1, 2 or 4)
-	apply(settings.giGather, kDefaults.giGather, "SPEEDO_GI_GATHER", [](const char* value) { return std::optional<bool>(std::string_view(value) == "1"); });
+	// (and the final gather, on by default, SPEEDO_GI_GATHER=0 without: the opaque surfaces' indirect light gathered by
+	// rays a pixel, every SPEEDO_GI_GATHER_STRIDE-th pixel each way, 1, 2 or 4; unset, the device's, see
+	// gfx::Scene::Settings::giGatherStride)
+	apply(settings.giGather, kDefaults.giGather, "SPEEDO_GI_GATHER", unless("0"));
 	apply(
 		settings.giGatherStride,
 		kDefaults.giGatherStride,
@@ -1146,9 +1147,10 @@ void WindowedApplication::InternalCopyScene()
 		text += std::format(" SPEEDO_GI_NEAR_CONTACT={:.2f}", static_cast<double>(contact));
 	if (uint32_t stride = settings.giNearStride.load(std::memory_order_relaxed); stride != gfx::gi::kDefaultNearStride)
 		text += std::format(" SPEEDO_GI_NEAR_STRIDE={}", stride);
-	if (settings.giGather.load(std::memory_order_relaxed))
-		text += " SPEEDO_GI_GATHER=1";
-	if (uint32_t stride = settings.giGatherStride.load(std::memory_order_relaxed); stride != gfx::gi::kDefaultGatherStride)
+	if (!settings.giGather.load(std::memory_order_relaxed))
+		text += " SPEEDO_GI_GATHER=0";
+	// (its default goes by the device, 0 for it: written where it was set)
+	if (uint32_t stride = settings.giGatherStride.load(std::memory_order_relaxed); stride != 0)
 		text += std::format(" SPEEDO_GI_GATHER_STRIDE={}", stride);
 	if (auto upscaling = settings.upscaling.load(std::memory_order_relaxed); upscaling != gfx::kDefaultUpscaling)
 		text += std::format(" SPEEDO_UPSCALING={}", gfx::UpscalingName(upscaling));
@@ -2537,23 +2539,30 @@ void WindowedApplication::PrepareDraw()
 				if (SmallCheckbox("Final Gather", &gather, traced))
 					App().GetScene().GetSettings().giGather.store(gather, std::memory_order_relaxed);
 				SetItemTooltip(
-					"Experimental. Each pixel gathers its indirect light with rays instead of reading the light stored around it: "
-					"no blocky patches or light leaking at junctions, but noisier while moving. Needs Rays: Triangles.");
+					"Each pixel gathers its indirect light with rays instead of reading the light stored around it: no blocky "
+					"patches or light leaking at junctions, a little noisier while moving. On by default. Needs Rays: Triangles.");
+				// a ray every how many pixels each way (see Scene::Settings::giGatherStride; 0 the device's;
+				// SPEEDO_GI_GATHER_STRIDE)
 				static constexpr std::array kGatherStrides{
 					std::tuple{"Every pixel", 1U, "Finest, slowest."},
-					std::tuple{"Every 2nd pixel", 2U, "The default."},
+					std::tuple{"Every 2nd pixel", 2U, "A quarter of the rays."},
 					std::tuple{"Every 4th pixel", 4U, "Fastest, coarsest."}};
-				uint32_t stride = App().GetScene().GetSettings().giGatherStride.load(std::memory_order_relaxed);
+				uint32_t setting = App().GetScene().GetSettings().giGatherStride.load(std::memory_order_relaxed);
+				uint32_t stride = App().GetScene().GetGatherStride();
 				const char* shown = "?";
 				for (auto [label, value, tooltip] : kGatherStrides)
 					if (value == stride)
 						shown = label;
+				auto preview = std::format("{}{}", shown, setting == 0 ? " (default)" : "");
 				BeginDisabled(!(traced && gather));
-				if (BeginCombo("Final Gather Rays", shown))
+				if (BeginCombo("Final Gather Rays", preview.c_str()))
 				{
+					if (Selectable("The device's default", setting == 0))
+						App().GetScene().GetSettings().giGatherStride.store(0, std::memory_order_relaxed);
+					SetItemTooltip("Every 2nd pixel with hardware ray queries, every 4th with software.");
 					for (auto [label, value, tooltip] : kGatherStrides)
 					{
-						if (Selectable(label, stride == value))
+						if (Selectable(label, setting == value))
 							App().GetScene().GetSettings().giGatherStride.store(value, std::memory_order_relaxed);
 						SetItemTooltip("%s", tooltip);
 					}

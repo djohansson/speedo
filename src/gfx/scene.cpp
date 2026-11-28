@@ -89,6 +89,15 @@ struct MaterialLayers
 	return std::bit_floor(std::clamp<uint32_t>(setting, 1, 4));
 }
 
+// the final gather's stride in effect (see Scene::Settings::giGatherStride): the setting's (1, 2 or 4), or with 0 the
+// device's
+[[nodiscard]] static uint32_t GatherStrideOf(uint32_t setting, bool rayQueries)
+{
+	if (setting == 0)
+		return rayQueries ? gi::kRayQueryGatherStride : gi::kBvhGatherStride;
+	return std::bit_floor(std::clamp<uint32_t>(setting, 1, 4));
+}
+
 // whether the shaders trace through the device's ray queries (see Scene::Settings::hardwareRayQueries): the setting's where
 // the device has them, or with -1 the default: the ray queries, but on macOS only with SPEEDO_RAY_QUERY=1 (Metal's ray
 // tracing restarts the gpu now and then; the device enables them anyway, so that the ray tracing panel can choose them)
@@ -4225,7 +4234,7 @@ struct Scene::Impl
 				.giNearStride = mySettings.giNearStride.load(std::memory_order_relaxed),
 				.giNearTemporal = mySettings.giNearTemporal.load(std::memory_order_relaxed),
 				.giGather = mySettings.giGather.load(std::memory_order_relaxed),
-				.giGatherStride = mySettings.giGatherStride.load(std::memory_order_relaxed),
+				.giGatherStride = GatherStrideOf(mySettings.giGatherStride.load(std::memory_order_relaxed), myHardwareRayQueries.load(std::memory_order_relaxed)),
 				.lights = myLightData,
 				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),
 				.captureLights = mySettings.captureLights.load(std::memory_order_relaxed),
@@ -4424,6 +4433,11 @@ std::optional<std::string> Scene::LoadModelAgain(std::atomic_uint8_t& progress, 
 {
 	return myImpl->LoadModelAgain(progress, cancelled);
 }
+uint32_t Scene::GetGatherStride() const noexcept
+{
+	return GatherStrideOf(myImpl->mySettings.giGatherStride.load(std::memory_order_relaxed), HasRayQueries());
+}
+
 uint32_t Scene::GetReflectionStride() const noexcept
 {
 	return ReflectionStrideOf(myImpl->mySettings.reflectionStride.load(std::memory_order_relaxed), HasRayQueries());

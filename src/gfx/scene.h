@@ -215,11 +215,12 @@ public:
 		// Field Over Frames, SPEEDO_GI_NEAR_TEMPORAL=0 to start without)
 		std::atomic<bool> giNearTemporal = true;
 		// whether the opaque surfaces' indirect light is gathered by rays a pixel instead of read from the voxels around it
-		// (FrameInputs::giGather; View > Rendering Features > Global Illumination... > Final Gather, SPEEDO_GI_GATHER=1 to
-		// start with it; off by default), and every how many pixels each way its rays are traced (FrameInputs::giGatherStride:
-		// 1, 2 or 4, gi::kDefaultGatherStride; Final Gather Rays, SPEEDO_GI_GATHER_STRIDE)
-		std::atomic<bool> giGather = false;
-		std::atomic<uint32_t> giGatherStride = gi::kDefaultGatherStride;
+		// (FrameInputs::giGather; View > Rendering Features > Global Illumination... > Final Gather, SPEEDO_GI_GATHER=0 to
+		// start without it; on by default, the user's call, 2026-11-27, having compared the two), and every how many
+		// pixels each way its rays are traced (1, 2 or 4, or 0, the default, for the device's: 2 with ray queries, 4
+		// through the BVHs, Scene::GetGatherStride; Final Gather Rays, SPEEDO_GI_GATHER_STRIDE)
+		std::atomic<bool> giGather = true;
+		std::atomic<uint32_t> giGatherStride = 0;
 		// temporal upscaling (FrameInputs::upscaling; View > Upscaling, SPEEDO_UPSCALING; balanced by default, kDefaultUpscaling): a
 		// change resizes what is sized after the output, before the next frame (see NeedsResize)
 		std::atomic<Upscaling> upscaling = kDefaultUpscaling;
@@ -495,6 +496,9 @@ public:
 	// the glossy reflections' stride in effect (Settings::reflectionStride, or the device's where that is 0: 1 with ray
 	// queries, 4 through the BVHs)
 	[[nodiscard]] uint32_t GetReflectionStride() const noexcept;
+	// the final gather's stride in effect (Settings::giGatherStride, or the device's where that is 0: 2 with ray queries,
+	// 4 through the BVHs)
+	[[nodiscard]] uint32_t GetGatherStride() const noexcept;
 	// and whether the fragments' sharp reflections are traced (Settings::fragmentReflections, or the device's where that
 	// is -1: with ray queries)
 	[[nodiscard]] bool GetFragmentReflections() const noexcept;

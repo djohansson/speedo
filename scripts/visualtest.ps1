@@ -251,13 +251,15 @@ $checks = @(
 		# the hardware ray queries against the software BVH (every ray the BVHs answer: the traced shadows, the indirect
 		# lighting's, the emitters'): the same scene, the same rays. ShadowScene lit by neutral.hdr. measured 2026-11-11
 		# on lavapipe (macOS): 0.0004% of the pixels past 16 levels, 0.0001 stops blurred, -0.00002 of light, within the
-		# driver's own run to run differences
+		# driver's own run to run differences. the final gather's rays every second pixel each way in both: left to the
+		# device, which gives the BVHs a ray every fourth (Scene::GetGatherStride), the two differ by their rays' count,
+		# 0.49% of the pixels past 16 levels and 0.0085 stops blurred on the Apple M4 Pro (Metal)
 		Name = 'ray-queries'
 		Model = 'test-models/gltf/ShadowScene.gltf'
 		Environment = 'test-assets/glTF-Sample-Environments/neutral.hdr'
 		Frames = 8
-		Reference = @{ SPEEDO_RAY_QUERY = '0' }
-		Capture = @{ SPEEDO_RAY_QUERY = '1' }
+		Reference = @{ SPEEDO_RAY_QUERY = '0'; SPEEDO_GI_GATHER_STRIDE = '2' }
+		Capture = @{ SPEEDO_RAY_QUERY = '1'; SPEEDO_GI_GATHER_STRIDE = '2' }
 		Thresholds = @('--over', '16:0.1', '--log-blurred', '0.005', '--ratio', '0.005')
 		NeedsRayQueries = $true
 	}

@@ -44,9 +44,12 @@ inline constexpr float kMaxNearContact = 8.0F;
 // call: 1.3 to 3.2 ms less a frame at the benchmark poses than 2's quarter (Sponza 19.90 to 18.62, Bistro 37.06
 // to 33.86, San Miguel 43.79 to 40.92), coarser at thin features' contacts
 inline constexpr uint32_t kDefaultNearStride = 4;
-// and the final gather's (see GiData::nearGather; Final Gather Rays, SPEEDO_GI_GATHER_STRIDE: 1, 2 or 4): 2, a quarter
-// of the pixels, its rays being all of the opaque surfaces' indirect light where the near field's are a contact's
-inline constexpr uint32_t kDefaultGatherStride = 2;
+// and the final gather's (see GiData::nearGather; Final Gather Rays, SPEEDO_GI_GATHER_STRIDE: 1, 2 or 4), where the
+// setting leaves it to the device (0): 2 with ray queries, a quarter of the pixels, its rays being all of the opaque
+// surfaces' indirect light where the near field's are a contact's; 4 through the BVHs, whose rays cost several times
+// theirs (as the reflections', Scene::GetReflectionStride)
+inline constexpr uint32_t kRayQueryGatherStride = 2;
+inline constexpr uint32_t kBvhGatherStride = 4;
 // the rays a voxel of the surface cache traces an update while its cache warms up (its first updates after it starts
 // over: a load, a light switched; see GiData::cacheRayCount, FrameInputs::giCacheWarmRayCount; View > Rendering
 // Features > Global Illumination... > Warm-Up Rays, SPEEDO_GI_CACHE_WARM_RAYS), by default, the counts the menu offers,
