@@ -1121,8 +1121,16 @@ struct GiRayHit
 
 // the lights' irradiance at a point a ray met (normal: toward the ray's side), by one light of its cell of the last
 // clip's light grid (see gi::BinLights), chosen by what each would give unshadowed (random: 0 to 1) and shadowed by a ray
-// from the point: with one light, the sun, exactly its light there
-float3 GiHitIrradiance(GiData gi, float3 position, float3 normal, float random)
+// from the point: with one light, the sun, exactly its light there. the shadow ray starts off the point along the normal
+// (GiData::cacheAnchorBias, a 64th of the last clip's voxel), but no further than half of room, how far the point's
+// ray started in front of what it met: that much is clear, and no more need be. a ray from one side of a groove
+// narrower than that met the other side, and the shadow ray started past the side the ray had left, inside what the
+// groove is cut in, where nothing shadowed it: the seams between the ceiling panels of the glTF research set's
+// classroom, narrower than the start's 3 cm, took the sun's light, bright lines where the reference's are dark (in the
+// lookups' light too, by the cache's rays, and brighter in the final gather's, whose rays start in them). and never
+// nearer than a 32nd of the bias, where a ray started about in the plane of what it met (by a corner): on it, the shadow
+// ray may meet the surface it leaves
+float3 GiHitIrradiance(GiData gi, float3 position, float3 normal, float random, float room)
 {
 	uint frameIndex = gPushConstants.frameIndex;
 	uint lastClip = gi.clipCount - 1u;
@@ -1187,7 +1195,7 @@ float3 GiHitIrradiance(GiData gi, float3 position, float3 normal, float random)
 	}
 	if (chosenWeight <= 0.0)
 		return 0.0;
-	float bias = gi.cacheAnchorBias;
+	float bias = min(gi.cacheAnchorBias, max(0.5 * room, gi.cacheAnchorBias / 32.0));
 	return chosen * (total / chosenWeight) * GiVisibility(gi, position + normal * bias, chosenToLight, chosenDistance - bias, true);
 }
 
@@ -1274,7 +1282,7 @@ float3 GiHitLitAt<let kTests : int>(
 		// is none, the far wall of MovingInterior's room came out 23.4 of 255 with the fast mean and 13.5 without it,
 		// 12.9 with it since; with the bounce, the same)
 		reflected = (bounce ? max(reflected - lights - emitters, 0.0) + voxelAlbedo * ahead : float3(0.0)) +
-					albedo * (GiHitIrradiance(walk, lightAt, hit.normal, random) + GiKeptIrradiance(keptLight, hit.normal));
+					albedo * (GiHitIrradiance(walk, lightAt, hit.normal, random, max(dot(from - lightAt, hit.normal), 0.0)) + GiKeptIrradiance(keptLight, hit.normal));
 	}
 	else if (!bounce)
 	{
