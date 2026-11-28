@@ -150,6 +150,21 @@ if ($vulkan -and $IsMacOS -and -not $env:VK_DRIVER_FILES -and -not $env:VK_ICD_F
 	if ($icd) { $env:VK_DRIVER_FILES = $icd.FullName }
 }
 $driver = if ($vulkan) { "$env:VK_DRIVER_FILES$env:VK_ICD_FILENAMES" } else { '' }
+# a sanitize or tsan preset's reports (which fail a client's run: $problemPattern), with stacks, symbolized by the host
+# llvm's llvm-symbolizer, tsan's less its suppressions: as assettest.ps1 sets them for its client runs
+if ($config -eq 'sanitize' -or $config -eq 'tsan')
+{
+	$symbolizer = Get-ChildItem -Path (Join-Path $root 'install/*/tools/llvm/llvm-symbolizer*') -ErrorAction SilentlyContinue | Select-Object -First 1
+	if ($symbolizer -and -not $env:ASAN_SYMBOLIZER_PATH) { $env:ASAN_SYMBOLIZER_PATH = $symbolizer.FullName }
+	if (-not $env:UBSAN_OPTIONS) { $env:UBSAN_OPTIONS = 'print_stacktrace=1' }
+	if (-not $env:TSAN_OPTIONS)
+	{
+		$env:TSAN_OPTIONS = (@(
+			if ($symbolizer) { "external_symbolizer_path=$($symbolizer.FullName)" }
+			$suppressions = Join-Path $root 'tsan-suppressions.txt'
+			if (Test-Path $suppressions) { "suppressions=$suppressions" }) -join ' ')
+	}
+}
 $kosmicKrisp = $driver -match 'kosmickrisp'
 if ($vulkan) { Write-Host "driver: $(if ($driver) { $driver } else { 'the system''s' })" }
 Write-Host "work dir: $Work"

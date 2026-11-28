@@ -538,6 +538,107 @@ jobs:
             ${{ runner.temp }}/visualtest
           if-no-files-found: ignore
 
+  # the sanitizer builds (the user's ask, 2026-11-13): the profile configuration with the project's own targets
+  # instrumented, setup.ps1's <triplet>-sanitize (asan and ubsan) and <triplet>-tsan (tsan), each built and then run:
+  # the client's visual checks on lavapipe, which fail on a sanitizer's report as on anything else (scripts/visualtest.ps1,
+  # the reports symbolized by the host llvm's symbolizer, tsan's less tsan-suppressions.txt). Without the validation
+  # layer: what these look for is in the client's own code, and the layer's time on top of a sanitizer's isn't known. On
+  # Linux alone (the presets are macOS's too): its runners are the plentiful ones. A job each, beside the platform jobs,
+  # reading the caches only (the packages are the Linux job's), and not blocking until their times and findings on the
+  # runner are known
+  sanitizers:
+    name: Linux x64 (${{ matrix.sanitizer }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 240
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [sanitize, tsan]
+    env:
+      TRIPLET: x64-linux-clang
+      SPEEDO_BINARY_CACHE_WRITE: ''
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache test assets
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/test-assets
+          key: test-assets-${{ hashFiles('resources/test-asset-manifests/**', 'scripts/fetch-test-assets.ps1') }}
+          restore-keys: test-assets-
+
+      # as the Linux job's
+      - name: Setup
+        id: setup
+        run: |
+          sudo apt-get update
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./setup.ps1
+
+      - name: Build ${{ matrix.sanitizer }}
+        id: build
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          cmake --preset "$env:TRIPLET-${{ matrix.sanitizer }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "build/$env:TRIPLET-${{ matrix.sanitizer }}"
+
+      # what the asset checks fetch elsewhere (the cache's, unless the manifests changed)
+      - name: Fetch test assets
+        id: assets
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+        run: |
+          $null = & scripts/fetch-test-assets.ps1 -Minimal
+          exit $LASTEXITCODE
+
+      # as the Linux job's
+      - name: Find lavapipe
+        id: lavapipe
+        if: ${{ !cancelled() && steps.assets.outcome == 'success' }}
+        run: |
+          $driver = (Get-ChildItem install/x64-linux-release/share/vulkan/icd.d/lvp_icd*.json | Select-Object -First 1).FullName
+          if (-not $driver) { Write-Error 'no lavapipe in install/x64-linux-release'; exit 1 }
+          Write-Host "driver: $driver"
+          "VK_DRIVER_FILES=$driver" >> $env:GITHUB_ENV
+
+      # as macOS's, each sanitizer's own (the cache is beside its build's executable)
+      - name: Cache shaders
+        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
+        uses: actions/cache@v6
+        with:
+          path: build/${{ env.TRIPLET }}-${{ matrix.sanitizer }}/shader-cache
+          key: shader-cache-${{ github.job }}-${{ matrix.sanitizer }}-${{ hashFiles('src/gfx/**', 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**') }}
+          restore-keys: shader-cache-${{ github.job }}-${{ matrix.sanitizer }}-
+
+      - name: Visual checks (lavapipe, ${{ matrix.sanitizer }})
+        id: visual
+        if: ${{ !cancelled() && steps.lavapipe.outcome == 'success' }}
+        env:
+          SPEEDO_TEST_ASSETS: ${{ runner.temp }}/test-assets
+          SPEEDO_GRAPHICS_API: vulkan
+          SPEEDO_GPU_HANG_TIMEOUT: '3600'
+        run: ./scripts/visualtest.ps1 -Preset "$env:TRIPLET-${{ matrix.sanitizer }}" -Work "$env:RUNNER_TEMP/visualtest" -TimeoutSeconds 3600
+
+      # the least recently used past 1 GB (see scripts/prune-shader-cache.ps1) before the cache is kept
+      - name: Prune the shader cache
+        run: ./scripts/prune-shader-cache.ps1 -Path "build/$env:TRIPLET-${{ matrix.sanitizer }}/shader-cache" -MaxSizeGB 1
+
+      - name: Upload logs
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-linux-${{ matrix.sanitizer }}
+          path: |
+            temp/vcpkg/buildtrees/*/*.log
+            ${{ runner.temp }}/visualtest
+          if-no-files-found: ignore
+
   # the rhi backends' check runs, a platform's each ("Vulkan (macOS arm64)", "D3D12 (Windows x64)"), which README.md's
   # badges show beside their platform's (the user's asks, 2026-11-24). A badge takes a check run by its name, and no job
   # tests one backend alone: every platform job's visual checks test Vulkan, on lavapipe, beside its build and asset

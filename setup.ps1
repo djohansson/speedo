@@ -440,6 +440,33 @@ if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $PlatformSettings.Length)
 					configuration = 'profile'
 				}
 			)
+
+			# and its launch configurations, as the profile configuration's above (the client once per graphics api): the
+			# sanitizers' reports with stacks, tsan's less tsan-suppressions.txt (as scripts/assettest.ps1 runs them)
+			$SanitizerEnvironment = [ordered] @{}
+			foreach ($Entry in (& $Settings.LaunchEnvironment 'profile').GetEnumerator()) { $SanitizerEnvironment[$Entry.Key] = $Entry.Value }
+			$SanitizerEnvironment['UBSAN_OPTIONS'] = 'print_stacktrace=1'
+			if ($Sanitizer.Key -eq 'tsan') { $SanitizerEnvironment['TSAN_OPTIONS'] = "suppressions=`${workspaceFolder}/tsan-suppressions.txt" }
+			foreach ($Target in $Targets)
+			{
+				foreach ($Api in ($Target -eq 'client' ? $ClientApis : @($null)))
+				{
+					$TargetEnvironment = [ordered] @{}
+					foreach ($Entry in $SanitizerEnvironment.GetEnumerator()) { $TargetEnvironment[$Entry.Key] = $Entry.Value }
+					if ($Api) { $TargetEnvironment['SPEEDO_GRAPHICS_API'] = $Api }
+					$LaunchConfiguration = [ordered] @{
+						name = "($(Get-TargetTriplet)) $($Sanitizer.Key)/$Target$($Api ? " ($Api)" : '')"
+						type = $Settings.Debugger
+						request = "launch"
+						program = "`${workspaceFolder}/build/$(Get-TargetTriplet)-$($Sanitizer.Key)/$Target$exeSuffix"
+						args = @("-u `${userHome}/.speedo")
+						cwd = "`${workspaceFolder}"
+					}
+					foreach ($Entry in (& $Settings.LaunchOptions $TargetEnvironment).GetEnumerator()) { $LaunchConfiguration[$Entry.Key] = $Entry.Value }
+
+					$VSCodeLaunchConfiguration.configurations += @($LaunchConfiguration)
+				}
+			}
 		}
 	}
 }
