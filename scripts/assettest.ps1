@@ -89,6 +89,8 @@ param(
 	[int] $Jobs = 0, # 0: from the machine's resources (see Get-ClientJobs)
 	[Parameter(ValueFromRemainingArguments = $true)] [string[]] $Inputs
 )
+# the gpu's lock and stopping a client past its time (Enter-GpuLock, Stop-Client: see gpu.ps1)
+. (Join-Path $PSScriptRoot 'gpu.ps1')
 # the clients don't record Tracy's events (SPEEDO_TRACY=0, see core/profiling.h): a profile build's grew their memory
 # by about 65 MB a second, kept for a profiler that never connects
 if (-not $env:SPEEDO_TRACY) { $env:SPEEDO_TRACY = '0' }
@@ -493,6 +495,8 @@ if ($Client)
 
 	$script:pass = 0
 	$script:fail = 0
+	# whether a client didn't end when killed (see Complete-ClientRun): the gpu wedged, and no client runs after it
+	$script:wedged = $false
 
 	# the client runs, queued by Add-ClientRun and run by Invoke-ClientRuns: $Jobs at once, each worker with a user profile
 	# of its own (<work>/user-<n>: clients write their pipeline cache, shader intermediates and asset caches there), a
@@ -575,10 +579,12 @@ if ($Client)
 	# collects a finished (or timed out) run's result into its lines
 	function Complete-ClientRun($Run, [bool] $TimedOut)
 	{
-		if ($TimedOut)
+		# (one that doesn't end when killed: the gpu is wedged, and the run stops, see Invoke-ClientRuns)
+		$stuck = $TimedOut -and -not (Stop-Client $Run.Process)
+		if ($stuck)
 		{
-			$Run.Process.Kill($true)
-			$Run.Process.WaitForExit()
+			Write-GpuWedged $Run.Process $Run.Log
+			$script:wedged = $true
 		}
 		# one log: what the client printed to stdout, then to stderr, then the validation layer's messages (-Validate)
 		$log = $Run.Log
@@ -595,9 +601,9 @@ if ($Client)
 		}
 		if ($TimedOut)
 		{
-			Add-Content -LiteralPath $log "timed out after ${timeout}s"
+			Add-Content -LiteralPath $log "timed out after ${timeout}s$(if ($stuck) { ", and didn't end when killed (the gpu wedged)" })"
 		}
-		$status = $Run.Process.ExitCode
+		$status = if ($stuck) { 'none: still running' } else { $Run.Process.ExitCode }
 		$seconds = [int]((Get-Date) - $Run.Start).TotalSeconds
 		$Run.Seconds = $seconds
 		$Run.TimedOut = $TimedOut
@@ -701,6 +707,12 @@ if ($Client)
 				}
 				Complete-ClientRun $warmup (-not $warmup.Process.HasExited)
 				$warmup.Lines | ForEach-Object { Write-Output $_ }
+				if ($script:wedged)
+				{
+					Write-Output "STOP: the gpu wedged in the warm-up: no client run. reboot, then run again"
+					$script:fail += $script:runs.Count
+					return
+				}
 			}
 			$source = $shared
 		}
@@ -737,6 +749,22 @@ if ($Client)
 		$printed = 0
 		while ($printed -lt $script:runs.Count)
 		{
+			# a client that didn't end when killed (Complete-ClientRun): the gpu is wedged, and every client after would hang
+			# as well. the others running stopped (failed), the rest not run (failed too), and what ran printed
+			if ($script:wedged)
+			{
+				foreach ($worker in @($running.Keys))
+				{
+					Complete-ClientRun $running[$worker] $true
+				}
+				$running.Clear()
+				$notRun = @($script:runs | Where-Object { -not $_.Done })
+				foreach ($run in $script:runs | Where-Object Done) { if ($script:runs.IndexOf($run) -ge $printed) { $run.Lines | ForEach-Object { Write-Output $_ } } }
+				foreach ($run in $notRun) { Write-Output "FAIL client $($run.Label) (not run: the gpu wedged)" }
+				$script:fail += $notRun.Count
+				Write-Output "STOP: the gpu wedged: $($notRun.Count) of $($script:runs.Count) client runs not run. reboot, then run again"
+				break
+			}
 			foreach ($worker in 1..$Jobs)
 			{
 				$run = $running[$worker]
@@ -745,6 +773,10 @@ if ($Client)
 					Complete-ClientRun $run (-not $run.Process.HasExited)
 					$running.Remove($worker)
 					$run = $null
+					if ($script:wedged)
+					{
+						break
+					}
 				}
 				if ($run)
 				{
@@ -881,12 +913,14 @@ if ($Client)
 		}
 	}
 
+	# the gpu's lock (macOS: see gpu.ps1), alone where the clients take ray queries, held to the end
+	Enter-GpuLock 'assettest' (Test-GpuAlone)
 	Invoke-ClientRuns
 
 	# the presentation tests, alone (each takes over the display): View > Presentation's options and the fullscreen
 	# switches, in and out of each fullscreen mode under each present mode, with image counts and resizes between, on the
-	# primary monitor, then the second (a step to a monitor there isn't does nothing)
-	if ($Presentation)
+	# primary monitor, then the second (a step to a monitor there isn't does nothing). not after the gpu wedged
+	if ($Presentation -and -not $script:wedged)
 	{
 		$sequence = 'fullscreen;fullscreen;fullscreen=borderless;fullscreen;fullscreen;present=immediate;fullscreen;present=fifo;' +
 			'images=4;fullscreen;fullscreen=exclusive;fullscreen;present=mailbox;fullscreen;present=immediate;fullscreen;fullscreen;' +

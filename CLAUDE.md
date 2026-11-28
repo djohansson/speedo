@@ -20,7 +20,7 @@ The rules most tasks need. Their details, and each subsystem's notes, are under 
 - Commit only after the quick tier passes, one change per commit, the message saying what was measured. A fix for a bug the user reported waits for the user's confirmation.
 - Check and validate before committing, always: the change itself, and every claim in the message against its source (the log, the file, the earlier commit), never from memory.
 - A push is its own step, never chained to the commit. Before it every change going out is reviewed twice: by you (each commit's diff and message read back) and by the user, whose review is their telling you to push. Never push without being told.
-- On macOS, hardware ray queries are opt in (`SPEEDO_RAY_QUERY=1`) and their clients run one at a time, never several. Other independent experiment clients may run in parallel; keep runs that measure time serial.
+- On macOS, hardware ray queries are opt in (`SPEEDO_RAY_QUERY=1`) and their clients run alone on the gpu: one at a time, with no other client of any kind beside them. The test scripts enforce it with a lock (`scripts/gpu.ps1`); a client run by hand with ray queries waits for every other client to end first. Other independent experiment clients may run in parallel; keep runs that measure time serial.
 - Measure on warm pipelines, interleaving the runs compared; on KosmicKrisp use the draw thread's frame time (`SPEEDO_GPU_TIMINGS=1`). Details: docs/performance-plan.md.
 - Subagents run on Sonnet (`.claude/settings.json`): delegate to a typed agent, not a fork, which runs on the session's model.
 

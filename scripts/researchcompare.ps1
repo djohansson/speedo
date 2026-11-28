@@ -84,6 +84,15 @@ foreach ($pair in @($Units | ForEach-Object { $_ -split ',' } | Where-Object { $
 # -Set: variables of every run's, after the scene's (an experiment: SPEEDO_TRACED_REFRACTIONS=0, say)
 $extra = [ordered]@{}
 foreach ($pair in @($Set | ForEach-Object { $_ -split ',' } | Where-Object { $_ })) { $name, $value = $pair -split '=', 2; $extra[$name] = $value }
+# the gpu's lock and stopping a client past its time (see gpu.ps1): alone where the clients take ray queries on macOS
+# (SPEEDO_RAY_QUERY=1, set or by -Set), and then one client at a time, as the other scripts run them there
+. (Join-Path $PSScriptRoot 'gpu.ps1')
+$gpuAlone = Test-GpuAlone @($extra['SPEEDO_RAY_QUERY'])
+if ($gpuAlone -and $Jobs -gt 1)
+{
+	[Console]::Error.WriteLine("Ray queries on macOS (SPEEDO_RAY_QUERY=1): running the clients one at a time (-Jobs $Jobs asked for)")
+	$Jobs = 1
+}
 
 $root = Split-Path -Parent $PSScriptRoot
 $exe = if ($IsWindows) { '.exe' } else { '' }
@@ -295,6 +304,7 @@ $queue = [Collections.Generic.Queue[object]]::new([object[]]@($scenes | Where-Ob
 $running = [Collections.Generic.List[object]]::new()
 $results = [Collections.Generic.List[object]]::new()
 $free = [Collections.Generic.Queue[int]]::new([int[]](1..$Jobs))
+if ($queue.Count -gt 0 -or $Timings) { Enter-GpuLock 'researchcompare' $gpuAlone }
 while ($queue.Count -gt 0 -or $running.Count -gt 0)
 {
 	while ($queue.Count -gt 0 -and $free.Count -gt 0)
@@ -308,7 +318,13 @@ while ($queue.Count -gt 0 -or $running.Count -gt 0)
 	foreach ($run in @($running))
 	{
 		$timedOut = -not $run.Process.HasExited -and ((Get-Date) - $run.Start).TotalSeconds -gt $TimeoutSeconds
-		if ($timedOut) { $run.Process.Kill($true); $run.Process.WaitForExit() }
+		# (one that doesn't end when killed: the gpu wedged, and every scene after would hang as well)
+		if ($timedOut -and -not (Stop-Client $run.Process))
+		{
+			Write-GpuWedged $run.Process $run.Log
+			Write-Host "STOP: the gpu wedged in $($run.Scene.Name): reboot, then run again"
+			exit 3
+		}
 		if ($run.Process.HasExited)
 		{
 			$running.Remove($run) | Out-Null
@@ -347,7 +363,12 @@ if ($Timings)
 		if (-not $Reuse)
 		{
 			$run = Start-Scene $scene 1 -Timing
-			if (-not $run.Process.WaitForExit($TimeoutSeconds * 1000)) { $run.Process.Kill($true); $run.Process.WaitForExit() }
+			if (-not $run.Process.WaitForExit($TimeoutSeconds * 1000) -and -not (Stop-Client $run.Process))
+			{
+				Write-GpuWedged $run.Process $run.Log
+				Write-Host "STOP: the gpu wedged in $($scene.Name)'s timing: reboot, then run again"
+				exit 3
+			}
 			$exit = $run.Process.ExitCode
 		}
 		# the frame time: the client's median of the half seconds after the lighting warmed up (the wall's, as 60 Hz is),

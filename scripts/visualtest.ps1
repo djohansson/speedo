@@ -44,6 +44,8 @@ param(
 # by about 65 MB a second, kept for a profiler that never connects
 if (-not $env:SPEEDO_TRACY) { $env:SPEEDO_TRACY = '0' }
 $ErrorActionPreference = 'Stop'
+# the gpu's lock and stopping a client past its time (Enter-GpuLock, Stop-Client: see gpu.ps1)
+. (Join-Path $PSScriptRoot 'gpu.ps1')
 # -Only a,b from a shell (pwsh -File) comes as one string
 $Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 
@@ -353,9 +355,14 @@ function Invoke-Capture($Check, [string] $Side, [hashtable] $Variables, [string]
 	}
 	if (-not $process.WaitForExit($TimeoutSeconds * 1000))
 	{
-		$process.Kill($true)
-		$process.WaitForExit()
 		Write-Host "  $Side timed out after $TimeoutSeconds s (log: $log)"
+		# (one that doesn't end when killed: the gpu wedged, and every check after would hang as well)
+		if (-not (Stop-Client $process))
+		{
+			Write-GpuWedged $process $log
+			Write-Host "STOP: the gpu wedged in $($Check.Name): reboot, then run again"
+			exit 3
+		}
 		return $false
 	}
 	# one log: what the client printed to stdout, then to stderr, then the validation layer's messages
@@ -385,6 +392,9 @@ function Invoke-Capture($Check, [string] $Side, [hashtable] $Variables, [string]
 
 $failed = 0
 $ran = 0
+# the gpu's lock (macOS: see gpu.ps1), alone where a check to run takes ray queries (SPEEDO_RAY_QUERY=1, which the ray
+# query check's capture sets, runs on macOS only with it set), held to the end
+Enter-GpuLock 'visualtest' (Test-GpuAlone)
 foreach ($check in $checks)
 {
 	if ($Only -and $check.Name -notin $Only) { continue }

@@ -369,6 +369,7 @@ The debug views, by name (and number): `base-color` (1), `normal` (2), `geometry
 | `SPEEDO_FASTBUILD_CACHE` | `0` off. On. | The presets' FASTBuild launcher runs FBuild with its cache; `0` runs it as asked. |
 | `FASTBUILD_CACHE_MODE` | `r`, `w`, `rw`. Unset. | Set, the launcher leaves the cache mode to FBuild instead of adding `-cache`. |
 | `ASSETTEST_CLIENT_TIMEOUT` | Seconds. 600. | How long `assettest.ps1` gives each client run. |
+| `SPEEDO_CLIENT_KILL_WAIT_SECONDS` | Seconds. 30. | How long the test scripts wait for a timed out client to end once killed; one that hasn't stops the run as a wedged gpu (`scripts/gpu.ps1`). `0` simulates that, to test it. |
 | `SPEEDO_D3D12_DEBUG_LAYER` | Exactly `1` on. Off. | Setup on Windows installs D3D12's debug layer (Graphics Tools) if missing, asking once for administrator rights; if declined the D3D12 backend runs unvalidated. |
 | `SPEEDO_VCPKG_ROOT` | A folder. `~/.vcpkg-tool/<release>`. | Setup uses the vcpkg deployment there instead of downloading the release `scripts/vcpkg-tool.json` pins. |
 | `SPEEDO_PROFILER_APP` | `0` leaves it out. In. | Setup and the presets' configures leave out Tracy's profiler app (the manifest's `profiler-app` feature); CI and the release workflow set `0`. |
